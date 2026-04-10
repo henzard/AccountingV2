@@ -40,3 +40,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Firebase - contains secrets, download from Firebase Console
+google-services.json
