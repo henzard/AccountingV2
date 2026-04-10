@@ -12,6 +12,11 @@ export type DashboardStackParamList = {
   AddEditEnvelope: { envelopeId?: string } | undefined;
 };
 
+export type TransactionsStackParamList = {
+  TransactionList: undefined;
+  AddTransaction: undefined;
+};
+
 export type MainTabParamList = {
   DashboardTab: undefined;
   Transactions: undefined;
@@ -35,4 +40,14 @@ export type DashboardScreenProps = CompositeScreenProps<
 export type AddEditEnvelopeScreenProps = NativeStackScreenProps<
   DashboardStackParamList,
   'AddEditEnvelope'
+>;
+
+export type TransactionListScreenProps = CompositeScreenProps<
+  NativeStackScreenProps<TransactionsStackParamList, 'TransactionList'>,
+  BottomTabScreenProps<MainTabParamList>
+>;
+
+export type AddTransactionScreenProps = NativeStackScreenProps<
+  TransactionsStackParamList,
+  'AddTransaction'
 >;

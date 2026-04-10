@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { DashboardStackNavigator } from './DashboardStackNavigator';
+import { TransactionsStackNavigator } from './TransactionsStackNavigator';
 import { colours } from '../theme/tokens';
 import type { MainTabParamList } from './types';
 
@@ -40,10 +41,10 @@ export function MainTabNavigator(): React.JSX.Element {
       />
       <Tab.Screen
         name="Transactions"
+        component={TransactionsStackNavigator}
         options={{
           tabBarIcon: ({ color, size }) => <TabIcon name="swap-horizontal" color={color} size={size} />,
         }}
-        children={() => <PlaceholderScreen name="Transactions" />}
       />
       <Tab.Screen
         name="Meters"
