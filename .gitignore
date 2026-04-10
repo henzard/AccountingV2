@@ -41,5 +41,5 @@ yarn-error.*
 /ios
 /android
 
-# Firebase - contains secrets, download from Firebase Console
-google-services.json
+# Firebase - committed to repo (only contains public project config, no private keys)
+# google-services.json
