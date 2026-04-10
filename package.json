@@ -9,6 +9,8 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo-google-fonts/fraunces": "^0.4.1",
+    "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
     "@react-native-community/netinfo": "11.5.2",
     "@react-native-firebase/app": "^24.0.0",
     "@react-native-firebase/messaging": "^24.0.0",
@@ -21,6 +23,9 @@
     "expo": "~55.0.13",
     "expo-camera": "~55.0.15",
     "expo-crypto": "~55.0.14",
+    "expo-dev-client": "~55.0.24",
+    "expo-font": "~55.0.6",
+    "expo-haptics": "~55.0.14",
     "expo-image-picker": "~55.0.18",
     "expo-local-authentication": "~55.0.13",
     "expo-notifications": "~55.0.18",
@@ -47,7 +52,6 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "jest": "^30.3.0",
     "jest-expo": "^55.0.15",
