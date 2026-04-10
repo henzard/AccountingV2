@@ -1,0 +1,25 @@
+diff --git a/node_modules/@react-native-firebase/app/android/build.gradle b/node_modules/@react-native-firebase/app/android/build.gradle
+index 1f1e8a0..0ceda3b 100644
+--- a/node_modules/@react-native-firebase/app/android/build.gradle
++++ b/node_modules/@react-native-firebase/app/android/build.gradle
+@@ -1,6 +1,5 @@
+ import com.android.Version
+ import io.invertase.gradle.common.PackageJson
+-import org.gradle.internal.jvm.Jvm
+ 
+ buildscript {
+   // The Android Gradle plugin is only required when opening the android folder stand-alone.
+@@ -107,9 +106,11 @@ dependencies {
+   implementation "com.google.android.gms:play-services-auth:${ReactNative.ext.getVersion("play", "play-services-auth")}"
+ }
+ 
+-def jvmVersion = Jvm.current().javaVersion?.majorVersion
++// JVM version check: use public API (org.gradle.internal.jvm.Jvm was removed in Gradle 9)
++def jvmVersionRaw = System.getProperty("java.version").tokenize('.')[0].toInteger()
++def jvmVersion = (jvmVersionRaw == 1) ? System.getProperty("java.version").tokenize('.')[1].toInteger() : jvmVersionRaw
+ // if it cannot get version, just allow it to pass. This is just a helper for developers
+-if ((jvmVersion?.toInteger() ?: 17) < 17) {
++if (jvmVersion < 17) {
+   println("\n\n\n")
+   println("**************************************************************************************************************")
+   println("\n\n\n")
