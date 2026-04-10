@@ -50,7 +50,7 @@
     "babel-plugin-module-resolver": "^5.0.3",
     "babel-preset-expo": "^55.0.16",
     "drizzle-kit": "^0.31.10",
-    "eslint": "^10.2.0",
+    "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
     "jest": "^30.3.0",
