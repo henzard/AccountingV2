@@ -5,7 +5,7 @@ const fontConfig = {
   displayLarge: { fontFamily: 'Fraunces_700Bold', fontSize: 48, fontWeight: '700' as const, letterSpacing: -0.5 },
   displayMedium: { fontFamily: 'Fraunces_700Bold', fontSize: 36, fontWeight: '700' as const, letterSpacing: -0.5 },
   headlineLarge: { fontFamily: 'Fraunces_700Bold', fontSize: 28, fontWeight: '700' as const, letterSpacing: -0.25 },
-  headlineMedium: { fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, fontWeight: '700' as const, letterSpacing: 0 },
+  headlineMedium: { fontFamily: 'Fraunces_700Bold', fontSize: 22, fontWeight: '700' as const, letterSpacing: 0 },
   titleLarge: { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 18, fontWeight: '600' as const, letterSpacing: 0 },
   titleMedium: { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 16, fontWeight: '600' as const, letterSpacing: 0.15 },
   bodyLarge: { fontFamily: 'PlusJakartaSans_400Regular', fontSize: 16, fontWeight: '400' as const, letterSpacing: 0.15 },
