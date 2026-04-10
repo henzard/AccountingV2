@@ -1,9 +1,31 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
+import { withAndroidManifest } from '@expo/config-plugins';
 
-// newArchEnabled and edgeToEdgeEnabled are valid Expo SDK 52+ runtime fields
-// not yet reflected in @expo/config-types — cast via spread to avoid TS2353
-type AndroidExtra = { edgeToEdgeEnabled?: boolean };
+// newArchEnabled is a valid Expo SDK 52+ runtime field not yet reflected
+// in @expo/config-types — cast via spread to avoid TS2353
 type ConfigExtra = { newArchEnabled?: boolean; platforms?: string[] };
+
+/**
+ * expo-notifications sets com.google.firebase.messaging.default_notification_color
+ * in the app manifest. @react-native-firebase/messaging also declares it.
+ * The manifest merger fails unless our declaration has tools:replace="android:resource".
+ */
+const withFirebaseNotificationColorFix = (config: ExpoConfig) => {
+  return withAndroidManifest(config, (config) => {
+    const app = config.modResults.manifest.application?.[0];
+    if (app?.['meta-data']) {
+      for (const metaData of app['meta-data']) {
+        if (
+          metaData.$['android:name'] ===
+          'com.google.firebase.messaging.default_notification_color'
+        ) {
+          metaData.$['tools:replace'] = 'android:resource';
+        }
+      }
+    }
+    return config;
+  });
+};
 
 export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   name: 'AccountingV2',
@@ -27,7 +49,6 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     },
     googleServicesFile: './google-services.json',
     predictiveBackGestureEnabled: false,
-    ...({ edgeToEdgeEnabled: true } as AndroidExtra),
   },
   plugins: [
     'expo-sqlite',
@@ -35,6 +56,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     '@react-native-firebase/app',
     '@react-native-firebase/messaging',
     ['expo-notifications', { icon: './assets/icon.png', color: '#00695C' }],
+    withFirebaseNotificationColorFix,
   ],
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
