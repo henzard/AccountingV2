@@ -2,10 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(*)",
-       "Skill(*)",
-       "WebSearch(*)",
-       "WebFetch(*)",
-       "Agent(*)"
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "WebSearch(*)",
+      "WebFetch(*)",
+      "Glob(*)",
+      "Grep(*)"
     ]
   }
 }

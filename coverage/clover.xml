@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<coverage generated="1775814658887" clover="3.2.0">
+  <project timestamp="1775814658887" name="All files">
+    <metrics statements="22" coveredstatements="18" conditionals="9" coveredconditionals="6" methods="6" coveredmethods="6" elements="37" coveredelements="30" complexity="0" loc="22" ncloc="22" packages="1" files="3" classes="3"/>
+    <file name="BudgetPeriodEngine.ts" path="C:\Project\AccountingV2\src\domain\shared\BudgetPeriodEngine.ts">
+      <metrics statements="19" coveredstatements="15" conditionals="9" coveredconditionals="6" methods="3" coveredmethods="3"/>
+      <line num="6" count="5" type="stmt"/>
+      <line num="10" count="5" type="stmt"/>
+      <line num="11" count="5" type="stmt"/>
+      <line num="12" count="5" type="stmt"/>
+      <line num="14" count="5" type="cond" truecount="2" falsecount="0"/>
+      <line num="18" count="3" type="stmt"/>
+      <line num="19" count="3" type="cond" truecount="1" falsecount="1"/>
+      <line num="20" count="0" type="stmt"/>
+      <line num="21" count="0" type="stmt"/>
+      <line num="25" count="5" type="stmt"/>
+      <line num="28" count="5" type="stmt"/>
+      <line num="29" count="5" type="stmt"/>
+      <line num="30" count="5" type="cond" truecount="1" falsecount="1"/>
+      <line num="31" count="0" type="stmt"/>
+      <line num="32" count="0" type="stmt"/>
+      <line num="34" count="5" type="stmt"/>
+      <line num="36" count="5" type="stmt"/>
+      <line num="38" count="5" type="stmt"/>
+      <line num="42" count="2" type="cond" truecount="2" falsecount="0"/>
+    </file>
+    <file name="Command.ts" path="C:\Project\AccountingV2\src\domain\shared\Command.ts">
+      <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+    </file>
+    <file name="types.ts" path="C:\Project\AccountingV2\src\domain\shared\types.ts">
+      <metrics statements="3" coveredstatements="3" conditionals="0" coveredconditionals="0" methods="3" coveredmethods="3"/>
+      <line num="12" count="5" type="stmt"/>
+      <line num="16" count="2" type="stmt"/>
+      <line num="22" count="2" type="stmt"/>
+    </file>
+  </project>
+</coverage>

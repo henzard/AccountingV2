@@ -9,12 +9,14 @@ import type { RootStackParamList } from './types';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator(): React.JSX.Element {
-  const session = useAppStore((state) => state.session);
+  const session = useAppStore((s) => s.session);
+  const householdId = useAppStore((s) => s.householdId);
+  const isAuthenticated = Boolean(session && householdId);
 
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {session ? (
+        {isAuthenticated ? (
           <Stack.Screen name="Main" component={MainTabNavigator} />
         ) : (
           <Stack.Screen name="Auth" component={AuthNavigator} />

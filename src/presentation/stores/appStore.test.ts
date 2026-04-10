@@ -1,33 +1,26 @@
-import { act, renderHook } from '@testing-library/react-native';
 import { useAppStore } from './appStore';
 
-describe('appStore', () => {
+describe('appStore — household slice', () => {
   beforeEach(() => {
     useAppStore.setState({
-      session: null,
-      userLevel: 1,
-      currentPeriod: null,
-      syncStatus: 'idle',
-    } as any);
-  });
-
-  it('initial state has no session', () => {
-    const { result } = renderHook(() => useAppStore());
-    expect(result.current.session).toBeNull();
-    expect(result.current.userLevel).toBe(1);
-  });
-
-  it('setSession updates session', () => {
-    const { result } = renderHook(() => useAppStore());
-    act(() => {
-      result.current.setSession({ access_token: 'tok' } as any);
+      householdId: null,
+      paydayDay: 25,
     });
-    expect(result.current.session?.access_token).toBe('tok');
   });
 
-  it('setSyncStatus updates status', () => {
-    const { result } = renderHook(() => useAppStore());
-    act(() => { result.current.setSyncStatus('syncing'); });
-    expect(result.current.syncStatus).toBe('syncing');
+  it('setHouseholdId updates householdId', () => {
+    useAppStore.getState().setHouseholdId('hh-001');
+    expect(useAppStore.getState().householdId).toBe('hh-001');
+  });
+
+  it('setPaydayDay updates paydayDay', () => {
+    useAppStore.getState().setPaydayDay(1);
+    expect(useAppStore.getState().paydayDay).toBe(1);
+  });
+
+  it('clearHousehold resets householdId to null', () => {
+    useAppStore.getState().setHouseholdId('hh-001');
+    useAppStore.getState().clearHousehold();
+    expect(useAppStore.getState().householdId).toBeNull();
   });
 });

@@ -11,6 +11,8 @@ interface AppState {
   syncStatus: SyncStatus;
   lastSyncAt: string | null;
   pendingSyncCount: number;
+  householdId: string | null;
+  paydayDay: number;
 }
 
 interface AppActions {
@@ -20,6 +22,9 @@ interface AppActions {
   setSyncStatus: (status: SyncStatus) => void;
   setLastSyncAt: (isoDate: string) => void;
   setPendingSyncCount: (count: number) => void;
+  setHouseholdId: (id: string) => void;
+  setPaydayDay: (day: number) => void;
+  clearHousehold: () => void;
 }
 
 export const useAppStore = create<AppState & AppActions>((set) => ({
@@ -29,10 +34,15 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   syncStatus: 'idle',
   lastSyncAt: null,
   pendingSyncCount: 0,
+  householdId: null,
+  paydayDay: 25,
   setSession: (session): void => set({ session }),
   setUserLevel: (userLevel): void => set({ userLevel }),
   setCurrentPeriod: (currentPeriod): void => set({ currentPeriod }),
   setSyncStatus: (syncStatus): void => set({ syncStatus }),
   setLastSyncAt: (lastSyncAt): void => set({ lastSyncAt }),
   setPendingSyncCount: (pendingSyncCount): void => set({ pendingSyncCount }),
+  setHouseholdId: (householdId): void => set({ householdId }),
+  setPaydayDay: (paydayDay): void => set({ paydayDay }),
+  clearHousehold: (): void => set({ householdId: null, paydayDay: 25 }),
 }));
