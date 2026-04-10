@@ -4,7 +4,11 @@
  * This transformer exports the SQL text as a JavaScript string module
  * so the migrator can read and execute it.
  */
-const upstreamTransformer = require('@expo/metro-config/babel-transformer');
+const { getDefaultConfig } = require('expo/metro-config');
+
+// Resolve the upstream transformer the same way Expo does
+const defaultConfig = getDefaultConfig(__dirname);
+const upstreamTransformer = require(defaultConfig.transformer.babelTransformerPath);
 
 module.exports.transform = async function ({ src, filename, options }) {
   if (filename.endsWith('.sql')) {
