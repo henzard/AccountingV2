@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "AccountingV2_temp",
-    "slug": "AccountingV2_temp",
+    "name": "AccountingV2",
+    "slug": "accountingv2",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
