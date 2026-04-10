@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(npx create-expo-app@latest:*)",
+      "Bash(cp /c/Project/AccountingV2_temp/.gitignore /c/Project/AccountingV2/.gitignore)",
+      "Bash(cp /c/Project/AccountingV2_temp/App.tsx /c/Project/AccountingV2/App.tsx)",
+      "Bash(cp /c/Project/AccountingV2_temp/app.json /c/Project/AccountingV2/app.json)",
+      "Bash(cp /c/Project/AccountingV2_temp/index.ts /c/Project/AccountingV2/index.ts)",
+      "Bash(cp /c/Project/AccountingV2_temp/package.json /c/Project/AccountingV2/package.json)",
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(git:*)"
+    ]
+  }
+}
