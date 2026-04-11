@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView } from 'react-native';
 import { List, Switch, Divider, Text, TextInput, Surface } from 'react-native-paper';
 import { NotificationPreferencesRepository } from '../../../infrastructure/notifications/NotificationPreferencesRepository';
 import { LocalNotificationScheduler } from '../../../infrastructure/notifications/LocalNotificationScheduler';
+import * as Notifications from 'expo-notifications';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { colours, spacing } from '../../theme/tokens';
 import { useAppStore } from '../../stores/appStore';
@@ -26,12 +27,18 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
     if (permissionsGranted) {
       if (updated.eveningLogPromptEnabled) {
         await scheduler.scheduleEveningLogPrompt(updated.eveningLogPromptHour, updated.eveningLogPromptMinute);
+      } else {
+        await Notifications.cancelScheduledNotificationAsync('evening-log').catch(() => {});
       }
       if (updated.meterReadingReminderEnabled) {
         await scheduler.scheduleMeterReadingReminder(updated.meterReadingReminderDay);
+      } else {
+        await Notifications.cancelScheduledNotificationAsync('meter-reading').catch(() => {});
       }
       if (updated.monthStartPreflightEnabled) {
         await scheduler.scheduleMonthStartPreflight(paydayDay);
+      } else {
+        await Notifications.cancelScheduledNotificationAsync('month-start').catch(() => {});
       }
     }
     setSaving(false);
