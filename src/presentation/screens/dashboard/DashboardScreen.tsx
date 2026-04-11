@@ -1,5 +1,7 @@
 import React, { useCallback } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { RamseyScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
+import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { Text, FAB, ActivityIndicator, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -14,6 +16,7 @@ import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 const engine = new BudgetPeriodEngine();
+const scoreCalculator = new RamseyScoreCalculator();
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
   const householdId = useAppStore((s) => s.householdId)!;
@@ -34,23 +37,38 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const totalSpent = envelopes.reduce((s, e) => s + e.spentCents, 0);
   const totalRemaining = totalAllocated - totalSpent;
 
-  const handleAddEnvelope = () => {
+  const envelopesOnBudget = envelopes.filter((e) => e.spentCents <= e.allocatedCents).length;
+  const scoreResult = scoreCalculator.calculate({
+    loggingDaysCount: 0,
+    totalDaysInPeriod: 30,
+    envelopesOnBudget,
+    totalEnvelopes: envelopes.length,
+    meterReadingsLoggedThisPeriod: false,
+    babyStepIsActive: false,
+  });
+
+  const handleAddEnvelope = (): void => {
     navigation.navigate('AddEditEnvelope', {});
   };
 
-  const handleEditEnvelope = (envelope: EnvelopeEntity) => {
+  const handleEditEnvelope = (envelope: EnvelopeEntity): void => {
     navigation.navigate('AddEditEnvelope', { envelopeId: envelope.id });
   };
 
   return (
     <View style={styles.flex}>
       <Surface style={styles.header} elevation={0}>
-        <Text variant="labelMedium" style={styles.periodLabel}>
-          BUDGET PERIOD
-        </Text>
-        <Text variant="headlineSmall" style={styles.periodTitle}>
-          {period.label}
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            <Text variant="labelMedium" style={styles.periodLabel}>
+              BUDGET PERIOD
+            </Text>
+            <Text variant="headlineSmall" style={styles.periodTitle}>
+              {period.label}
+            </Text>
+          </View>
+          <RamseyScoreBadge score={scoreResult.score} />
+        </View>
       </Surface>
 
       {envelopes.length > 0 && (
@@ -121,6 +139,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.base,
     backgroundColor: colours.surface,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerLeft: { flex: 1 },
   periodLabel: {
     color: colours.onSurfaceVariant,
     letterSpacing: 1.5,

@@ -1,6 +1,7 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
+import type { MeterType } from '../../domain/meterReadings/MeterReadingEntity';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -17,6 +18,24 @@ export type TransactionsStackParamList = {
   AddTransaction: undefined;
 };
 
+export type MetersStackParamList = {
+  MeterDashboard: undefined;
+  AddReading: { meterType: MeterType };
+  RateHistory: { meterType: MeterType };
+};
+
+export type SnowballStackParamList = {
+  SnowballDashboard: undefined;
+  AddDebt: undefined;
+  DebtDetail: { debtId: string };
+  LogPayment: { debtId: string };
+};
+
+export type SettingsStackParamList = {
+  SettingsHome: undefined;
+  NotificationPreferences: undefined;
+};
+
 export type MainTabParamList = {
   DashboardTab: undefined;
   Transactions: undefined;
@@ -29,6 +48,8 @@ export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
 };
+
+// --- Screen props ---
 
 export type LoginScreenProps = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
@@ -50,4 +71,34 @@ export type TransactionListScreenProps = CompositeScreenProps<
 export type AddTransactionScreenProps = NativeStackScreenProps<
   TransactionsStackParamList,
   'AddTransaction'
+>;
+
+export type MeterDashboardScreenProps = CompositeScreenProps<
+  NativeStackScreenProps<MetersStackParamList, 'MeterDashboard'>,
+  BottomTabScreenProps<MainTabParamList>
+>;
+
+export type AddReadingScreenProps = NativeStackScreenProps<MetersStackParamList, 'AddReading'>;
+
+export type RateHistoryScreenProps = NativeStackScreenProps<MetersStackParamList, 'RateHistory'>;
+
+export type SnowballDashboardScreenProps = CompositeScreenProps<
+  NativeStackScreenProps<SnowballStackParamList, 'SnowballDashboard'>,
+  BottomTabScreenProps<MainTabParamList>
+>;
+
+export type AddDebtScreenProps = NativeStackScreenProps<SnowballStackParamList, 'AddDebt'>;
+
+export type DebtDetailScreenProps = NativeStackScreenProps<SnowballStackParamList, 'DebtDetail'>;
+
+export type LogPaymentScreenProps = NativeStackScreenProps<SnowballStackParamList, 'LogPayment'>;
+
+export type SettingsScreenProps = CompositeScreenProps<
+  NativeStackScreenProps<SettingsStackParamList, 'SettingsHome'>,
+  BottomTabScreenProps<MainTabParamList>
+>;
+
+export type NotificationPreferencesScreenProps = NativeStackScreenProps<
+  SettingsStackParamList,
+  'NotificationPreferences'
 >;

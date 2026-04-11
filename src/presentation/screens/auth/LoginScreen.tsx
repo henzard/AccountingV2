@@ -18,7 +18,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = async () => {
+  const handleSignIn = async (): Promise<void> => {
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail || !password) {
       setError('Please enter your email and password.');

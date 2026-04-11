@@ -73,7 +73,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           {
             text: 'Delete',
             style: 'destructive',
-            onPress: async () => {
+            onPress: async (): Promise<void> => {
               const uc = new DeleteTransactionUseCase(db, audit, tx);
               await uc.execute();
               void reload();
