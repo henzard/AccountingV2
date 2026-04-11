@@ -82,6 +82,7 @@ export class AcceptInviteUseCase {
       joinedAt: now,
     };
     await this.db.insert(householdMembers).values(localMember);
+    await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
 
     // 5. Restore the household data locally
     const restored = await this.restoreService.restoreHousehold(householdId, 'member', this.input.userId);
