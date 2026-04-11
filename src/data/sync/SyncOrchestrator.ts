@@ -83,7 +83,7 @@ export class SyncOrchestrator {
       .where(eq((table as typeof envelopes).id, item.recordId))
       .limit(1);
 
-    if (!row) return;
+    if (!row) throw new Error(`Local row not found: ${item.tableName}/${item.recordId}`);
 
     const snakeRow = toSupabaseRow(row as Record<string, unknown>);
     const { error } = await this.supabase
