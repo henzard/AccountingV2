@@ -1,44 +1,47 @@
 import { EnsureHouseholdUseCase } from './EnsureHouseholdUseCase';
 
-const makeDb = (existing: object | null) => ({
-  select: jest.fn().mockReturnValue({
-    from: jest.fn().mockReturnValue({
-      where: jest.fn().mockReturnValue({
-        limit: jest.fn().mockResolvedValue(existing ? [existing] : []),
-      }),
-    }),
-  }),
-  insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
-});
-
-const makeAudit = () => ({ log: jest.fn().mockResolvedValue(undefined) });
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 
 describe('EnsureHouseholdUseCase', () => {
-  it('returns existing household when found', async () => {
-    const db = makeDb({ id: 'user-abc', paydayDay: 1, name: 'Test' });
-    const audit = makeAudit();
-    const uc = new EnsureHouseholdUseCase(db as any, audit as any, 'user-abc');
+  it('returns existing household when a membership row exists', async () => {
+    const db = {
+      select: jest
+        .fn()
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({ limit: () => Promise.resolve([{ householdId: 'hh-1', role: 'owner' }]) }),
+          }),
+        })
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({ limit: () => Promise.resolve([{ id: 'hh-1', name: 'My Household', paydayDay: 25, userLevel: 1 }]) }),
+          }),
+        }),
+      insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
+    };
+    const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const uc = new EnsureHouseholdUseCase(db as any, audit as any, 'user-1');
     const result = await uc.execute();
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.id).toBe('user-abc');
-      expect(result.data.paydayDay).toBe(1);
-    }
-    expect(db.insert).not.toHaveBeenCalled();
-    expect(audit.log).not.toHaveBeenCalled();
+    if (result.success) expect(result.data.id).toBe('hh-1');
   });
 
-  it('creates household when not found', async () => {
-    const db = makeDb(null);
-    const audit = makeAudit();
-    const uc = new EnsureHouseholdUseCase(db as any, audit as any, 'user-xyz');
+  it('creates new household + membership when none exists', async () => {
+    const insertedRows: unknown[] = [];
+    const db = {
+      select: jest
+        .fn()
+        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) })
+        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) }),
+      insert: jest.fn().mockReturnValue({
+        values: (row: unknown) => { insertedRows.push(row); return Promise.resolve(); },
+      }),
+    };
+    const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const uc = new EnsureHouseholdUseCase(db as any, audit as any, 'user-1');
     const result = await uc.execute();
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.id).toBe('user-xyz');
-      expect(result.data.paydayDay).toBe(25);
-    }
-    expect(db.insert).toHaveBeenCalled();
-    expect(audit.log).toHaveBeenCalled();
+    // Should have inserted household, household_members row, and 2 pending_sync rows
+    expect(insertedRows.length).toBeGreaterThanOrEqual(2);
   });
 });

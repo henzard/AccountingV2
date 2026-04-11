@@ -13,22 +13,46 @@ import { useAppStore } from './src/presentation/stores/appStore';
 import { db } from './src/data/local/db';
 import { AuditLogger } from './src/data/audit/AuditLogger';
 import { EnsureHouseholdUseCase } from './src/domain/households/EnsureHouseholdUseCase';
+import type { HouseholdSummary } from './src/domain/households/EnsureHouseholdUseCase';
+import { RestoreService } from './src/data/sync/RestoreService';
+import type { RestoredHousehold } from './src/data/sync/RestoreService';
+import { SyncOrchestrator } from './src/data/sync/SyncOrchestrator';
 
 const audit = new AuditLogger(db);
+const restoreService = new RestoreService(db, supabase);
+const syncOrchestrator = new SyncOrchestrator(db, supabase);
 
-async function loadHousehold(
+async function initSession(
   userId: string,
   setHouseholdId: (id: string) => void,
   setPaydayDay: (day: number) => void,
+  setAvailableHouseholds: (h: HouseholdSummary[]) => void,
 ): Promise<void> {
+  // 1. Restore from Supabase (no-op if offline)
+  let restoredHouseholds: RestoredHousehold[] = [];
+  try {
+    restoredHouseholds = await restoreService.restore(userId);
+  } catch {
+    // Offline or network error — continue with local data
+  }
+
+  // 2. Ensure household exists locally
   const uc = new EnsureHouseholdUseCase(db, audit, userId);
   const result = await uc.execute();
   if (result.success) {
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
+    setAvailableHouseholds([result.data, ...restoredHouseholds
+      .filter(h => h.id !== result.data.id)
+      .map(h => ({ ...h, userLevel: 1 as const }))]);
   } else {
-    console.error('[loadHousehold] Failed to ensure household:', result.error);
+    console.error('[initSession] Failed to ensure household:', result.error);
   }
+
+  // 3. Push any pending local writes to Supabase (fire and forget)
+  void syncOrchestrator.syncPending().catch(() => {
+    // Sync failure is non-fatal
+  });
 }
 
 export default function App(): React.JSX.Element {
@@ -38,6 +62,7 @@ export default function App(): React.JSX.Element {
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
   const clearHousehold = useAppStore((s) => s.clearHousehold);
+  const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const [sessionRestored, setSessionRestored] = useState(false);
 
   useEffect(() => {
@@ -45,7 +70,7 @@ export default function App(): React.JSX.Element {
       const session = data.session ?? null;
       setSession(session);
       if (session) {
-        await loadHousehold(session.user.id, setHouseholdId, setPaydayDay);
+        await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
       }
       setSessionRestored(true);
     });
@@ -53,14 +78,14 @@ export default function App(): React.JSX.Element {
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session ?? null);
       if (session) {
-        await loadHousehold(session.user.id, setHouseholdId, setPaydayDay);
+        await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
       } else {
         clearHousehold();
       }
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [setSession, setHouseholdId, setPaydayDay, clearHousehold]);
+  }, [setSession, setHouseholdId, setPaydayDay, clearHousehold, setAvailableHouseholds]);
 
   if (fontError || dbError) {
     return (

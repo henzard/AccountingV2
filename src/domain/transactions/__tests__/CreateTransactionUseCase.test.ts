@@ -39,7 +39,7 @@ describe('CreateTransactionUseCase', () => {
     const uc = new CreateTransactionUseCase(mockDb, mockAudit, input);
     const result = await uc.execute();
     expect(result.success).toBe(true);
-    expect(mockInsert).toHaveBeenCalledTimes(1);
+    expect(mockInsert).toHaveBeenCalledTimes(2); // 1 for transaction, 1 for pending_sync_queue
     expect(mockUpdate).toHaveBeenCalledTimes(1);
     expect(mockAudit.log).toHaveBeenCalledTimes(1);
   });

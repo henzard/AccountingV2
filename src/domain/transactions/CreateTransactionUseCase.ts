@@ -5,6 +5,7 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { transactions, envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
+import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { TransactionEntity } from './TransactionEntity';
@@ -19,11 +20,15 @@ interface CreateTransactionInput {
 }
 
 export class CreateTransactionUseCase {
+  private readonly enqueuer: PendingSyncEnqueuer;
+
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateTransactionInput,
-  ) {}
+  ) {
+    this.enqueuer = new PendingSyncEnqueuer(db);
+  }
 
   async execute(): Promise<Result<TransactionEntity>> {
     if (this.input.amountCents <= 0) {
@@ -70,6 +75,8 @@ export class CreateTransactionUseCase {
         transactionDate: tx.transactionDate,
       },
     });
+
+    await this.enqueuer.enqueue('transactions', id, 'INSERT');
 
     return createSuccess(tx);
   }

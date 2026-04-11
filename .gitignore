@@ -43,3 +43,6 @@ yarn-error.*
 
 # Firebase - committed to repo (only contains public project config, no private keys)
 # google-services.json
+
+# git worktrees
+.worktrees/

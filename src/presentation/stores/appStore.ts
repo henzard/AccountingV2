@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Session } from '@supabase/supabase-js';
 import type { BudgetPeriod } from '../../domain/shared/types';
+import type { HouseholdSummary } from '../../domain/households/EnsureHouseholdUseCase';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'success';
 
@@ -13,6 +14,7 @@ interface AppState {
   pendingSyncCount: number;
   householdId: string | null;
   paydayDay: number;
+  availableHouseholds: HouseholdSummary[];
 }
 
 interface AppActions {
@@ -25,6 +27,7 @@ interface AppActions {
   setHouseholdId: (id: string) => void;
   setPaydayDay: (day: number) => void;
   clearHousehold: () => void;
+  setAvailableHouseholds: (households: HouseholdSummary[]) => void;
 }
 
 export const useAppStore = create<AppState & AppActions>((set) => ({
@@ -36,6 +39,7 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   pendingSyncCount: 0,
   householdId: null,
   paydayDay: 25,
+  availableHouseholds: [],
   setSession: (session): void => set({ session }),
   setUserLevel: (userLevel): void => set({ userLevel }),
   setCurrentPeriod: (currentPeriod): void => set({ currentPeriod }),
@@ -45,4 +49,5 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   setHouseholdId: (householdId): void => set({ householdId }),
   setPaydayDay: (paydayDay): void => set({ paydayDay }),
   clearHousehold: (): void => set({ householdId: null, paydayDay: 25 }),
+  setAvailableHouseholds: (availableHouseholds): void => set({ availableHouseholds }),
 }));

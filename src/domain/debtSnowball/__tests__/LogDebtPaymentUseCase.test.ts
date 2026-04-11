@@ -1,10 +1,13 @@
 import { LogDebtPaymentUseCase } from '../LogDebtPaymentUseCase';
 import type { DebtEntity } from '../DebtEntity';
 
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-sync-1' }));
+
 const mockUpdate = jest.fn().mockReturnValue({
   set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
 });
-const mockDb = { update: mockUpdate } as any;
+const mockInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
+const mockDb = { update: mockUpdate, insert: mockInsert } as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
 const currentDebt: DebtEntity = {

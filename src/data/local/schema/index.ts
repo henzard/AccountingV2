@@ -1,4 +1,5 @@
 export { households } from './households';
+export { householdMembers } from './householdMembers';
 export { envelopes } from './envelopes';
 export { transactions } from './transactions';
 export { meterReadings } from './meterReadings';
