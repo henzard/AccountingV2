@@ -47,6 +47,10 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
+  HouseholdPicker: undefined;
+  CreateHousehold: undefined;
+  ShareInvite: { householdId: string; householdName: string };
+  JoinHousehold: undefined;
 };
 
 // --- Screen props ---
@@ -102,3 +106,8 @@ export type NotificationPreferencesScreenProps = NativeStackScreenProps<
   SettingsStackParamList,
   'NotificationPreferences'
 >;
+
+export type HouseholdPickerScreenProps = NativeStackScreenProps<RootStackParamList, 'HouseholdPicker'>;
+export type CreateHouseholdScreenProps = NativeStackScreenProps<RootStackParamList, 'CreateHousehold'>;
+export type ShareInviteScreenProps = NativeStackScreenProps<RootStackParamList, 'ShareInvite'>;
+export type JoinHouseholdScreenProps = NativeStackScreenProps<RootStackParamList, 'JoinHousehold'>;
