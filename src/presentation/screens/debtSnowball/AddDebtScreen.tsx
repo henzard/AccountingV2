@@ -29,7 +29,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<void> => {
     if (!creditorName.trim()) { setError('Creditor name is required'); return; }
     const balanceCents = Math.round(parseFloat(balanceRands) * 100);
     const rate = parseFloat(ratePercent);

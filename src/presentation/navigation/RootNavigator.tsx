@@ -34,7 +34,7 @@ export function RootNavigator(): React.JSX.Element {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const initNotifications = async () => {
+    const initNotifications = async (): Promise<void> => {
       const { status } = await Notifications.requestPermissionsAsync();
       const granted = status === 'granted';
       setPermissionsGranted(granted);

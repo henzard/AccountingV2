@@ -47,11 +47,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     babyStepIsActive: false,
   });
 
-  const handleAddEnvelope = () => {
+  const handleAddEnvelope = (): void => {
     navigation.navigate('AddEditEnvelope', {});
   };
 
-  const handleEditEnvelope = (envelope: EnvelopeEntity) => {
+  const handleEditEnvelope = (envelope: EnvelopeEntity): void => {
     navigation.navigate('AddEditEnvelope', { envelopeId: envelope.id });
   };
 

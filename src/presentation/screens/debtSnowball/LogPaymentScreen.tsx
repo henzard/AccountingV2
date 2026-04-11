@@ -30,7 +30,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
       });
   }, [debtId]);
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<void> => {
     if (!debt) return;
     const amountCents = Math.round(parseFloat(amountRands) * 100);
     if (isNaN(amountCents) || amountCents <= 0) {

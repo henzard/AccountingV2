@@ -25,7 +25,7 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
   const totalDebtCents = debts.reduce((s, d) => s + d.outstandingBalanceCents, 0);
   const totalPaidCents = debts.reduce((s, d) => s + d.totalPaidCents, 0);
 
-  const renderDebt = ({ item }: { item: DebtEntity }) => {
+  const renderDebt = ({ item }: { item: DebtEntity }): React.JSX.Element => {
     const progress = getPayoffProgressPercent(item);
     const label = item.isPaidOff
       ? 'PAID OFF'

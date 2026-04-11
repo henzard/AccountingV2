@@ -79,7 +79,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
     [priorReadings, householdId, meterType, today],
   );
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<void> => {
     const value = parseFloat(readingValue);
     if (isNaN(value) || value <= 0) {
       setError('Reading value must be a positive number');

@@ -18,7 +18,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   const paydayDay = useAppStore((s) => s.paydayDay);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const updatePref = async (update: Partial<NotificationPreferences>) => {
+  const updatePref = async (update: Partial<NotificationPreferences>): Promise<void> => {
     const updated = { ...preferences, ...update };
     setPreferences(updated);
     await repo.save(updated);
