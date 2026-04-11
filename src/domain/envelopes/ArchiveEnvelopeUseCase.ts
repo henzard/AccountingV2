@@ -3,16 +3,21 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
+import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
 import type { EnvelopeEntity } from './EnvelopeEntity';
 
 export class ArchiveEnvelopeUseCase {
+  private readonly enqueuer: PendingSyncEnqueuer;
+
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly envelope: EnvelopeEntity,
-  ) {}
+  ) {
+    this.enqueuer = new PendingSyncEnqueuer(db);
+  }
 
   async execute(): Promise<Result<void>> {
     const now = new Date().toISOString();
@@ -29,6 +34,8 @@ export class ArchiveEnvelopeUseCase {
       previousValue: { isArchived: false } as Record<string, unknown>,
       newValue: { isArchived: true } as Record<string, unknown>,
     });
+
+    await this.enqueuer.enqueue('envelopes', this.envelope.id, 'UPDATE');
 
     return createSuccess(undefined);
   }

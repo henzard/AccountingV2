@@ -4,6 +4,7 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { debts } from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
+import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { DebtEntity, DebtType } from './DebtEntity';
@@ -18,11 +19,15 @@ export interface CreateDebtInput {
 }
 
 export class CreateDebtUseCase {
+  private readonly enqueuer: PendingSyncEnqueuer;
+
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateDebtInput,
-  ) {}
+  ) {
+    this.enqueuer = new PendingSyncEnqueuer(db);
+  }
 
   async execute(): Promise<Result<DebtEntity>> {
     if (this.input.outstandingBalanceCents <= 0) {
@@ -76,6 +81,8 @@ export class CreateDebtUseCase {
         outstandingBalanceCents: debt.outstandingBalanceCents,
       },
     });
+
+    await this.enqueuer.enqueue('debts', id, 'INSERT');
 
     return createSuccess(debt);
   }

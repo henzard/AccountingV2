@@ -1,11 +1,14 @@
 import { DeleteTransactionUseCase } from '../DeleteTransactionUseCase';
 import type { TransactionEntity } from '../TransactionEntity';
 
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-sync-1' }));
+
 const mockDelete = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
 const mockUpdate = jest.fn().mockReturnValue({
   set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
 });
-const mockDb = { delete: mockDelete, update: mockUpdate } as any;
+const mockInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
+const mockDb = { delete: mockDelete, update: mockUpdate, insert: mockInsert } as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
 const tx: TransactionEntity = {

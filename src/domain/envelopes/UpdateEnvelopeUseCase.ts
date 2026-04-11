@@ -3,6 +3,7 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
+import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { EnvelopeEntity } from './EnvelopeEntity';
@@ -13,12 +14,16 @@ interface UpdateInput {
 }
 
 export class UpdateEnvelopeUseCase {
+  private readonly enqueuer: PendingSyncEnqueuer;
+
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly current: EnvelopeEntity,
     private readonly input: UpdateInput,
-  ) {}
+  ) {
+    this.enqueuer = new PendingSyncEnqueuer(db);
+  }
 
   async execute(): Promise<Result<EnvelopeEntity>> {
     const trimmedName = this.input.name.trim();
@@ -78,6 +83,8 @@ export class UpdateEnvelopeUseCase {
       previousValue: previousValueRecord,
       newValue: newValueRecord,
     });
+
+    await this.enqueuer.enqueue('envelopes', this.current.id, 'UPDATE');
 
     return createSuccess(updated);
   }

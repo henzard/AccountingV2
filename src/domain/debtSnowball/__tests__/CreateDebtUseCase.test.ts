@@ -48,7 +48,7 @@ describe('CreateDebtUseCase', () => {
     const uc = new CreateDebtUseCase(mockDb, mockAudit, input);
     const result = await uc.execute();
     expect(result.success).toBe(true);
-    expect(mockInsert).toHaveBeenCalledTimes(1);
+    expect(mockInsert).toHaveBeenCalledTimes(2); // 1 for debts, 1 for pending_sync_queue
     expect(mockAudit.log).toHaveBeenCalledTimes(1);
   });
 

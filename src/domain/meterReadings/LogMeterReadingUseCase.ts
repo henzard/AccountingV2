@@ -3,6 +3,7 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { meterReadings } from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
+import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { MeterReadingEntity, MeterType } from './MeterReadingEntity';
@@ -18,11 +19,15 @@ export interface LogMeterReadingInput {
 }
 
 export class LogMeterReadingUseCase {
+  private readonly enqueuer: PendingSyncEnqueuer;
+
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: LogMeterReadingInput,
-  ) {}
+  ) {
+    this.enqueuer = new PendingSyncEnqueuer(db);
+  }
 
   async execute(): Promise<Result<MeterReadingEntity>> {
     if (this.input.readingValue <= 0) {
@@ -61,6 +66,8 @@ export class LogMeterReadingUseCase {
         readingDate: this.input.readingDate,
       },
     });
+
+    await this.enqueuer.enqueue('meter_readings', id, 'INSERT');
 
     return createSuccess(reading);
   }
