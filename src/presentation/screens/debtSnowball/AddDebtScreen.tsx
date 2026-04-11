@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView } from 'react-native';
 import { TextInput, Button, HelperText, SegmentedButtons, Text } from 'react-native-paper';
 import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';

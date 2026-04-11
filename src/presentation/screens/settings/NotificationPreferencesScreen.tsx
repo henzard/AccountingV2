@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { List, Switch, Divider, Text, TextInput, Surface } from 'react-native-paper';
 import { NotificationPreferencesRepository } from '../../../infrastructure/notifications/NotificationPreferencesRepository';
@@ -16,13 +16,11 @@ const scheduler = new LocalNotificationScheduler();
 export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScreenProps> = () => {
   const { preferences, setPreferences, permissionsGranted } = useNotificationStore();
   const paydayDay = useAppStore((s) => s.paydayDay);
-  const [saving, setSaving] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updatePref = async (update: Partial<NotificationPreferences>) => {
     const updated = { ...preferences, ...update };
     setPreferences(updated);
-    setSaving(true);
     await repo.save(updated);
 
     if (permissionsGranted) {
@@ -42,7 +40,6 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
         await Notifications.cancelScheduledNotificationAsync('month-start').catch(() => {});
       }
     }
-    setSaving(false);
   };
 
   const debouncedUpdatePref = useCallback((update: Partial<NotificationPreferences>) => {

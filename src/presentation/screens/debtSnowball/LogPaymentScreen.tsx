@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView } from 'react-native';
 import { TextInput, Button, HelperText, Text } from 'react-native-paper';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';

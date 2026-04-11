@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, HelperText, Chip } from 'react-native-paper';
 import { format } from 'date-fns';
 import { and, eq, desc } from 'drizzle-orm';
