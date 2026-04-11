@@ -1,11 +1,21 @@
 import React from 'react';
-import { StyleSheet } from 'react-native';
-import { Surface, Text } from 'react-native-paper';
-import { colours, spacing, radius } from '../../../theme/tokens';
+import { View, StyleSheet } from 'react-native';
+import { Text } from 'react-native-paper';
+import Svg, { Circle } from 'react-native-svg';
+import { colours } from '../../../theme/tokens';
 
 interface RamseyScoreBadgeProps {
   score: number; // 0–100
 }
+
+const SIZE = 72;
+const STROKE = 5;
+const RADIUS = 28;
+const CX = SIZE / 2;
+const CY = SIZE / 2;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const ARC = CIRCUMFERENCE * 0.75;  // 270° sweep
+const GAP = CIRCUMFERENCE * 0.25;  // 90° gap at the bottom
 
 function getScoreColour(score: number): string {
   if (score >= 80) return colours.scoreExcellent;
@@ -23,29 +33,67 @@ function getScoreLabel(score: number): string {
 
 export function RamseyScoreBadge({ score }: RamseyScoreBadgeProps): React.JSX.Element {
   const colour = getScoreColour(score);
+  const clamped = Math.min(100, Math.max(0, score));
+  const filled = ARC * (clamped / 100);
+
   return (
-    <Surface style={[styles.badge, { borderColor: colour }]} elevation={0}>
-      <Text variant="headlineMedium" style={[styles.score, { color: colour }]}>
-        {score}
-      </Text>
-      <Text variant="labelSmall" style={[styles.label, { color: colour }]}>
-        {getScoreLabel(score)}
-      </Text>
-      <Text variant="bodySmall" style={styles.sub}>Ramsey Score</Text>
-    </Surface>
+    <View style={styles.container}>
+      <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+        {/* Track arc */}
+        <Circle
+          cx={CX}
+          cy={CY}
+          r={RADIUS}
+          fill="none"
+          stroke={colours.outlineVariant}
+          strokeWidth={STROKE}
+          strokeDasharray={`${ARC} ${GAP}`}
+          strokeLinecap="round"
+          transform={`rotate(135 ${CX} ${CY})`}
+        />
+        {/* Score fill arc */}
+        <Circle
+          cx={CX}
+          cy={CY}
+          r={RADIUS}
+          fill="none"
+          stroke={colour}
+          strokeWidth={STROKE}
+          strokeDasharray={`${filled} ${CIRCUMFERENCE}`}
+          strokeLinecap="round"
+          transform={`rotate(135 ${CX} ${CY})`}
+        />
+      </Svg>
+      {/* Centered text overlay */}
+      <View style={styles.overlay} pointerEvents="none">
+        <Text style={[styles.score, { color: colour }]}>{score}</Text>
+        <Text style={[styles.label, { color: colour }]}>{getScoreLabel(score)}</Text>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  badge: {
+  container: {
+    width: SIZE,
+    height: SIZE,
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.base,
-    borderRadius: radius.xl,
-    borderWidth: 2,
-    backgroundColor: colours.surface,
+    justifyContent: 'center',
   },
-  score: { fontFamily: 'PlusJakartaSans_700Bold' },
-  label: { fontFamily: 'PlusJakartaSans_600SemiBold' },
-  sub: { color: colours.onSurfaceVariant, marginTop: 2 },
+  overlay: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  score: {
+    fontSize: 20,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    lineHeight: 23,
+  },
+  label: {
+    fontSize: 8,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
 });

@@ -8,9 +8,15 @@ interface DebtPayoffBarProps {
   label: string;
 }
 
+function getFillColour(progress: number): string {
+  if (progress >= 100) return colours.debtBarPaid;   // green — paid off
+  if (progress >= 50) return colours.secondary;       // amber — making good progress
+  return colours.debtBar;                             // red — just getting started
+}
+
 export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): React.JSX.Element {
   const clamped = Math.min(100, Math.max(0, progressPercent));
-  const isPaidOff = clamped >= 100;
+  const fillColour = getFillColour(clamped);
 
   return (
     <View style={styles.container}>
@@ -20,12 +26,17 @@ export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): R
             styles.fill,
             {
               width: `${clamped}%`,
-              backgroundColor: isPaidOff ? colours.debtBarPaid : colours.debtBar,
+              backgroundColor: fillColour,
             },
           ]}
         />
       </View>
-      <Text variant="labelSmall" style={styles.label}>{label}</Text>
+      <View style={styles.labelRow}>
+        <Text variant="labelSmall" style={styles.label}>{label}</Text>
+        <Text variant="labelSmall" style={[styles.percent, { color: fillColour }]}>
+          {Math.round(clamped)}%
+        </Text>
+      </View>
     </View>
   );
 }
@@ -33,18 +44,20 @@ export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): R
 const styles = StyleSheet.create({
   container: { marginVertical: spacing.xs },
   track: {
-    height: 8,
+    height: 12,
     borderRadius: radius.full,
-    backgroundColor: colours.debtBarBackground,
+    backgroundColor: colours.surfaceVariant,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
     borderRadius: radius.full,
   },
-  label: {
-    color: colours.onSurfaceVariant,
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginTop: spacing.xs / 2,
-    textAlign: 'right',
   },
+  label: { color: colours.onSurfaceVariant },
+  percent: { fontFamily: 'PlusJakartaSans_600SemiBold' },
 });
