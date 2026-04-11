@@ -17,7 +17,7 @@ export function useMeterReadings(
   limit = 24,
 ): UseMeterReadingsResult {
   const [readings, setReadings] = useState<MeterReadingEntity[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   const reload = useCallback(async () => {

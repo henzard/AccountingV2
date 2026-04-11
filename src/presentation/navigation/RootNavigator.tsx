@@ -32,7 +32,10 @@ export function RootNavigator(): React.JSX.Element {
   const isAuthenticated = Boolean(session && householdId);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      void scheduler.cancelAll();
+      return;
+    }
 
     const initNotifications = async (): Promise<void> => {
       const { status } = await Notifications.requestPermissionsAsync();

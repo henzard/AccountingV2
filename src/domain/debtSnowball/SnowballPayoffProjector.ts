@@ -55,6 +55,7 @@ export class SnowballPayoffProjector {
           monthsToPayoff: -1,
           payoffDate: addMonths(today, SnowballPayoffProjector.MAX_MONTHS),
         });
+        snowballCents += debt.minimumPaymentCents;
       } else {
         cumulativeMonths += months;
         projections.push({

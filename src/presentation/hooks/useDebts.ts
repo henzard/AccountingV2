@@ -13,7 +13,7 @@ export interface UseDebtsResult {
 
 export function useDebts(householdId: string): UseDebtsResult {
   const [debts, setDebts] = useState<DebtEntity[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   const reload = useCallback(async () => {
