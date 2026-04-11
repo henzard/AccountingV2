@@ -12,7 +12,7 @@ import {
 } from '../local/schema';
 import { toLocalRow } from './rowConverters';
 
-export interface HouseholdSummary {
+export interface RestoredHousehold {
   id: string;
   name: string;
   paydayDay: number;
@@ -25,7 +25,7 @@ export class RestoreService {
     private readonly supabase: SupabaseClient,
   ) {}
 
-  async restore(userId: string): Promise<HouseholdSummary[]> {
+  async restore(userId: string): Promise<RestoredHousehold[]> {
     // 1. Fetch memberships from Supabase
     const { data: members, error: memberError } = await this.supabase
       .from('household_members')
@@ -35,7 +35,7 @@ export class RestoreService {
     if (memberError) throw new Error(memberError.message);
     if (!members || members.length === 0) return [];
 
-    const summaries: HouseholdSummary[] = [];
+    const summaries: RestoredHousehold[] = [];
 
     for (const member of members) {
       const summary = await this.restoreHousehold(member.household_id as string, member.role as string, userId);
@@ -49,7 +49,7 @@ export class RestoreService {
     householdId: string,
     role: string,
     _userId: string,
-  ): Promise<HouseholdSummary | null> {
+  ): Promise<RestoredHousehold | null> {
     // Fetch household row
     const { data: hh, error: hhError } = await this.supabase
       .from('households')
