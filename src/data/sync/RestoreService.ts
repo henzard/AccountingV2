@@ -81,10 +81,11 @@ export class RestoreService {
 
     for (const m of allMembers ?? []) {
       const localMember = toLocalRow(m as Record<string, unknown>);
+      const { isSynced: _ignored, ...insertableMember } = localMember;
       try {
         await this.db
           .insert(householdMembers)
-          .values(localMember as typeof householdMembers.$inferInsert)
+          .values(insertableMember as typeof householdMembers.$inferInsert)
           .onConflictDoNothing();
       } catch {
         // Ignore duplicate key errors for household_members
