@@ -47,7 +47,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
   const checkAnomaly = useCallback(
     (valueStr: string) => {
       const value = parseFloat(valueStr);
-      if (isNaN(value) || priorReadings.length < 3) {
+      if (isNaN(value) || priorReadings.length < 4) {
         setAnomalyWarning(null);
         return;
       }

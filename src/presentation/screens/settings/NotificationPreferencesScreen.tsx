@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { List, Switch, Divider, Text, TextInput, Surface } from 'react-native-paper';
 import { NotificationPreferencesRepository } from '../../../infrastructure/notifications/NotificationPreferencesRepository';
@@ -17,6 +17,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   const { preferences, setPreferences, permissionsGranted } = useNotificationStore();
   const paydayDay = useAppStore((s) => s.paydayDay);
   const [saving, setSaving] = useState(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updatePref = async (update: Partial<NotificationPreferences>) => {
     const updated = { ...preferences, ...update };
@@ -43,6 +44,11 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
     }
     setSaving(false);
   };
+
+  const debouncedUpdatePref = useCallback((update: Partial<NotificationPreferences>) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => void updatePref(update), 600);
+  }, [preferences, permissionsGranted, paydayDay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -75,7 +81,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 value={String(preferences.eveningLogPromptHour)}
                 onChangeText={(v) => {
                   const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 0 && n <= 23) updatePref({ eveningLogPromptHour: n });
+                  if (!isNaN(n) && n >= 0 && n <= 23) debouncedUpdatePref({ eveningLogPromptHour: n });
                 }}
                 keyboardType="numeric"
                 mode="outlined"
@@ -86,7 +92,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 value={String(preferences.eveningLogPromptMinute)}
                 onChangeText={(v) => {
                   const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 0 && n <= 59) updatePref({ eveningLogPromptMinute: n });
+                  if (!isNaN(n) && n >= 0 && n <= 59) debouncedUpdatePref({ eveningLogPromptMinute: n });
                 }}
                 keyboardType="numeric"
                 mode="outlined"
@@ -118,7 +124,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 value={String(preferences.meterReadingReminderDay)}
                 onChangeText={(v) => {
                   const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 1 && n <= 28) updatePref({ meterReadingReminderDay: n });
+                  if (!isNaN(n) && n >= 1 && n <= 28) debouncedUpdatePref({ meterReadingReminderDay: n });
                 }}
                 keyboardType="numeric"
                 mode="outlined"

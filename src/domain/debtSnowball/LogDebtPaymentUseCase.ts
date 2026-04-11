@@ -27,17 +27,18 @@ export class LogDebtPaymentUseCase {
     }
 
     const now = new Date().toISOString();
-    const newBalance = Math.max(
-      0,
-      this.input.currentDebt.outstandingBalanceCents - this.input.paymentAmountCents,
+    const actualApplied = Math.min(
+      this.input.paymentAmountCents,
+      this.input.currentDebt.outstandingBalanceCents,
     );
+    const newBalance = this.input.currentDebt.outstandingBalanceCents - actualApplied;
     const isPaidOff = newBalance === 0;
 
     await this.db
       .update(debts)
       .set({
         outstandingBalanceCents: newBalance,
-        totalPaidCents: sql`${debts.totalPaidCents} + ${this.input.paymentAmountCents}`,
+        totalPaidCents: sql`${debts.totalPaidCents} + ${actualApplied}`,
         isPaidOff,
         updatedAt: now,
         isSynced: false,
@@ -63,7 +64,7 @@ export class LogDebtPaymentUseCase {
     const updated: DebtEntity = {
       ...this.input.currentDebt,
       outstandingBalanceCents: newBalance,
-      totalPaidCents: this.input.currentDebt.totalPaidCents + this.input.paymentAmountCents,
+      totalPaidCents: this.input.currentDebt.totalPaidCents + actualApplied,
       isPaidOff,
       updatedAt: now,
     };

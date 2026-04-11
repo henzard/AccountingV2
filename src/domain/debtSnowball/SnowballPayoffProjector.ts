@@ -68,7 +68,8 @@ export class SnowballPayoffProjector {
     }
 
     const lastProjection = projections[projections.length - 1];
-    const debtFreeDate = lastProjection ? lastProjection.payoffDate : null;
+    const debtFreeDate =
+      lastProjection && lastProjection.monthsToPayoff !== -1 ? lastProjection.payoffDate : null;
 
     return { projections, debtFreeDate };
   }

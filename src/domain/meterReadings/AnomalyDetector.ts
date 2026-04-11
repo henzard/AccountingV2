@@ -12,13 +12,13 @@ export class AnomalyDetector {
 
   /**
    * Detects if currentReading deviates >20% from the 3-month rolling average.
-   * previousReadings must contain at least 3 entries (ordered oldest→newest).
-   * Fewer than 3 prior readings always returns isAnomaly: false.
+   * previousReadings must contain at least 4 entries to produce 3 consumption deltas.
+   * Fewer than 4 prior readings always returns isAnomaly: false.
    */
   detect(current: MeterReadingEntity, previousReadings: MeterReadingEntity[]): AnomalyResult {
     const sorted = [...previousReadings].sort((a, b) => a.readingDate.localeCompare(b.readingDate));
 
-    if (sorted.length < 3) {
+    if (sorted.length < 4) {
       return { isAnomaly: false, currentConsumption: 0, rollingAverageConsumption: 0, deviationPercent: 0 };
     }
 
