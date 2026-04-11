@@ -75,7 +75,7 @@ export class SyncOrchestrator {
     }
 
     const table = TABLE_MAP[item.tableName];
-    if (!table) return;
+    if (!table) throw new Error(`Unknown sync table: ${item.tableName}`);
 
     const [row] = await this.db
       .select()
@@ -91,9 +91,12 @@ export class SyncOrchestrator {
       .upsert(snakeRow, { onConflict: 'id' });
     if (error) throw new Error(error.message);
 
-    await this.db
-      .update(table)
-      .set({ isSynced: true } as Partial<typeof table.$inferInsert>)
-      .where(eq((table as typeof envelopes).id, item.recordId));
+    // Only update isSynced for tables that have the column (not household_members)
+    if (item.tableName !== 'household_members') {
+      await this.db
+        .update(table)
+        .set({ isSynced: true } as Partial<typeof table.$inferInsert>)
+        .where(eq((table as typeof envelopes).id, item.recordId));
+    }
   }
 }
