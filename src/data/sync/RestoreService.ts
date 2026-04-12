@@ -99,8 +99,8 @@ export class RestoreService {
     await this.restoreTable('debts', debts, householdId);
     await this.restoreTable('meter_readings', meterReadings, householdId);
     await this.restoreTable('baby_steps', babySteps, householdId);
-    // NOTE: Phase 2 task 2.18 will add SeedBabyStepsUseCase call here
-    // after all baby_steps rows are restored, to backfill any missing steps.
+    // TODO: after restore, invoke SeedBabyStepsUseCase to backfill any missing
+    // baby_steps rows for this household (e.g. steps not yet created remotely).
 
     return {
       id: hh.id as string,

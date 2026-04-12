@@ -1,6 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
 import {
   pendingSync,
@@ -23,6 +23,8 @@ type SyncTable =
   | typeof householdMembers
   | typeof babySteps;
 
+const BABY_STEPS_TABLE = 'baby_steps' as const;
+
 const TABLE_MAP: Record<string, SyncTable> = {
   envelopes,
   transactions,
@@ -30,7 +32,7 @@ const TABLE_MAP: Record<string, SyncTable> = {
   meter_readings: meterReadings,
   households,
   household_members: householdMembers,
-  baby_steps: babySteps,
+  [BABY_STEPS_TABLE]: babySteps,
 };
 
 export class SyncOrchestrator {
@@ -90,8 +92,8 @@ export class SyncOrchestrator {
 
     const snakeRow = toSupabaseRow(row as Record<string, unknown>);
 
-    let syncError: { message: string } | null = null;
-    if (item.tableName === 'baby_steps') {
+    let syncError: PostgrestError | null = null;
+    if (item.tableName === BABY_STEPS_TABLE && item.operation !== 'DELETE') {
       // Route through merge_baby_step RPC to preserve celebrated_at on conflict
       const { error } = await this.supabase.rpc('merge_baby_step', { row: snakeRow });
       syncError = error;

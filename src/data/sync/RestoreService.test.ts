@@ -31,12 +31,31 @@ describe('RestoreService.restore', () => {
 
 describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () => {
   /**
-   * Builds a minimal Supabase mock that records which tables are fetched.
-   * Returns { supabaseMock, fetchedTables }.
+   * Minimal shape required from the parts of SupabaseClient used by RestoreService.
    */
-  function makeSupabaseMock(householdData: Record<string, unknown>, memberRows: unknown[]) {
+  interface SupabaseMockShape {
+    from: (table: string) => {
+      select: () => {
+        eq: (col: string, val: unknown) =>
+          | Promise<{ data: unknown[]; error: null }>
+          | { single: () => Promise<{ data: unknown; error: null }> };
+      };
+    };
+  }
+
+  /**
+   * Builds a minimal Supabase mock that records which entity tables are fetched.
+   * @param householdData  Row returned for the `households` single-fetch.
+   * @param memberRows     Rows returned for `household_members` list-fetch.
+   * @param tableOverrides Optional map from table name → rows to return instead of [].
+   */
+  function makeSupabaseMock(
+    householdData: Record<string, unknown>,
+    memberRows: unknown[],
+    tableOverrides: Record<string, unknown[]> = {},
+  ): { supabase: SupabaseMockShape; fetchedTables: string[] } {
     const fetchedTables: string[] = [];
-    const supabase = {
+    const supabase: SupabaseMockShape = {
       from: (table: string) => ({
         select: () => ({
           eq: (col: string, _val: unknown) => {
@@ -48,25 +67,26 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
             }
             // Entity tables (envelopes, transactions, debts, meter_readings, baby_steps)
             fetchedTables.push(table);
-            return Promise.resolve({ data: [], error: null });
+            const rows = tableOverrides[table] ?? [];
+            return Promise.resolve({ data: rows, error: null });
           },
         }),
       }),
-    } as any;
+    };
     return { supabase, fetchedTables };
   }
 
-  it('includes baby_steps in the restoreTable dispatch', async () => {
-    const hhRow = {
-      id: 'hh-1',
-      name: 'Test Household',
-      payday_day: 1,
-      user_level: 1,
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-01T00:00:00Z',
-    };
+  const baseHhRow = {
+    id: 'hh-1',
+    name: 'Test Household',
+    payday_day: 1,
+    user_level: 1,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
 
-    const { supabase, fetchedTables } = makeSupabaseMock(hhRow, []);
+  it('includes baby_steps in the restoreTable dispatch', async () => {
+    const { supabase, fetchedTables } = makeSupabaseMock(baseHhRow, []);
 
     const insertOnConflictDoUpdate = jest.fn().mockResolvedValue({});
     const insertOnConflictDoNothing = jest.fn().mockResolvedValue({});
@@ -79,22 +99,13 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
       }),
     } as any;
 
-    const svc = new RestoreService(db, supabase);
+    const svc = new RestoreService(db, supabase as any);
     await svc.restoreHousehold('hh-1', 'owner', 'user-1');
 
     expect(fetchedTables).toContain('baby_steps');
   });
 
   it('restores baby_steps rows returned by Supabase into local DB', async () => {
-    const hhRow = {
-      id: 'hh-1',
-      name: 'Test Household',
-      payday_day: 1,
-      user_level: 1,
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-01T00:00:00Z',
-    };
-
     const babyStepRows = [
       {
         id: 'bs-1',
@@ -109,28 +120,9 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
       },
     ];
 
+    const { supabase } = makeSupabaseMock(baseHhRow, [], { baby_steps: babyStepRows });
+
     const insertedRows: unknown[] = [];
-
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'households' && col === 'id') {
-              return { single: () => Promise.resolve({ data: hhRow, error: null }) };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            if (table === 'baby_steps' && col === 'household_id') {
-              return Promise.resolve({ data: babyStepRows, error: null });
-            }
-            // Other entity tables return empty
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
-
     const db = {
       insert: () => ({
         values: (row: unknown) => {
@@ -149,7 +141,7 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
       }),
     } as any;
 
-    const svc = new RestoreService(db, supabase);
+    const svc = new RestoreService(db, supabase as any);
     await svc.restoreHousehold('hh-1', 'owner', 'user-1');
 
     // At least one baby_steps row was inserted into local DB

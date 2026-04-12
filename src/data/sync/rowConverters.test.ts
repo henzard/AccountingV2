@@ -94,7 +94,7 @@ describe('baby_steps round-trip via toSupabaseRow + toLocalRow', () => {
 
     const result = toLocalRow(snakeRow);
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       id: 'bs-1',
       householdId: 'hh-1',
       stepNumber: 2,

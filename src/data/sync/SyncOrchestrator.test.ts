@@ -11,6 +11,34 @@ describe('SyncOrchestrator.syncPending', () => {
     expect(result).toEqual({ synced: 0, failed: 0 });
   });
 
+  it('baby_steps DELETE uses plain .delete() path, not rpc()', async () => {
+    const pending = [
+      { id: 'p1', tableName: 'baby_steps', recordId: 'bs-del-1', operation: 'DELETE', retryCount: 0 },
+    ];
+    const db = {
+      select: jest.fn()
+        .mockReturnValueOnce({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }) }),
+      delete: () => ({ where: () => Promise.resolve() }),
+    } as any;
+
+    const rpcMock = jest.fn();
+    const deleteMock = jest.fn().mockReturnValue({ eq: () => Promise.resolve({ error: null }) });
+    const supabase = {
+      rpc: rpcMock,
+      from: () => ({ delete: deleteMock }),
+    } as any;
+
+    const orch = new SyncOrchestrator(db, supabase);
+    const result = await orch.syncPending();
+
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+    // DELETE must NOT go through the merge_baby_step RPC
+    expect(rpcMock).not.toHaveBeenCalled();
+    // Plain .delete() must have been called
+    expect(deleteMock).toHaveBeenCalled();
+  });
+
   it('increments failed count when Supabase upsert throws', async () => {
     const pending = [
       { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
