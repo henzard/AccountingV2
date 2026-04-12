@@ -37,7 +37,16 @@ async function initSession(
     // Offline or network error — continue with local data
   }
 
-  // 2. Ensure household exists locally (seeds baby steps via EnsureHouseholdUseCase)
+  // 2. Seed all restored households first (before primary ensure, so gaps are backfilled even
+  //    if EnsureHouseholdUseCase fails for the current user's household).
+  const seeder = new SeedBabyStepsUseCase(db);
+  for (const restored of restoredHouseholds) {
+    void seeder.execute(restored.id).catch(() => {
+      // Non-fatal: seed failures don't block startup
+    });
+  }
+
+  // 3. Ensure household exists locally for the current user (seeds baby steps internally)
   const uc = new EnsureHouseholdUseCase(db, audit, userId);
   const result = await uc.execute();
   if (result.success) {
@@ -46,17 +55,6 @@ async function initSession(
     setAvailableHouseholds([result.data, ...restoredHouseholds
       .filter(h => h.id !== result.data.id)
       .map(h => ({ ...h, userLevel: 1 as const }))]);
-
-    // 3. Startup seed — sequenced AFTER restore to backfill any new steps not yet on remote.
-    //    EnsureHouseholdUseCase already seeded its household; run for all restored households too.
-    const seeder = new SeedBabyStepsUseCase(db);
-    for (const restored of restoredHouseholds) {
-      if (restored.id !== result.data.id) {
-        void seeder.execute(restored.id).catch(() => {
-          // Non-fatal: seed failures don't block startup
-        });
-      }
-    }
   } else {
     console.error('[initSession] Failed to ensure household:', result.error);
   }
