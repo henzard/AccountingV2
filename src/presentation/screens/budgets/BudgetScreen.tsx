@@ -83,7 +83,7 @@ export const BudgetScreen: React.FC = () => {
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <EnvelopeCard envelope={item} onPress={() => undefined} />}
+          renderItem={({ item }) => <EnvelopeCard envelope={item} />}
           renderSectionHeader={({ section: { title } }) => (
             <View style={styles.sectionHeader}>
               <Text variant="labelSmall" style={styles.sectionTitle}>
