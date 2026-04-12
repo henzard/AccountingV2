@@ -10,12 +10,13 @@
  * Spec §CelebrationModal, §Visual Identity.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
   StyleSheet,
   Animated,
+  AccessibilityInfo,
 } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { format, parseISO } from 'date-fns';
@@ -43,9 +44,19 @@ const LEDGER_PAPER_TINT = 'rgba(230, 240, 235, 0.97)';
 export const CelebrationModal: React.FC<CelebrationModalProps> = ({
   status,
   onDismiss,
-  reducedMotion = false,
+  reducedMotion: reducedMotionProp,
   visible,
 }) => {
+  // 5.8: Auto-detect system reduce-motion setting; subscribe to changes.
+  // reducedMotionProp (if provided) overrides — used in tests to force a known value.
+  const [systemReducedMotion, setSystemReducedMotion] = useState(false);
+  useEffect(() => {
+    void AccessibilityInfo.isReduceMotionEnabled().then(setSystemReducedMotion);
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setSystemReducedMotion);
+    return () => sub.remove();
+  }, []);
+  const reducedMotion = reducedMotionProp ?? systemReducedMotion;
+
   const scaleAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0.6)).current;
   const opacityAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0)).current;
 
