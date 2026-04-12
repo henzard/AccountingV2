@@ -9,6 +9,7 @@ import {
   transactions,
   debts,
   meterReadings,
+  babySteps,
 } from '../local/schema';
 import { toLocalRow } from './rowConverters';
 
@@ -97,6 +98,9 @@ export class RestoreService {
     await this.restoreTable('transactions', transactions, householdId);
     await this.restoreTable('debts', debts, householdId);
     await this.restoreTable('meter_readings', meterReadings, householdId);
+    await this.restoreTable('baby_steps', babySteps, householdId);
+    // NOTE: Phase 2 task 2.18 will add SeedBabyStepsUseCase call here
+    // after all baby_steps rows are restored, to backfill any missing steps.
 
     return {
       id: hh.id as string,
@@ -112,7 +116,8 @@ export class RestoreService {
       | typeof envelopes
       | typeof transactions
       | typeof debts
-      | typeof meterReadings,
+      | typeof meterReadings
+      | typeof babySteps,
     householdId: string,
   ): Promise<void> {
     const { data, error } = await this.supabase
