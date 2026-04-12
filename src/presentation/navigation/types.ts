@@ -10,7 +10,8 @@ export type AuthStackParamList = {
 
 export type DashboardStackParamList = {
   DashboardHome: undefined;
-  AddEditEnvelope: { envelopeId?: string } | undefined;
+  AddEditEnvelope: { envelopeId?: string; preselectedType?: import('../../domain/envelopes/EnvelopeEntity').EnvelopeType } | undefined;
+  BabySteps: undefined;
 };
 
 export type TransactionsStackParamList = {
@@ -66,6 +67,8 @@ export type AddEditEnvelopeScreenProps = NativeStackScreenProps<
   DashboardStackParamList,
   'AddEditEnvelope'
 >;
+
+export type BabyStepsScreenProps = NativeStackScreenProps<DashboardStackParamList, 'BabySteps'>;
 
 export type TransactionListScreenProps = CompositeScreenProps<
   NativeStackScreenProps<TransactionsStackParamList, 'TransactionList'>,

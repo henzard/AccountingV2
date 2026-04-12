@@ -12,6 +12,12 @@ module.exports = {
     '^@infrastructure/(.*)$': '<rootDir>/src/infrastructure/$1',
     '^expo/src/winter$': '<rootDir>/__mocks__/expo-winter.js',
     '^expo/src/winter/(.*)$': '<rootDir>/__mocks__/expo-winter.js',
+    // react-native-vector-icons is remapped to @expo/vector-icons by jest-expo preset.
+    // Since @expo/vector-icons is not installed, we stub both paths with a minimal mock.
+    '^react-native-vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
+    '^react-native-vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
+    '^@expo/vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
+    '^@expo/vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
   },
   collectCoverageFrom: ['src/domain/**/*.ts', '!src/domain/**/index.ts'],
   coverageThreshold: { global: { lines: 80 } },

@@ -18,6 +18,10 @@ import { RestoreService } from './src/data/sync/RestoreService';
 import type { RestoredHousehold } from './src/data/sync/RestoreService';
 import { SyncOrchestrator } from './src/data/sync/SyncOrchestrator';
 import { SeedBabyStepsUseCase } from './src/domain/babySteps/SeedBabyStepsUseCase';
+import { babySteps as babyStepsTable } from './src/data/local/schema';
+import { and, eq } from 'drizzle-orm';
+import { useCelebrationStore } from './src/presentation/stores/celebrationStore';
+import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
 
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
@@ -62,7 +66,12 @@ async function initSession(
   // 4. Push any pending local writes to Supabase (fire and forget).
   //    Pass householdId so the post-sync ReconcileEmergencyFundTypeUseCase fixer can run.
   const resolvedHouseholdId = result.success ? result.data.id : undefined;
-  void syncOrchestrator.syncPending(resolvedHouseholdId).catch(() => {
+  void syncOrchestrator.syncPending(resolvedHouseholdId).then((syncResult) => {
+    if (syncResult.emfFlipped > 0) {
+      // Presentation-layer flag: show duplicate-EMF banner on Budget screen
+      useEmergencyFundReconcileStore.getState().setReconciledDuplicateEmf(true);
+    }
+  }).catch(() => {
     // Sync failure is non-fatal
   });
 }
@@ -76,6 +85,28 @@ export default function App(): React.JSX.Element {
   const clearHousehold = useAppStore((s) => s.clearHousehold);
   const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const [sessionRestored, setSessionRestored] = useState(false);
+
+  // Init celebrationStore checker — reads celebrated_at from local DB.
+  // Must be done once per app lifecycle before any enqueue calls.
+  const initCelebrationStore = useCelebrationStore((s) => s.init);
+
+  useEffect(() => {
+    initCelebrationStore(async (stepNumber: number) => {
+      const householdId = useAppStore.getState().householdId;
+      if (!householdId) return false;
+      const rows = await db
+        .select()
+        .from(babyStepsTable)
+        .where(
+          and(
+            eq(babyStepsTable.householdId, householdId),
+            eq(babyStepsTable.stepNumber, stepNumber),
+          ),
+        )
+        .limit(1);
+      return rows[0]?.celebratedAt != null;
+    });
+  }, [initCelebrationStore]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {

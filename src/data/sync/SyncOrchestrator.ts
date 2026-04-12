@@ -42,7 +42,7 @@ export class SyncOrchestrator {
     private readonly supabase: SupabaseClient,
   ) {}
 
-  async syncPending(householdId?: string): Promise<{ synced: number; failed: number }> {
+  async syncPending(householdId?: string): Promise<{ synced: number; failed: number; emfFlipped: number }> {
     const pending = await this.db
       .select()
       .from(pendingSync)
@@ -69,14 +69,16 @@ export class SyncOrchestrator {
 
     // Spec §ReconcileEmergencyFundTypeUseCase trigger:
     // Fire ONLY when result is { failed: 0 } (full clean sync).
+    let emfFlipped = 0;
     if (failed === 0 && householdId) {
       const fixer = new ReconcileEmergencyFundTypeUseCase(this.db);
-      await fixer.execute(householdId).catch(() => {
-        // Non-fatal: log in production but don't bubble up
-      });
+      const fixResult = await fixer.execute(householdId).catch(() => null);
+      if (fixResult?.success) {
+        emfFlipped = fixResult.data.flipped;
+      }
     }
 
-    return { synced, failed };
+    return { synced, failed, emfFlipped };
   }
 
   private async processItem(item: typeof pendingSync.$inferSelect): Promise<void> {

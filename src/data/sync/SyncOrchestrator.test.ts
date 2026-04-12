@@ -10,7 +10,7 @@ describe('SyncOrchestrator.syncPending', () => {
     const supabase = {} as any;
     const orch = new SyncOrchestrator(db, supabase);
     const result = await orch.syncPending();
-    expect(result).toEqual({ synced: 0, failed: 0 });
+    expect(result).toMatchObject({ synced: 0, failed: 0 });
   });
 
   it('baby_steps DELETE uses plain .delete() path, not rpc()', async () => {
@@ -288,7 +288,7 @@ describe('SyncOrchestrator.syncPending', () => {
       // Explicitly no householdId
       const result = await orch.syncPending(undefined);
 
-      expect(result).toEqual({ synced: 0, failed: 0 });
+      expect(result).toMatchObject({ synced: 0, failed: 0 });
       // Only the initial pending-queue select should be called
       expect((db.select as jest.Mock).mock.calls.length).toBe(1);
     });
@@ -300,7 +300,7 @@ describe('SyncOrchestrator.syncPending', () => {
       const orch = new SyncOrchestrator(db as any, supabase);
       const result = await orch.syncPending('h1');
 
-      expect(result).toEqual({ synced: 0, failed: 0 });
+      expect(result).toMatchObject({ synced: 0, failed: 0 });
       // Queue select + fixer's envelope select = at least 2 calls
       expect((db.select as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2);
     });
