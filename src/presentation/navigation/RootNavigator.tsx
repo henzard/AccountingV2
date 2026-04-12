@@ -4,6 +4,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
+import { HouseholdPickerScreen } from '../screens/household/HouseholdPickerScreen';
+import { CreateHouseholdScreen } from '../screens/household/CreateHouseholdScreen';
+import { ShareInviteScreen } from '../screens/household/ShareInviteScreen';
+import { JoinHouseholdScreen } from '../screens/household/JoinHouseholdScreen';
 import { useAppStore } from '../stores/appStore';
 import { useNotificationStore } from '../stores/notificationStore';
 import { NotificationPreferencesRepository } from '../../infrastructure/notifications/NotificationPreferencesRepository';
@@ -69,6 +73,10 @@ export function RootNavigator(): React.JSX.Element {
         ) : (
           <Stack.Screen name="Auth" component={AuthNavigator} />
         )}
+        <Stack.Screen name="HouseholdPicker" component={HouseholdPickerScreen} options={{ title: 'Your Households' }} />
+        <Stack.Screen name="CreateHousehold" component={CreateHouseholdScreen} options={{ title: 'New Household' }} />
+        <Stack.Screen name="ShareInvite" component={ShareInviteScreen} options={{ title: 'Invite Member' }} />
+        <Stack.Screen name="JoinHousehold" component={JoinHouseholdScreen} options={{ title: 'Join a Household' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
