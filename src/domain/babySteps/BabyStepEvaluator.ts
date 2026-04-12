@@ -19,6 +19,7 @@
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';
 import type { DebtEntity } from '../debtSnowball/DebtEntity';
 import type { BabyStepStatus } from './types';
+import { BABY_STEP_RULES } from './BabyStepRules';
 
 export interface EvaluatorInput {
   /** Current-period envelopes (caller pre-filters to current period) */
@@ -77,9 +78,7 @@ function evaluateStep1(envelopes: EnvelopeEntity[]): Pick<BabyStepStatus, 'isCom
 }
 
 function evaluateStep2(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
-  const nonBondDebts = debts.filter(
-    (d) => d.debtType !== 'bond' && !('isArchived' in d && (d as Record<string, unknown>).isArchived),
-  );
+  const nonBondDebts = debts.filter((d) => d.debtType !== 'bond');
   if (nonBondDebts.length === 0) {
     return { isCompleted: false, progress: null };
   }
@@ -116,9 +115,7 @@ function evaluateStep3(
 }
 
 function evaluateStep6(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
-  const bondDebts = debts.filter(
-    (d) => d.debtType === 'bond' && !('isArchived' in d && (d as Record<string, unknown>).isArchived),
-  );
+  const bondDebts = debts.filter((d) => d.debtType === 'bond');
   if (bondDebts.length === 0) {
     return { isCompleted: false, progress: null };
   }
@@ -154,12 +151,12 @@ export function evaluate(input: EvaluatorInput): Omit<BabyStepStatus, 'completed
   const step6 = evaluateStep6(debts);
 
   return [
-    { stepNumber: 1, isManual: false, ...step1 },
-    { stepNumber: 2, isManual: false, ...step2 },
-    { stepNumber: 3, isManual: false, ...step3 },
-    { stepNumber: 4, isManual: true, isCompleted: manualFlags[4], progress: null },
-    { stepNumber: 5, isManual: true, isCompleted: manualFlags[5], progress: null },
-    { stepNumber: 6, isManual: false, ...step6 },
-    { stepNumber: 7, isManual: true, isCompleted: manualFlags[7], progress: null },
+    { stepNumber: 1, isManual: BABY_STEP_RULES[1].isManual, ...step1 },
+    { stepNumber: 2, isManual: BABY_STEP_RULES[2].isManual, ...step2 },
+    { stepNumber: 3, isManual: BABY_STEP_RULES[3].isManual, ...step3 },
+    { stepNumber: 4, isManual: BABY_STEP_RULES[4].isManual, isCompleted: manualFlags[4], progress: null },
+    { stepNumber: 5, isManual: BABY_STEP_RULES[5].isManual, isCompleted: manualFlags[5], progress: null },
+    { stepNumber: 6, isManual: BABY_STEP_RULES[6].isManual, ...step6 },
+    { stepNumber: 7, isManual: BABY_STEP_RULES[7].isManual, isCompleted: manualFlags[7], progress: null },
   ];
 }
