@@ -102,6 +102,13 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
   reducedMotion: reducedMotionProp,
 }) => {
   const { width: windowWidth } = useWindowDimensions();
+
+  // ─── All hooks must be declared before any early return ──────────────────────
+  const [systemReducedMotion, setSystemReducedMotion] = React.useState(false);
+  React.useEffect(() => {
+    void AccessibilityInfo.isReduceMotionEnabled().then(setSystemReducedMotion);
+  }, []);
+
   const isCompact = windowWidth < COMPACT_BREAKPOINT;
 
   const completedCount = statuses.filter((s) => s.isCompleted).length;
@@ -149,10 +156,6 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
   const currentIndex = nodes.findIndex((s) => !s.isCompleted);
 
   // Determine effective reducedMotion
-  const [systemReducedMotion, setSystemReducedMotion] = React.useState(false);
-  React.useEffect(() => {
-    void AccessibilityInfo.isReduceMotionEnabled().then(setSystemReducedMotion);
-  }, []);
   const noAnimation = reducedMotionProp ?? systemReducedMotion;
 
   return (
