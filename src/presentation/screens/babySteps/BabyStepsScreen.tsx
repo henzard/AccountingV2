@@ -41,8 +41,10 @@ const engine = new BudgetPeriodEngine();
 export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) => {
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
-  const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = format(period.startDate, 'yyyy-MM-dd');
+  const periodStart = useMemo(() => {
+    const period = engine.getCurrentPeriod(paydayDay);
+    return format(period.startDate, 'yyyy-MM-dd');
+  }, [paydayDay]);
 
   const { statuses, loading, reconcile, toggleManualStep } = useBabySteps(
     householdId,

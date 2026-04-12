@@ -39,7 +39,7 @@ const RING_STROKE = 8;
 const RING_R = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_R;
 
-function ProgressRing({ percent }: { percent: number; stepNumber?: number }): React.JSX.Element {
+function ProgressRing({ percent }: { percent: number }): React.JSX.Element {
   const clampedPct = Math.max(0, Math.min(100, percent));
   const strokeDashoffset = RING_CIRCUMFERENCE * (1 - clampedPct / 100);
 
@@ -250,7 +250,7 @@ export const CurrentStepHero: React.FC<CurrentStepHeroProps> = ({
           accessibilityLabel={progressA11y}
           style={styles.ringContainer}
         >
-          <ProgressRing percent={percent} stepNumber={status.stepNumber} />
+          <ProgressRing percent={percent} />
           {/* Seal mark overlaid in ring centre */}
           <View style={styles.sealOverlay}>
             <StepSealMark stepNumber={status.stepNumber} state={sealState} size={56} />
@@ -269,11 +269,10 @@ export const CurrentStepHero: React.FC<CurrentStepHeroProps> = ({
         </View>
       </View>
 
-      {/* Progress label — tabular-numeric */}
+      {/* Progress label — tabular-numeric (no accessibilityLabel: a11y is on the wrapping ringContainer View) */}
       <Text
         variant="titleMedium"
         style={styles.progressLabel}
-        accessibilityLabel={progressA11y}
       >
         {progressLabel}
       </Text>
