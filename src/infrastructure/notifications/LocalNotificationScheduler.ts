@@ -70,6 +70,10 @@ export class LocalNotificationScheduler {
     const identifier = `baby-step-${stepNumber}-${nonce}`;
     const copy = NOTIFICATION_COPY[stepNumber as keyof typeof NOTIFICATION_COPY];
 
+    if (!copy) {
+      throw new Error(`fireBabyStepCelebration: invalid step number ${stepNumber}`);
+    }
+
     await Notifications.scheduleNotificationAsync({
       identifier,
       content: {
