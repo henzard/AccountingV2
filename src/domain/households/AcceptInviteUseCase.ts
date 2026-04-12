@@ -68,10 +68,14 @@ export class AcceptInviteUseCase {
     }
 
     // 3. Mark invitation as used
-    await this.supabase
+    const { error: markUsedError } = await this.supabase
       .from('invitations')
       .update({ used_by: this.input.userId })
       .eq('code', this.input.code.toUpperCase());
+
+    if (markUsedError) {
+      return createFailure({ code: 'INVITE_MARK_FAILED', message: markUsedError.message });
+    }
 
     // 4. Insert member row locally
     const localMember: InferInsertModel<typeof householdMembers> = {
