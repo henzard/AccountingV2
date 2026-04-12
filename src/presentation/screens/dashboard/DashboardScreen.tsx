@@ -32,8 +32,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 
   useFocusEffect(
     useCallback(() => {
+      let cancelled = false;
       void reload();
-      void resolveBabyStepIsActive(db, householdId).then(setBabyStepIsActive);
+      resolveBabyStepIsActive(db, householdId).then((isActive) => {
+        if (!cancelled) setBabyStepIsActive(isActive);
+      });
+      return () => {
+        cancelled = true;
+      };
     }, [reload, householdId]),
   );
 
