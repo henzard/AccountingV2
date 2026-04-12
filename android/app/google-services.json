@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "705131212033",
+    "project_id": "comhenzaaccountingv2",
+    "storage_bucket": "comhenzaaccountingv2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:705131212033:android:170091bffa911505ae7f00",
+        "android_client_info": {
+          "package_name": "com.henza.accountingv2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMmDGa_krBQHgxfzh3xuKPZiAuNho2se0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

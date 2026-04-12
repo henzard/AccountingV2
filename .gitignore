@@ -39,7 +39,7 @@ yarn-error.*
 
 # generated native folders
 /ios
-/android
+# /android — bare workflow, android/ is committed to enable CI/CD builds
 
 # Firebase - committed to repo (only contains public project config, no private keys)
 # google-services.json
