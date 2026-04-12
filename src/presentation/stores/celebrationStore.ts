@@ -60,6 +60,13 @@ export const useCelebrationStore = create<CelebrationState & CelebrationActions>
       if (alreadyCelebrated) {
         return;
       }
+    } else {
+      if (__DEV__) {
+        console.warn(
+          '[celebrationStore] enqueue called before init(); celebrated_at dedup will be skipped',
+        );
+      }
+      // Still enqueue in prod — don't drop celebrations because init was missed
     }
 
     set((state) => ({
