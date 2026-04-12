@@ -17,6 +17,7 @@ import type { HouseholdSummary } from './src/domain/households/EnsureHouseholdUs
 import { RestoreService } from './src/data/sync/RestoreService';
 import type { RestoredHousehold } from './src/data/sync/RestoreService';
 import { SyncOrchestrator } from './src/data/sync/SyncOrchestrator';
+import { SeedBabyStepsUseCase } from './src/domain/babySteps/SeedBabyStepsUseCase';
 
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
@@ -36,7 +37,7 @@ async function initSession(
     // Offline or network error — continue with local data
   }
 
-  // 2. Ensure household exists locally
+  // 2. Ensure household exists locally (seeds baby steps via EnsureHouseholdUseCase)
   const uc = new EnsureHouseholdUseCase(db, audit, userId);
   const result = await uc.execute();
   if (result.success) {
@@ -45,11 +46,22 @@ async function initSession(
     setAvailableHouseholds([result.data, ...restoredHouseholds
       .filter(h => h.id !== result.data.id)
       .map(h => ({ ...h, userLevel: 1 as const }))]);
+
+    // 3. Startup seed — sequenced AFTER restore to backfill any new steps not yet on remote.
+    //    EnsureHouseholdUseCase already seeded its household; run for all restored households too.
+    const seeder = new SeedBabyStepsUseCase(db);
+    for (const restored of restoredHouseholds) {
+      if (restored.id !== result.data.id) {
+        void seeder.execute(restored.id).catch(() => {
+          // Non-fatal: seed failures don't block startup
+        });
+      }
+    }
   } else {
     console.error('[initSession] Failed to ensure household:', result.error);
   }
 
-  // 3. Push any pending local writes to Supabase (fire and forget)
+  // 4. Push any pending local writes to Supabase (fire and forget)
   void syncOrchestrator.syncPending().catch(() => {
     // Sync failure is non-fatal
   });

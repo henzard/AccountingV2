@@ -8,6 +8,7 @@ import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
+import { SeedBabyStepsUseCase } from '../babySteps/SeedBabyStepsUseCase';
 
 interface CreateHouseholdInput {
   userId: string;
@@ -70,6 +71,10 @@ export class CreateHouseholdUseCase {
 
     await this.enqueuer.enqueue('households', householdId, 'INSERT');
     await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
+
+    // Seed the 7 baby steps for the new household (idempotent)
+    const seeder = new SeedBabyStepsUseCase(this.db);
+    await seeder.execute(householdId);
 
     return createSuccess({ id: householdId, name, paydayDay: this.input.paydayDay, userLevel: 1 });
   }

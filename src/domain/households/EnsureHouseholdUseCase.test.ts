@@ -1,6 +1,6 @@
-import { EnsureHouseholdUseCase } from './EnsureHouseholdUseCase';
-
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
+
+import { EnsureHouseholdUseCase } from './EnsureHouseholdUseCase';
 
 describe('EnsureHouseholdUseCase', () => {
   it('returns existing household when a membership row exists', async () => {
@@ -17,7 +17,12 @@ describe('EnsureHouseholdUseCase', () => {
             where: () => ({ limit: () => Promise.resolve([{ id: 'hh-1', name: 'My Household', paydayDay: 25, userLevel: 1 }]) }),
           }),
         }),
-      insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
+      insert: jest.fn().mockReturnValue({
+        values: jest.fn().mockReturnValue({
+          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
+          then: jest.fn(), // make it thenable for await
+        }),
+      }),
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const uc = new EnsureHouseholdUseCase(db as any, audit as any, 'user-1');
@@ -34,7 +39,13 @@ describe('EnsureHouseholdUseCase', () => {
         .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) })
         .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) }),
       insert: jest.fn().mockReturnValue({
-        values: (row: unknown) => { insertedRows.push(row); return Promise.resolve(); },
+        values: (row: unknown) => {
+          insertedRows.push(row);
+          return {
+            onConflictDoNothing: () => Promise.resolve(undefined),
+            then: (resolve: (v: undefined) => void) => { resolve(undefined); return Promise.resolve(undefined); },
+          };
+        },
       }),
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };

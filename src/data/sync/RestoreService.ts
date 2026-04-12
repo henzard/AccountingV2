@@ -12,6 +12,7 @@ import {
   babySteps,
 } from '../local/schema';
 import { toLocalRow } from './rowConverters';
+import { SeedBabyStepsUseCase } from '../../domain/babySteps/SeedBabyStepsUseCase';
 
 export interface RestoredHousehold {
   id: string;
@@ -99,8 +100,10 @@ export class RestoreService {
     await this.restoreTable('debts', debts, householdId);
     await this.restoreTable('meter_readings', meterReadings, householdId);
     await this.restoreTable('baby_steps', babySteps, householdId);
-    // TODO: after restore, invoke SeedBabyStepsUseCase to backfill any missing
-    // baby_steps rows for this household (e.g. steps not yet created remotely).
+
+    // Backfill any missing baby_steps rows (idempotent — INSERT OR IGNORE)
+    const seeder = new SeedBabyStepsUseCase(this.db);
+    await seeder.execute(householdId);
 
     return {
       id: hh.id as string,

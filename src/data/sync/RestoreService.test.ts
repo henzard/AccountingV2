@@ -1,3 +1,5 @@
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2) }));
+
 import { RestoreService } from './RestoreService';
 
 describe('RestoreService.restore', () => {
