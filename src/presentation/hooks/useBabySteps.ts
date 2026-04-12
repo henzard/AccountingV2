@@ -20,7 +20,7 @@
  * Spec §Presentation layer — useBabySteps, §Concurrency guards, §Data flow.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { AppState } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import { db } from '../../data/local/db';
@@ -33,9 +33,9 @@ import { useToastStore } from '../stores/toastStore';
 import { LocalNotificationScheduler } from '../../infrastructure/notifications/LocalNotificationScheduler';
 
 export interface UseBabyStepsDeps {
-  reconcileUseCase: { execute: (householdId: string, periodStart: string) => Promise<{ success: true; data: ReconcileResult } | { success: false; error: { message: string } }> };
-  toggleUseCase: { execute: (householdId: string, stepNumber: number, completed: boolean) => Promise<{ success: boolean; error?: { message: string } }> };
-  scheduler: { fireBabyStepCelebration: (stepNumber: number) => Promise<void> };
+  reconcileUseCase: Pick<ReconcileBabyStepsUseCase, 'execute'>;
+  toggleUseCase: Pick<ToggleManualStepUseCase, 'execute'>;
+  scheduler: Pick<LocalNotificationScheduler, 'fireBabyStepCelebration'>;
 }
 
 function createDefaultDeps(): UseBabyStepsDeps {
@@ -59,7 +59,7 @@ export function useBabySteps(
   currentPeriodStart: string,
   deps?: UseBabyStepsDeps,
 ): UseBabyStepsResult {
-  const resolvedDeps = useRef<UseBabyStepsDeps>(deps ?? createDefaultDeps());
+  const resolvedDeps = useMemo(() => deps ?? createDefaultDeps(), [deps]);
 
   const [statuses, setStatuses] = useState<BabyStepStatus[]>([]);
   const [loading, setLoading] = useState(false);
@@ -77,7 +77,7 @@ export function useBabySteps(
       return inFlightRef.current;
     }
 
-    const { reconcileUseCase, scheduler } = resolvedDeps.current;
+    const { reconcileUseCase, scheduler } = resolvedDeps;
     const isActive = AppState.currentState === 'active';
 
     const promise = (async (): Promise<ReconcileResult | null> => {
@@ -128,7 +128,7 @@ export function useBabySteps(
 
     inFlightRef.current = promise;
     return promise;
-  }, [householdId, currentPeriodStart, enqueue, enqueueToast]);
+  }, [householdId, currentPeriodStart, enqueue, enqueueToast, resolvedDeps]);
 
   // Reconcile on mount — only when active
   useEffect(() => {
@@ -161,7 +161,7 @@ export function useBabySteps(
 
   const toggleManualStep = useCallback(
     async (stepNumber: number, completed: boolean): Promise<void> => {
-      const { toggleUseCase } = resolvedDeps.current;
+      const { toggleUseCase } = resolvedDeps;
       const result = await toggleUseCase.execute(householdId, stepNumber, completed);
       if (!result.success && result.error) {
         setError(new Error(result.error.message));
@@ -172,7 +172,7 @@ export function useBabySteps(
         await reconcile();
       }
     },
-    [householdId, reconcile],
+    [householdId, reconcile, resolvedDeps],
   );
 
   return { statuses, loading, error, reconcile, toggleManualStep };

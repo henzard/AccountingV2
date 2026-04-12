@@ -20,6 +20,11 @@ export interface UseBudgetBalanceResult {
   isBalanced: boolean;
 }
 
+/**
+ * @param envelopes - Must be referentially stable across renders (e.g. from useState/useMemo).
+ *   Callers that pass an inline `.filter()` or `.map()` on every render will defeat memoization
+ *   and cause the budget balance to be recalculated on every render.
+ */
 export function useBudgetBalance(envelopes: EnvelopeEntity[]): UseBudgetBalanceResult {
   return useMemo(() => {
     const balance = calculateBudgetBalance(envelopes);
