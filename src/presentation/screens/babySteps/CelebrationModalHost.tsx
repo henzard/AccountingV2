@@ -31,20 +31,25 @@ function makePlaceholderStatus(stepNumber: number): BabyStepStatus {
 
 export const CelebrationModalHost: React.FC = () => {
   const queue = useCelebrationStore((s) => s.queue);
-  const dequeue = useCelebrationStore((s) => s.dequeue);
   const householdId = useAppStore((s) => s.householdId);
 
   const head = queue[0] ?? null;
 
-  const handleDismiss = useCallback(async () => {
-    if (!head || !householdId) return;
+  const handleDismiss = useCallback(() => {
+    const currentHead = useCelebrationStore.getState().queue[0];
+    if (!currentHead || !householdId) return;
 
-    // 1. Stamp celebrated_at
-    await stampUseCase.execute(householdId, head.stepNumber);
-
-    // 2. Dequeue — next head will render automatically
-    dequeue();
-  }, [head, householdId, dequeue]);
+    // Fire-and-forget; dequeue unconditionally so a stamp failure never freezes UI.
+    (async () => {
+      try {
+        await stampUseCase.execute(householdId, currentHead.stepNumber);
+      } catch (e) {
+        if (__DEV__) console.warn('[celebrationStore] stamp failed', e);
+      } finally {
+        useCelebrationStore.getState().dequeue();
+      }
+    })();
+  }, [householdId]);
 
   if (!head || !householdId) {
     return null;
