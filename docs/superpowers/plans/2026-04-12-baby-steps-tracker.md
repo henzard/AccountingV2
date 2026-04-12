@@ -64,8 +64,8 @@ Spec refs: §Architecture, §Domain layer, §Seeding, §The 7 Baby Steps rules.
 
 - [ ] **2.1** Create `src/domain/babySteps/BabyStepRules.ts`: rule table keyed by step number with `{ shortTitle, description, completionMessage, regressionToast, progressTemplate, notificationTitle, notificationBody, isManual, evaluate }`. Copy is verbatim from spec §Step copy table — this file is the single source of truth (referenced later by `LocalNotificationScheduler` and toasts).
 - [ ] **2.2** Create `src/domain/babySteps/types.ts` exporting `BabyStepStatus` and `ReconcileResult` from spec §TypeScript types.
-- [ ] **2.3** Create `src/domain/budget/BudgetBalanceCalculator.ts` (pure). Input: `envelopes[]` (pre-filtered to current period by caller). Output: `{ incomeTotal, totalAllocated, expenseAllocationTotal, toAssign }`. Implementation uses `totalAllocated - incomeTotal`; no type enumeration. Archived envelopes excluded.
-- [ ] **2.4** Unit tests `src/domain/budget/__tests__/BudgetBalanceCalculator.test.ts`: positive/zero/negative `toAssign`; archived exclusion; mixed-period caller-filter contract documented.
+- [ ] **2.3** Create `src/domain/budgets/BudgetBalanceCalculator.ts` (pure). Input: `envelopes[]` (pre-filtered to current period by caller). Output: `{ incomeTotal, totalAllocated, expenseAllocationTotal, toAssign }`. Implementation uses `totalAllocated - incomeTotal`; no type enumeration. Archived envelopes excluded.
+- [ ] **2.4** Unit tests `src/domain/budgets/__tests__/BudgetBalanceCalculator.test.ts`: positive/zero/negative `toAssign`; archived exclusion; mixed-period caller-filter contract documented.
 - [ ] **2.5** Create `src/domain/babySteps/BabyStepEvaluator.ts` (pure). Input: `{ envelopes, debts, monthlyExpenseBaseline, manualFlags }`. Output: `BabyStepStatus[]`. Wires each rule from `BabyStepRules.ts`. Handles: `EMF = null`, `INCOME_TOTAL = 0` (step 3 progress=null), no non-bond debts (step 2 progress=null), no bond (step 6 progress=null). Multiple emergency_fund envelopes tolerated — oldest by `created_at` wins.
 - [ ] **2.6** Unit tests `src/domain/babySteps/__tests__/BabyStepEvaluator.test.ts`: table-driven matrix from spec §Testing — 35 minimum scenarios (`step × state`). Use `jest.useFakeTimers()` + `jest.setSystemTime('2026-04-12')` for determinism.
 - [ ] **2.7** Create `src/domain/babySteps/SeedBabyStepsUseCase.ts`. Single SQL `INSERT OR IGNORE INTO baby_steps (...) VALUES (...) x 7`. Steps 4/5/7 get `isManual=true`. `isSynced=false` on insert. Idempotent under concurrency. `execute(householdId)` signature.
@@ -102,7 +102,7 @@ reconcile coalescing land here. Still no visible UI changes — this is wiring.
 Spec refs: §Presentation layer (hooks/stores), §Concurrency guards, §Data flow.
 
 - [ ] **3.1** Create `src/presentation/stores/celebrationStore.ts` (Zustand). State: `queue: { stepNumber, triggeredAt }[]`. Actions: `enqueue(stepNumber)` — drops if already in queue OR persisted `celebrated_at` non-null (store takes a repo accessor via init); `dequeue()` — returns head; `clear()`. Test dedup paths.
-- [ ] **3.2** Create `src/presentation/stores/toastStore.ts` if not present (check `notificationStore.ts` first — if it already covers toasts, extend; otherwise add). Queue regression toasts with canonical copy from `BabyStepRules`. Test.
+- [ ] **3.2** Create `src/presentation/stores/toastStore.ts` (new — `notificationStore.ts` handles push notifications, not UI toasts). Queue regression toasts with canonical copy from `BabyStepRules`. Test.
 - [ ] **3.3** Create `src/presentation/hooks/useBudgetBalance.ts`: reads current-period envelopes via existing `useEnvelopes` pattern, calls `BudgetBalanceCalculator`, memoises result. Test with a mock envelope list.
 - [ ] **3.4** Create `src/presentation/hooks/useBabySteps.ts` (pattern: `useDebts.ts`):
   - Exposes `{ statuses, reconcile, toggleManualStep }`.
@@ -254,29 +254,22 @@ If any row above is unchecked when "done" is declared, the plan is not complete.
 
 ## Verification
 
-Project has no `npm test`/`lint`/`typecheck` scripts defined in `package.json` — invoke tooling directly from the repo root:
-
 ```bash
-# Typecheck
-npx tsc --noEmit
-
-# Unit + component + integration tests (Jest)
-npx jest
-
-# Lint (project uses expo default — confirm eslint config exists before relying on this)
-npx eslint "src/**/*.{ts,tsx}"
+npm run typecheck        # tsc --noEmit
+npm test                 # jest
+npm run lint             # eslint src --ext .ts,.tsx
 
 # Drizzle migration regeneration (rerun if schema files change)
 npx drizzle-kit generate
 
 # Supabase migration (local dev stack)
-npx supabase db reset        # applies all migrations incl. 003
+npx supabase db reset    # applies all migrations incl. 003
 ```
 
 Before declaring the plan done, run — and paste output into the PR:
 
 ```bash
-npx tsc --noEmit && npx jest --coverage
+npm run typecheck && npm test -- --coverage
 ```
 
 Manual smoke (spec §End-to-end smoke):
@@ -291,7 +284,7 @@ Manual smoke (spec §End-to-end smoke):
 Rollback is safe phase-by-phase because each phase is self-contained:
 
 - **Rollback after Phase 1:** drop local migration `0003` (DB column drops aren't supported in SQLite — recreate table or leave columns unused); drop Supabase migration `003`; revert `SyncOrchestrator`, `rowConverters`, `RestoreService` patches. No user-visible change.
-- **Rollback after Phase 2:** revert domain packages `src/domain/babySteps/`, `src/domain/budget/`, `src/domain/shared/resolveBabyStepIsActive.ts`; revert envelope + transaction use-case edits. Schema remains — harmless.
+- **Rollback after Phase 2:** revert domain packages `src/domain/babySteps/`, `src/domain/budgets/`, `src/domain/shared/resolveBabyStepIsActive.ts`; revert envelope + transaction use-case edits. Schema remains — harmless.
 - **Rollback after Phase 3:** remove hooks + stores; scheduler method is safe to keep (unused). No user-visible change yet.
 - **Rollback after Phase 4+:** remove screen entries from `DashboardStackNavigator`; remove dashboard card + budget banner. Domain + sync state remain intact and will no longer be observed — safe.
 
