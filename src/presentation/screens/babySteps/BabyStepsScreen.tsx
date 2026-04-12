@@ -225,6 +225,8 @@ const chipStyles = StyleSheet.create({
   date: {
     color: colours.onPrimaryContainer,
     opacity: 0.7,
+    // 5.7: tabular-numeric so completion dates align in the horizontal chip row
+    fontVariant: ['tabular-nums'],
   },
   manualChip: {
     backgroundColor: colours.secondaryContainer,
