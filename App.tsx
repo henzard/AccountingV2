@@ -61,8 +61,10 @@ async function initSession(
     console.error('[initSession] Failed to ensure household:', result.error);
   }
 
-  // 4. Push any pending local writes to Supabase (fire and forget)
-  void syncOrchestrator.syncPending().catch(() => {
+  // 4. Push any pending local writes to Supabase (fire and forget).
+  //    Pass householdId so the post-sync ReconcileEmergencyFundTypeUseCase fixer can run.
+  const resolvedHouseholdId = result.success ? result.data.id : undefined;
+  void syncOrchestrator.syncPending(resolvedHouseholdId).catch(() => {
     // Sync failure is non-fatal
   });
 }

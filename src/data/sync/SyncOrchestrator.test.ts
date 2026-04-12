@@ -218,8 +218,8 @@ describe('SyncOrchestrator.syncPending', () => {
       const db = makeEmptyQueueDb();
       const supabase = {} as any;
 
-      const orch = new SyncOrchestrator(db as any, supabase, 'hh-1');
-      const result = await orch.syncPending();
+      const orch = new SyncOrchestrator(db as any, supabase);
+      const result = await orch.syncPending('hh-1');
 
       expect(result.failed).toBe(0);
       // select was called at least twice (once for queue, once for EMF check)
@@ -249,8 +249,8 @@ describe('SyncOrchestrator.syncPending', () => {
         }),
       } as any;
 
-      const orch = new SyncOrchestrator(db, supabase, 'hh-1');
-      const result = await orch.syncPending();
+      const orch = new SyncOrchestrator(db, supabase);
+      const result = await orch.syncPending('hh-1');
 
       expect(result.failed).toBe(1);
       // ReconcileEmergencyFundTypeUseCase should NOT have been called —
@@ -267,13 +267,73 @@ describe('SyncOrchestrator.syncPending', () => {
       } as any;
       const supabase = {} as any;
 
-      // No householdId passed
+      // No householdId passed — fixer must never fire
       const orch = new SyncOrchestrator(db, supabase);
       const result = await orch.syncPending();
 
       expect(result.failed).toBe(0);
       // Should only have 1 select call (the pending queue), not 2
       expect((db.select as jest.Mock).mock.calls.length).toBe(1);
+    });
+
+    it('does NOT call fixer when syncPending() called without householdId even on clean sync', async () => {
+      const db = {
+        select: jest.fn().mockReturnValue({
+          from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }),
+        }),
+      } as any;
+      const supabase = {} as any;
+
+      const orch = new SyncOrchestrator(db, supabase);
+      // Explicitly no householdId
+      const result = await orch.syncPending(undefined);
+
+      expect(result).toEqual({ synced: 0, failed: 0 });
+      // Only the initial pending-queue select should be called
+      expect((db.select as jest.Mock).mock.calls.length).toBe(1);
+    });
+
+    it('invokes fixer with householdId when syncPending(householdId) on clean sync', async () => {
+      const db = makeEmptyQueueDb();
+      const supabase = {} as any;
+
+      const orch = new SyncOrchestrator(db as any, supabase);
+      const result = await orch.syncPending('h1');
+
+      expect(result).toEqual({ synced: 0, failed: 0 });
+      // Queue select + fixer's envelope select = at least 2 calls
+      expect((db.select as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('does NOT invoke fixer when syncPending(householdId) has partial failure', async () => {
+      const pending = [
+        { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
+      ];
+      const db = {
+        select: jest.fn()
+          .mockReturnValueOnce({
+            from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }),
+          })
+          .mockReturnValueOnce({
+            from: () => ({
+              where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
+            }),
+          }),
+        update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+      } as any;
+
+      const supabase = {
+        from: () => ({
+          upsert: () => Promise.resolve({ error: { message: 'fail' } }),
+        }),
+      } as any;
+
+      const orch = new SyncOrchestrator(db, supabase);
+      const result = await orch.syncPending('h1');
+
+      expect(result.failed).toBe(1);
+      // Fixer select must not be reached — capped at pending-queue + row fetch = 2
+      expect((db.select as jest.Mock).mock.calls.length).toBeLessThanOrEqual(2);
     });
   });
 });

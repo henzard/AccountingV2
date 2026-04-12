@@ -40,11 +40,9 @@ export class SyncOrchestrator {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly supabase: SupabaseClient,
-    /** Optional household ID for post-sync reconciliation (e.g. emergency fund type fixer). */
-    private readonly householdId?: string,
   ) {}
 
-  async syncPending(): Promise<{ synced: number; failed: number }> {
+  async syncPending(householdId?: string): Promise<{ synced: number; failed: number }> {
     const pending = await this.db
       .select()
       .from(pendingSync)
@@ -71,9 +69,9 @@ export class SyncOrchestrator {
 
     // Spec §ReconcileEmergencyFundTypeUseCase trigger:
     // Fire ONLY when result is { failed: 0 } (full clean sync).
-    if (failed === 0 && this.householdId) {
+    if (failed === 0 && householdId) {
       const fixer = new ReconcileEmergencyFundTypeUseCase(this.db);
-      await fixer.execute(this.householdId).catch(() => {
+      await fixer.execute(householdId).catch(() => {
         // Non-fatal: log in production but don't bubble up
       });
     }
