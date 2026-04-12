@@ -120,8 +120,10 @@ describe('ReconcileBabyStepsUseCase', () => {
     const uc = new ReconcileBabyStepsUseCase(db as any);
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
-    expect(result.newlyCompleted).toContain(1);
-    expect(result.newlyRegressed).toHaveLength(0);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.newlyCompleted).toContain(1);
+    expect(result.data.newlyRegressed).toHaveLength(0);
   });
 
   it('regression: preserves celebrated_at when step goes from complete to incomplete', async () => {
@@ -149,7 +151,9 @@ describe('ReconcileBabyStepsUseCase', () => {
     const uc = new ReconcileBabyStepsUseCase(db as any);
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
-    expect(result.newlyRegressed).toContain(1);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.newlyRegressed).toContain(1);
 
     // The write should set isCompleted=false, completedAt=null but NOT touch celebratedAt
     const step1Update = db._updates.find(
@@ -160,7 +164,7 @@ describe('ReconcileBabyStepsUseCase', () => {
     expect(step1Update?.set).not.toHaveProperty('celebratedAt');
 
     // The returned status should preserve celebratedAt from the persisted row
-    const step1Status = result.statuses.find((s) => s.stepNumber === 1);
+    const step1Status = result.data.statuses.find((s) => s.stepNumber === 1);
     expect(step1Status?.celebratedAt).toBe(celebratedAt);
   });
 
@@ -190,7 +194,9 @@ describe('ReconcileBabyStepsUseCase', () => {
     const uc = new ReconcileBabyStepsUseCase(db as any);
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
-    expect(result.newlyCompleted).toContain(1);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.newlyCompleted).toContain(1);
 
     // Re-completion write should NOT include celebratedAt in the SET
     const step1Update = db._updates.find((u) => u.set.isCompleted === true);
@@ -198,7 +204,7 @@ describe('ReconcileBabyStepsUseCase', () => {
     expect(step1Update?.set).not.toHaveProperty('celebratedAt');
 
     // The returned status preserves the existing celebratedAt
-    const step1Status = result.statuses.find((s) => s.stepNumber === 1);
+    const step1Status = result.data.statuses.find((s) => s.stepNumber === 1);
     expect(step1Status?.celebratedAt).toBe(celebratedAt);
   });
 
@@ -244,8 +250,10 @@ describe('ReconcileBabyStepsUseCase', () => {
     const uc = new ReconcileBabyStepsUseCase(db as any);
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
-    expect(result.newlyCompleted).toHaveLength(0);
-    expect(result.newlyRegressed).toHaveLength(0);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.newlyCompleted).toHaveLength(0);
+    expect(result.data.newlyRegressed).toHaveLength(0);
     expect(db._updates).toHaveLength(0);
   });
 });

@@ -15,34 +15,43 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { babySteps } from '../../data/local/schema';
 import { MANUAL_STEP_NUMBERS } from './BabyStepRules';
+import type { Result } from '../shared/types';
+import { createSuccess, createFailure } from '../shared/types';
 
 export class SeedBabyStepsUseCase {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
   ) {}
 
-  async execute(householdId: string): Promise<void> {
-    const now = new Date().toISOString();
+  async execute(householdId: string): Promise<Result<void>> {
+    try {
+      const now = new Date().toISOString();
 
-    const rows = ([1, 2, 3, 4, 5, 6, 7] as const).map((stepNumber) => ({
-      id: randomUUID(),
-      householdId,
-      stepNumber,
-      isCompleted: false,
-      completedAt: null,
-      isManual: MANUAL_STEP_NUMBERS.has(stepNumber),
-      celebratedAt: null,
-      createdAt: now,
-      updatedAt: now,
-      isSynced: false,
-    }));
+      const rows = ([1, 2, 3, 4, 5, 6, 7] as const).map((stepNumber) => ({
+        id: randomUUID(),
+        householdId,
+        stepNumber,
+        isCompleted: false,
+        completedAt: null,
+        isManual: MANUAL_STEP_NUMBERS.has(stepNumber),
+        celebratedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        isSynced: false,
+      }));
 
-    // INSERT OR IGNORE — safe under concurrent invocation
-    for (const row of rows) {
-      await this.db
-        .insert(babySteps)
-        .values(row)
-        .onConflictDoNothing();
+      // INSERT OR IGNORE — safe under concurrent invocation
+      for (const row of rows) {
+        await this.db
+          .insert(babySteps)
+          .values(row)
+          .onConflictDoNothing();
+      }
+
+      return createSuccess(undefined);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return createFailure({ code: 'DB_ERROR', message });
     }
   }
 }

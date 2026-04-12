@@ -23,13 +23,16 @@ import { evaluate } from './BabyStepEvaluator';
 import type { BabyStepStatus, ReconcileResult } from './types';
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';
 import type { DebtEntity } from '../debtSnowball/DebtEntity';
+import type { Result } from '../shared/types';
+import { createSuccess, createFailure } from '../shared/types';
 
 export class ReconcileBabyStepsUseCase {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
   ) {}
 
-  async execute(householdId: string, currentPeriodStart: string): Promise<ReconcileResult> {
+  async execute(householdId: string, currentPeriodStart: string): Promise<Result<ReconcileResult>> {
+    try {
     // 1. Read current-period envelopes
     const envelopeRows = await this.db
       .select()
@@ -179,6 +182,10 @@ export class ReconcileBabyStepsUseCase {
       });
     }
 
-    return { statuses, newlyCompleted, newlyRegressed };
+    return createSuccess({ statuses, newlyCompleted, newlyRegressed });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return createFailure({ code: 'DB_ERROR', message });
+    }
   }
 }
