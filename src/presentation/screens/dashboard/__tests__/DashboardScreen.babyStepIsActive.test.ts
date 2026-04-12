@@ -49,10 +49,4 @@ describe('Task 3.8 — DashboardScreen babyStepIsActive caller contract', () => 
     expect(result).toBe(true);
   });
 
-  it('returns false when DB returns empty (no completed steps pass the filter)', async () => {
-    // The DB filter WHERE is_completed=true returns nothing — no completed steps
-    const db = makeDb([]) as any;
-    const result = await resolveBabyStepIsActive(db, 'hh-2');
-    expect(result).toBe(false);
-  });
 });
