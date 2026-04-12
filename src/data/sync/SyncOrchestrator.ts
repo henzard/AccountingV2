@@ -13,6 +13,7 @@ import {
   babySteps,
 } from '../local/schema';
 import { toSupabaseRow } from './rowConverters';
+import { ReconcileEmergencyFundTypeUseCase } from '../../domain/babySteps/ReconcileEmergencyFundTypeUseCase';
 
 type SyncTable =
   | typeof envelopes
@@ -39,6 +40,8 @@ export class SyncOrchestrator {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly supabase: SupabaseClient,
+    /** Optional household ID for post-sync reconciliation (e.g. emergency fund type fixer). */
+    private readonly householdId?: string,
   ) {}
 
   async syncPending(): Promise<{ synced: number; failed: number }> {
@@ -64,6 +67,15 @@ export class SyncOrchestrator {
           .where(eq(pendingSync.id, item.id));
         failed++;
       }
+    }
+
+    // Spec §ReconcileEmergencyFundTypeUseCase trigger:
+    // Fire ONLY when result is { failed: 0 } (full clean sync).
+    if (failed === 0 && this.householdId) {
+      const fixer = new ReconcileEmergencyFundTypeUseCase(this.db);
+      await fixer.execute(this.householdId).catch(() => {
+        // Non-fatal: log in production but don't bubble up
+      });
     }
 
     return { synced, failed };
