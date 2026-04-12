@@ -92,7 +92,7 @@ android {
         applicationId 'com.henza.accountingv2'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (findProperty('versionCode') ?: '1').toInteger()
+        def vcProp = findProperty('versionCode'); versionCode vcProp != null ? vcProp.toInteger() : 1
         versionName "1.0.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
