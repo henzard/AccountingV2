@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { RamseyScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
@@ -14,6 +14,8 @@ import { colours, spacing, radius } from '../../theme/tokens';
 import { format } from 'date-fns';
 import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
+import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
+import { db } from '../../../data/local/db';
 
 const engine = new BudgetPeriodEngine();
 const scoreCalculator = new RamseyScoreCalculator();
@@ -26,11 +28,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
+  const [babyStepIsActive, setBabyStepIsActive] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
-    }, [reload]),
+      void resolveBabyStepIsActive(db, householdId).then(setBabyStepIsActive);
+    }, [reload, householdId]),
   );
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
@@ -44,7 +48,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     envelopesOnBudget,
     totalEnvelopes: envelopes.length,
     meterReadingsLoggedThisPeriod: false,
-    babyStepIsActive: false,
+    babyStepIsActive,
   });
 
   const handleAddEnvelope = (): void => {
