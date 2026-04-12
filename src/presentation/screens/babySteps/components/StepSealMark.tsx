@@ -88,6 +88,7 @@ function StepGlyph({
           <Path d="M3 7 L12 15 L21 7"
             fill="none" stroke={colour} strokeWidth={sw} strokeLinejoin="round" />
           {/* "R" monogram */}
+          {/* fontSize=5 is in the 24×24 internal coord space — intentionally small */}
           <SvgText x="12" y="21" textAnchor="middle"
             fontSize={5} fontWeight="bold" fill={colour}>R</SvgText>
         </G>

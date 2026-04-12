@@ -37,6 +37,9 @@ export interface CelebrationModalProps {
 
 const SEAL_SIZE = 144;
 
+// One-off intentional colour: muted ledger-paper tint for the full-screen overlay.
+const LEDGER_PAPER_TINT = 'rgba(230, 240, 235, 0.97)';
+
 export const CelebrationModal: React.FC<CelebrationModalProps> = ({
   status,
   onDismiss,
@@ -56,7 +59,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
     }
 
     // Spring: scale 0.6→1.0, opacity 0→1, ~600ms with overshoot
-    Animated.parallel([
+    const anim = Animated.parallel([
       Animated.spring(scaleAnim, {
         toValue: 1.0,
         useNativeDriver: true,
@@ -69,7 +72,9 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
         duration: 300,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
+    anim.start();
+    return () => anim.stop();
   }, [visible, reducedMotion, scaleAnim, opacityAnim]);
 
   // Reset animation values when modal closes
@@ -156,7 +161,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(230, 240, 235, 0.97)', // Muted ledger-paper tint
+    backgroundColor: LEDGER_PAPER_TINT,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
