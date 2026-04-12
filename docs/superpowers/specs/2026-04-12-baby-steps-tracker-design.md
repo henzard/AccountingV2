@@ -23,6 +23,7 @@ Implement the 7 Dave Ramsey Baby Steps as a structured progress framework (FR-32
 - Confetti via new native library (CSS-only animation)
 - Baby Step milestone coaching notifications (FR-38) — deferred to notification rule pack work
 - Investment / college-fund / giving tracking (required for true auto-detect on Steps 4, 5, 7)
+- Confetti / particle celebration animations — explicitly rejected (see Visual Identity)
 
 ## The 7 Baby Steps — completion rules
 
@@ -102,14 +103,88 @@ New directory: `src/domain/babySteps/`
 - On push, checks `AppState`: foreground → modal only; background → calls `LocalNotificationScheduler.scheduleImmediate(...)`.
 
 **Screens:** `src/presentation/screens/babySteps/`
-- `BabyStepsScreen.tsx` — list of all 7 steps with progress bars, status, manual toggle for 4/5/7, "Set emergency fund" CTA if none designated.
-- `CelebrationModal.tsx` — overlay triggered by `celebrationStore`. Step-specific copy, CSS confetti animation, Continue button.
+- `BabyStepsScreen.tsx` — three-tier layout (see Visual Identity): hero card for the current step, chip row of completed steps above it, dimmed future-step cards beneath. Manual toggle for 4/5/7 inside each card. "Set emergency fund" CTA shown in the current-step hero if no envelope is designated.
+- `CelebrationModal.tsx` — ribbon-and-seal stamp overlay (see Visual Identity). Step-specific seal + copy, "Continue" button. No confetti or particle effects.
+- Shared components under `src/presentation/screens/babySteps/components/`:
+  - `StepSealMark.tsx` — the per-step iconic seal (one SVG per step, parameterised by state: future/current/complete).
+  - `SevenDotPath.tsx` — horizontal 7-dot progress indicator used in the dashboard card.
+  - `CurrentStepHero.tsx` — the big hero card with progress ring + current numbers.
 
-**Dashboard:** `src/presentation/screens/dashboard/components/BabyStepsCard.tsx` — compact "Step X of 7 — <progress summary>". Tap → navigates to `BabyStepsScreen`. Wired into existing `DashboardScreen.tsx`.
+**Dashboard:** `src/presentation/screens/dashboard/components/BabyStepsCard.tsx` — renders `SevenDotPath` across the top, current step title + one-line progress beneath (e.g., "Starter Fund — R650 of R1,000"). Tap → navigates to `BabyStepsScreen`. Wired into existing `DashboardScreen.tsx`. No default react-native-paper `ProgressBar` on this card.
 
 **Settings:** new row in `SettingsScreen` → "Emergency Fund Envelope" → pushes `EmergencyFundPickerScreen` (inside `SettingsStackNavigator`) that lists envelopes and confirms.
 
 **Navigation:** `BabyStepsScreen` + `CelebrationModal` registered in `DashboardStackNavigator`. `EmergencyFundPickerScreen` in `SettingsStackNavigator`. No new tab.
+
+## Visual Identity
+
+The Baby Steps surface is the most emotionally loaded area of the app — these milestones are earned over years, not days. The visual treatment must feel earnest and weighty, not gamified or party-like. Default Material / confetti aesthetics are explicitly rejected.
+
+### Celebration: ribbon-and-seal stamp
+
+On step completion, `CelebrationModal` presents a full-screen overlay styled as a certificate / ledger stamp:
+
+- Center: the step's `StepSealMark` SVG scaled up, with a soft drop-shadow and a subtle drop-and-settle spring animation on mount (transform + opacity only, ~600ms).
+- Beneath: the step's short title in a display font, the completion message in body.
+- A ribbon-banner strip across the seal reads "Completed <date>".
+- Background: muted ledger-paper tint overlay, not a gradient.
+- Dismiss via "Continue" button; the seal is retained and re-shown on the step's chip in the main screen.
+
+No confetti. No particle effects. No sparkles.
+
+### Dashboard card: seven-dot path
+
+`BabyStepsCard` uses `SevenDotPath` — seven small circular nodes connected by a thin line, spanning the card width. States per dot:
+
+- **Complete:** filled with brand accent, a small check glyph centered.
+- **Current:** larger, outlined with brand accent, subtle pulse (opacity 0.6 ↔ 1.0, 2s loop).
+- **Future:** outlined in muted tone, unfilled.
+
+Beneath the path: current step title + progress line (e.g., `Starter Fund — R650 of R1,000`).
+
+### BabyStepsScreen: three-tier layout
+
+Visually encodes past / present / future as distinct treatments:
+
+1. **Completed chips row** — horizontally scrolling strip at the top. Each chip: tiny `StepSealMark`, step number, completion date. Tapping a chip opens a small details sheet (date, step title, description).
+2. **Current step hero** — large card occupying the bulk of the screen. Contains a circular progress ring (for auto steps) or a large toggle (for manual steps 4/5/7), step title, description, progress numbers, and any CTA (e.g., "Set emergency fund").
+3. **Future steps list** — vertical list of dimmed monochrome cards beneath the hero. Reduced opacity, no accent color, no progress. Shows step number + short title only.
+
+This deliberately breaks the uniform-list pattern. The user's eye lands on the current step immediately.
+
+### Step seals (per-step iconography)
+
+Each step has a dedicated `StepSealMark` SVG. These are the canonical visual identities and must not be substituted with generic icons:
+
+| # | Seal concept |
+|---|--------------|
+| 1 | Envelope glyph with "R1,000" embossed inside |
+| 2 | A broken chain link |
+| 3 | A shield / fortress wall |
+| 4 | A sprouting seedling (growth) |
+| 5 | A graduation mortarboard |
+| 6 | A house key |
+| 7 | An open hand (giving) |
+
+All seals share a consistent stroke weight, corner radius, and a single brand accent color. Dimensions: 96×96 on the hero, 48×48 in the celebration modal (scaled 2× on mount animation), 24×24 in completed chips.
+
+### Typography
+
+Use the project's existing display + body font pairing. Titles in display, progress numbers and body in body. Progress numbers (e.g., "R650 of R1,000") should be in a tabular-numeric variant so digits don't jitter during reconciliation.
+
+### Step copy table
+
+Canonical copy to be implemented verbatim. Short title ≤4 words; description ≤12 words; completion message is second-person and earnest, not celebratory.
+
+| # | Short title | Description | Completion message | Progress template |
+|---|-------------|-------------|-------------------|-------------------|
+| 1 | Starter Fund | Save R1,000 as your first emergency buffer. | You saved your first R1,000. The foundation is laid. | `R{current} of R{target}` |
+| 2 | Debt Free | Pay off every debt except the house. | Every debt, gone. You owe no one but the bond. | `{current} of {target} debts cleared` |
+| 3 | Full Emergency Fund | Save 3 to 6 months of expenses. | Three months of expenses, saved. You're protected. | `R{current} of R{target}` |
+| 4 | Invest 15% | Put 15% of income into retirement. | You're investing in the long game now. | (manual) |
+| 5 | College Fund | Save for your children's education. | Their education is funded. | (manual) |
+| 6 | House Free | Pay off the bond. | No debt. No bond. The house is yours. | `R{current} of R{target}` |
+| 7 | Build & Give | Build wealth. Give generously. | You have enough — and you're giving. | (manual) |
 
 ## Data flow — Step 2 completion example
 
