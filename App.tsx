@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -87,11 +87,13 @@ export default function App(): React.JSX.Element {
   const [sessionRestored, setSessionRestored] = useState(false);
 
   // Init celebrationStore checker — reads celebrated_at from local DB.
-  // Must be done once per app lifecycle before any enqueue calls.
+  // Re-bound after every auth/household change so the checker always uses the
+  // current householdId rather than a stale closure over the initial render.
   const initCelebrationStore = useCelebrationStore((s) => s.init);
 
-  useEffect(() => {
+  const bindCelebrationStore = useCallback(() => {
     initCelebrationStore(async (stepNumber: number) => {
+      // Read householdId at call time, not at bind time.
       const householdId = useAppStore.getState().householdId;
       if (!householdId) return false;
       const rows = await db
@@ -109,11 +111,18 @@ export default function App(): React.JSX.Element {
   }, [initCelebrationStore]);
 
   useEffect(() => {
+    // Bind once on mount (covers cold-start with existing session).
+    bindCelebrationStore();
+  }, [bindCelebrationStore]);
+
+  useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session ?? null;
       setSession(session);
       if (session) {
         await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
+        // Re-bind after household is resolved so checker uses the new householdId.
+        bindCelebrationStore();
       }
       setSessionRestored(true);
     });
@@ -122,13 +131,15 @@ export default function App(): React.JSX.Element {
       setSession(session ?? null);
       if (session) {
         await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
+        // Re-bind after household change (e.g. sign-out → sign-in as different household).
+        bindCelebrationStore();
       } else {
         clearHousehold();
       }
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [setSession, setHouseholdId, setPaydayDay, clearHousehold, setAvailableHouseholds]);
+  }, [setSession, setHouseholdId, setPaydayDay, clearHousehold, setAvailableHouseholds, bindCelebrationStore]);
 
   if (fontError || dbError) {
     return (
