@@ -10,15 +10,6 @@ import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { TransactionEntity } from './TransactionEntity';
 
-/** Error thrown when a transaction targets an income envelope. */
-export class InvalidEnvelopeTypeError extends Error {
-  readonly code = 'INVALID_ENVELOPE_TYPE';
-  constructor(message: string) {
-    super(message);
-    this.name = 'InvalidEnvelopeTypeError';
-  }
-}
-
 interface CreateTransactionInput {
   householdId: string;
   envelopeId: string;
@@ -51,11 +42,11 @@ export class CreateTransactionUseCase {
       .where(eq(envelopes.id, this.input.envelopeId))
       .limit(1);
 
-    if (targetEnvelope && targetEnvelope.envelopeType === 'income') {
-      return createFailure({
-        code: 'INVALID_ENVELOPE_TYPE',
-        message: 'Transactions cannot target income envelopes',
-      });
+    if (!targetEnvelope) {
+      return createFailure({ code: 'ENVELOPE_NOT_FOUND', message: 'Envelope does not exist' });
+    }
+    if (targetEnvelope.envelopeType === 'income') {
+      return createFailure({ code: 'INVALID_ENVELOPE_TYPE', message: 'Cannot create a transaction against an income envelope' });
     }
 
     const now = new Date().toISOString();

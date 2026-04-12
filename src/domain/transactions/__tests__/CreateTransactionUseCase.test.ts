@@ -78,4 +78,19 @@ describe('CreateTransactionUseCase', () => {
     expect(mockInsert).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
   });
+
+  it('returns ENVELOPE_NOT_FOUND when envelope lookup returns empty', async () => {
+    // Simulate envelope lookup returning nothing (stale id / race)
+    mockSelectWhere.mockResolvedValueOnce([]);
+    mockSelectLimit.mockImplementationOnce(() => mockSelectWhere());
+    const uc = new CreateTransactionUseCase(mockDb, mockAudit, input);
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('ENVELOPE_NOT_FOUND');
+    }
+    // No insert or update should have occurred
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
