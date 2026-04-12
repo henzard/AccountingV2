@@ -16,6 +16,7 @@ import type { BabyStepStatus } from '../../../../domain/babySteps/types';
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 jest.mock('react-native-paper', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return {
     Text: ({ children, testID, ...p }: { children?: React.ReactNode; testID?: string }) =>
@@ -30,6 +31,7 @@ jest.mock('react-native-paper', () => {
 });
 
 jest.mock('react-native-svg', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   const Svg = ({ children, ...p }: { children?: React.ReactNode }) =>
     React.createElement('View', { testID: 'svg', ...p }, children);
@@ -52,6 +54,7 @@ jest.mock('react-native-svg', () => {
 });
 
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return () => React.createElement('View', { testID: 'icon' });
 });

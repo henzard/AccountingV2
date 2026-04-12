@@ -14,6 +14,7 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
 jest.mock('react-native-paper', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return {
     Text: ({ children, ...p }: { children?: React.ReactNode }) =>
@@ -26,6 +27,7 @@ jest.mock('react-native-paper', () => {
 });
 
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return ({ name }: { name: string }) => React.createElement('View', { testID: `icon-${name}` });
 });

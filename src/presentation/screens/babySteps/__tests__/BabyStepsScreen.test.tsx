@@ -24,6 +24,7 @@ jest.mock('@react-navigation/native', () => ({
 
 // ─── react-native-paper mocks ─────────────────────────────────────────────────
 jest.mock('react-native-paper', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   const Text = ({ children, ...p }: { children?: React.ReactNode }) =>
     React.createElement('Text', p, children);
@@ -42,6 +43,7 @@ jest.mock('react-native-paper', () => {
 
 // ─── SVG mock ─────────────────────────────────────────────────────────────────
 jest.mock('react-native-svg', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   const Svg = ({ children, ...p }: { children?: React.ReactNode }) =>
     React.createElement('View', { testID: 'svg', ...p }, children);
@@ -63,6 +65,7 @@ jest.mock('react-native-svg', () => {
 
 // ─── Icon mock ────────────────────────────────────────────────────────────────
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return ({ name }: { name: string }) => React.createElement('View', { testID: `icon-${name}` });
 });

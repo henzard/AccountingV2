@@ -15,6 +15,7 @@ import { render } from '@testing-library/react-native';
 import type { EnvelopeEntity } from '../../../../domain/envelopes/EnvelopeEntity';
 
 jest.mock('react-native-paper', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return {
     Text: ({ children, testID, ...p }: { children?: React.ReactNode; testID?: string }) =>
@@ -25,6 +26,7 @@ jest.mock('react-native-paper', () => {
 });
 
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return () => React.createElement('View', { testID: 'icon' });
 });
