@@ -100,6 +100,51 @@ describe('UpdateEnvelopeUseCase', () => {
   });
 });
 
+describe('UpdateEnvelopeUseCase — income envelope guard', () => {
+  const incomeEnvelope: EnvelopeEntity = {
+    ...existing,
+    id: 'income-1',
+    envelopeType: 'income',
+    spentCents: 0,
+  };
+
+  it('rejects spentCents != 0 on income envelope with INVALID_INCOME_MUTATION', async () => {
+    const db = makeDb();
+    const uc = new UpdateEnvelopeUseCase(db as any, makeAudit() as any, incomeEnvelope, {
+      name: 'Salary',
+      allocatedCents: 100000,
+      spentCents: 500,
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INVALID_INCOME_MUTATION');
+    }
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts update with spentCents = 0 on income envelope', async () => {
+    const db = makeDb();
+    const uc = new UpdateEnvelopeUseCase(db as any, makeAudit() as any, incomeEnvelope, {
+      name: 'Salary',
+      allocatedCents: 100000,
+      spentCents: 0,
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts update without spentCents field on income envelope (no-op default)', async () => {
+    const db = makeDb();
+    const uc = new UpdateEnvelopeUseCase(db as any, makeAudit() as any, incomeEnvelope, {
+      name: 'Salary',
+      allocatedCents: 100000,
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('ArchiveEnvelopeUseCase', () => {
   it('sets isArchived to true and calls db.update', async () => {
     const db = makeDb();

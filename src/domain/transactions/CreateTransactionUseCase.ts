@@ -1,5 +1,5 @@
 import { randomUUID } from 'expo-crypto';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { InferInsertModel } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
@@ -9,6 +9,15 @@ import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { TransactionEntity } from './TransactionEntity';
+
+/** Error thrown when a transaction targets an income envelope. */
+export class InvalidEnvelopeTypeError extends Error {
+  readonly code = 'INVALID_ENVELOPE_TYPE';
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidEnvelopeTypeError';
+  }
+}
 
 interface CreateTransactionInput {
   householdId: string;
@@ -33,6 +42,20 @@ export class CreateTransactionUseCase {
   async execute(): Promise<Result<TransactionEntity>> {
     if (this.input.amountCents <= 0) {
       return createFailure({ code: 'INVALID_AMOUNT', message: 'Amount must be greater than zero' });
+    }
+
+    // Reject transactions targeting income envelopes
+    const [targetEnvelope] = await this.db
+      .select()
+      .from(envelopes)
+      .where(eq(envelopes.id, this.input.envelopeId))
+      .limit(1);
+
+    if (targetEnvelope && targetEnvelope.envelopeType === 'income') {
+      return createFailure({
+        code: 'INVALID_ENVELOPE_TYPE',
+        message: 'Transactions cannot target income envelopes',
+      });
     }
 
     const now = new Date().toISOString();
