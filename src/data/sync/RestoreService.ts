@@ -1,4 +1,5 @@
 import { sql, getTableColumns } from 'drizzle-orm';
+import { logger } from '../../infrastructure/logging/Logger';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
@@ -91,8 +92,8 @@ export class RestoreService {
           .insert(householdMembers)
           .values(insertableMember as typeof householdMembers.$inferInsert)
           .onConflictDoNothing();
-      } catch {
-        // Ignore duplicate key errors for household_members
+      } catch (err) {
+        logger.warn('household_members insert skipped (duplicate)', { err: String(err) });
       }
     }
 
