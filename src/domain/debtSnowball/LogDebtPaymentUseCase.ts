@@ -1,10 +1,10 @@
-import { sql, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
-import { debts } from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
 import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import { DrizzleDebtRepository } from '../../data/repositories/DrizzleDebtRepository';
 import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import type { IDebtRepository } from '../ports/IDebtRepository';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { DebtEntity } from './DebtEntity';
@@ -18,14 +18,17 @@ export interface LogDebtPaymentInput {
 
 export class LogDebtPaymentUseCase {
   private readonly enqueuer: ISyncEnqueuer;
+  private readonly repo: IDebtRepository;
 
   constructor(
-    private readonly db: ExpoSQLiteDatabase<typeof schema>,
+    db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: LogDebtPaymentInput,
     enqueuer?: ISyncEnqueuer,
+    repo?: IDebtRepository,
   ) {
     this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
+    this.repo = repo ?? new DrizzleDebtRepository(db);
   }
 
   async execute(): Promise<Result<DebtEntity>> {
@@ -44,16 +47,16 @@ export class LogDebtPaymentUseCase {
     const newBalance = this.input.currentDebt.outstandingBalanceCents - actualApplied;
     const isPaidOff = newBalance === 0;
 
-    await this.db
-      .update(debts)
-      .set({
-        outstandingBalanceCents: newBalance,
-        totalPaidCents: sql`${debts.totalPaidCents} + ${actualApplied}`,
-        isPaidOff,
-        updatedAt: now,
-        isSynced: false,
-      })
-      .where(eq(debts.id, this.input.debtId));
+    const newTotalPaid = this.input.currentDebt.totalPaidCents + actualApplied;
+    await this.repo.update({
+      id: this.input.debtId,
+      householdId: this.input.householdId,
+      outstandingBalanceCents: newBalance,
+      totalPaidCents: newTotalPaid,
+      isPaidOff,
+      updatedAt: now,
+      isSynced: false,
+    });
 
     await this.audit.log({
       householdId: this.input.householdId,

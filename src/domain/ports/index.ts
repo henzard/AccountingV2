@@ -1,4 +1,7 @@
 export type { ITransactionRepository } from './ITransactionRepository';
+export type { IDebtRepository } from './IDebtRepository';
+export type { IMeterReadingRepository } from './IMeterReadingRepository';
+export type { IHouseholdRepository, HouseholdRow } from './IHouseholdRepository';
 export type { IEnvelopeRepository } from './IEnvelopeRepository';
 export type { ISyncEnqueuer, SyncOperation } from './ISyncEnqueuer';
 export type { IAuditPort, AuditEntry } from './IAuditPort';
