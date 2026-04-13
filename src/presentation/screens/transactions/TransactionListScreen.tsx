@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, SectionList, Alert } from 'react-native';
-import { Text, FAB, ActivityIndicator, Surface, TouchableRipple } from 'react-native-paper';
+import { Text, FAB, ActivityIndicator, Surface, IconButton } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -118,22 +118,24 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
             </View>
           )}
           renderItem={({ item }) => (
-            <TouchableRipple
-              onLongPress={() => handleDelete(item)}
-              rippleColor={colours.errorContainer}
-            >
-              <Surface style={styles.row} elevation={1}>
-                <View style={styles.rowLeft}>
-                  <Text variant="bodyLarge" style={styles.payee} numberOfLines={1}>
-                    {item.payee ?? 'Unknown'}
-                  </Text>
-                  <Text variant="bodySmall" style={styles.envelopeName}>
-                    {envelopeNames.get(item.envelopeId) ?? '—'}
-                  </Text>
-                </View>
-                <CurrencyText amountCents={item.amountCents} style={styles.amount} />
-              </Surface>
-            </TouchableRipple>
+            <Surface style={styles.row} elevation={1}>
+              <View style={styles.rowLeft}>
+                <Text variant="bodyLarge" style={styles.payee} numberOfLines={1}>
+                  {item.payee ?? 'Unknown'}
+                </Text>
+                <Text variant="bodySmall" style={styles.envelopeName}>
+                  {envelopeNames.get(item.envelopeId) ?? '—'}
+                </Text>
+              </View>
+              <CurrencyText amountCents={item.amountCents} style={styles.amount} />
+              <IconButton
+                icon="delete-outline"
+                iconColor={colours.error}
+                size={20}
+                onPress={() => handleDelete(item)}
+                testID={`delete-tx-${item.id}`}
+              />
+            </Surface>
           )}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled
