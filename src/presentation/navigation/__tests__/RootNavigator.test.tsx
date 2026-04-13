@@ -110,6 +110,15 @@ jest.mock('../../../infrastructure/notifications/LocalNotificationScheduler', ()
   })),
 }));
 
+// ─── Mock LoadingSplash ───────────────────────────────────────────────────────
+jest.mock('../../components/shared/LoadingSplash', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+  return { LoadingSplash: () => React.createElement(View, { testID: 'loading-splash' }) };
+});
+
 // ─── Mock onboarding flag ─────────────────────────────────────────────────────
 jest.mock('../../../infrastructure/storage/onboardingFlag', () => ({
   isOnboardingComplete: jest.fn(),
@@ -184,5 +193,17 @@ describe('RootNavigator routing', () => {
 
     const { findByTestId } = render(<RootNavigator />);
     expect(await findByTestId('onboarding-nav')).toBeTruthy();
+  });
+
+  it('renders LoadingSplash (not Main or Onboarding) while onboarding flag is pending', () => {
+    mockSession = { user: { id: 'user-1' } };
+    mockHouseholdId = 'h1';
+    // Never resolves — simulates slow AsyncStorage read
+    mockIsOnboardingComplete.mockReturnValue(new Promise(() => {}));
+
+    const { getByTestId, queryByTestId } = render(<RootNavigator />);
+    expect(getByTestId('loading-splash')).toBeTruthy();
+    expect(queryByTestId('main-tab-nav')).toBeNull();
+    expect(queryByTestId('onboarding-nav')).toBeNull();
   });
 });

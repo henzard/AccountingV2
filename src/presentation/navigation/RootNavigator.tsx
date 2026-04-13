@@ -10,6 +10,7 @@ import { HouseholdPickerScreen } from '../screens/household/HouseholdPickerScree
 import { CreateHouseholdScreen } from '../screens/household/CreateHouseholdScreen';
 import { ShareInviteScreen } from '../screens/household/ShareInviteScreen';
 import { JoinHouseholdScreen } from '../screens/household/JoinHouseholdScreen';
+import { LoadingSplash } from '../components/shared/LoadingSplash';
 import { useAppStore } from '../stores/appStore';
 import { useNotificationStore } from '../stores/notificationStore';
 import { NotificationPreferencesRepository } from '../../infrastructure/notifications/NotificationPreferencesRepository';
@@ -99,10 +100,10 @@ export function RootNavigator(): React.JSX.Element {
     if (!hasHousehold) {
       return <Stack.Screen name="CreateHouseholdFlow" component={CreateHouseholdNavigator} />;
     }
-    // Wait for onboarding check to resolve before showing either wizard or main
+    // Wait for onboarding check to resolve before showing either wizard or main.
+    // Render a neutral loading screen to prevent flashing Main on slow devices.
     if (onboardingCompleted === null) {
-      // Show main tabs while checking — avoids flash; onboarding flag check is fast
-      return <Stack.Screen name="Main" component={MainTabNavigator} />;
+      return <Stack.Screen name="Auth" component={LoadingSplash} />;
     }
     if (!onboardingCompleted) {
       return <Stack.Screen name="Onboarding" component={OnboardingNavigator} />;
