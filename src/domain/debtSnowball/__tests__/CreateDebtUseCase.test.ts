@@ -5,7 +5,9 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-debt-1' }));
 const mockInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
 const mockSelect = jest.fn().mockReturnValue({
   from: jest.fn().mockReturnValue({
-    where: jest.fn().mockResolvedValue([{ count: 0 }]),
+    where: jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue([]), // PendingSyncEnqueuer dedup check → no existing rows
+    }),
   }),
 });
 const mockDb = { insert: mockInsert, select: mockSelect } as any;

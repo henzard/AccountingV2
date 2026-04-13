@@ -7,7 +7,8 @@ const mockUpdate = jest.fn().mockReturnValue({
   set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
 });
 const mockInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
-const mockDb = { update: mockUpdate, insert: mockInsert } as any;
+const mockSelect = jest.fn().mockReturnValue({ from: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) });
+const mockDb = { update: mockUpdate, insert: mockInsert, select: mockSelect } as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
 const currentDebt: DebtEntity = {

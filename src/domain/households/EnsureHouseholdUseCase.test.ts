@@ -33,11 +33,13 @@ describe('EnsureHouseholdUseCase', () => {
 
   it('creates new household + membership when none exists', async () => {
     const insertedRows: unknown[] = [];
+    const emptySelectChain = { from: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };
     const db = {
       select: jest
         .fn()
         .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) })
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) }),
+        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) })
+        .mockReturnValue(emptySelectChain), // default for PendingSyncEnqueuer dedup checks
       insert: jest.fn().mockReturnValue({
         values: (row: unknown) => {
           insertedRows.push(row);

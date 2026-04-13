@@ -6,6 +6,11 @@ describe('CreateHouseholdUseCase', () => {
   const makeDb = () => {
     const inserted: unknown[] = [];
     return {
+      select: jest.fn().mockReturnValue({
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([]),
+      }),
       insert: jest.fn().mockReturnValue({
         values: (row: unknown) => {
           inserted.push(row);

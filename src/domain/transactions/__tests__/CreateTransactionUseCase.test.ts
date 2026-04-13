@@ -6,11 +6,18 @@ const mockInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedVal
 const mockUpdate = jest.fn().mockReturnValue({
   set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
 });
-// Default: returns a non-income spending envelope
-const mockSelectWhere = jest.fn().mockResolvedValue([{ id: 'e1', envelopeType: 'spending' }]);
-const mockSelectLimit = jest.fn().mockImplementation(() => mockSelectWhere());
-const mockSelectFrom = jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: mockSelectLimit }) });
-const mockSelect = jest.fn().mockReturnValue({ from: mockSelectFrom });
+// Helper: build a mockSelect that returns envelopeRows on first call, [] on subsequent calls
+function makeSelectMock(envelopeRows: unknown[]) {
+  let callCount = 0;
+  return jest.fn().mockImplementation(() => {
+    callCount++;
+    if (callCount === 1) {
+      return { from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue(envelopeRows) }) }) };
+    }
+    return { from: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };
+  });
+}
+const mockSelect = makeSelectMock([{ id: 'e1', envelopeType: 'spending' }]);
 const mockDb = { insert: mockInsert, update: mockUpdate, select: mockSelect } as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
@@ -26,8 +33,8 @@ const input = {
 describe('CreateTransactionUseCase', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Reset select to return non-income envelope by default
-    mockSelectWhere.mockResolvedValue([{ id: 'e1', envelopeType: 'spending' }]);
+    // Reset the select mock to the default envelope each test
+    mockDb.select = makeSelectMock([{ id: 'e1', envelopeType: 'spending' }]);
   });
 
   it('returns failure when amountCents is 0', async () => {
@@ -66,8 +73,7 @@ describe('CreateTransactionUseCase', () => {
 
   it('returns INVALID_ENVELOPE_TYPE when target envelope is an income envelope', async () => {
     // Simulate envelope lookup returning an income envelope
-    mockSelectWhere.mockResolvedValueOnce([{ id: 'e1', envelopeType: 'income' }]);
-    mockSelectLimit.mockImplementationOnce(() => mockSelectWhere());
+    mockDb.select = makeSelectMock([{ id: 'e1', envelopeType: 'income' }]);
     const uc = new CreateTransactionUseCase(mockDb, mockAudit, input);
     const result = await uc.execute();
     expect(result.success).toBe(false);
@@ -81,8 +87,7 @@ describe('CreateTransactionUseCase', () => {
 
   it('returns ENVELOPE_NOT_FOUND when envelope lookup returns empty', async () => {
     // Simulate envelope lookup returning nothing (stale id / race)
-    mockSelectWhere.mockResolvedValueOnce([]);
-    mockSelectLimit.mockImplementationOnce(() => mockSelectWhere());
+    mockDb.select = makeSelectMock([]);
     const uc = new CreateTransactionUseCase(mockDb, mockAudit, input);
     const result = await uc.execute();
     expect(result.success).toBe(false);
@@ -97,8 +102,7 @@ describe('CreateTransactionUseCase', () => {
   it('returns ENVELOPE_NOT_FOUND when envelope belongs to a different household', async () => {
     // The envelope exists in the DB but the query is scoped to (envelopeId AND householdId).
     // When those don't match, the DB returns no rows — simulated here as an empty result.
-    mockSelectWhere.mockResolvedValueOnce([]);
-    mockSelectLimit.mockImplementationOnce(() => mockSelectWhere());
+    mockDb.select = makeSelectMock([]);
     const uc = new CreateTransactionUseCase(mockDb, mockAudit, {
       ...input,
       householdId: 'h-other', // different household than envelope's owner

@@ -95,20 +95,18 @@ describe('AcceptInviteUseCase — success path', () => {
       }),
     };
 
-    const dbInsertMock = jest.fn();
-    const db = {
-      insert: dbInsertMock.mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-          then: jest.fn((cb: (v: void) => void) => { cb(undefined); return Promise.resolve(); }),
-        }),
-        // For the plain .values() call from householdMembers insert
-      }),
-    };
-    // Make db.insert().values() return a thenable for direct await
-    dbInsertMock.mockReturnValue({
+    const dbInsertMock = jest.fn().mockReturnValue({
       values: jest.fn().mockResolvedValue(undefined),
     });
+    const db = {
+      select: jest.fn().mockReturnValue({
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([]),
+      }),
+      insert: dbInsertMock,
+      update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
+    };
 
     const restoreService = {
       restoreHousehold: jest.fn().mockResolvedValue({
