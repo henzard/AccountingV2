@@ -1,7 +1,12 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SlipConsentScreen } from '../screens/slipScanning/SlipConsentScreen';
+import { SlipCaptureScreen } from '../screens/slipScanning/SlipCaptureScreen';
+import { SlipProcessingScreen } from '../screens/slipScanning/SlipProcessingScreen';
+import { SlipConfirmScreen } from '../screens/slipScanning/SlipConfirmScreen';
 import { SlipQueueScreen } from '../screens/slipScanning/SlipQueueScreen';
+import type { ProgressState } from '../../application/SlipScanFlow';
+import type { EnvelopeOption } from '../screens/slipScanning/components/EnvelopePickerSheet';
 
 export type SlipScanningStackParamList = {
   SlipQueue: undefined;
@@ -19,26 +24,26 @@ export type SlipScanningStackParamList = {
 
 const Stack = createNativeStackNavigator<SlipScanningStackParamList>();
 
-/**
- * Placeholder screens for stages that require runtime dependencies
- * (camera, use cases). In App.tsx these are replaced with fully-wired versions.
- */
-function PlaceholderScreen(): React.JSX.Element {
-  return <></>;
-}
-
 export type SlipScanningStackNavigatorProps = {
   householdId: string;
   createdBy: string;
   recordConsent: (userId: string) => Promise<{ success: boolean }>;
   repo: Parameters<typeof SlipQueueScreen>[0]['repo'];
+  startScan: Parameters<typeof SlipProcessingScreen>[0]['startScan'];
+  progress: ProgressState;
+  confirmSlip: Parameters<typeof SlipConfirmScreen>[0]['confirmSlip'];
+  envelopes: EnvelopeOption[];
 };
 
 export function SlipScanningStackNavigator({
   householdId,
-  createdBy: _createdBy,
+  createdBy,
   recordConsent,
   repo,
+  startScan,
+  progress,
+  confirmSlip,
+  envelopes,
 }: SlipScanningStackNavigatorProps): React.JSX.Element {
   return (
     <Stack.Navigator screenOptions={{ headerShown: true }}>
@@ -48,21 +53,15 @@ export function SlipScanningStackNavigator({
       <Stack.Screen name="SlipConsent" options={{ title: 'Slip scanning consent' }}>
         {() => <SlipConsentScreen recordConsent={recordConsent} />}
       </Stack.Screen>
-      <Stack.Screen
-        name="SlipCapture"
-        component={PlaceholderScreen}
-        options={{ title: 'Scan slip', headerShown: false }}
-      />
-      <Stack.Screen
-        name="SlipProcessing"
-        component={PlaceholderScreen}
-        options={{ title: 'Processing', gestureEnabled: false }}
-      />
-      <Stack.Screen
-        name="SlipConfirm"
-        component={PlaceholderScreen}
-        options={{ title: 'Confirm transactions' }}
-      />
+      <Stack.Screen name="SlipCapture" options={{ title: 'Scan slip', headerShown: false }}>
+        {() => <SlipCaptureScreen householdId={householdId} createdBy={createdBy} />}
+      </Stack.Screen>
+      <Stack.Screen name="SlipProcessing" options={{ title: 'Processing', gestureEnabled: false }}>
+        {() => <SlipProcessingScreen startScan={startScan} progress={progress} />}
+      </Stack.Screen>
+      <Stack.Screen name="SlipConfirm" options={{ title: 'Confirm transactions' }}>
+        {() => <SlipConfirmScreen confirmSlip={confirmSlip} envelopes={envelopes} />}
+      </Stack.Screen>
     </Stack.Navigator>
   );
 }
