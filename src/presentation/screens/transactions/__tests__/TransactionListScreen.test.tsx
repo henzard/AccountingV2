@@ -4,11 +4,20 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useFocusEffect: jest.fn(),
 }));
-jest.mock('../../../../data/local/db', () => ({ db: {} }));
+jest.mock('../../../../data/local/db', () => ({
+  db: {
+    select: jest.fn().mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue([]),
+      }),
+    }),
+  },
+}));
 jest.mock('../../../hooks/useTransactions', () => ({
   useTransactions: jest
     .fn()
