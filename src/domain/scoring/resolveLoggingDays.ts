@@ -1,4 +1,4 @@
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { transactions } from '../../data/local/schema';
@@ -13,8 +13,8 @@ export async function resolveLoggingDays(
   periodStart: string,
   periodEnd: string,
 ): Promise<number> {
-  const rows = await db
-    .select({ date: transactions.transactionDate })
+  const [row] = await db
+    .select({ count: sql<number>`COUNT(DISTINCT ${transactions.transactionDate})` })
     .from(transactions)
     .where(
       and(
@@ -23,6 +23,5 @@ export async function resolveLoggingDays(
         lte(transactions.transactionDate, periodEnd),
       ),
     );
-  const distinctDays = new Set(rows.map((r) => r.date));
-  return distinctDays.size;
+  return row?.count ?? 0;
 }
