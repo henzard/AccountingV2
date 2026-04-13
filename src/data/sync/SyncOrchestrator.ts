@@ -1,4 +1,4 @@
-import { asc, eq, isNull } from 'drizzle-orm';
+import { asc, eq, isNull, or, lte, and } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
@@ -65,10 +65,19 @@ export class SyncOrchestrator {
   async syncPending(
     householdId?: string,
   ): Promise<{ synced: number; failed: number; emfFlipped: number }> {
+    // Only fetch items whose backoff window has elapsed.
+    // lastAttemptedAt stores the *next-allowed retry time* (not the last attempt time).
+    // Items with no lastAttemptedAt are first-time attempts — always eligible.
+    const nowIso = new Date().toISOString();
     const pending = await this.db
       .select()
       .from(pendingSync)
-      .where(isNull(pendingSync.deadLetteredAt))
+      .where(
+        and(
+          isNull(pendingSync.deadLetteredAt),
+          or(isNull(pendingSync.lastAttemptedAt), lte(pendingSync.lastAttemptedAt, nowIso)),
+        ),
+      )
       .orderBy(asc(pendingSync.createdAt))
       .limit(100);
 

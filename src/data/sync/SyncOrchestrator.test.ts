@@ -571,6 +571,108 @@ describe('SyncOrchestrator — per-table merge RPC routing', () => {
   );
 });
 
+describe('SyncOrchestrator — backoff timing enforcement', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('does not process a row whose backoff window has not elapsed, then processes it after backoff clears', async () => {
+    // backoff for retryCount=2: min(60000, 1000 * 2**2) = 4000 ms
+    const now = new Date('2026-04-12T10:00:00.000Z');
+    jest.setSystemTime(now);
+
+    const backoffMs = Math.min(60_000, 1000 * 2 ** 2); // 4000 ms
+    const nextAttemptIso = new Date(now.getTime() + backoffMs).toISOString();
+
+    const pendingRow = {
+      id: 'back-1',
+      tableName: 'envelopes',
+      recordId: 'e-back-1',
+      operation: 'INSERT',
+      retryCount: 2,
+      createdAt: new Date(now.getTime() - 10_000).toISOString(), // created 10s ago
+      deadLetteredAt: null,
+      lastAttemptedAt: nextAttemptIso, // next allowed attempt is 4s in the future
+    };
+
+    // makePendingQueueChain ignores the where clause, so we implement a smart
+    // select mock that simulates the lte filter by checking the current time.
+    let callCount = 0;
+    const selectMock = jest.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // First syncPending() — backoff not elapsed: filter returns no rows
+        const nowAtCall = new Date().toISOString();
+        const rows = pendingRow.lastAttemptedAt <= nowAtCall ? [pendingRow] : [];
+        return makePendingQueueChain(rows);
+      }
+      // Second syncPending() — backoff elapsed: filter returns the row
+      const nowAtCall = new Date().toISOString();
+      const rows = pendingRow.lastAttemptedAt <= nowAtCall ? [pendingRow] : [];
+      if (rows.length > 0) {
+        // Return row fetch mock for processItem
+        return {
+          from: () => ({
+            where: () => ({
+              limit: () =>
+                Promise.resolve([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]),
+            }),
+          }),
+        };
+      }
+      return makePendingQueueChain([]);
+    });
+
+    const rpcMock = jest.fn().mockResolvedValue({ error: null });
+    const db = {
+      select: selectMock,
+      delete: () => ({ where: () => Promise.resolve() }),
+      update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+    } as any;
+    const supabase = { rpc: rpcMock, from: () => ({ upsert: jest.fn() }) } as any;
+
+    const orch = new SyncOrchestrator(db, supabase);
+
+    // First call — backoff not yet elapsed (now === row's lastAttemptedAt - 4s)
+    const result1 = await orch.syncPending();
+    expect(result1.synced).toBe(0);
+    expect(result1.failed).toBe(0);
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    // Advance time by 5 seconds — backoff (4s) has now elapsed
+    jest.advanceTimersByTime(5000);
+
+    // Rebuild the select mock so it now simulates the pending-queue query and the row fetch
+    callCount = 0;
+    const selectMock2 = jest.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // Pending queue — backoff elapsed, row is returned
+        return makePendingQueueChain([pendingRow]);
+      }
+      // Row fetch for processItem
+      return {
+        from: () => ({
+          where: () => ({
+            limit: () =>
+              Promise.resolve([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]),
+          }),
+        }),
+      };
+    });
+    db.select = selectMock2;
+
+    const result2 = await orch.syncPending();
+    expect(result2.synced).toBe(1);
+    expect(result2.failed).toBe(0);
+    expect(rpcMock).toHaveBeenCalledWith('merge_envelope', expect.any(Object));
+  });
+});
+
 describe('SyncOrchestrator — DLQ after max retries', () => {
   it('dead-letters a poison-pill row after 10 retries', async () => {
     const poisonRow = {
