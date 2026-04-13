@@ -116,3 +116,12 @@ DROP POLICY IF EXISTS hm_delete ON public.household_members;
 CREATE POLICY hm_delete ON public.household_members
   FOR DELETE TO authenticated
   USING (user_id = auth.uid());
+
+ALTER TABLE public.debts ADD COLUMN IF NOT EXISTS initial_balance_cents BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.debts ADD COLUMN IF NOT EXISTS total_paid_cents BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE public.envelopes
+  DROP CONSTRAINT IF EXISTS envelopes_envelope_type_check;
+ALTER TABLE public.envelopes
+  ADD CONSTRAINT envelopes_envelope_type_check
+  CHECK (envelope_type IN ('spending','savings','emergency_fund','baby_step','utility','income'));
