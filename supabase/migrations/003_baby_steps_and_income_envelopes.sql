@@ -96,10 +96,9 @@ BEGIN
     row.created_at,
     row.updated_at
   )
-  ON CONFLICT (id) DO UPDATE
+  ON CONFLICT ON CONSTRAINT idx_baby_steps_household_step DO UPDATE
     SET
-      household_id  = EXCLUDED.household_id,
-      step_number   = EXCLUDED.step_number,
+      -- id is intentionally omitted: the existing row's original UUID is kept.
       is_completed  = EXCLUDED.is_completed,
       completed_at  = EXCLUDED.completed_at,
       is_manual     = EXCLUDED.is_manual,
