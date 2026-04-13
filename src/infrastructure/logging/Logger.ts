@@ -1,3 +1,5 @@
+import { recordError } from '../monitoring/crashlytics';
+
 export interface Logger {
   info(msg: string, data?: Record<string, unknown>): void;
   warn(msg: string, data?: Record<string, unknown>): void;
@@ -13,7 +15,7 @@ class ConsoleLogger implements Logger {
   }
   error(msg: string, err: unknown, data?: Record<string, unknown>) {
     console.error(msg, err, data);
-    // Crashlytics hook wired in Task A12
+    recordError(err, data as Record<string, string | number | boolean> | undefined);
   }
 }
 

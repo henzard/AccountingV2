@@ -55,6 +55,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     'expo-sqlite',
     'expo-secure-store',
     '@react-native-firebase/app',
+    '@react-native-firebase/crashlytics',
     '@react-native-firebase/messaging',
     ['expo-notifications', { icon: './assets/icon.png', color: '#00695C' }],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

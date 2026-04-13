@@ -18,6 +18,7 @@ module.exports = {
     '^react-native-vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
     '^@expo/vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
     '^@expo/vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
+    '^@react-native-firebase/crashlytics$': '<rootDir>/__mocks__/@react-native-firebase/crashlytics.js',
   },
   collectCoverageFrom: ['src/domain/**/*.ts', '!src/domain/**/index.ts'],
   coverageThreshold: { global: { lines: 80 } },

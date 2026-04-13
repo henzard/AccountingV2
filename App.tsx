@@ -22,6 +22,7 @@ import { babySteps as babyStepsTable } from './src/data/local/schema';
 import { and, eq } from 'drizzle-orm';
 import { useCelebrationStore } from './src/presentation/stores/celebrationStore';
 import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
+import { initCrashlytics } from './src/infrastructure/monitoring/crashlytics';
 
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
@@ -119,6 +120,7 @@ export default function App(): React.JSX.Element {
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session ?? null;
       setSession(session);
+      void initCrashlytics(session?.user?.id ?? null);
       if (session) {
         await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
         // Re-bind after household is resolved so checker uses the new householdId.
