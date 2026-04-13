@@ -20,7 +20,12 @@ export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): R
 
   return (
     <View style={styles.container}>
-      <View style={styles.track}>
+      <View
+        style={styles.track}
+        accessibilityRole="progressbar"
+        accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
+        accessibilityLabel={`${label}: ${Math.round(clamped)}% paid off`}
+      >
         <View
           style={[
             styles.fill,

@@ -123,6 +123,9 @@ export function SignUpScreen(): React.JSX.Element {
             mode="outlined"
             style={styles.input}
             disabled={loading}
+            accessibilityLabel="Email address"
+            accessibilityRole="none"
+            maxFontSizeMultiplier={1.6}
           />
 
           <TextInput
@@ -135,6 +138,9 @@ export function SignUpScreen(): React.JSX.Element {
             mode="outlined"
             style={styles.input}
             disabled={loading}
+            accessibilityLabel="Password, at least 8 characters"
+            accessibilityRole="none"
+            maxFontSizeMultiplier={1.6}
           />
 
           <TextInput
@@ -147,10 +153,19 @@ export function SignUpScreen(): React.JSX.Element {
             mode="outlined"
             style={styles.input}
             disabled={loading}
+            accessibilityLabel="Confirm password"
+            accessibilityRole="none"
+            maxFontSizeMultiplier={1.6}
           />
 
           {err !== null && (
-            <HelperText type="error" visible testID="signup-error">
+            <HelperText
+              type="error"
+              visible
+              testID="signup-error"
+              accessibilityLiveRegion="assertive"
+              accessibilityRole="alert"
+            >
               {err}
             </HelperText>
           )}
