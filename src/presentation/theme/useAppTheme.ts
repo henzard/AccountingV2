@@ -1,3 +1,10 @@
+/**
+ * Dark mode palette and hook are defined but not yet adopted by most components.
+ * Screens and shared components currently import `colours` directly from tokens.
+ * Full dark-mode rollout is a follow-up task — the infrastructure (darkColours palette,
+ * darkTheme object, useAppTheme hook) is complete and ready for component adoption.
+ */
+
 import { useColorScheme } from 'react-native';
 import { MD3LightTheme, MD3DarkTheme, configureFonts } from 'react-native-paper';
 import { colours, darkColours } from './tokens';
