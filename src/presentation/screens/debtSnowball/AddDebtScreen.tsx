@@ -121,11 +121,13 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         accessibilityHint="Required — enter the minimum monthly payment in rands"
       />
 
-      {error ? (
-        <View accessibilityLiveRegion="polite">
-          <HelperText type="error">{error}</HelperText>
-        </View>
-      ) : null}
+      <View accessibilityLiveRegion="polite">
+        {error ? (
+          <HelperText type="error" visible>
+            {error}
+          </HelperText>
+        ) : null}
+      </View>
 
       <Button
         mode="contained"

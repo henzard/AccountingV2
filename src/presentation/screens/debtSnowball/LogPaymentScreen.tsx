@@ -79,11 +79,13 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
         autoFocus
         accessibilityHint="Required — enter the payment amount in rands"
       />
-      {error ? (
-        <View accessibilityLiveRegion="polite">
-          <HelperText type="error">{error}</HelperText>
-        </View>
-      ) : null}
+      <View accessibilityLiveRegion="polite">
+        {error ? (
+          <HelperText type="error" visible>
+            {error}
+          </HelperText>
+        ) : null}
+      </View>
       <Button
         mode="contained"
         onPress={handleSave}
