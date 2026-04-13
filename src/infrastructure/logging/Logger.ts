@@ -17,7 +17,14 @@ class ConsoleLogger implements Logger {
 
   error(msg: string, err: unknown, data?: Record<string, unknown>): void {
     console.error(msg, err, data);
-    recordError(err, data as Record<string, string | number | boolean> | undefined);
+    if (!__DEV__) {
+      const ctx: Record<string, string> = { msg };
+      if (data)
+        Object.entries(data).forEach(([k, v]) => {
+          ctx[k] = String(v);
+        });
+      recordError(err, ctx);
+    }
   }
 }
 
