@@ -233,6 +233,7 @@ CREATE POLICY slip_images_delete ON storage.objects
 CREATE OR REPLACE FUNCTION public.set_slip_queue_updated_at()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
 AS $$
 BEGIN
   NEW.updated_at = NOW()::text;

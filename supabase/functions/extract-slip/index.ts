@@ -5,6 +5,7 @@ import type { OpenAIUsage } from './pricing.ts';
 const SLIP_SCHEMA = {
   type: 'object',
   required: ['merchant', 'slip_date', 'total_cents', 'items'],
+  additionalProperties: false,
   properties: {
     merchant: { type: ['string', 'null'] },
     slip_date: { type: ['string', 'null'] },
@@ -20,6 +21,7 @@ const SLIP_SCHEMA = {
           'suggested_envelope_id',
           'confidence',
         ],
+        additionalProperties: false,
         properties: {
           description: { type: 'string' },
           amount_cents: { type: 'integer' },
@@ -206,8 +208,19 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       confidence: number;
     }>;
   };
+  const rawContent: string | null | undefined = openaiJson.choices?.[0]?.message?.content;
+  if (!rawContent) {
+    await adminSupabase
+      .from('slip_queue')
+      .update({
+        status: 'failed',
+        error_message: 'Empty OpenAI response',
+      })
+      .eq('id', slip_id);
+    return new Response('Empty OpenAI response', { status: 503 });
+  }
   try {
-    parsed = JSON.parse(openaiJson.choices[0].message.content);
+    parsed = JSON.parse(rawContent);
   } catch {
     await adminSupabase
       .from('slip_queue')
