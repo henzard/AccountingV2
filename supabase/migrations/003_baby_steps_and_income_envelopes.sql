@@ -35,7 +35,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_baby_steps_household_step
 -- ──────────────────────────────────────────────────────────────────────────────
 -- 4. merge_baby_step RPC
 --    Performs an UPSERT with celebrated_at preservation:
---      - If the incoming row has celebrated_at IS NULL but the existing row has
+--      - If the incoming r has celebrated_at IS NULL but the existing r has
 --        celebrated_at IS NOT NULL, keep the existing stamp (one-shot for life).
 --      - LWW on updated_at for all other columns.
 --
@@ -52,7 +52,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_baby_steps_household_step
 --      versions.
 --      SET search_path = public prevents search_path injection attacks.
 -- ──────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.merge_baby_step(row baby_steps)
+CREATE OR REPLACE FUNCTION public.merge_baby_step(r public.baby_steps)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -65,12 +65,12 @@ BEGIN
   -- Verify the caller belongs to the target household before any write.
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id
+    WHERE household_id = r.household_id
       AND user_id = caller_id
   ) INTO is_member;
 
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -86,15 +86,15 @@ BEGIN
     updated_at
   )
   VALUES (
-    row.id,
-    row.household_id,
-    row.step_number,
-    row.is_completed,
-    row.completed_at,
-    row.is_manual,
-    row.celebrated_at,
-    row.created_at,
-    row.updated_at
+    r.id,
+    r.household_id,
+    r.step_number,
+    r.is_completed,
+    r.completed_at,
+    r.is_manual,
+    r.celebrated_at,
+    r.created_at,
+    r.updated_at
   )
   ON CONFLICT ON CONSTRAINT idx_baby_steps_household_step DO UPDATE
     SET
@@ -102,7 +102,7 @@ BEGIN
       is_completed  = EXCLUDED.is_completed,
       completed_at  = EXCLUDED.completed_at,
       is_manual     = EXCLUDED.is_manual,
-      -- celebrated_at: preserve existing stamp if incoming row has none
+      -- celebrated_at: preserve existing stamp if incoming r has none
       celebrated_at = CASE
                         WHEN EXCLUDED.celebrated_at IS NULL
                              AND baby_steps.celebrated_at IS NOT NULL
@@ -111,11 +111,11 @@ BEGIN
                       END,
       created_at    = EXCLUDED.created_at,
       updated_at    = EXCLUDED.updated_at
-    -- LWW guard: only update if the incoming row is newer
+    -- LWW guard: only update if the incoming r is newer
     WHERE EXCLUDED.updated_at >= baby_steps.updated_at;
 END;
 $$;
 
 -- Grant execute to authenticated users (matching existing RLS pattern where
 -- authenticated users access their household-scoped rows).
-GRANT EXECUTE ON FUNCTION public.merge_baby_step(baby_steps) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_baby_step(public.baby_steps) TO authenticated;

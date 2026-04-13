@@ -2,22 +2,38 @@
 -- Hotfix the merge_baby_step RPC: change ON CONFLICT from named-constraint form
 -- to column-list form so it works with a standalone unique index.
 
-CREATE OR REPLACE FUNCTION public.merge_baby_step(row baby_steps)
+-- Create household_members table if not already present (it is the remote counterpart
+-- to the local SQLite mirror; user_households is the RLS junction table).
+CREATE TABLE IF NOT EXISTS public.household_members (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES public.households(id),
+  user_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  joined_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::TEXT
+);
+
+-- Add updated_at to existing rows (idempotent; no-op if table was just created above).
+ALTER TABLE public.household_members
+  ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::TEXT;
+
+
+CREATE OR REPLACE FUNCTION public.merge_baby_step(r public.baby_steps)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id AND user_id = caller_id
+    WHERE household_id = r.household_id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -26,8 +42,8 @@ BEGIN
     is_manual, celebrated_at, created_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.step_number, row.is_completed, row.completed_at,
-    row.is_manual, row.celebrated_at, row.created_at, row.updated_at
+    r.id, r.household_id, r.step_number, r.is_completed, r.completed_at,
+    r.is_manual, r.celebrated_at, r.created_at, r.updated_at
   )
   ON CONFLICT (household_id, step_number) DO UPDATE
     SET
@@ -48,7 +64,7 @@ $$;
 
 -- Defensive re-grant for merge_baby_step: CREATE OR REPLACE preserves grants in Postgres,
 -- but we re-state it here for auditability. The original GRANT lives in 003.
-GRANT EXECUTE ON FUNCTION public.merge_baby_step(baby_steps) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_baby_step(public.baby_steps) TO authenticated;
 
 -- Mirror household_members inserts into user_households so RLS keeps working.
 -- (Remove if user_households is phased out later.)
@@ -60,7 +76,7 @@ SET search_path = public
 AS $$
 BEGIN
   INSERT INTO public.user_households (user_id, household_id, role, created_at)
-  VALUES (NEW.user_id, NEW.household_id, COALESCE(NEW.role, 'member'), NEW.created_at)
+  VALUES (NEW.user_id::uuid, NEW.household_id, COALESCE(NEW.role, 'member'), NEW.created_at)
   ON CONFLICT (user_id, household_id) DO NOTHING;
   RETURN NEW;
 END;
@@ -74,32 +90,47 @@ CREATE TRIGGER tr_household_members_sync_user_households
 
 -- RLS on invitations: only the inviter or the person accepting may read;
 -- only authenticated users may insert; only the creator may update/delete.
+
+-- Create invitations table (was previously assumed to exist from Dashboard setup).
+CREATE TABLE IF NOT EXISTS public.invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT NOT NULL UNIQUE,
+  household_id TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_by TEXT,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')::TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_invitations_code ON public.invitations(code);
+
 ALTER TABLE public.invitations ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS inv_select ON public.invitations;
 CREATE POLICY inv_select ON public.invitations
   FOR SELECT TO authenticated
   USING (
-    invited_by_user_id = auth.uid()
-    OR used_by_user_id = auth.uid()
-    OR (used_by_user_id IS NULL AND expires_at > NOW())
+    created_by = auth.uid()::text
+    OR used_by = auth.uid()::text
+    OR (used_by IS NULL AND expires_at::timestamptz > NOW())
   );
 -- Note: the last clause lets an acceptor look up by code. The code is the secret.
 
 DROP POLICY IF EXISTS inv_insert ON public.invitations;
 CREATE POLICY inv_insert ON public.invitations
   FOR INSERT TO authenticated
-  WITH CHECK (invited_by_user_id = auth.uid());
+  WITH CHECK (created_by = auth.uid()::text);
 
 DROP POLICY IF EXISTS inv_update ON public.invitations;
 CREATE POLICY inv_update ON public.invitations
   FOR UPDATE TO authenticated
-  USING (invited_by_user_id = auth.uid())
-  WITH CHECK (invited_by_user_id = auth.uid());
+  USING (created_by = auth.uid()::text)
+  WITH CHECK (created_by = auth.uid()::text);
 
 -- SECURITY DEFINER RPC for the "claim invite" path.
 -- Only this function (not the inv_update policy) may mark an invitation as used
--- by a non-inviter, ensuring used_by_user_id is always set to the caller's own id
+-- by a non-inviter, ensuring used_by is always set to the caller's own id
 -- and that the invite is not expired or already claimed.
 CREATE OR REPLACE FUNCTION public.claim_invite(invite_id TEXT)
 RETURNS void
@@ -108,13 +139,13 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
 BEGIN
   UPDATE public.invitations
-  SET used_by_user_id = caller_id, used_at = NOW()
-  WHERE id = invite_id
-    AND used_by_user_id IS NULL
-    AND expires_at > NOW();
+  SET used_by = caller_id, used_at = NOW()
+  WHERE id = invite_id::uuid
+    AND used_by IS NULL
+    AND expires_at::timestamptz > NOW();
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'invite not found, already claimed, or expired'
@@ -125,8 +156,8 @@ $$;
 GRANT EXECUTE ON FUNCTION public.claim_invite(TEXT) TO authenticated;
 
 -- RLS on household_members: members can read their own households' members;
--- only the user themself may insert their row (via the trigger chain);
--- only the user themself may delete their row.
+-- only the user themself may insert their r (via the trigger chain);
+-- only the user themself may delete their r.
 ALTER TABLE public.household_members ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS hm_select ON public.household_members;
@@ -134,19 +165,19 @@ CREATE POLICY hm_select ON public.household_members
   FOR SELECT TO authenticated
   USING (
     household_id IN (
-      SELECT household_id FROM public.user_households WHERE user_id = auth.uid()
+      SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text
     )
   );
 
 DROP POLICY IF EXISTS hm_insert ON public.household_members;
 CREATE POLICY hm_insert ON public.household_members
   FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 DROP POLICY IF EXISTS hm_delete ON public.household_members;
 CREATE POLICY hm_delete ON public.household_members
   FOR DELETE TO authenticated
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 ALTER TABLE public.debts ADD COLUMN IF NOT EXISTS initial_balance_cents BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE public.debts ADD COLUMN IF NOT EXISTS total_paid_cents BIGINT NOT NULL DEFAULT 0;
@@ -157,39 +188,24 @@ ALTER TABLE public.envelopes
   ADD CONSTRAINT envelopes_envelope_type_check
   CHECK (envelope_type IN ('spending','savings','emergency_fund','baby_step','utility','income'));
 
--- Create household_members table if not already present (it is the remote counterpart
--- to the local SQLite mirror; user_households is the RLS junction table).
-CREATE TABLE IF NOT EXISTS public.household_members (
-  id TEXT PRIMARY KEY,
-  household_id TEXT NOT NULL REFERENCES public.households(id),
-  user_id TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'member',
-  joined_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::TEXT
-);
-
--- Add updated_at to existing rows (idempotent; no-op if table was just created above).
-ALTER TABLE public.household_members
-  ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::TEXT;
-
 -- Merge RPCs: one per sync table, LWW guard via WHERE EXCLUDED.updated_at >= existing.updated_at.
 
-CREATE OR REPLACE FUNCTION public.merge_envelope(row envelopes)
+CREATE OR REPLACE FUNCTION public.merge_envelope(r public.envelopes)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id AND user_id = caller_id
+    WHERE household_id = r.household_id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -198,8 +214,8 @@ BEGIN
     is_savings_locked, is_archived, period_start, created_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.name, row.allocated_cents, row.spent_cents, row.envelope_type,
-    row.is_savings_locked, row.is_archived, row.period_start, row.created_at, row.updated_at
+    r.id, r.household_id, r.name, r.allocated_cents, r.spent_cents, r.envelope_type,
+    r.is_savings_locked, r.is_archived, r.period_start, r.created_at, r.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
@@ -215,24 +231,24 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_envelope(envelopes) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_envelope(public.envelopes) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.merge_transaction(row transactions)
+CREATE OR REPLACE FUNCTION public.merge_transaction(r public.transactions)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id AND user_id = caller_id
+    WHERE household_id = r.household_id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -241,8 +257,8 @@ BEGIN
     transaction_date, is_business_expense, spending_trigger_note, created_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.envelope_id, row.amount_cents, row.payee, row.description,
-    row.transaction_date, row.is_business_expense, row.spending_trigger_note, row.created_at, row.updated_at
+    r.id, r.household_id, r.envelope_id, r.amount_cents, r.payee, r.description,
+    r.transaction_date, r.is_business_expense, r.spending_trigger_note, r.created_at, r.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
@@ -258,24 +274,24 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_transaction(transactions) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_transaction(public.transactions) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.merge_debt(row debts)
+CREATE OR REPLACE FUNCTION public.merge_debt(r public.debts)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id AND user_id = caller_id
+    WHERE household_id = r.household_id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -285,9 +301,9 @@ BEGIN
     sort_order, is_paid_off, total_paid_cents, created_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.creditor_name, row.debt_type, row.outstanding_balance_cents,
-    row.initial_balance_cents, row.interest_rate_percent, row.minimum_payment_cents,
-    row.sort_order, row.is_paid_off, row.total_paid_cents, row.created_at, row.updated_at
+    r.id, r.household_id, r.creditor_name, r.debt_type, r.outstanding_balance_cents,
+    r.initial_balance_cents, r.interest_rate_percent, r.minimum_payment_cents,
+    r.sort_order, r.is_paid_off, r.total_paid_cents, r.created_at, r.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
@@ -305,24 +321,24 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_debt(debts) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_debt(public.debts) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.merge_meter_reading(row meter_readings)
+CREATE OR REPLACE FUNCTION public.merge_meter_reading(r public.meter_readings)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id AND user_id = caller_id
+    WHERE household_id = r.household_id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -331,8 +347,8 @@ BEGIN
     cost_cents, vehicle_id, notes, created_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.meter_type, row.reading_value, row.reading_date,
-    row.cost_cents, row.vehicle_id, row.notes, row.created_at, row.updated_at
+    r.id, r.household_id, r.meter_type, r.reading_value, r.reading_date,
+    r.cost_cents, r.vehicle_id, r.notes, r.created_at, r.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
@@ -347,24 +363,24 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_meter_reading(meter_readings) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_meter_reading(public.meter_readings) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.merge_household(row households)
+CREATE OR REPLACE FUNCTION public.merge_household(r public.households)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.id AND user_id = caller_id
+    WHERE household_id = r.id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.id
+    RAISE EXCEPTION 'not a member of household %', r.id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -372,7 +388,7 @@ BEGIN
     id, name, payday_day, user_level, created_at, updated_at
   )
   VALUES (
-    row.id, row.name, row.payday_day, row.user_level, row.created_at, row.updated_at
+    r.id, r.name, r.payday_day, r.user_level, r.created_at, r.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
@@ -384,20 +400,20 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_household(households) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_household(public.households) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.merge_household_member(row household_members)
+CREATE OR REPLACE FUNCTION public.merge_household_member(r public.household_members)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
 BEGIN
-  -- For household_members, only the user themselves may upsert their own row.
-  IF row.user_id::uuid != caller_id THEN
-    RAISE EXCEPTION 'may only upsert your own household_members row'
+  -- For household_members, only the user themselves may upsert their own r.
+  IF r.user_id::uuid != caller_id THEN
+    RAISE EXCEPTION 'may only upsert your own household_members r'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -405,7 +421,7 @@ BEGIN
     id, household_id, user_id, role, joined_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.user_id, row.role, row.joined_at, row.updated_at
+    r.id, r.household_id, r.user_id, r.role, r.joined_at, r.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
@@ -416,7 +432,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_household_member(household_members) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_household_member(public.household_members) TO authenticated;
 
 -- Remote audit_events table (mirrors local schema columns)
 CREATE TABLE IF NOT EXISTS public.audit_events (
@@ -432,27 +448,27 @@ CREATE TABLE IF NOT EXISTS public.audit_events (
 ALTER TABLE public.audit_events ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS ae_select ON public.audit_events;
 CREATE POLICY ae_select ON public.audit_events FOR SELECT TO authenticated
-  USING (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+  USING (household_id IN (SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text));
 DROP POLICY IF EXISTS ae_insert ON public.audit_events;
 CREATE POLICY ae_insert ON public.audit_events FOR INSERT TO authenticated
-  WITH CHECK (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+  WITH CHECK (household_id IN (SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text));
 
-CREATE OR REPLACE FUNCTION public.merge_audit_event(row audit_events)
+CREATE OR REPLACE FUNCTION public.merge_audit_event(r public.audit_events)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id AND user_id = caller_id
+    WHERE household_id = r.household_id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -461,14 +477,14 @@ BEGIN
     previous_value_json, new_value_json, created_at
   )
   VALUES (
-    row.id, row.household_id, row.entity_type, row.entity_id, row.action,
-    row.previous_value_json, row.new_value_json, row.created_at
+    r.id, r.household_id, r.entity_type, r.entity_id, r.action,
+    r.previous_value_json, r.new_value_json, r.created_at
   )
   ON CONFLICT (id) DO NOTHING; -- audit events are immutable; first-write wins
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_audit_event(audit_events) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_audit_event(public.audit_events) TO authenticated;
 
 -- Remote slip_queue table (mirrors local schema columns)
 CREATE TABLE IF NOT EXISTS public.slip_queue (
@@ -484,27 +500,27 @@ CREATE TABLE IF NOT EXISTS public.slip_queue (
 ALTER TABLE public.slip_queue ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS sq_select ON public.slip_queue;
 CREATE POLICY sq_select ON public.slip_queue FOR SELECT TO authenticated
-  USING (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+  USING (household_id IN (SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text));
 DROP POLICY IF EXISTS sq_insert ON public.slip_queue;
 CREATE POLICY sq_insert ON public.slip_queue FOR INSERT TO authenticated
-  WITH CHECK (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+  WITH CHECK (household_id IN (SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text));
 
-CREATE OR REPLACE FUNCTION public.merge_slip_queue(row slip_queue)
+CREATE OR REPLACE FUNCTION public.merge_slip_queue(r public.slip_queue)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid();
+  caller_id uuid := auth.uid()::text;
   is_member boolean;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM public.user_households
-    WHERE household_id = row.household_id AND user_id = caller_id
+    WHERE household_id = r.household_id AND user_id = caller_id
   ) INTO is_member;
   IF NOT is_member THEN
-    RAISE EXCEPTION 'not a member of household %', row.household_id
+    RAISE EXCEPTION 'not a member of household %', r.household_id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -513,8 +529,8 @@ BEGIN
     retry_count, created_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.image_base64, row.status, row.extracted_json,
-    row.retry_count, row.created_at, row.updated_at
+    r.id, r.household_id, r.image_base64, r.status, r.extracted_json,
+    r.retry_count, r.created_at, r.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
@@ -526,4 +542,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.merge_slip_queue(slip_queue) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_slip_queue(public.slip_queue) TO authenticated;

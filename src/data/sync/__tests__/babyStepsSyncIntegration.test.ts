@@ -128,7 +128,7 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     expect(rpcMock).toHaveBeenCalledWith(
       'merge_baby_step',
       expect.objectContaining({
-        row: expect.objectContaining({
+        r: expect.objectContaining({
           id: 'bs-device-a-1',
           celebrated_at: '2026-04-12T10:05:00Z', // NOT null — stamp preserved
         }),
@@ -180,7 +180,7 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     expect(rpcMock).toHaveBeenCalledWith(
       'merge_baby_step',
       expect.objectContaining({
-        row: expect.objectContaining({
+        r: expect.objectContaining({
           celebrated_at: null,
         }),
       }),
@@ -246,11 +246,11 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     expect(rpcMock).toHaveBeenCalledTimes(2);
 
     // First call: stamp present
-    const firstCallRow = rpcMock.mock.calls[0][1].row;
+    const firstCallRow = rpcMock.mock.calls[0][1].r;
     expect(firstCallRow.celebrated_at).toBe('2026-04-12T10:05:00Z');
 
     // Second call: stamp absent
-    const secondCallRow = rpcMock.mock.calls[1][1].row;
+    const secondCallRow = rpcMock.mock.calls[1][1].r;
     expect(secondCallRow.celebrated_at).toBeNull();
   });
 });

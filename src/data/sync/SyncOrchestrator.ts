@@ -196,7 +196,8 @@ export class SyncOrchestrator {
     const rpcName = TABLE_RPC_MAP[item.tableName];
     if (rpcName) {
       // Route through per-table merge RPC with LWW guard
-      const { error } = await this.supabase.rpc(rpcName, { row: snakeRow });
+      // Param key matches the SQL function arg name (`r`); `row` is reserved in PL/pgSQL.
+      const { error } = await this.supabase.rpc(rpcName, { r: snakeRow });
       syncError = error;
     } else {
       const { error } = await this.supabase

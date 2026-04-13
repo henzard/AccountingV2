@@ -146,7 +146,7 @@ describe('SyncOrchestrator.syncPending', () => {
       // RPC was called with the merge_baby_step function name
       expect(rpcMock).toHaveBeenCalledWith(
         'merge_baby_step',
-        expect.objectContaining({ row: expect.objectContaining({ id: 'bs-1' }) }),
+        expect.objectContaining({ r: expect.objectContaining({ id: 'bs-1' }) }),
       );
       // Plain upsert must NOT have been called for baby_steps
       expect(upsertMock).not.toHaveBeenCalled();
