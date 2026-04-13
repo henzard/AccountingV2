@@ -16,13 +16,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  Animated,
-  useWindowDimensions,
-  AccessibilityInfo,
-} from 'react-native';
+import { View, StyleSheet, Animated, useWindowDimensions, AccessibilityInfo } from 'react-native';
 import { Text } from 'react-native-paper';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import { colours, spacing } from '../../../theme/tokens';
@@ -42,9 +36,7 @@ export interface SevenDotPathProps {
 }
 
 function buildDotString(statuses: BabyStepStatus[]): string {
-  return statuses
-    .map((s) => (s.isCompleted ? '●' : '○'))
-    .join('');
+  return statuses.map((s) => (s.isCompleted ? '●' : '○')).join('');
 }
 
 function getCurrentStepTitle(statuses: BabyStepStatus[]): { stepNumber: number; title: string } {
@@ -120,11 +112,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
   if (isCompact) {
     const dots = buildDotString(statuses);
     return (
-      <View
-        style={styles.compactContainer}
-        accessible
-        accessibilityLabel={a11yLabel}
-      >
+      <View style={styles.compactContainer} accessible accessibilityLabel={a11yLabel}>
         <Text variant="bodySmall" style={styles.compactDots}>
           {dots}
         </Text>
@@ -144,14 +132,21 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
   const segment = availableWidth / (totalNodes - 1);
   const cy = containerHeight / 2;
 
-  const nodes = statuses.length === totalNodes ? statuses : Array.from({ length: totalNodes }, (_, i) => ({
-    stepNumber: (i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7,
-    isCompleted: false,
-    isManual: false,
-    progress: null,
-    completedAt: null,
-    celebratedAt: null,
-  } as BabyStepStatus));
+  const nodes =
+    statuses.length === totalNodes
+      ? statuses
+      : Array.from(
+          { length: totalNodes },
+          (_, i) =>
+            ({
+              stepNumber: (i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7,
+              isCompleted: false,
+              isManual: false,
+              progress: null,
+              completedAt: null,
+              celebratedAt: null,
+            }) as BabyStepStatus,
+        );
 
   const currentIndex = nodes.findIndex((s) => !s.isCompleted);
 
@@ -165,11 +160,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
       accessibilityLabel={a11yLabel}
     >
       {/* Connection line — draw behind nodes */}
-      <Svg
-        style={StyleSheet.absoluteFill}
-        width="100%"
-        height={containerHeight}
-      >
+      <Svg style={StyleSheet.absoluteFill} width="100%" height={containerHeight}>
         {/* Full background line */}
         <Line
           x1={paddingH}
@@ -199,8 +190,14 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
           if (isComplete) {
             return (
               <React.Fragment key={s.stepNumber}>
-                <Circle cx={cx} cy={cy} r={NODE_RADIUS_COMPLETE}
-                  fill={colours.primary} stroke={colours.primary} strokeWidth={STROKE_WIDTH} />
+                <Circle
+                  cx={cx}
+                  cy={cy}
+                  r={NODE_RADIUS_COMPLETE}
+                  fill={colours.primary}
+                  stroke={colours.primary}
+                  strokeWidth={STROKE_WIDTH}
+                />
                 {/* Check mark */}
                 <Path
                   d={`M${cx - 5} ${cy} L${cx - 1.5} ${cy + 4} L${cx + 5} ${cy - 4}`}
@@ -217,9 +214,15 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
           if (!isCurrentNode) {
             // Future
             return (
-              <Circle key={s.stepNumber}
-                cx={cx} cy={cy} r={NODE_RADIUS_FUTURE - STROKE_WIDTH / 2}
-                fill="transparent" stroke={colours.outlineVariant} strokeWidth={STROKE_WIDTH} />
+              <Circle
+                key={s.stepNumber}
+                cx={cx}
+                cy={cy}
+                r={NODE_RADIUS_FUTURE - STROKE_WIDTH / 2}
+                fill="transparent"
+                stroke={colours.outlineVariant}
+                strokeWidth={STROKE_WIDTH}
+              />
             );
           }
 
@@ -228,30 +231,27 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
       </Svg>
 
       {/* Animated current node — rendered as Animated.View for opacity pulse */}
-      {currentIndex >= 0 && ((): React.ReactNode => {
-        const cx = paddingH + currentIndex * segment;
-        const r = NODE_RADIUS_CURRENT;
-        if (noAnimation) {
-          // No animation — render as static SVG inline
-          return (
-            <Svg
-              style={[StyleSheet.absoluteFill]}
-              width="100%"
-              height={containerHeight}
-            >
-              <Circle
-                cx={cx}
-                cy={cy}
-                r={r - STROKE_WIDTH}
-                fill="transparent"
-                stroke={colours.primary}
-                strokeWidth={STROKE_WIDTH}
-              />
-            </Svg>
-          );
-        }
-        return <CurrentNodeSvg key="current-node" cx={cx} cy={cy} r={r} />;
-      })()}
+      {currentIndex >= 0 &&
+        ((): React.ReactNode => {
+          const cx = paddingH + currentIndex * segment;
+          const r = NODE_RADIUS_CURRENT;
+          if (noAnimation) {
+            // No animation — render as static SVG inline
+            return (
+              <Svg style={[StyleSheet.absoluteFill]} width="100%" height={containerHeight}>
+                <Circle
+                  cx={cx}
+                  cy={cy}
+                  r={r - STROKE_WIDTH}
+                  fill="transparent"
+                  stroke={colours.primary}
+                  strokeWidth={STROKE_WIDTH}
+                />
+              </Svg>
+            );
+          }
+          return <CurrentNodeSvg key="current-node" cx={cx} cy={cy} r={r} />;
+        })()}
     </View>
   );
 };

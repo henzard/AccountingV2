@@ -28,6 +28,8 @@ interface AppActions {
   setPaydayDay: (day: number) => void;
   clearHousehold: () => void;
   setAvailableHouseholds: (households: HouseholdSummary[]) => void;
+  /** Reset auth-derived state on sign-out. Does NOT call supabase.auth.signOut(). */
+  reset: () => void;
 }
 
 export const useAppStore = create<AppState & AppActions>((set) => ({
@@ -50,4 +52,13 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   setPaydayDay: (paydayDay): void => set({ paydayDay }),
   clearHousehold: (): void => set({ householdId: null, paydayDay: 25 }),
   setAvailableHouseholds: (availableHouseholds): void => set({ availableHouseholds }),
+  reset: (): void =>
+    set({
+      session: null,
+      householdId: null,
+      availableHouseholds: [],
+      paydayDay: 25,
+      syncStatus: 'idle',
+      pendingSyncCount: 0,
+    }),
 }));

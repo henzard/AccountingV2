@@ -15,21 +15,14 @@ import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 
 export class StampCelebratedUseCase {
-  constructor(
-    private readonly db: ExpoSQLiteDatabase<typeof schema>,
-  ) {}
+  constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
 
   async execute(householdId: string, stepNumber: number): Promise<Result<void>> {
     // Read the current row to check idempotency
     const existing = await this.db
       .select()
       .from(babySteps)
-      .where(
-        and(
-          eq(babySteps.householdId, householdId),
-          eq(babySteps.stepNumber, stepNumber),
-        ),
-      );
+      .where(and(eq(babySteps.householdId, householdId), eq(babySteps.stepNumber, stepNumber)));
 
     const row = existing[0];
     if (!row) {
@@ -53,12 +46,7 @@ export class StampCelebratedUseCase {
         updatedAt: now,
         isSynced: false,
       })
-      .where(
-        and(
-          eq(babySteps.householdId, householdId),
-          eq(babySteps.stepNumber, stepNumber),
-        ),
-      );
+      .where(and(eq(babySteps.householdId, householdId), eq(babySteps.stepNumber, stepNumber)));
 
     return createSuccess(undefined);
   }

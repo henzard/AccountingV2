@@ -70,10 +70,7 @@ export const useCelebrationStore = create<CelebrationState & CelebrationActions>
     }
 
     set((state) => ({
-      queue: [
-        ...state.queue,
-        { stepNumber, triggeredAt: new Date().toISOString() },
-      ],
+      queue: [...state.queue, { stepNumber, triggeredAt: new Date().toISOString() }],
     }));
   },
 

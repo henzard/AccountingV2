@@ -1,11 +1,27 @@
-jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2) }));
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
+}));
 
 import { SyncOrchestrator } from './SyncOrchestrator';
+
+// Helper to build a chainable pending-queue mock that supports .where().orderBy().limit()
+function makePendingQueueChain(rows: unknown[]) {
+  const limitFn = () => Promise.resolve(rows);
+  const orderByFn = () => ({ limit: limitFn });
+  const whereChain = { where: () => ({ orderBy: orderByFn }), orderBy: orderByFn };
+  return { from: () => whereChain };
+}
+
+// Helper to build a batch row-fetch mock (from().where() — no .limit())
+// Used by the C7 N+1 fix: inArray batch pre-fetch per table.
+function makeBatchFetchChain(rows: unknown[]) {
+  return { from: () => ({ where: () => Promise.resolve(rows) }) };
+}
 
 describe('SyncOrchestrator.syncPending', () => {
   it('returns synced:0 failed:0 when queue is empty', async () => {
     const db = {
-      select: () => ({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }) }),
+      select: () => makePendingQueueChain([]),
     } as any;
     const supabase = {} as any;
     const orch = new SyncOrchestrator(db, supabase);
@@ -15,11 +31,17 @@ describe('SyncOrchestrator.syncPending', () => {
 
   it('baby_steps DELETE uses plain .delete() path, not rpc()', async () => {
     const pending = [
-      { id: 'p1', tableName: 'baby_steps', recordId: 'bs-del-1', operation: 'DELETE', retryCount: 0 },
+      {
+        id: 'p1',
+        tableName: 'baby_steps',
+        recordId: 'bs-del-1',
+        operation: 'DELETE',
+        retryCount: 0,
+        createdAt: new Date().toISOString(),
+      },
     ];
     const db = {
-      select: jest.fn()
-        .mockReturnValueOnce({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }) }),
+      select: jest.fn().mockReturnValueOnce(makePendingQueueChain(pending)),
       delete: () => ({ where: () => Promise.resolve() }),
     } as any;
 
@@ -43,12 +65,23 @@ describe('SyncOrchestrator.syncPending', () => {
 
   it('increments failed count when Supabase upsert throws', async () => {
     const pending = [
-      { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
+      {
+        id: 'p1',
+        tableName: 'envelopes',
+        recordId: 'e1',
+        operation: 'INSERT',
+        retryCount: 0,
+        createdAt: new Date().toISOString(),
+      },
     ];
     const db = {
-      select: jest.fn()
-        .mockReturnValueOnce({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }) })
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ id: 'e1', householdId: 'h1', isSynced: false }]) }) }) }),
+      select: jest
+        .fn()
+        .mockReturnValueOnce(makePendingQueueChain(pending))
+        // C7: batch pre-fetch returns the row (inArray query)
+        .mockReturnValueOnce(
+          makeBatchFetchChain([{ id: 'e1', householdId: 'h1', isSynced: false }]),
+        ),
       update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
     } as any;
     const supabase = {
@@ -78,17 +111,22 @@ describe('SyncOrchestrator.syncPending', () => {
       };
 
       const pending = [
-        { id: 'p1', tableName: 'baby_steps', recordId: 'bs-1', operation: 'INSERT', retryCount: 0 },
+        {
+          id: 'p1',
+          tableName: 'baby_steps',
+          recordId: 'bs-1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
 
       const db = {
-        select: jest.fn()
-          .mockReturnValueOnce({
-            from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }),
-          })
-          .mockReturnValueOnce({
-            from: () => ({ where: () => ({ limit: () => Promise.resolve([babyStepRow]) }) }),
-          }),
+        select: jest
+          .fn()
+          .mockReturnValueOnce(makePendingQueueChain(pending))
+          // C7: batch pre-fetch returns the row
+          .mockReturnValueOnce(makeBatchFetchChain([babyStepRow])),
         delete: () => ({ where: () => Promise.resolve() }),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
@@ -116,26 +154,37 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('increments failed when merge_baby_step RPC returns an error', async () => {
       const pending = [
-        { id: 'p1', tableName: 'baby_steps', recordId: 'bs-2', operation: 'INSERT', retryCount: 0 },
+        {
+          id: 'p1',
+          tableName: 'baby_steps',
+          recordId: 'bs-2',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
 
       const db = {
-        select: jest.fn()
-          .mockReturnValueOnce({
-            from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }),
-          })
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({
-                limit: () => Promise.resolve([{
-                  id: 'bs-2', householdId: 'hh-1', stepNumber: 2,
-                  isCompleted: false, completedAt: null, isManual: false,
-                  celebratedAt: null, createdAt: '2026-01-01T00:00:00Z',
-                  updatedAt: '2026-01-01T00:00:00Z', isSynced: false,
-                }]),
-              }),
-            }),
-          }),
+        select: jest
+          .fn()
+          .mockReturnValueOnce(makePendingQueueChain(pending))
+          // C7: batch pre-fetch returns the row
+          .mockReturnValueOnce(
+            makeBatchFetchChain([
+              {
+                id: 'bs-2',
+                householdId: 'hh-1',
+                stepNumber: 2,
+                isCompleted: false,
+                completedAt: null,
+                isManual: false,
+                celebratedAt: null,
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+                isSynced: false,
+              },
+            ]),
+          ),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
 
@@ -151,34 +200,43 @@ describe('SyncOrchestrator.syncPending', () => {
       expect(result.synced).toBe(0);
     });
 
-    it('uses plain upsert for non-baby_steps tables (regression guard)', async () => {
+    it('routes envelopes through merge_envelope RPC (all tables now use merge RPCs)', async () => {
+      const envelopeRow = {
+        id: 'e-1',
+        householdId: 'hh-1',
+        name: 'Groceries',
+        allocatedCents: 5000,
+        spentCents: 0,
+        envelopeType: 'spending',
+        isSavingsLocked: false,
+        isArchived: false,
+        periodStart: '2026-04-01',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      };
       const pending = [
-        { id: 'p1', tableName: 'envelopes', recordId: 'e-1', operation: 'INSERT', retryCount: 0 },
+        {
+          id: 'p1',
+          tableName: 'envelopes',
+          recordId: 'e-1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
 
       const db = {
-        select: jest.fn()
-          .mockReturnValueOnce({
-            from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }),
-          })
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({
-                limit: () => Promise.resolve([{
-                  id: 'e-1', householdId: 'hh-1', name: 'Groceries',
-                  allocatedCents: 5000, spentCents: 0, envelopeType: 'spending',
-                  isSavingsLocked: false, isArchived: false, periodStart: '2026-04-01',
-                  createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
-                  isSynced: false,
-                }]),
-              }),
-            }),
-          }),
+        select: jest
+          .fn()
+          .mockReturnValueOnce(makePendingQueueChain(pending))
+          // C7: batch pre-fetch returns the row
+          .mockReturnValueOnce(makeBatchFetchChain([envelopeRow])),
         delete: () => ({ where: () => Promise.resolve() }),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
 
-      const rpcMock = jest.fn();
+      const rpcMock = jest.fn().mockResolvedValue({ error: null });
       const upsertMock = jest.fn().mockResolvedValue({ error: null });
       const supabase = {
         rpc: rpcMock,
@@ -188,8 +246,9 @@ describe('SyncOrchestrator.syncPending', () => {
       const orch = new SyncOrchestrator(db, supabase);
       await orch.syncPending();
 
-      expect(upsertMock).toHaveBeenCalled();
-      expect(rpcMock).not.toHaveBeenCalled();
+      // envelopes now route through merge_envelope RPC
+      expect(rpcMock).toHaveBeenCalledWith('merge_envelope', expect.any(Object));
+      expect(upsertMock).not.toHaveBeenCalled();
     });
   });
 
@@ -200,8 +259,8 @@ describe('SyncOrchestrator.syncPending', () => {
         select: jest.fn().mockImplementation(() => {
           selectCount++;
           if (selectCount === 1) {
-            // First call: pendingSync queue
-            return { from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }) };
+            // First call: pendingSync queue (supports .where().orderBy().limit())
+            return makePendingQueueChain([]);
           }
           // Subsequent calls: for ReconcileEmergencyFundTypeUseCase envelope query
           return {
@@ -228,22 +287,26 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('does NOT call ReconcileEmergencyFundTypeUseCase when failed > 0', async () => {
       const pending = [
-        { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
+        {
+          id: 'p1',
+          tableName: 'envelopes',
+          recordId: 'e1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
       const db = {
-        select: jest.fn()
-          .mockReturnValueOnce({
-            from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }),
-          })
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
-            }),
-          }),
+        select: jest
+          .fn()
+          .mockReturnValueOnce(makePendingQueueChain(pending))
+          // C7: batch pre-fetch
+          .mockReturnValueOnce(makeBatchFetchChain([{ id: 'e1', isSynced: false }])),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
 
       const supabase = {
+        rpc: () => Promise.resolve({ error: { message: 'fail' } }),
         from: () => ({
           upsert: () => Promise.resolve({ error: { message: 'fail' } }),
         }),
@@ -255,15 +318,13 @@ describe('SyncOrchestrator.syncPending', () => {
       expect(result.failed).toBe(1);
       // ReconcileEmergencyFundTypeUseCase should NOT have been called —
       // verify by checking the db.select call count stays at the sync-only count
-      // (pendingSync + 1 for row fetch = 2 calls max; no additional EMF query)
+      // (pendingSync + 1 for batch-fetch = 2 calls max; no additional EMF query)
       expect((db.select as jest.Mock).mock.calls.length).toBeLessThanOrEqual(2);
     });
 
     it('does NOT call ReconcileEmergencyFundTypeUseCase when no householdId provided', async () => {
       const db = {
-        select: jest.fn().mockReturnValue({
-          from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }),
-        }),
+        select: jest.fn().mockReturnValue(makePendingQueueChain([])),
       } as any;
       const supabase = {} as any;
 
@@ -278,9 +339,7 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('does NOT call fixer when syncPending() called without householdId even on clean sync', async () => {
       const db = {
-        select: jest.fn().mockReturnValue({
-          from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }),
-        }),
+        select: jest.fn().mockReturnValue(makePendingQueueChain([])),
       } as any;
       const supabase = {} as any;
 
@@ -307,22 +366,26 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('does NOT invoke fixer when syncPending(householdId) has partial failure', async () => {
       const pending = [
-        { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
+        {
+          id: 'p1',
+          tableName: 'envelopes',
+          recordId: 'e1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
       const db = {
-        select: jest.fn()
-          .mockReturnValueOnce({
-            from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }),
-          })
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
-            }),
-          }),
+        select: jest
+          .fn()
+          .mockReturnValueOnce(makePendingQueueChain(pending))
+          // C7: batch pre-fetch
+          .mockReturnValueOnce(makeBatchFetchChain([{ id: 'e1', isSynced: false }])),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
 
       const supabase = {
+        rpc: () => Promise.resolve({ error: { message: 'fail' } }),
         from: () => ({
           upsert: () => Promise.resolve({ error: { message: 'fail' } }),
         }),
@@ -332,8 +395,296 @@ describe('SyncOrchestrator.syncPending', () => {
       const result = await orch.syncPending('h1');
 
       expect(result.failed).toBe(1);
-      // Fixer select must not be reached — capped at pending-queue + row fetch = 2
+      // Fixer select must not be reached — capped at pending-queue + batch-fetch = 2
       expect((db.select as jest.Mock).mock.calls.length).toBeLessThanOrEqual(2);
     });
+  });
+});
+
+describe('SyncOrchestrator — per-table merge RPC routing', () => {
+  const tables: Array<{ tableName: string; rpcName: string; localRow: Record<string, unknown> }> = [
+    {
+      tableName: 'envelopes',
+      rpcName: 'merge_envelope',
+      localRow: {
+        id: 'e-1',
+        householdId: 'hh-1',
+        name: 'Groceries',
+        allocatedCents: 5000,
+        spentCents: 0,
+        envelopeType: 'spending',
+        isSavingsLocked: false,
+        isArchived: false,
+        periodStart: '2026-04-01',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
+    {
+      tableName: 'transactions',
+      rpcName: 'merge_transaction',
+      localRow: {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'e-1',
+        amountCents: 1000,
+        payee: 'Shop',
+        description: null,
+        transactionDate: '2026-04-01',
+        isBusinessExpense: false,
+        spendingTriggerNote: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
+    {
+      tableName: 'debts',
+      rpcName: 'merge_debt',
+      localRow: {
+        id: 'd-1',
+        householdId: 'hh-1',
+        creditorName: 'Bank',
+        debtType: 'credit_card',
+        outstandingBalanceCents: 10000,
+        initialBalanceCents: 10000,
+        interestRatePercent: 20,
+        minimumPaymentCents: 500,
+        sortOrder: 0,
+        isPaidOff: false,
+        totalPaidCents: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
+    {
+      tableName: 'meter_readings',
+      rpcName: 'merge_meter_reading',
+      localRow: {
+        id: 'mr-1',
+        householdId: 'hh-1',
+        meterType: 'electricity',
+        readingValue: 1234.5,
+        readingDate: '2026-04-01',
+        costCents: null,
+        vehicleId: null,
+        notes: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
+    {
+      tableName: 'households',
+      rpcName: 'merge_household',
+      localRow: {
+        id: 'hh-1',
+        name: 'Test',
+        paydayDay: 25,
+        userLevel: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
+    {
+      tableName: 'household_members',
+      rpcName: 'merge_household_member',
+      localRow: {
+        id: 'hm-1',
+        householdId: 'hh-1',
+        userId: 'user-1',
+        role: 'member',
+        joinedAt: '2026-01-01T00:00:00Z',
+      },
+    },
+    {
+      tableName: 'baby_steps',
+      rpcName: 'merge_baby_step',
+      localRow: {
+        id: 'bs-1',
+        householdId: 'hh-1',
+        stepNumber: 1,
+        isCompleted: false,
+        completedAt: null,
+        isManual: false,
+        celebratedAt: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
+  ];
+
+  it.each(tables)(
+    'routes $tableName through $rpcName on upsert',
+    async ({ tableName, rpcName, localRow }) => {
+      const pending = [
+        {
+          id: 'p1',
+          tableName,
+          recordId: localRow.id as string,
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      const db = {
+        select: jest
+          .fn()
+          .mockReturnValueOnce(makePendingQueueChain(pending))
+          // C7: batch pre-fetch returns the row via inArray
+          .mockReturnValueOnce(makeBatchFetchChain([localRow])),
+        delete: () => ({ where: () => Promise.resolve() }),
+        update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+      } as any;
+
+      const rpcMock = jest.fn().mockResolvedValue({ error: null });
+      const supabase = { rpc: rpcMock, from: () => ({ upsert: jest.fn() }) } as any;
+
+      const orch = new SyncOrchestrator(db, supabase);
+      const result = await orch.syncPending();
+
+      expect(result.synced).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(rpcMock).toHaveBeenCalledWith(rpcName, expect.any(Object));
+    },
+  );
+});
+
+describe('SyncOrchestrator — backoff timing enforcement', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('does not process a row whose backoff window has not elapsed, then processes it after backoff clears', async () => {
+    // backoff for retryCount=2: min(60000, 1000 * 2**2) = 4000 ms
+    const now = new Date('2026-04-12T10:00:00.000Z');
+    jest.setSystemTime(now);
+
+    const backoffMs = Math.min(60_000, 1000 * 2 ** 2); // 4000 ms
+    const nextAttemptIso = new Date(now.getTime() + backoffMs).toISOString();
+
+    const pendingRow = {
+      id: 'back-1',
+      tableName: 'envelopes',
+      recordId: 'e-back-1',
+      operation: 'INSERT',
+      retryCount: 2,
+      createdAt: new Date(now.getTime() - 10_000).toISOString(), // created 10s ago
+      deadLetteredAt: null,
+      lastAttemptedAt: nextAttemptIso, // next allowed attempt is 4s in the future
+    };
+
+    // makePendingQueueChain ignores the where clause, so we implement a smart
+    // select mock that simulates the lte filter by checking the current time.
+    let callCount = 0;
+    const selectMock = jest.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // First syncPending() — backoff not elapsed: filter returns no rows
+        const nowAtCall = new Date().toISOString();
+        const rows = pendingRow.lastAttemptedAt <= nowAtCall ? [pendingRow] : [];
+        return makePendingQueueChain(rows);
+      }
+      // Second syncPending() — backoff elapsed: filter returns the row
+      const nowAtCall = new Date().toISOString();
+      const rows = pendingRow.lastAttemptedAt <= nowAtCall ? [pendingRow] : [];
+      if (rows.length > 0) {
+        // C7: Return batch pre-fetch mock for processItem (inArray, no .limit())
+        return makeBatchFetchChain([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]);
+      }
+      return makePendingQueueChain([]);
+    });
+
+    const rpcMock = jest.fn().mockResolvedValue({ error: null });
+    const db = {
+      select: selectMock,
+      delete: () => ({ where: () => Promise.resolve() }),
+      update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+    } as any;
+    const supabase = { rpc: rpcMock, from: () => ({ upsert: jest.fn() }) } as any;
+
+    const orch = new SyncOrchestrator(db, supabase);
+
+    // First call — backoff not yet elapsed (now === row's lastAttemptedAt - 4s)
+    const result1 = await orch.syncPending();
+    expect(result1.synced).toBe(0);
+    expect(result1.failed).toBe(0);
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    // Advance time by 5 seconds — backoff (4s) has now elapsed
+    jest.advanceTimersByTime(5000);
+
+    // Rebuild the select mock so it now simulates the pending-queue query and the batch row fetch
+    callCount = 0;
+    const selectMock2 = jest.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // Pending queue — backoff elapsed, row is returned
+        return makePendingQueueChain([pendingRow]);
+      }
+      // C7: batch pre-fetch for processItem (inArray query, no .limit())
+      return makeBatchFetchChain([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]);
+    });
+    db.select = selectMock2;
+
+    const result2 = await orch.syncPending();
+    expect(result2.synced).toBe(1);
+    expect(result2.failed).toBe(0);
+    expect(rpcMock).toHaveBeenCalledWith('merge_envelope', expect.any(Object));
+  });
+});
+
+describe('SyncOrchestrator — DLQ after max retries', () => {
+  it('dead-letters a poison-pill row after 10 retries', async () => {
+    const poisonRow = {
+      id: 'poison-1',
+      tableName: 'envelopes',
+      recordId: 'e-poison',
+      operation: 'INSERT',
+      retryCount: 9, // one more failure → 10 → DLQ
+      createdAt: new Date().toISOString(),
+      deadLetteredAt: null,
+    };
+
+    const pending = [poisonRow];
+
+    const updateSetMock = jest
+      .fn()
+      .mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
+    const updateMock = jest.fn().mockReturnValue({ set: updateSetMock });
+
+    const db = {
+      select: jest
+        .fn()
+        .mockReturnValueOnce(makePendingQueueChain(pending))
+        // C7: batch pre-fetch returns the row
+        .mockReturnValueOnce(
+          makeBatchFetchChain([{ id: 'e-poison', householdId: 'hh-1', isSynced: false }]),
+        ),
+      update: updateMock,
+    } as any;
+
+    const supabase = {
+      rpc: jest.fn().mockResolvedValue({ error: { message: 'persistent failure' } }),
+      from: () => ({ upsert: jest.fn() }),
+    } as any;
+
+    const orch = new SyncOrchestrator(db, supabase);
+    const result = await orch.syncPending();
+
+    expect(result.failed).toBe(1);
+    // The update call should include deadLetteredAt set to a timestamp
+    const setArg = updateSetMock.mock.calls[0][0];
+    expect(setArg.deadLetteredAt).toBeTruthy();
+    expect(setArg.retryCount).toBe(10);
   });
 });

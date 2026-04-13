@@ -1,8 +1,4 @@
-import {
-  getRemainingCents,
-  getPercentRemaining,
-  isOverBudget,
-} from './EnvelopeEntity';
+import { getRemainingCents, getPercentRemaining, isOverBudget } from './EnvelopeEntity';
 import type { EnvelopeEntity } from './EnvelopeEntity';
 
 const makeEnvelope = (allocated: number, spent: number): EnvelopeEntity => ({

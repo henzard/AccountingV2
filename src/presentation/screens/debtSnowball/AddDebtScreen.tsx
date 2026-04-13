@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView, View } from 'react-native';
 import { TextInput, Button, HelperText, SegmentedButtons, Text } from 'react-native-paper';
 import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateDebtUseCase } from '../../../domain/debtSnowball/CreateDebtUseCase';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
 import type { DebtType } from '../../../domain/debtSnowball/DebtEntity';
 import type { AddDebtScreenProps } from '../../navigation/types';
@@ -21,6 +22,7 @@ const DEBT_TYPES: { value: DebtType; label: string }[] = [
 
 export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
   const householdId = useAppStore((s) => s.householdId)!;
+  const enqueue = useToastStore((s) => s.enqueue);
   const [creditorName, setCreditorName] = useState('');
   const [debtType, setDebtType] = useState<DebtType>('credit_card');
   const [balanceRands, setBalanceRands] = useState('');
@@ -30,14 +32,26 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = async (): Promise<void> => {
-    if (!creditorName.trim()) { setError('Creditor name is required'); return; }
+    if (!creditorName.trim()) {
+      setError('Creditor name is required');
+      return;
+    }
     const balanceCents = Math.round(parseFloat(balanceRands) * 100);
     const rate = parseFloat(ratePercent);
     const minPayCents = Math.round(parseFloat(minPaymentRands) * 100);
 
-    if (isNaN(balanceCents) || balanceCents <= 0) { setError('Enter a valid outstanding balance'); return; }
-    if (isNaN(rate) || rate < 0) { setError('Enter a valid interest rate (0 for interest-free)'); return; }
-    if (isNaN(minPayCents) || minPayCents <= 0) { setError('Enter a valid minimum monthly payment'); return; }
+    if (isNaN(balanceCents) || balanceCents <= 0) {
+      setError('Enter a valid outstanding balance');
+      return;
+    }
+    if (isNaN(rate) || rate < 0) {
+      setError('Enter a valid interest rate (0 for interest-free)');
+      return;
+    }
+    if (isNaN(minPayCents) || minPayCents <= 0) {
+      setError('Enter a valid minimum monthly payment');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -52,6 +66,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
+      enqueue('Debt saved', 'success');
       navigation.goBack();
     } else {
       setError(result.error.message);
@@ -60,7 +75,9 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text variant="titleMedium" style={styles.sectionLabel}>Debt Type</Text>
+      <Text variant="titleMedium" style={styles.sectionLabel}>
+        Debt Type
+      </Text>
       <SegmentedButtons
         value={debtType}
         onValueChange={(v) => setDebtType(v as DebtType)}
@@ -74,6 +91,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         onChangeText={setCreditorName}
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter the creditor or account name"
       />
       <TextInput
         label="Outstanding balance (R)"
@@ -82,6 +100,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter the current outstanding balance in rands"
       />
       <TextInput
         label="Interest rate (%)"
@@ -90,6 +109,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter 0 for interest-free"
       />
       <TextInput
         label="Minimum monthly payment (R)"
@@ -98,9 +118,16 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter the minimum monthly payment in rands"
       />
 
-      {error ? <HelperText type="error">{error}</HelperText> : null}
+      <View accessibilityLiveRegion="polite">
+        {error ? (
+          <HelperText type="error" visible>
+            {error}
+          </HelperText>
+        ) : null}
+      </View>
 
       <Button
         mode="contained"

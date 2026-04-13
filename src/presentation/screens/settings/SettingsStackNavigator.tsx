@@ -16,7 +16,11 @@ export function SettingsStackNavigator(): React.JSX.Element {
         headerTitleStyle: { fontFamily: 'PlusJakartaSans_700Bold' },
       }}
     >
-      <Stack.Screen name="SettingsHome" component={SettingsScreen} options={{ title: 'Settings' }} />
+      <Stack.Screen
+        name="SettingsHome"
+        component={SettingsScreen}
+        options={{ title: 'Settings' }}
+      />
       <Stack.Screen
         name="NotificationPreferences"
         component={NotificationPreferencesScreen}

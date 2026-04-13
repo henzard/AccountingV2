@@ -10,13 +10,14 @@
 
 import { create } from 'zustand';
 
-export type ToastKind = 'regression' | 'info' | 'error';
+export type ToastKind = 'regression' | 'info' | 'success' | 'error';
 
 export interface ToastQueueItem {
   id: string;
   message: string;
   kind: ToastKind;
   triggeredAt: string;
+  durationMs?: number;
 }
 
 interface ToastState {
@@ -24,7 +25,7 @@ interface ToastState {
 }
 
 interface ToastActions {
-  enqueue: (message: string, kind: ToastKind) => void;
+  enqueue: (message: string, kind: ToastKind, durationMs?: number) => void;
   dequeue: () => ToastQueueItem | null;
   clear: () => void;
 }
@@ -39,7 +40,7 @@ function generateId(): string {
 export const useToastStore = create<ToastState & ToastActions>((set, get) => ({
   queue: [],
 
-  enqueue: (message: string, kind: ToastKind): void => {
+  enqueue: (message: string, kind: ToastKind, durationMs?: number): void => {
     set((state) => ({
       queue: [
         ...state.queue,
@@ -48,6 +49,7 @@ export const useToastStore = create<ToastState & ToastActions>((set, get) => ({
           message,
           kind,
           triggeredAt: new Date().toISOString(),
+          durationMs,
         },
       ],
     }));

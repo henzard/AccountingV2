@@ -3,7 +3,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { EnvelopeEntity } from './EnvelopeEntity';
@@ -16,15 +17,16 @@ interface UpdateInput {
 }
 
 export class UpdateEnvelopeUseCase {
-  private readonly enqueuer: PendingSyncEnqueuer;
+  private readonly enqueuer: ISyncEnqueuer;
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly current: EnvelopeEntity,
     private readonly input: UpdateInput,
+    enqueuer?: ISyncEnqueuer,
   ) {
-    this.enqueuer = new PendingSyncEnqueuer(db);
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
   }
 
   async execute(): Promise<Result<EnvelopeEntity>> {
@@ -33,7 +35,10 @@ export class UpdateEnvelopeUseCase {
       return createFailure({ code: 'INVALID_NAME', message: 'Envelope name is required' });
     }
     if (this.input.allocatedCents <= 0) {
-      return createFailure({ code: 'INVALID_AMOUNT', message: 'Budget amount must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_AMOUNT',
+        message: 'Budget amount must be greater than zero',
+      });
     }
     // Income envelopes must always have spentCents = 0
     if (this.current.envelopeType === 'income' && (this.input.spentCents ?? 0) !== 0) {
@@ -53,7 +58,12 @@ export class UpdateEnvelopeUseCase {
 
     await this.db
       .update(envelopes)
-      .set({ name: updated.name, allocatedCents: updated.allocatedCents, updatedAt: now, isSynced: false })
+      .set({
+        name: updated.name,
+        allocatedCents: updated.allocatedCents,
+        updatedAt: now,
+        isSynced: false,
+      })
       .where(eq(envelopes.id, this.current.id));
 
     const previousValueRecord: Record<string, unknown> = {

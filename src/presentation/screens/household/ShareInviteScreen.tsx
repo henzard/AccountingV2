@@ -52,7 +52,9 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
   if (error || !code) {
     return (
       <View style={styles.center}>
-        <Text variant="bodyMedium" style={styles.errorText}>{error ?? 'Failed to generate code'}</Text>
+        <Text variant="bodyMedium" style={styles.errorText}>
+          {error ?? 'Failed to generate code'}
+        </Text>
       </View>
     );
   }
@@ -62,13 +64,20 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
   return (
     <View style={styles.flex}>
       <Surface style={styles.card} elevation={1}>
-        <Text variant="labelMedium" style={styles.label}>INVITE CODE</Text>
-        <Text variant="displaySmall" style={styles.code}>{code}</Text>
-        <Text variant="bodySmall" style={styles.expiry}>Expires {expiryDate} · Single use</Text>
+        <Text variant="labelMedium" style={styles.label}>
+          INVITE CODE
+        </Text>
+        <Text variant="displaySmall" style={styles.code}>
+          {code}
+        </Text>
+        <Text variant="bodySmall" style={styles.expiry}>
+          Expires {expiryDate} · Single use
+        </Text>
       </Surface>
 
       <Text variant="bodyMedium" style={styles.instructions}>
-        Share this code with the person you want to invite. They can enter it in Settings → Join a Household.
+        Share this code with the person you want to invite. They can enter it in Settings → Join a
+        Household.
       </Text>
 
       <Button
@@ -98,7 +107,11 @@ const styles = StyleSheet.create({
   label: { color: colours.onPrimaryContainer, letterSpacing: 1.5, marginBottom: spacing.sm },
   code: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold', letterSpacing: 8 },
   expiry: { color: colours.onPrimaryContainer, marginTop: spacing.sm },
-  instructions: { color: colours.onSurfaceVariant, textAlign: 'center', marginHorizontal: spacing.base },
+  instructions: {
+    color: colours.onSurfaceVariant,
+    textAlign: 'center',
+    marginHorizontal: spacing.base,
+  },
   errorText: { color: colours.error, textAlign: 'center' },
   shareBtn: { marginTop: spacing.xl, backgroundColor: colours.primary },
   shareBtnContent: { paddingVertical: spacing.xs },

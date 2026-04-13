@@ -4,7 +4,7 @@ import type { DebtEntity } from './DebtEntity';
 export interface DebtProjection {
   debtId: string;
   creditorName: string;
-  monthsToPayoff: number;  // -1 if not payable with current payments
+  monthsToPayoff: number; // -1 if not payable with current payments
   payoffDate: Date;
 }
 

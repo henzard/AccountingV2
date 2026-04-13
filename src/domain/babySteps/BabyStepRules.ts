@@ -50,23 +50,22 @@ export const BABY_STEP_RULES: Record<1 | 2 | 3 | 4 | 5 | 6 | 7, BabyStepRule> = 
     stepNumber: 3,
     shortTitle: 'Full Emergency Fund',
     description: 'Save 3 to 6 months of expenses.',
-    completionMessage: 'Three months of expenses, saved. You\'re protected.',
-    regressionToast:
-      'Your emergency fund fell below 3 months of expenses — Step 3 is paused.',
+    completionMessage: "Three months of expenses, saved. You're protected.",
+    regressionToast: 'Your emergency fund fell below 3 months of expenses — Step 3 is paused.',
     progressTemplate: 'R{current} of R{target}',
     notificationTitle: 'Step 3 Complete — Full Emergency Fund',
-    notificationBody: 'Three months of expenses, saved. You\'re protected.',
+    notificationBody: "Three months of expenses, saved. You're protected.",
     isManual: false,
   },
   4: {
     stepNumber: 4,
     shortTitle: 'Invest 15%',
     description: 'Put 15% of income into retirement.',
-    completionMessage: 'You\'re investing in the long game now.',
+    completionMessage: "You're investing in the long game now.",
     regressionToast: null,
     progressTemplate: null,
     notificationTitle: 'Step 4 Complete — Invest 15%',
-    notificationBody: 'You\'re investing in the long game now.',
+    notificationBody: "You're investing in the long game now.",
     isManual: true,
   },
   5: {
@@ -95,25 +94,23 @@ export const BABY_STEP_RULES: Record<1 | 2 | 3 | 4 | 5 | 6 | 7, BabyStepRule> = 
     stepNumber: 7,
     shortTitle: 'Build & Give',
     description: 'Build wealth. Give generously.',
-    completionMessage: 'You have enough — and you\'re giving.',
+    completionMessage: "You have enough — and you're giving.",
     regressionToast: null,
     progressTemplate: null,
     notificationTitle: 'Step 7 Complete — Build & Give',
-    notificationBody: 'You have enough — and you\'re giving.',
+    notificationBody: "You have enough — and you're giving.",
     isManual: true,
   },
 };
 
 /** Convenience accessor for notification copy, keyed by step number. */
-export const NOTIFICATION_COPY: Record<
-  1 | 2 | 3 | 4 | 5 | 6 | 7,
-  { title: string; body: string }
-> = Object.fromEntries(
-  (Object.values(BABY_STEP_RULES) as BabyStepRule[]).map((r) => [
-    r.stepNumber,
-    { title: r.notificationTitle, body: r.notificationBody },
-  ]),
-) as Record<1 | 2 | 3 | 4 | 5 | 6 | 7, { title: string; body: string }>;
+export const NOTIFICATION_COPY: Record<1 | 2 | 3 | 4 | 5 | 6 | 7, { title: string; body: string }> =
+  Object.fromEntries(
+    (Object.values(BABY_STEP_RULES) as BabyStepRule[]).map((r) => [
+      r.stepNumber,
+      { title: r.notificationTitle, body: r.notificationBody },
+    ]),
+  ) as Record<1 | 2 | 3 | 4 | 5 | 6 | 7, { title: string; body: string }>;
 
 /** The set of manual step numbers. */
 export const MANUAL_STEP_NUMBERS = new Set<number>([4, 5, 7]);

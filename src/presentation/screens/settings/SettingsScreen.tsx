@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { List, Surface, Divider } from 'react-native-paper';
+import { View, StyleSheet, Alert } from 'react-native';
+import { List, Surface, Divider, Button } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAppStore } from '../../stores/appStore';
+import { supabase } from '../../../data/remote/supabaseClient';
 import { colours, spacing } from '../../theme/tokens';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
 
@@ -15,6 +16,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const currentHousehold = availableHouseholds.find((h) => h.id === householdId);
 
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const handleSignOut = async (): Promise<void> => {
+    await supabase.auth.signOut();
+    // reset() is owned by the onAuthStateChange listener in App.tsx — it runs
+    // on any sign-out (including token expiry) so we don't duplicate it here.
+  };
+
+  const confirmSignOut = (): void => {
+    Alert.alert('Sign out?', 'You will need to sign in again to access your data.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: handleSignOut },
+    ]);
+  };
 
   return (
     <View style={styles.flex}>
@@ -32,10 +46,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             description="Share an invite code"
             left={(props) => <List.Icon {...props} icon="account-plus-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
-            onPress={() => rootNavigation.navigate('ShareInvite', {
-              householdId: householdId!,
-              householdName: currentHousehold?.name ?? 'My Household',
-            })}
+            onPress={() =>
+              rootNavigation.navigate('ShareInvite', {
+                householdId: householdId!,
+                householdName: currentHousehold?.name ?? 'My Household',
+              })
+            }
           />
           <Divider />
           <List.Item
@@ -74,6 +90,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           onPress={() => navigation.navigate('NotificationPreferences')}
         />
       </Surface>
+
+      <View style={styles.signOutSection}>
+        <Button
+          mode="outlined"
+          icon="logout"
+          onPress={confirmSignOut}
+          textColor={colours.error}
+          style={styles.signOutButton}
+          testID="sign-out-button"
+        >
+          Sign out
+        </Button>
+      </View>
     </View>
   );
 };
@@ -88,5 +117,12 @@ const styles = StyleSheet.create({
   },
   subheader: {
     marginHorizontal: spacing.base,
+  },
+  signOutSection: {
+    marginTop: spacing.xl,
+    marginHorizontal: spacing.base,
+  },
+  signOutButton: {
+    borderColor: colours.error,
   },
 });

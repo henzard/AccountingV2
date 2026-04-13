@@ -42,11 +42,8 @@ describe('Task 3.8 — DashboardScreen babyStepIsActive caller contract', () => 
   });
 
   it('returns true when all 7 steps are completed (DB returns 7 rows)', async () => {
-    const db = makeDb(
-      Array.from({ length: 7 }, () => ({ isCompleted: true })),
-    ) as any;
+    const db = makeDb(Array.from({ length: 7 }, () => ({ isCompleted: true }))) as any;
     const result = await resolveBabyStepIsActive(db, 'hh-1');
     expect(result).toBe(true);
   });
-
 });

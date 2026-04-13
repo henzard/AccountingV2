@@ -9,7 +9,10 @@ import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { colours, spacing } from '../../theme/tokens';
 import { MeterReadingCard } from './components/MeterReadingCard';
-import type { MeterReadingEntity, MeterType } from '../../../domain/meterReadings/MeterReadingEntity';
+import type {
+  MeterReadingEntity,
+  MeterType,
+} from '../../../domain/meterReadings/MeterReadingEntity';
 import type { MeterDashboardScreenProps } from '../../navigation/types';
 
 const METER_TYPES: MeterType[] = ['electricity', 'water', 'odometer'];
@@ -60,7 +63,11 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
     }
   }, [householdId]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   if (loading) {
     return (
@@ -73,8 +80,12 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
   return (
     <View style={styles.flex}>
       <Surface style={styles.header} elevation={0}>
-        <Text variant="labelMedium" style={styles.headerLabel}>METER READINGS</Text>
-        <Text variant="headlineSmall" style={styles.headerTitle}>{period.label}</Text>
+        <Text variant="labelMedium" style={styles.headerLabel}>
+          METER READINGS
+        </Text>
+        <Text variant="headlineSmall" style={styles.headerTitle}>
+          {period.label}
+        </Text>
       </Surface>
       <ScrollView contentContainerStyle={styles.list}>
         {METER_TYPES.map((meterType) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView, View } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, HelperText, Chip } from 'react-native-paper';
 import { format } from 'date-fns';
 import { and, eq, desc } from 'drizzle-orm';
@@ -9,8 +9,12 @@ import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { LogMeterReadingUseCase } from '../../../domain/meterReadings/LogMeterReadingUseCase';
 import { AnomalyDetector } from '../../../domain/meterReadings/AnomalyDetector';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
-import type { MeterReadingEntity, MeterType } from '../../../domain/meterReadings/MeterReadingEntity';
+import type {
+  MeterReadingEntity,
+  MeterType,
+} from '../../../domain/meterReadings/MeterReadingEntity';
 import { getMeterUnitLabel } from '../../../domain/meterReadings/MeterReadingEntity';
 import type { AddReadingScreenProps } from '../../navigation/types';
 
@@ -19,6 +23,7 @@ const anomalyDetector = new AnomalyDetector();
 
 export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, route }) => {
   const householdId = useAppStore((s) => s.householdId)!;
+  const enqueue = useToastStore((s) => s.enqueue);
   const [meterType, setMeterType] = useState<MeterType>(route.params.meterType);
   const [readingValue, setReadingValue] = useState('');
   const [costRands, setCostRands] = useState('');
@@ -68,7 +73,8 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       if (result.isAnomaly) {
         const pct = Math.round(result.deviationPercent * 100);
         const unit = getMeterUnitLabel(meterType);
-        const direction = result.currentConsumption > result.rollingAverageConsumption ? 'above' : 'below';
+        const direction =
+          result.currentConsumption > result.rollingAverageConsumption ? 'above' : 'below';
         setAnomalyWarning(
           `Consumption is ${pct}% ${direction} your ${result.rollingAverageConsumption.toFixed(1)} ${unit} average. Please verify before saving.`,
         );
@@ -100,6 +106,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
+      enqueue('Reading saved', 'success');
       navigation.goBack();
     } else {
       setError(result.error.message);
@@ -108,10 +115,15 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text variant="titleMedium" style={styles.label}>Meter Type</Text>
+      <Text variant="titleMedium" style={styles.label}>
+        Meter Type
+      </Text>
       <SegmentedButtons
         value={meterType}
-        onValueChange={(v) => { setMeterType(v as MeterType); setAnomalyWarning(null); }}
+        onValueChange={(v) => {
+          setMeterType(v as MeterType);
+          setAnomalyWarning(null);
+        }}
         buttons={[
           { value: 'electricity', label: 'Electricity', icon: 'lightning-bolt' },
           { value: 'water', label: 'Water', icon: 'water' },
@@ -123,7 +135,10 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       <TextInput
         label={`Current reading (${getMeterUnitLabel(meterType)})`}
         value={readingValue}
-        onChangeText={(v) => { setReadingValue(v); checkAnomaly(v); }}
+        onChangeText={(v) => {
+          setReadingValue(v);
+          checkAnomaly(v);
+        }}
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}
@@ -152,7 +167,13 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         style={styles.input}
       />
 
-      {error ? <HelperText type="error">{error}</HelperText> : null}
+      <View accessibilityLiveRegion="polite">
+        {error ? (
+          <HelperText type="error" visible>
+            {error}
+          </HelperText>
+        ) : null}
+      </View>
 
       <Button
         mode="contained"

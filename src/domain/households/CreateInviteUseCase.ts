@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
@@ -12,9 +13,14 @@ export interface InviteResult {
   expiresAt: string;
 }
 
-function generateCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
-  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+export function generateCode(): string {
+  const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars, no 0/O/1/I
+  const bytes = Crypto.getRandomBytes(6);
+  let out = '';
+  for (let i = 0; i < 6; i += 1) {
+    out += ALPHABET[bytes[i] % ALPHABET.length];
+  }
+  return out;
 }
 
 export class CreateInviteUseCase {
@@ -39,7 +45,10 @@ export class CreateInviteUseCase {
       .single();
 
     if (error || !data) {
-      return createFailure({ code: 'INVITE_CREATE_FAILED', message: error?.message ?? 'Failed to create invite' });
+      return createFailure({
+        code: 'INVITE_CREATE_FAILED',
+        message: error?.message ?? 'Failed to create invite',
+      });
     }
 
     return createSuccess({ code: data.code as string, expiresAt });

@@ -30,7 +30,12 @@ jest.mock('react-native-paper', () => {
     React.createElement('Text', p, children);
   const Surface = ({ children, ...p }: { children?: React.ReactNode }) =>
     React.createElement('View', p, children);
-  const Button = ({ children, onPress, testID, ...p }: {
+  const Button = ({
+    children,
+    onPress,
+    testID,
+    ...p
+  }: {
     children?: React.ReactNode;
     onPress?: () => void;
     testID?: string;
@@ -47,8 +52,10 @@ jest.mock('react-native-svg', () => {
   const React = require('react');
   const Svg = ({ children, ...p }: { children?: React.ReactNode }) =>
     React.createElement('View', { testID: 'svg', ...p }, children);
-  const el = (name: string) => ({ children, ...p }: { children?: React.ReactNode }) =>
-    React.createElement('View', { testID: name, ...p }, children);
+  const el =
+    (name: string) =>
+    ({ children, ...p }: { children?: React.ReactNode }) =>
+      React.createElement('View', { testID: name, ...p }, children);
   return {
     __esModule: true,
     default: Svg,
@@ -118,10 +125,7 @@ const makeNavProps = () => ({
   route: { key: 'BabySteps', name: 'BabySteps', params: undefined } as any,
 });
 
-function makeStatus(
-  stepNumber: number,
-  overrides: Partial<BabyStepStatus> = {},
-): BabyStepStatus {
+function makeStatus(stepNumber: number, overrides: Partial<BabyStepStatus> = {}): BabyStepStatus {
   return {
     stepNumber: stepNumber as 1 | 2 | 3 | 4 | 5 | 6 | 7,
     isCompleted: false,
@@ -138,9 +142,7 @@ function allStatuses(completedCount = 0): BabyStepStatus[] {
     stepNumber: (i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7,
     isCompleted: i < completedCount,
     isManual: [4, 5, 7].includes(i + 1),
-    progress: i < completedCount
-      ? null
-      : stepNumber(i + 1),
+    progress: i < completedCount ? null : stepNumber(i + 1),
     completedAt: i < completedCount ? '2026-04-12T10:00:00.000Z' : null,
     celebratedAt: null,
   }));

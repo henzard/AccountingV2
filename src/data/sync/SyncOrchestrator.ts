@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, inArray, isNull, or, lte, and } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
@@ -11,9 +11,12 @@ import {
   households,
   householdMembers,
   babySteps,
+  auditEvents,
+  slipQueue,
 } from '../local/schema';
 import { toSupabaseRow } from './rowConverters';
 import { ReconcileEmergencyFundTypeUseCase } from '../../domain/babySteps/ReconcileEmergencyFundTypeUseCase';
+import { logger } from '../../infrastructure/logging/Logger';
 
 type SyncTable =
   | typeof envelopes
@@ -22,9 +25,9 @@ type SyncTable =
   | typeof meterReadings
   | typeof households
   | typeof householdMembers
-  | typeof babySteps;
-
-const BABY_STEPS_TABLE = 'baby_steps' as const;
+  | typeof babySteps
+  | typeof auditEvents
+  | typeof slipQueue;
 
 const TABLE_MAP: Record<string, SyncTable> = {
   envelopes,
@@ -33,8 +36,27 @@ const TABLE_MAP: Record<string, SyncTable> = {
   meter_readings: meterReadings,
   households,
   household_members: householdMembers,
-  [BABY_STEPS_TABLE]: babySteps,
+  baby_steps: babySteps,
+  audit_events: auditEvents,
+  slip_queue: slipQueue,
 };
+
+const TABLE_RPC_MAP: Record<string, string> = {
+  baby_steps: 'merge_baby_step',
+  envelopes: 'merge_envelope',
+  transactions: 'merge_transaction',
+  debts: 'merge_debt',
+  meter_readings: 'merge_meter_reading',
+  households: 'merge_household',
+  household_members: 'merge_household_member',
+  audit_events: 'merge_audit_event',
+  slip_queue: 'merge_slip_queue',
+};
+
+const DLQ_MAX_RETRIES = 10;
+const DLQ_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+type PendingItem = typeof pendingSync.$inferSelect;
 
 export class SyncOrchestrator {
   constructor(
@@ -42,27 +64,88 @@ export class SyncOrchestrator {
     private readonly supabase: SupabaseClient,
   ) {}
 
-  async syncPending(householdId?: string): Promise<{ synced: number; failed: number; emfFlipped: number }> {
+  async syncPending(
+    householdId?: string,
+  ): Promise<{ synced: number; failed: number; emfFlipped: number }> {
+    // Only fetch items whose backoff window has elapsed.
+    // lastAttemptedAt stores the *next-allowed retry time* (not the last attempt time).
+    // Items with no lastAttemptedAt are first-time attempts — always eligible.
+    const nowIso = new Date().toISOString();
     const pending = await this.db
       .select()
       .from(pendingSync)
+      .where(
+        and(
+          isNull(pendingSync.deadLetteredAt),
+          or(isNull(pendingSync.lastAttemptedAt), lte(pendingSync.lastAttemptedAt, nowIso)),
+        ),
+      )
       .orderBy(asc(pendingSync.createdAt))
       .limit(100);
+
+    // C7: N+1 fix — group by table, batch-fetch all rows per table with inArray.
+    // This replaces one SELECT per item (N queries) with one SELECT per table (at most 9).
+    const byTable = new Map<string, PendingItem[]>();
+    for (const item of pending) {
+      const bucket = byTable.get(item.tableName) ?? [];
+      bucket.push(item);
+      byTable.set(item.tableName, bucket);
+    }
+
+    // Pre-fetch rows for upsert items grouped by table.
+    const rowCache = new Map<string, Record<string, Record<string, unknown>>>();
+    await Promise.allSettled(
+      Array.from(byTable.entries()).map(async ([tableName, items]) => {
+        const upsertIds = items.filter((i) => i.operation !== 'DELETE').map((i) => i.recordId);
+        if (upsertIds.length === 0) return;
+
+        const table = TABLE_MAP[tableName];
+        if (!table) return;
+
+        const rows = await this.db
+          .select()
+          .from(table)
+          .where(inArray((table as typeof envelopes).id, upsertIds));
+
+        const tableCache: Record<string, Record<string, unknown>> = {};
+        for (const row of rows) {
+          const r = row as Record<string, unknown>;
+          tableCache[r['id'] as string] = r;
+        }
+        rowCache.set(tableName, tableCache);
+      }),
+    );
 
     let synced = 0;
     let failed = 0;
 
     for (const item of pending) {
       try {
-        await this.processItem(item);
+        await this.processItem(item, rowCache.get(item.tableName));
         await this.db.delete(pendingSync).where(eq(pendingSync.id, item.id));
         synced++;
-      } catch {
+      } catch (err) {
+        logger.error('sync item failed', err, { itemId: item.id, table: item.tableName });
         const now = new Date().toISOString();
-        await this.db
-          .update(pendingSync)
-          .set({ retryCount: item.retryCount + 1, lastAttemptedAt: now })
-          .where(eq(pendingSync.id, item.id));
+        const newRetryCount = item.retryCount + 1;
+
+        const shouldDLQ =
+          newRetryCount >= DLQ_MAX_RETRIES ||
+          Date.now() - new Date(item.createdAt).getTime() >= DLQ_MAX_AGE_MS;
+
+        if (shouldDLQ) {
+          await this.db
+            .update(pendingSync)
+            .set({ retryCount: newRetryCount, lastAttemptedAt: now, deadLetteredAt: now })
+            .where(eq(pendingSync.id, item.id));
+        } else {
+          const backoffMs = Math.min(60_000, 1000 * 2 ** item.retryCount);
+          const nextAttempt = new Date(Date.now() + backoffMs).toISOString();
+          await this.db
+            .update(pendingSync)
+            .set({ retryCount: newRetryCount, lastAttemptedAt: nextAttempt })
+            .where(eq(pendingSync.id, item.id));
+        }
         failed++;
       }
     }
@@ -81,12 +164,12 @@ export class SyncOrchestrator {
     return { synced, failed, emfFlipped };
   }
 
-  private async processItem(item: typeof pendingSync.$inferSelect): Promise<void> {
+  private async processItem(
+    item: PendingItem,
+    tableRowCache?: Record<string, Record<string, unknown>>,
+  ): Promise<void> {
     if (item.operation === 'DELETE') {
-      const { error } = await this.supabase
-        .from(item.tableName)
-        .delete()
-        .eq('id', item.recordId);
+      const { error } = await this.supabase.from(item.tableName).delete().eq('id', item.recordId);
       if (error) throw new Error(error.message);
       return;
     }
@@ -94,20 +177,26 @@ export class SyncOrchestrator {
     const table = TABLE_MAP[item.tableName];
     if (!table) throw new Error(`Unknown sync table: ${item.tableName}`);
 
-    const [row] = await this.db
-      .select()
-      .from(table)
-      .where(eq((table as typeof envelopes).id, item.recordId))
-      .limit(1);
+    // C7: Use pre-fetched row from cache when available; fall back to individual query.
+    let row: Record<string, unknown> | undefined = tableRowCache?.[item.recordId];
+    if (!row) {
+      const [fetched] = await this.db
+        .select()
+        .from(table)
+        .where(eq((table as typeof envelopes).id, item.recordId))
+        .limit(1);
+      row = fetched as Record<string, unknown> | undefined;
+    }
 
     if (!row) throw new Error(`Local row not found: ${item.tableName}/${item.recordId}`);
 
-    const snakeRow = toSupabaseRow(row as Record<string, unknown>);
+    const snakeRow = toSupabaseRow(row);
 
     let syncError: PostgrestError | null = null;
-    if (item.tableName === BABY_STEPS_TABLE && item.operation !== 'DELETE') {
-      // Route through merge_baby_step RPC to preserve celebrated_at on conflict
-      const { error } = await this.supabase.rpc('merge_baby_step', { row: snakeRow });
+    const rpcName = TABLE_RPC_MAP[item.tableName];
+    if (rpcName) {
+      // Route through per-table merge RPC with LWW guard
+      const { error } = await this.supabase.rpc(rpcName, { row: snakeRow });
       syncError = error;
     } else {
       const { error } = await this.supabase

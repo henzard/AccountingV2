@@ -3,28 +3,28 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { transactions, envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
 import type { TransactionEntity } from './TransactionEntity';
 
 export class DeleteTransactionUseCase {
-  private readonly enqueuer: PendingSyncEnqueuer;
+  private readonly enqueuer: ISyncEnqueuer;
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly tx: TransactionEntity,
+    enqueuer?: ISyncEnqueuer,
   ) {
-    this.enqueuer = new PendingSyncEnqueuer(db);
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
   }
 
   async execute(): Promise<Result<void>> {
     const now = new Date().toISOString();
 
-    await this.db
-      .delete(transactions)
-      .where(sql`${transactions.id} = ${this.tx.id}`);
+    await this.db.delete(transactions).where(sql`${transactions.id} = ${this.tx.id}`);
 
     // Atomically decrement spentCents
     await this.db

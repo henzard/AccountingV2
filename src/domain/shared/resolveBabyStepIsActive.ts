@@ -19,12 +19,7 @@ export async function resolveBabyStepIsActive(
   const rows = await db
     .select()
     .from(babySteps)
-    .where(
-      and(
-        eq(babySteps.householdId, householdId),
-        eq(babySteps.isCompleted, true),
-      ),
-    );
+    .where(and(eq(babySteps.householdId, householdId), eq(babySteps.isCompleted, true)));
 
   return rows.length > 0;
 }

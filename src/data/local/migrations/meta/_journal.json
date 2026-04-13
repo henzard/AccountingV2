@@ -35,6 +35,27 @@
       "when": 1776057152651,
       "tag": "0004_safe_sleeper",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1744704000000,
+      "tag": "0005_pending_sync_dlq",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776067499751,
+      "tag": "0006_round_betty_brant",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1744444800000,
+      "tag": "0007_household_members_updated_at",
+      "breakpoints": true
     }
   ]
 }

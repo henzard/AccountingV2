@@ -23,4 +23,19 @@ describe('appStore — household slice', () => {
     useAppStore.getState().clearHousehold();
     expect(useAppStore.getState().householdId).toBeNull();
   });
+
+  it('reset clears session, householdId and availableHouseholds', () => {
+    useAppStore.setState({
+      householdId: 'hh-001',
+      availableHouseholds: [{ id: 'hh-001', name: 'Home', paydayDay: 25, userLevel: 1 }],
+      pendingSyncCount: 5,
+    });
+    useAppStore.getState().reset();
+    const state = useAppStore.getState();
+    expect(state.session).toBeNull();
+    expect(state.householdId).toBeNull();
+    expect(state.availableHouseholds).toHaveLength(0);
+    expect(state.pendingSyncCount).toBe(0);
+    expect(state.paydayDay).toBe(25);
+  });
 });

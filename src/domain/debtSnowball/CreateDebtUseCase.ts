@@ -4,7 +4,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { debts } from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { DebtEntity, DebtType } from './DebtEntity';
@@ -19,22 +20,29 @@ export interface CreateDebtInput {
 }
 
 export class CreateDebtUseCase {
-  private readonly enqueuer: PendingSyncEnqueuer;
+  private readonly enqueuer: ISyncEnqueuer;
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateDebtInput,
+    enqueuer?: ISyncEnqueuer,
   ) {
-    this.enqueuer = new PendingSyncEnqueuer(db);
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
   }
 
   async execute(): Promise<Result<DebtEntity>> {
     if (this.input.outstandingBalanceCents <= 0) {
-      return createFailure({ code: 'INVALID_BALANCE', message: 'Outstanding balance must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_BALANCE',
+        message: 'Outstanding balance must be greater than zero',
+      });
     }
     if (this.input.minimumPaymentCents <= 0) {
-      return createFailure({ code: 'INVALID_PAYMENT', message: 'Minimum payment must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_PAYMENT',
+        message: 'Minimum payment must be greater than zero',
+      });
     }
     if (this.input.interestRatePercent < 0) {
       return createFailure({ code: 'INVALID_RATE', message: 'Interest rate cannot be negative' });

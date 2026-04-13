@@ -4,7 +4,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { households, householdMembers } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
@@ -17,14 +18,15 @@ interface CreateHouseholdInput {
 }
 
 export class CreateHouseholdUseCase {
-  private readonly enqueuer: PendingSyncEnqueuer;
+  private readonly enqueuer: ISyncEnqueuer;
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateHouseholdInput,
+    enqueuer?: ISyncEnqueuer,
   ) {
-    this.enqueuer = new PendingSyncEnqueuer(db);
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
   }
 
   async execute(): Promise<Result<HouseholdSummary>> {
@@ -33,7 +35,10 @@ export class CreateHouseholdUseCase {
       return createFailure({ code: 'INVALID_NAME', message: 'Household name is required' });
     }
     if (this.input.paydayDay < 1 || this.input.paydayDay > 28) {
-      return createFailure({ code: 'INVALID_PAYDAY', message: 'Payday day must be between 1 and 28' });
+      return createFailure({
+        code: 'INVALID_PAYDAY',
+        message: 'Payday day must be between 1 and 28',
+      });
     }
 
     const now = new Date().toISOString();
@@ -57,6 +62,7 @@ export class CreateHouseholdUseCase {
       userId: this.input.userId,
       role: 'owner',
       joinedAt: now,
+      updatedAt: now,
     };
     await this.db.insert(householdMembers).values(memberRow);
 

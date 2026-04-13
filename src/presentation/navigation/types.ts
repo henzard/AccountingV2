@@ -3,14 +3,35 @@ import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { MeterType } from '../../domain/meterReadings/MeterReadingEntity';
 
+export type OnboardingStackParamList = {
+  Welcome: undefined;
+  Income: undefined;
+  ExpenseCategories: undefined;
+  Payday: undefined;
+  MeterSetup: undefined;
+  ScoreIntro: undefined;
+  Finish: undefined;
+};
+
 export type AuthStackParamList = {
   Login: undefined;
+  SignUp: undefined;
   OnboardingWizard: undefined;
+};
+
+export type CreateHouseholdStackParamList = {
+  CreateHouseholdGate: undefined;
+  JoinHouseholdGate: undefined;
 };
 
 export type DashboardStackParamList = {
   DashboardHome: undefined;
-  AddEditEnvelope: { envelopeId?: string; preselectedType?: import('../../domain/envelopes/EnvelopeEntity').EnvelopeType } | undefined;
+  AddEditEnvelope:
+    | {
+        envelopeId?: string;
+        preselectedType?: import('../../domain/envelopes/EnvelopeEntity').EnvelopeType;
+      }
+    | undefined;
   BabySteps: undefined;
 };
 
@@ -47,6 +68,8 @@ export type MainTabParamList = {
 
 export type RootStackParamList = {
   Auth: undefined;
+  CreateHouseholdFlow: undefined;
+  Onboarding: undefined;
   Main: undefined;
   HouseholdPicker: undefined;
   CreateHousehold: undefined;
@@ -110,7 +133,13 @@ export type NotificationPreferencesScreenProps = NativeStackScreenProps<
   'NotificationPreferences'
 >;
 
-export type HouseholdPickerScreenProps = NativeStackScreenProps<RootStackParamList, 'HouseholdPicker'>;
-export type CreateHouseholdScreenProps = NativeStackScreenProps<RootStackParamList, 'CreateHousehold'>;
+export type HouseholdPickerScreenProps = NativeStackScreenProps<
+  RootStackParamList,
+  'HouseholdPicker'
+>;
+export type CreateHouseholdScreenProps = NativeStackScreenProps<
+  RootStackParamList,
+  'CreateHousehold'
+>;
 export type ShareInviteScreenProps = NativeStackScreenProps<RootStackParamList, 'ShareInvite'>;
 export type JoinHouseholdScreenProps = NativeStackScreenProps<RootStackParamList, 'JoinHousehold'>;

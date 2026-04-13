@@ -6,6 +6,8 @@
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
     "paths": {
       "@domain/*": ["./src/domain/*"],
       "@data/*": ["./src/data/*"],

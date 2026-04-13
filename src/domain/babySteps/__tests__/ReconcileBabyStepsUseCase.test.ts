@@ -237,9 +237,7 @@ describe('ReconcileBabyStepsUseCase', () => {
       allocatedCents: 100_000,
       spentCents: 0,
     });
-    const bsRows = [1, 2, 3, 4, 5, 6, 7].map((n) =>
-      makeBabyStepRow(n, { isCompleted: n === 1 }),
-    );
+    const bsRows = [1, 2, 3, 4, 5, 6, 7].map((n) => makeBabyStepRow(n, { isCompleted: n === 1 }));
 
     const db = makeDb({
       envelopeRows: [envelopeRow],

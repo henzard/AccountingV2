@@ -1,4 +1,8 @@
 import { ReconcileEmergencyFundTypeUseCase } from '../ReconcileEmergencyFundTypeUseCase';
+import type { ISyncEnqueuer } from '../../ports/ISyncEnqueuer';
+
+// expo-crypto is a native module pulled in transitively by PendingSyncEnqueuerAdapter
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-test' }));
 
 beforeAll(() => {
   jest.useFakeTimers();
@@ -49,32 +53,41 @@ function makeDb(envelopeRows: Record<string, unknown>[]) {
 describe('ReconcileEmergencyFundTypeUseCase', () => {
   const HOUSEHOLD_ID = 'h1';
 
+  function makeEnqueuer(): ISyncEnqueuer & { enqueue: jest.Mock } {
+    return { enqueue: jest.fn().mockResolvedValue(undefined) };
+  }
+
   it('single EMF → no-op, flipped=0', async () => {
     const rows = [makeEnvelopeRow({ id: 'e1' })];
     const db = makeDb(rows);
-    const uc = new ReconcileEmergencyFundTypeUseCase(db as any);
+    const enqueuer = makeEnqueuer();
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
     const result = await uc.execute(HOUSEHOLD_ID);
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.flipped).toBe(0);
     expect(db.update).not.toHaveBeenCalled();
+    expect(enqueuer.enqueue).not.toHaveBeenCalled();
   });
 
   it('no EMF envelopes → no-op, flipped=0', async () => {
     const db = makeDb([]);
-    const uc = new ReconcileEmergencyFundTypeUseCase(db as any);
+    const enqueuer = makeEnqueuer();
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
     const result = await uc.execute(HOUSEHOLD_ID);
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.flipped).toBe(0);
+    expect(enqueuer.enqueue).not.toHaveBeenCalled();
   });
 
   it('two active EMFs → oldest preserved, other flipped to savings with isSynced=false', async () => {
     const older = makeEnvelopeRow({ id: 'e-older', createdAt: '2025-01-01T00:00:00.000Z' });
     const newer = makeEnvelopeRow({ id: 'e-newer', createdAt: '2026-01-01T00:00:00.000Z' });
     const db = makeDb([newer, older]); // intentionally out of order
+    const enqueuer = makeEnqueuer();
 
-    const uc = new ReconcileEmergencyFundTypeUseCase(db as any);
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
     const result = await uc.execute(HOUSEHOLD_ID);
 
     expect(result.success).toBe(true);
@@ -84,6 +97,10 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
     expect(db.update).toHaveBeenCalledTimes(1);
     expect(db._updates[0]?.set.envelopeType).toBe('savings');
     expect(db._updates[0]?.set.isSynced).toBe(false);
+
+    // Enqueuer must be called once for the flipped envelope
+    expect(enqueuer.enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueuer.enqueue).toHaveBeenCalledWith('envelopes', 'e-newer', 'UPDATE');
   });
 
   it('two active EMFs + one archived → archived skipped, only the non-oldest active flipped', async () => {
@@ -92,12 +109,14 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
     // Archived one — should not be returned (filtered in the WHERE clause)
     // We simulate the DB already filtering it out
     const db = makeDb([newer, older]);
+    const enqueuer = makeEnqueuer();
 
-    const uc = new ReconcileEmergencyFundTypeUseCase(db as any);
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
     const result = await uc.execute(HOUSEHOLD_ID);
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.flipped).toBe(1);
+    expect(enqueuer.enqueue).toHaveBeenCalledTimes(1);
   });
 
   it('three active EMFs → oldest kept, two others flipped', async () => {
@@ -107,11 +126,14 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
       makeEnvelopeRow({ id: 'e-2', createdAt: '2026-01-01T00:00:00.000Z' }),
     ];
     const db = makeDb(rows);
-    const uc = new ReconcileEmergencyFundTypeUseCase(db as any);
+    const enqueuer = makeEnqueuer();
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
     const result = await uc.execute(HOUSEHOLD_ID);
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.flipped).toBe(2);
     expect(db.update).toHaveBeenCalledTimes(2);
+    // Enqueuer called once per flipped envelope
+    expect(enqueuer.enqueue).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,5 +1,10 @@
 import type { SupabaseClient, Session } from '@supabase/supabase-js';
-import { createSuccess, createFailure, type Result, type DomainError } from '../../domain/shared/types';
+import {
+  createSuccess,
+  createFailure,
+  type Result,
+  type DomainError,
+} from '../../domain/shared/types';
 
 export class SupabaseAuthService {
   constructor(private readonly client: SupabaseClient) {}
@@ -26,7 +31,10 @@ export class SupabaseAuthService {
   async getSession(): Promise<Result<Session | null>> {
     const { data, error } = await this.client.auth.getSession();
     if (error) {
-      return createFailure<DomainError>({ code: 'AUTH_GET_SESSION_FAILED', message: error.message });
+      return createFailure<DomainError>({
+        code: 'AUTH_GET_SESSION_FAILED',
+        message: error.message,
+      });
     }
     return createSuccess(data.session);
   }
