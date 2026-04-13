@@ -325,24 +325,24 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
     }));
 
     // Track the first write for each (householdId, stepNumber) pair.
-    // INSERT OR IGNORE means subsequent attempts for the same key must not
-    // overwrite the first write — in a real SQLite DB the row is unchanged.
+    // onConflictDoUpdate is called by restoreTable (remote authoritative);
+    // onConflictDoNothing is called by the seeder (idempotent backfill).
     const firstWriteByKey = new Map<string, Record<string, unknown>>();
 
     const db = {
       insert: () => ({
         values: (row: Record<string, unknown>) => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
+          onConflictDoUpdate: jest.fn().mockImplementation(() => {
             if ('stepNumber' in row) {
               const key = `${row.householdId}:${row.stepNumber}`;
-              // Only record the first write — INSERT OR IGNORE semantics
+              // Only record the first write from restoreTable
               if (!firstWriteByKey.has(key)) {
                 firstWriteByKey.set(key, { ...row });
               }
             }
             return Promise.resolve();
           }),
+          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
         }),
       }),
     } as any;
@@ -388,14 +388,13 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
       },
     ];
 
-    // Track the first write for each step
+    // Track the first write for each step (via onConflictDoUpdate from restoreTable)
     const firstWriteByKey = new Map<string, Record<string, unknown>>();
 
     const db = {
       insert: () => ({
         values: (row: Record<string, unknown>) => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
+          onConflictDoUpdate: jest.fn().mockImplementation(() => {
             if ('stepNumber' in row) {
               const key = `${row.householdId}:${row.stepNumber}`;
               if (!firstWriteByKey.has(key)) {
@@ -404,6 +403,7 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
             }
             return Promise.resolve();
           }),
+          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
         }),
       }),
     } as any;

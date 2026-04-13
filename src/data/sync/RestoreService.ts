@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { sql, getTableColumns } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
@@ -138,10 +138,23 @@ export class RestoreService {
 
     for (const row of data) {
       const localRow = toLocalRow(row as Record<string, unknown>);
+      // Build set clause from all non-id columns so remote overwrites stale local rows.
+      // Remote is authoritative on restore.
+      const columns = Object.keys(getTableColumns(localTable)).filter((col) => col !== 'id');
+      const setClause = Object.fromEntries(
+        columns.map((col) => {
+          // Map camelCase col to snake_case for the EXCLUDED reference
+          const snakeCol = col.replace(/([A-Z])/g, (m) => `_${m.toLowerCase()}`);
+          return [col, sql.raw(`excluded.${snakeCol}`)];
+        }),
+      );
       await this.db
         .insert(localTable)
         .values(localRow as typeof localTable.$inferInsert)
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: (localTable as typeof envelopes).id,
+          set: setClause,
+        });
     }
   }
 }
