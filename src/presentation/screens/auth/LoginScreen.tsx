@@ -109,6 +109,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             disabled={loading}
             style={styles.button}
             contentStyle={styles.buttonContent}
+            testID="login-submit"
+            accessibilityLabel="Sign In"
+            accessibilityRole="button"
           >
             Sign In
           </Button>
@@ -117,6 +120,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             mode="text"
             onPress={() => navigation.navigate('SignUp')}
             style={styles.linkButton}
+            testID="login-signup-link"
+            accessibilityLabel="New here? Create an account"
+            accessibilityRole="button"
           >
             New here? Create an account
           </Button>
