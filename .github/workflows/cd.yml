@@ -67,7 +67,8 @@ jobs:
           ./gradlew uploadCrashlyticsMappingFileRelease
 
       - name: Upload to Play Store — Internal Testing
-        uses: r0adkll/upload-google-play@v1
+        # Pinned to v1 tag commit SHA for supply-chain security (C11)
+        uses: r0adkll/upload-google-play@935ef9c68bb393a8e6116b1575626a7f5be3a7fb
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.henza.accountingv2
