@@ -5,6 +5,7 @@ import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateDebtUseCase } from '../../../domain/debtSnowball/CreateDebtUseCase';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
 import type { DebtType } from '../../../domain/debtSnowball/DebtEntity';
 import type { AddDebtScreenProps } from '../../navigation/types';
@@ -21,6 +22,7 @@ const DEBT_TYPES: { value: DebtType; label: string }[] = [
 
 export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
   const householdId = useAppStore((s) => s.householdId)!;
+  const enqueue = useToastStore((s) => s.enqueue);
   const [creditorName, setCreditorName] = useState('');
   const [debtType, setDebtType] = useState<DebtType>('credit_card');
   const [balanceRands, setBalanceRands] = useState('');
@@ -64,6 +66,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
+      enqueue('Debt saved', 'info');
       navigation.goBack();
     } else {
       setError(result.error.message);

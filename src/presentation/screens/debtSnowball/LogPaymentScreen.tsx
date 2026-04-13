@@ -7,6 +7,7 @@ import { debts as debtsTable } from '../../../data/local/schema';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { LogDebtPaymentUseCase } from '../../../domain/debtSnowball/LogDebtPaymentUseCase';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { LogPaymentScreenProps } from '../../navigation/types';
@@ -16,6 +17,7 @@ const audit = new AuditLogger(db);
 export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, route }) => {
   const { debtId } = route.params;
   const householdId = useAppStore((s) => s.householdId)!;
+  const enqueue = useToastStore((s) => s.enqueue);
   const [debt, setDebt] = useState<DebtEntity | null>(null);
   const [amountRands, setAmountRands] = useState('');
   const [saving, setSaving] = useState(false);
@@ -50,6 +52,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
+      enqueue('Payment logged', 'info');
       navigation.goBack();
     } else {
       setError(result.error.message);

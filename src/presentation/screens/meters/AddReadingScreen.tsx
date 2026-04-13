@@ -9,6 +9,7 @@ import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { LogMeterReadingUseCase } from '../../../domain/meterReadings/LogMeterReadingUseCase';
 import { AnomalyDetector } from '../../../domain/meterReadings/AnomalyDetector';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
 import type {
   MeterReadingEntity,
@@ -22,6 +23,7 @@ const anomalyDetector = new AnomalyDetector();
 
 export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, route }) => {
   const householdId = useAppStore((s) => s.householdId)!;
+  const enqueue = useToastStore((s) => s.enqueue);
   const [meterType, setMeterType] = useState<MeterType>(route.params.meterType);
   const [readingValue, setReadingValue] = useState('');
   const [costRands, setCostRands] = useState('');
@@ -104,6 +106,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
+      enqueue('Reading saved', 'info');
       navigation.goBack();
     } else {
       setError(result.error.message);
