@@ -36,26 +36,12 @@ async function initSession(
   setPaydayDay: (day: number) => void,
   setAvailableHouseholds: (h: HouseholdSummary[]) => void,
 ): Promise<void> {
-  // 1. Restore from Supabase (no-op if offline)
-  let restoredHouseholds: RestoredHousehold[] = [];
-  try {
-    restoredHouseholds = await restoreService.restore(userId);
-  } catch {
-    // Offline or network error — continue with local data
-  }
-
-  // 2. Seed all restored households first (before primary ensure, so gaps are backfilled even
-  //    if EnsureHouseholdUseCase fails for the current user's household).
-  const seeder = new SeedBabyStepsUseCase(db);
-  for (const restored of restoredHouseholds) {
-    void seeder.execute(restored.id).catch(() => {
-      // Non-fatal: seed failures don't block startup
-    });
-  }
-
-  // 3. Ensure household exists locally for the current user (seeds baby steps internally)
+  // C5: Run EnsureHousehold (local DB) + restore (remote) in parallel.
+  // Restore is network-dependent — it must not block local household resolution.
+  const restorePromise = restoreService.restore(userId).catch((): RestoredHousehold[] => []);
   const uc = new EnsureHouseholdUseCase(db, audit, userId);
-  const result = await uc.execute();
+  const [restoredHouseholds, result] = await Promise.all([restorePromise, uc.execute()]);
+
   if (result.success) {
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
@@ -69,14 +55,18 @@ async function initSession(
     console.error('[initSession] Failed to ensure household:', result.error);
   }
 
-  // 4. Push any pending local writes to Supabase (fire and forget).
-  //    Pass householdId so the post-sync ReconcileEmergencyFundTypeUseCase fixer can run.
+  // Seed restored households (fire-and-forget — non-fatal).
+  const seeder = new SeedBabyStepsUseCase(db);
+  for (const restored of restoredHouseholds) {
+    void seeder.execute(restored.id).catch(() => {});
+  }
+
+  // C5: Push pending writes to Supabase (fire-and-forget after navigator mounts).
   const resolvedHouseholdId = result.success ? result.data.id : undefined;
   void syncOrchestrator
     .syncPending(resolvedHouseholdId)
     .then((syncResult) => {
       if (syncResult.emfFlipped > 0) {
-        // Presentation-layer flag: show duplicate-EMF banner on Budget screen
         useEmergencyFundReconcileStore.getState().setReconciledDuplicateEmf(true);
       }
     })
