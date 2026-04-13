@@ -24,6 +24,7 @@ import { useCelebrationStore } from './src/presentation/stores/celebrationStore'
 import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
 import { initCrashlytics } from './src/infrastructure/monitoring/crashlytics';
 import crashlytics from '@react-native-firebase/crashlytics';
+import { subscribeNetworkStore } from './src/presentation/stores/networkStore';
 
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
@@ -121,6 +122,9 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     // Bind once on mount (covers cold-start with existing session).
     bindCelebrationStore();
+    // Subscribe NetworkObserver → networkStore (drives OfflineBanner).
+    const unsubscribeNetwork = subscribeNetworkStore();
+    return unsubscribeNetwork;
   }, [bindCelebrationStore]);
 
   useEffect(() => {
