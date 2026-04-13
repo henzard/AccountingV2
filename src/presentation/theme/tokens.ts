@@ -34,7 +34,8 @@ export const colours = {
   debtBarBackground: '#FFEBEE',
   scoreExcellent: '#2E7D32',
   scoreGood: '#00695C',
-  scoreFair: '#FFB300',
+  // scoreFair darkened from #FFB300 (~2.5:1 on #FAFAFA) → #B25E09 (≥4.5:1 on #FAFAFA) — WCAG AA
+  scoreFair: '#B25E09',
   scorePoor: '#C62828',
   scrim: 'rgba(0, 0, 0, 0.4)',
   shimmer: 'rgba(255, 255, 255, 0.6)',
