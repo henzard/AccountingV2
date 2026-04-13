@@ -50,7 +50,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
   // 5.8: Auto-detect system reduce-motion setting; subscribe to changes.
   // reducedMotionProp (if provided) overrides — used in tests to force a known value.
   const [systemReducedMotion, setSystemReducedMotion] = useState(false);
-  useEffect(() => {
+  useEffect((): (() => void) => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setSystemReducedMotion);
     const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setSystemReducedMotion);
     return () => sub.remove();
@@ -60,7 +60,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
   const scaleAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0.6)).current;
   const opacityAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0)).current;
 
-  useEffect(() => {
+  useEffect((): (() => void) | void => {
     if (!visible) return;
 
     if (reducedMotion) {

@@ -62,7 +62,7 @@ function getCurrentStepTitle(statuses: BabyStepStatus[]): { stepNumber: number; 
 function CurrentNodeSvg({ cx, cy, r }: { cx: number; cy: number; r: number }): React.JSX.Element {
   const anim = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
+  useEffect((): (() => void) => {
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(anim, {
@@ -228,7 +228,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
       </Svg>
 
       {/* Animated current node — rendered as Animated.View for opacity pulse */}
-      {currentIndex >= 0 && (() => {
+      {currentIndex >= 0 && ((): React.ReactNode => {
         const cx = paddingH + currentIndex * segment;
         const r = NODE_RADIUS_CURRENT;
         if (noAnimation) {

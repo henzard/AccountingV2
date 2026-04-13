@@ -40,7 +40,7 @@ export const CelebrationModalHost: React.FC = () => {
     if (!currentHead || !householdId) return;
 
     // Fire-and-forget; dequeue unconditionally so a stamp failure never freezes UI.
-    (async () => {
+    (async (): Promise<void> => {
       try {
         await stampUseCase.execute(householdId, currentHead.stepNumber);
       } catch (e) {

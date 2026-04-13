@@ -1,0 +1,47 @@
+{
+  "agents": {
+    "agent-1776018983608-4gi6fx": {
+      "agentId": "agent-1776018983608-4gi6fx",
+      "agentType": "reviewer",
+      "status": "terminated",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "sonnet"
+      },
+      "createdAt": "2026-04-12T18:36:23.608Z",
+      "domain": "design-review",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "agent-1776019549300-linavy": {
+      "agentId": "agent-1776019549300-linavy",
+      "agentType": "queen-coordinator",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "opus"
+      },
+      "createdAt": "2026-04-12T18:45:49.300Z",
+      "domain": "design-review",
+      "model": "opus",
+      "modelRoutedBy": "explicit"
+    },
+    "agent-1776020217168-vqapbj": {
+      "agentId": "agent-1776020217168-vqapbj",
+      "agentType": "planner",
+      "status": "terminated",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "opus"
+      },
+      "createdAt": "2026-04-12T18:56:57.168Z",
+      "domain": "implementation-planning",
+      "model": "opus",
+      "modelRoutedBy": "explicit"
+    }
+  },
+  "version": "3.0.0"
+}

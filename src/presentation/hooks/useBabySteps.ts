@@ -154,7 +154,7 @@ export function useBabySteps(
       previousStateRef.current = nextState;
     });
 
-    return () => {
+    return (): void => {
       subscription.remove();
     };
   }, [reconcile]);
