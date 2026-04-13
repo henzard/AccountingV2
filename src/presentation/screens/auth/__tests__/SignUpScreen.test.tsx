@@ -96,8 +96,11 @@ describe('SignUpScreen', () => {
     });
   });
 
-  it('calls supabase.auth.signUp and shows success state on success', async () => {
-    mockSignUp.mockResolvedValue({ error: null });
+  it('shows pending-session state when signUp returns a session immediately', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: { id: 'u1' }, session: { access_token: 'tok' } },
+      error: null,
+    });
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
     fireEvent.changeText(getByTestId('Email'), 'user@example.com');
     fireEvent.changeText(getByTestId('Password'), 'securepass1');
@@ -108,11 +111,30 @@ describe('SignUpScreen', () => {
         email: 'user@example.com',
         password: 'securepass1',
       });
-      // Form should be replaced by the non-interactive confirmation view
+      // Form should be replaced by the non-interactive pending-session view
       expect(queryByTestId('signup-success')).toBeTruthy();
       // navigate must NOT have been called — RootNavigator transitions via auth listener
       expect(mockNavigate).not.toHaveBeenCalled();
     });
+  });
+
+  it('shows check-email state when signUp returns no session (email confirmation required)', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: { id: 'u1' }, session: null },
+      error: null,
+    });
+    const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
+    fireEvent.changeText(getByTestId('Email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('Password'), 'securepass1');
+    fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
+    fireEvent.press(getByText('Create Account'));
+    await waitFor(() => {
+      expect(queryByTestId('signup-check-email')).toBeTruthy();
+      expect(queryByTestId('signup-success')).toBeNull();
+    });
+    // Back to sign in button navigates to Login
+    fireEvent.press(getByTestId('back-to-signin'));
+    expect(mockNavigate).toHaveBeenCalledWith('Login');
   });
 
   it('shows supabase error message on failure', async () => {

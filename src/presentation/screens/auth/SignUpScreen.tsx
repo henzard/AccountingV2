@@ -24,7 +24,7 @@ export function SignUpScreen(): React.JSX.Element {
   const [confirm, setConfirm] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState<'idle' | 'check-email' | 'pending-session'>('idle');
 
   const onSubmit = async (): Promise<void> => {
     setErr(null);
@@ -41,19 +41,51 @@ export function SignUpScreen(): React.JSX.Element {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password });
-    setLoading(false);
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+    });
     if (error) {
       setErr(error.message);
+      setLoading(false);
       return;
     }
-    // Stay on this screen; show a loading/success state.
-    // The onAuthStateChange listener in App.tsx will set the session in appStore,
-    // which causes RootNavigator to unmount AuthNavigator and show CreateHouseholdNavigator.
-    setSubmitted(true);
+
+    setLoading(false);
+
+    if (data.session) {
+      // Immediate session (email confirmation disabled project-side) — auth listener will
+      // navigate; show a brief transitional state.
+      setSubmitted('pending-session');
+    } else {
+      // Email confirmation required — tell the user explicitly.
+      setSubmitted('check-email');
+    }
   };
 
-  if (submitted) {
+  if (submitted === 'check-email') {
+    return (
+      <View style={[styles.flex, styles.centerContent]} testID="signup-check-email">
+        <Text variant="headlineSmall" style={styles.title}>
+          Check your email
+        </Text>
+        <Text variant="bodyLarge" style={styles.successText}>
+          We've sent a confirmation link to {email}. Tap it, then sign in.
+        </Text>
+        <Button
+          mode="contained"
+          onPress={() => navigation.navigate('Login')}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+          testID="back-to-signin"
+        >
+          Back to sign in
+        </Button>
+      </View>
+    );
+  }
+
+  if (submitted === 'pending-session') {
     return (
       <View style={[styles.flex, styles.centerContent]} testID="signup-success">
         <ActivityIndicator size="large" color={colours.primary} />
