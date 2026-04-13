@@ -30,5 +30,5 @@ module.exports = {
     '!src/presentation/navigation/**',
     '!src/presentation/theme/**',
   ],
-  coverageThreshold: { global: { lines: 60, branches: 45 } },
+  coverageThreshold: { global: { lines: 65, branches: 50 } },
 };
