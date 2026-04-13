@@ -40,22 +40,19 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
       };
     }
     if (table === 'slip_queue') {
+      const slipRow = {
+        id: 'slip1',
+        status: 'processing',
+        raw_response_json: null,
+        created_by: 'u1',
+      };
+      const chainedEq = {
+        eq: () => chainedEq,
+        maybeSingle: () => Promise.resolve({ data: slipRow, error: null }),
+        gte: () => Promise.resolve({ data: null, count: 0, error: null }),
+      };
       return {
-        select: () => ({
-          eq: () => ({
-            maybeSingle: () =>
-              Promise.resolve({
-                data: {
-                  id: 'slip1',
-                  status: 'processing',
-                  raw_response_json: null,
-                  created_by: 'u1',
-                },
-                error: null,
-              }),
-            gte: () => Promise.resolve({ data: null, count: 0, error: null }),
-          }),
-        }),
+        select: () => ({ eq: () => chainedEq }),
         update: () => ({ eq: () => Promise.resolve({ error: null }) }),
       };
     }
