@@ -16,8 +16,7 @@ const withFirebaseNotificationColorFix: ConfigPlugin = (config) => {
     if (app?.['meta-data']) {
       for (const metaData of app['meta-data']) {
         if (
-          metaData.$['android:name'] ===
-          'com.google.firebase.messaging.default_notification_color'
+          metaData.$['android:name'] === 'com.google.firebase.messaging.default_notification_color'
         ) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (metaData.$ as any)['tools:replace'] = 'android:resource';
@@ -50,6 +49,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     },
     googleServicesFile: './google-services.json',
     predictiveBackGestureEnabled: false,
+    allowBackup: false,
   },
   plugins: [
     'expo-sqlite',
