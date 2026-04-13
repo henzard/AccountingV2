@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { View, StyleSheet, BackHandler, Alert } from 'react-native';
 import { Text, Button, ActivityIndicator } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -50,6 +50,14 @@ export function SlipProcessingScreen({
 
   const { householdId, createdBy, frameLocalUris } = route.params;
 
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
+
   const handleCancel = useCallback((): void => {
     Alert.alert('Cancel scan?', 'Your photos will not be saved.', [
       { text: 'Keep going', style: 'cancel' },
@@ -67,6 +75,7 @@ export function SlipProcessingScreen({
 
   useEffect(() => {
     startScan({ householdId, createdBy, frameLocalUris }).then((result) => {
+      if (!mounted.current) return;
       if (result.success && result.data) {
         navigation.navigate('SlipConfirm', {
           slipId: (result.data as { slipId: string }).slipId,

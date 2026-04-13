@@ -1,4 +1,4 @@
-import { SupabaseSlipImageUploader } from '../SupabaseSlipImageUploader';
+import { SupabaseSlipImageUploader, resetWifiOnlyCache } from '../SupabaseSlipImageUploader';
 
 // Mock AsyncStorage and NetInfo before importing the module under test
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -24,6 +24,7 @@ function makeSupabase() {
 
 describe('SupabaseSlipImageUploader', () => {
   beforeEach(() => {
+    resetWifiOnlyCache(); // ensure cache is clear so each test reads AsyncStorage fresh
     mockAsyncStorageGetItem.mockResolvedValue(null); // wifi-only off by default
     mockNetInfoFetch.mockResolvedValue({ type: 'wifi', isConnected: true });
   });

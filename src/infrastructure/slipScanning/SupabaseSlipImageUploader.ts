@@ -5,6 +5,21 @@ import type { ISlipImageUploader } from '../../domain/ports/ISlipImageUploader';
 
 const WIFI_ONLY_KEY = '@settings:slip_wifi_only';
 
+/** 30-second in-memory cache to avoid reading AsyncStorage on every frame upload. */
+let wifiOnlyCache: { value: boolean; at: number } | null = null;
+
+async function getWifiOnly(): Promise<boolean> {
+  if (wifiOnlyCache && Date.now() - wifiOnlyCache.at < 30_000) return wifiOnlyCache.value;
+  const v = (await AsyncStorage.getItem(WIFI_ONLY_KEY)) === 'true';
+  wifiOnlyCache = { value: v, at: Date.now() };
+  return v;
+}
+
+/** Exposed for testing only — clears the WiFi setting cache so tests see fresh reads. */
+export function resetWifiOnlyCache(): void {
+  wifiOnlyCache = null;
+}
+
 function base64ToBytes(b64: string): Uint8Array {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
@@ -26,7 +41,7 @@ export class SupabaseSlipImageUploader implements ISlipImageUploader {
     frameIndex: number;
     base64: string;
   }): Promise<string> {
-    const wifiOnly = (await AsyncStorage.getItem(WIFI_ONLY_KEY)) === 'true';
+    const wifiOnly = await getWifiOnly();
     if (wifiOnly) {
       const state = await NetInfo.fetch();
       if (state.type !== 'wifi') {
