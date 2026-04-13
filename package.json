@@ -12,6 +12,7 @@
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,json}\"",
+    "test:deno": "deno test --allow-net --allow-env --allow-read supabase/functions/",
     "prepare": "husky",
     "postinstall": "patch-package"
   },

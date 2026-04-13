@@ -30,3 +30,11 @@ jobs:
 
       - name: Jest
         run: npx jest --coverage
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 'v1.x'
+
+      - name: Run Deno tests
+        run: deno test --allow-net --allow-env --allow-read supabase/functions/
