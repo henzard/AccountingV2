@@ -10,7 +10,7 @@ import type { CreateHouseholdScreenProps } from '../../navigation/types';
 
 const audit = new AuditLogger(db);
 
-export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = ({ navigation }) => {
+export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () => {
   const session = useAppStore((s) => s.session);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
@@ -44,7 +44,7 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = ({ na
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
     setAvailableHouseholds([...availableHouseholds, result.data]);
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    // RootNavigator will re-render and switch to Onboarding/Main when householdId is set.
   };
 
   return (

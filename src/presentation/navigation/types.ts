@@ -5,7 +5,13 @@ import type { MeterType } from '../../domain/meterReadings/MeterReadingEntity';
 
 export type AuthStackParamList = {
   Login: undefined;
+  SignUp: undefined;
   OnboardingWizard: undefined;
+};
+
+export type CreateHouseholdStackParamList = {
+  CreateHouseholdGate: undefined;
+  JoinHouseholdGate: undefined;
 };
 
 export type DashboardStackParamList = {
@@ -52,6 +58,8 @@ export type MainTabParamList = {
 
 export type RootStackParamList = {
   Auth: undefined;
+  CreateHouseholdFlow: undefined;
+  Onboarding: undefined;
   Main: undefined;
   HouseholdPicker: undefined;
   CreateHousehold: undefined;
