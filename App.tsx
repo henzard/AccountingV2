@@ -5,7 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Text } from 'react-native-paper';
 import { useDatabaseMigrations } from './src/data/local/db';
 import { useFonts } from './src/presentation/theme/useFonts';
-import { appTheme } from './src/presentation/theme/theme';
+import { useAppTheme } from './src/presentation/theme/useAppTheme';
 import { RootNavigator } from './src/presentation/navigation/RootNavigator';
 import { colours } from './src/presentation/theme/tokens';
 import { supabase } from './src/data/remote/supabaseClient';
@@ -86,6 +86,7 @@ async function initSession(
 }
 
 export default function App(): React.JSX.Element {
+  const appTheme = useAppTheme();
   const { fontsLoaded, fontError } = useFonts();
   const { success: dbReady, error: dbError } = useDatabaseMigrations();
   const setSession = useAppStore((s) => s.setSession);
