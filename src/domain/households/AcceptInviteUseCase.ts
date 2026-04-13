@@ -4,7 +4,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { householdMembers } from '../../data/local/schema';
-import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { RestoreService } from '../../data/sync/RestoreService';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
 import type { Result } from '../shared/types';
@@ -16,15 +17,16 @@ interface AcceptInviteInput {
 }
 
 export class AcceptInviteUseCase {
-  private readonly enqueuer: PendingSyncEnqueuer;
+  private readonly enqueuer: ISyncEnqueuer;
 
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly restoreService: RestoreService,
     private readonly input: AcceptInviteInput,
+    enqueuer?: ISyncEnqueuer,
   ) {
-    this.enqueuer = new PendingSyncEnqueuer(db);
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
   }
 
   async execute(): Promise<Result<HouseholdSummary>> {

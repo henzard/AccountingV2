@@ -103,4 +103,13 @@ describe('CreateEnvelopeUseCase', () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.isSavingsLocked).toBe(false);
   });
+
+  it('calls injected ISyncEnqueuer instead of default adapter', async () => {
+    const db = makeDb();
+    const mockEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const uc = new CreateEnvelopeUseCase(db as any, makeAudit() as any, validInput, mockEnqueuer);
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(mockEnqueuer.enqueue).toHaveBeenCalledWith('envelopes', 'new-env-uuid', 'INSERT');
+  });
 });
