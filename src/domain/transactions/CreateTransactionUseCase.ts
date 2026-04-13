@@ -1,5 +1,5 @@
 import { randomUUID } from 'expo-crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { InferInsertModel } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
@@ -35,11 +35,12 @@ export class CreateTransactionUseCase {
       return createFailure({ code: 'INVALID_AMOUNT', message: 'Amount must be greater than zero' });
     }
 
-    // Reject transactions targeting income envelopes
+    // Reject transactions targeting income envelopes; also scope to household to
+    // prevent cross-household envelope access (CRITICAL-2).
     const [targetEnvelope] = await this.db
       .select()
       .from(envelopes)
-      .where(eq(envelopes.id, this.input.envelopeId))
+      .where(and(eq(envelopes.id, this.input.envelopeId), eq(envelopes.householdId, this.input.householdId)))
       .limit(1);
 
     if (!targetEnvelope) {
@@ -69,11 +70,12 @@ export class CreateTransactionUseCase {
     const row: InferInsertModel<typeof transactions> = { ...tx, isSynced: false };
     await this.db.insert(transactions).values(row);
 
-    // Atomically increment envelope spentCents without a read-modify-write race
+    // Atomically increment envelope spentCents without a read-modify-write race.
+    // Scope by householdId to prevent cross-household write (CRITICAL-2).
     await this.db
       .update(envelopes)
       .set({ spentCents: sql`${envelopes.spentCents} + ${this.input.amountCents}`, updatedAt: now })
-      .where(sql`${envelopes.id} = ${this.input.envelopeId}`);
+      .where(and(eq(envelopes.id, this.input.envelopeId), eq(envelopes.householdId, this.input.householdId)));
 
     await this.audit.log({
       householdId: this.input.householdId,

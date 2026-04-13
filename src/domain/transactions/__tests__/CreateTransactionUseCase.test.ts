@@ -93,4 +93,23 @@ describe('CreateTransactionUseCase', () => {
     expect(mockInsert).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
   });
+
+  it('returns ENVELOPE_NOT_FOUND when envelope belongs to a different household', async () => {
+    // The envelope exists in the DB but the query is scoped to (envelopeId AND householdId).
+    // When those don't match, the DB returns no rows — simulated here as an empty result.
+    mockSelectWhere.mockResolvedValueOnce([]);
+    mockSelectLimit.mockImplementationOnce(() => mockSelectWhere());
+    const uc = new CreateTransactionUseCase(mockDb, mockAudit, {
+      ...input,
+      householdId: 'h-other', // different household than envelope's owner
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('ENVELOPE_NOT_FOUND');
+    }
+    // Must not insert a transaction or update spentCents
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
