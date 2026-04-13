@@ -1,4 +1,24 @@
-import { CreateInviteUseCase } from './CreateInviteUseCase';
+// Mock expo-crypto to provide bytes for generateCode
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'test-uuid',
+  getRandomBytes: (size: number) => {
+    // Use Math.random for test purposes — uniqueness test requires varied bytes per call
+    return new Uint8Array(Array.from({ length: size }, () => Math.floor(Math.random() * 256)));
+  },
+}));
+
+import { CreateInviteUseCase, generateCode } from './CreateInviteUseCase';
+
+describe('generateCode', () => {
+  it('produces codes of length 6 from the safe alphabet', () => {
+    const codes = new Set<string>();
+    for (let i = 0; i < 1000; i += 1) codes.add(generateCode());
+    expect(codes.size).toBeGreaterThan(990); // allow a tiny birthday collision
+    codes.forEach((c) => {
+      expect(c).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+    });
+  });
+});
 
 describe('CreateInviteUseCase', () => {
   it('returns the 6-character code on success', async () => {
