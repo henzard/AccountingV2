@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `baby_steps_household_step_uq` ON `baby_steps` (`household_id`,`step_number`);

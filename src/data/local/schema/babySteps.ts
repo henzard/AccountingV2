@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const babySteps = sqliteTable('baby_steps', {
   id: text('id').primaryKey(),
@@ -11,4 +11,6 @@ export const babySteps = sqliteTable('baby_steps', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
-});
+}, (table) => ({
+  householdStepUnique: uniqueIndex('baby_steps_household_step_uq').on(table.householdId, table.stepNumber),
+}));
