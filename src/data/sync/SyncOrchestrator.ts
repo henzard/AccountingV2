@@ -1,6 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
 import {
   pendingSync,
@@ -10,8 +10,10 @@ import {
   meterReadings,
   households,
   householdMembers,
+  babySteps,
 } from '../local/schema';
 import { toSupabaseRow } from './rowConverters';
+import { ReconcileEmergencyFundTypeUseCase } from '../../domain/babySteps/ReconcileEmergencyFundTypeUseCase';
 
 type SyncTable =
   | typeof envelopes
@@ -19,7 +21,10 @@ type SyncTable =
   | typeof debts
   | typeof meterReadings
   | typeof households
-  | typeof householdMembers;
+  | typeof householdMembers
+  | typeof babySteps;
+
+const BABY_STEPS_TABLE = 'baby_steps' as const;
 
 const TABLE_MAP: Record<string, SyncTable> = {
   envelopes,
@@ -28,6 +33,7 @@ const TABLE_MAP: Record<string, SyncTable> = {
   meter_readings: meterReadings,
   households,
   household_members: householdMembers,
+  [BABY_STEPS_TABLE]: babySteps,
 };
 
 export class SyncOrchestrator {
@@ -36,7 +42,7 @@ export class SyncOrchestrator {
     private readonly supabase: SupabaseClient,
   ) {}
 
-  async syncPending(): Promise<{ synced: number; failed: number }> {
+  async syncPending(householdId?: string): Promise<{ synced: number; failed: number; emfFlipped: number }> {
     const pending = await this.db
       .select()
       .from(pendingSync)
@@ -61,7 +67,18 @@ export class SyncOrchestrator {
       }
     }
 
-    return { synced, failed };
+    // Spec §ReconcileEmergencyFundTypeUseCase trigger:
+    // Fire ONLY when result is { failed: 0 } (full clean sync).
+    let emfFlipped = 0;
+    if (failed === 0 && householdId) {
+      const fixer = new ReconcileEmergencyFundTypeUseCase(this.db);
+      const fixResult = await fixer.execute(householdId).catch(() => null);
+      if (fixResult?.success) {
+        emfFlipped = fixResult.data.flipped;
+      }
+    }
+
+    return { synced, failed, emfFlipped };
   }
 
   private async processItem(item: typeof pendingSync.$inferSelect): Promise<void> {
@@ -86,10 +103,19 @@ export class SyncOrchestrator {
     if (!row) throw new Error(`Local row not found: ${item.tableName}/${item.recordId}`);
 
     const snakeRow = toSupabaseRow(row as Record<string, unknown>);
-    const { error } = await this.supabase
-      .from(item.tableName)
-      .upsert(snakeRow, { onConflict: 'id' });
-    if (error) throw new Error(error.message);
+
+    let syncError: PostgrestError | null = null;
+    if (item.tableName === BABY_STEPS_TABLE && item.operation !== 'DELETE') {
+      // Route through merge_baby_step RPC to preserve celebrated_at on conflict
+      const { error } = await this.supabase.rpc('merge_baby_step', { row: snakeRow });
+      syncError = error;
+    } else {
+      const { error } = await this.supabase
+        .from(item.tableName)
+        .upsert(snakeRow, { onConflict: 'id' });
+      syncError = error;
+    }
+    if (syncError) throw new Error(syncError.message);
 
     // Only update isSynced for tables that have the column (not household_members)
     if (item.tableName !== 'household_members') {

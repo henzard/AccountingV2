@@ -13,7 +13,8 @@ import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 interface Props {
   envelope: EnvelopeEntity;
-  onPress: () => void;
+  /** Optional — omit when the card is display-only (e.g. BudgetScreen overview). */
+  onPress?: () => void;
 }
 
 export function EnvelopeCard({ envelope, onPress }: Props): React.JSX.Element {

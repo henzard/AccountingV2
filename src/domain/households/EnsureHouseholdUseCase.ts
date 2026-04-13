@@ -8,6 +8,7 @@ import type { AuditLogger } from '../../data/audit/AuditLogger';
 import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
+import { SeedBabyStepsUseCase } from '../babySteps/SeedBabyStepsUseCase';
 
 export interface HouseholdSummary {
   id: string;
@@ -42,6 +43,9 @@ export class EnsureHouseholdUseCase {
         .where(eq(households.id, membership.householdId))
         .limit(1);
       if (hh) {
+        // Seed baby steps for existing household (idempotent — fills any gaps)
+        const seeder = new SeedBabyStepsUseCase(this.db);
+        await seeder.execute(hh.id);
         return createSuccess({
           id: hh.id,
           name: hh.name,
@@ -72,6 +76,11 @@ export class EnsureHouseholdUseCase {
       await this.db.insert(householdMembers).values(memberRow);
       await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
       await this.enqueuer.enqueue('households', legacy.id, 'INSERT');
+
+      // Seed baby steps for legacy household (idempotent — fills any gaps)
+      const seeder = new SeedBabyStepsUseCase(this.db);
+      await seeder.execute(legacy.id);
+
       return createSuccess({
         id: legacy.id,
         name: legacy.name,
@@ -114,6 +123,10 @@ export class EnsureHouseholdUseCase {
 
     await this.enqueuer.enqueue('households', householdId, 'INSERT');
     await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
+
+    // Seed baby steps for the newly created household
+    const seeder = new SeedBabyStepsUseCase(this.db);
+    await seeder.execute(householdId);
 
     return createSuccess({
       id: householdId,

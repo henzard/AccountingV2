@@ -6,7 +6,15 @@ describe('CreateHouseholdUseCase', () => {
   const makeDb = () => {
     const inserted: unknown[] = [];
     return {
-      insert: jest.fn().mockReturnValue({ values: (row: unknown) => { inserted.push(row); return Promise.resolve(); } }),
+      insert: jest.fn().mockReturnValue({
+        values: (row: unknown) => {
+          inserted.push(row);
+          return {
+            onConflictDoNothing: () => Promise.resolve(undefined),
+            then: (resolve: (v: undefined) => void) => { resolve(undefined); return Promise.resolve(undefined); },
+          };
+        },
+      }),
       _inserted: inserted,
     };
   };
@@ -33,8 +41,8 @@ describe('CreateHouseholdUseCase', () => {
     const uc = new CreateHouseholdUseCase(db as any, makeAudit() as any, { userId: 'u1', name: 'Home', paydayDay: 25 });
     const result = await uc.execute();
     expect(result.success).toBe(true);
-    // 4 inserts: household, household_members, pending_sync x2
-    expect(db._inserted.length).toBe(4);
+    // 11 inserts: household, household_members, pending_sync x2, + 7 baby step seed rows
+    expect(db._inserted.length).toBe(11);
     const hh = db._inserted[0] as any;
     expect(hh.name).toBe('Home');
     expect(hh.paydayDay).toBe(25);

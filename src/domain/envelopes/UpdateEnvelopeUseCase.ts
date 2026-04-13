@@ -11,6 +11,8 @@ import type { EnvelopeEntity } from './EnvelopeEntity';
 interface UpdateInput {
   name: string;
   allocatedCents: number;
+  /** Optional: if provided, income envelopes reject any non-zero value */
+  spentCents?: number;
 }
 
 export class UpdateEnvelopeUseCase {
@@ -32,6 +34,13 @@ export class UpdateEnvelopeUseCase {
     }
     if (this.input.allocatedCents <= 0) {
       return createFailure({ code: 'INVALID_AMOUNT', message: 'Budget amount must be greater than zero' });
+    }
+    // Income envelopes must always have spentCents = 0
+    if (this.current.envelopeType === 'income' && (this.input.spentCents ?? 0) !== 0) {
+      return createFailure({
+        code: 'INVALID_INCOME_MUTATION',
+        message: 'Income envelopes cannot have spending',
+      });
     }
 
     const now = new Date().toISOString();

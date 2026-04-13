@@ -1,12 +1,14 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { RamseyScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
+import { BabyStepsCard } from './BabyStepsCard';
 import { Text, FAB, ActivityIndicator, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
+import { useBabySteps } from '../../hooks/useBabySteps';
 import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
 import { CurrencyText } from '../../components/shared/CurrencyText';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
@@ -14,6 +16,8 @@ import { colours, spacing, radius } from '../../theme/tokens';
 import { format } from 'date-fns';
 import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
+import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
+import { db } from '../../../data/local/db';
 
 const engine = new BudgetPeriodEngine();
 const scoreCalculator = new RamseyScoreCalculator();
@@ -26,11 +30,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
+  const { statuses: babyStepStatuses } = useBabySteps(householdId, periodStart);
+  const [babyStepIsActive, setBabyStepIsActive] = useState(false);
 
   useFocusEffect(
-    useCallback(() => {
+    useCallback((): (() => void) => {
+      let cancelled = false;
       void reload();
-    }, [reload]),
+      resolveBabyStepIsActive(db, householdId).then((isActive) => {
+        if (!cancelled) setBabyStepIsActive(isActive);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [reload, householdId]),
   );
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
@@ -44,7 +57,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     envelopesOnBudget,
     totalEnvelopes: envelopes.length,
     meterReadingsLoggedThisPeriod: false,
-    babyStepIsActive: false,
+    babyStepIsActive,
   });
 
   const handleAddEnvelope = (): void => {
@@ -91,6 +104,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
             />
           </View>
         </Surface>
+      )}
+
+      {/* Baby Steps card — shown when statuses are loaded */}
+      {babyStepStatuses.length > 0 && (
+        <BabyStepsCard
+          statuses={babyStepStatuses}
+          onPress={() => navigation.navigate('BabySteps')}
+        />
       )}
 
       {loading ? (

@@ -8,7 +8,14 @@
       "WebSearch(*)",
       "WebFetch(*)",
       "Glob(*)",
-      "Grep(*)"
+      "Grep(*)",
+      "Bash(grep --line-buffered -v \"^$\")",
+      "mcp__ruflo__guidance_recommend",
+      "mcp__ruflo__agent_spawn",
+      "mcp__ruflo__agent_terminate",
+      "mcp__ruflo__hive-mind_init",
+      "mcp__ruflo__hive-mind_spawn",
+      "mcp__ruflo__hive-mind_shutdown"
     ]
   }
 }
