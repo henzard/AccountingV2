@@ -18,6 +18,7 @@ interface CreateTransactionInput {
   payee: string | null;
   description: string | null;
   transactionDate: string; // YYYY-MM-DD
+  slipId?: string | null; // optional FK to slip_queue.id
 }
 
 export class CreateTransactionUseCase {
@@ -77,7 +78,11 @@ export class CreateTransactionUseCase {
       updatedAt: now,
     };
 
-    const row: InferInsertModel<typeof transactions> = { ...tx, isSynced: false };
+    const row: InferInsertModel<typeof transactions> = {
+      ...tx,
+      slipId: this.input.slipId ?? null,
+      isSynced: false,
+    };
     await this.db.insert(transactions).values(row);
 
     // Atomically increment envelope spentCents without a read-modify-write race.

@@ -10,6 +10,7 @@ export interface TransactionEntity {
   transactionDate: string; // ISO date YYYY-MM-DD
   isBusinessExpense: boolean;
   spendingTriggerNote: string | null;
+  slipId?: string | null; // nullable FK to slip_queue.id
   createdAt: string;
   updatedAt: string;
 }

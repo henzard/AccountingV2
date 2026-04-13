@@ -124,4 +124,14 @@ describe('CreateTransactionUseCase', () => {
     expect(mockInsert).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
   });
+
+  it('persists slipId when provided', async () => {
+    const insertValues = jest.fn().mockResolvedValue(undefined);
+    mockDb.insert = jest.fn().mockReturnValue({ values: insertValues });
+    const uc = new CreateTransactionUseCase(mockDb, mockAudit, { ...input, slipId: 'slip-1' });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    // Verify slipId was included in the insert values
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ slipId: 'slip-1' }));
+  });
 });
