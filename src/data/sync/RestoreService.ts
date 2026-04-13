@@ -10,6 +10,8 @@ import {
   debts,
   meterReadings,
   babySteps,
+  auditEvents,
+  slipQueue,
 } from '../local/schema';
 import { toLocalRow } from './rowConverters';
 import { SeedBabyStepsUseCase } from '../../domain/babySteps/SeedBabyStepsUseCase';
@@ -100,6 +102,8 @@ export class RestoreService {
     await this.restoreTable('debts', debts, householdId);
     await this.restoreTable('meter_readings', meterReadings, householdId);
     await this.restoreTable('baby_steps', babySteps, householdId);
+    await this.restoreTable('audit_events', auditEvents, householdId);
+    await this.restoreTable('slip_queue', slipQueue, householdId);
 
     // Backfill any missing baby_steps rows (idempotent — INSERT OR IGNORE)
     const seeder = new SeedBabyStepsUseCase(this.db);
@@ -120,7 +124,9 @@ export class RestoreService {
       | typeof transactions
       | typeof debts
       | typeof meterReadings
-      | typeof babySteps,
+      | typeof babySteps
+      | typeof auditEvents
+      | typeof slipQueue,
     householdId: string,
   ): Promise<void> {
     const { data, error } = await this.supabase

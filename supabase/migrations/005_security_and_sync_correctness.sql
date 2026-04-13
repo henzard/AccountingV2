@@ -379,3 +379,113 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.merge_household_member(household_members) TO authenticated;
+
+-- Remote audit_events table (mirrors local schema columns)
+CREATE TABLE IF NOT EXISTS public.audit_events (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  previous_value_json TEXT,
+  new_value_json TEXT,
+  created_at TEXT NOT NULL
+);
+ALTER TABLE public.audit_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ae_select ON public.audit_events;
+CREATE POLICY ae_select ON public.audit_events FOR SELECT TO authenticated
+  USING (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+DROP POLICY IF EXISTS ae_insert ON public.audit_events;
+CREATE POLICY ae_insert ON public.audit_events FOR INSERT TO authenticated
+  WITH CHECK (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+
+CREATE OR REPLACE FUNCTION public.merge_audit_event(row audit_events)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  caller_id uuid := auth.uid();
+  is_member boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_households
+    WHERE household_id = row.household_id AND user_id = caller_id
+  ) INTO is_member;
+  IF NOT is_member THEN
+    RAISE EXCEPTION 'not a member of household %', row.household_id
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  INSERT INTO public.audit_events (
+    id, household_id, entity_type, entity_id, action,
+    previous_value_json, new_value_json, created_at
+  )
+  VALUES (
+    row.id, row.household_id, row.entity_type, row.entity_id, row.action,
+    row.previous_value_json, row.new_value_json, row.created_at
+  )
+  ON CONFLICT (id) DO NOTHING; -- audit events are immutable; first-write wins
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.merge_audit_event(audit_events) TO authenticated;
+
+-- Remote slip_queue table (mirrors local schema columns)
+CREATE TABLE IF NOT EXISTS public.slip_queue (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL,
+  image_base64 TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  extracted_json TEXT,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+ALTER TABLE public.slip_queue ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS sq_select ON public.slip_queue;
+CREATE POLICY sq_select ON public.slip_queue FOR SELECT TO authenticated
+  USING (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+DROP POLICY IF EXISTS sq_insert ON public.slip_queue;
+CREATE POLICY sq_insert ON public.slip_queue FOR INSERT TO authenticated
+  WITH CHECK (household_id IN (SELECT household_id FROM public.user_households WHERE user_id = auth.uid()));
+
+CREATE OR REPLACE FUNCTION public.merge_slip_queue(row slip_queue)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  caller_id uuid := auth.uid();
+  is_member boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_households
+    WHERE household_id = row.household_id AND user_id = caller_id
+  ) INTO is_member;
+  IF NOT is_member THEN
+    RAISE EXCEPTION 'not a member of household %', row.household_id
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  INSERT INTO public.slip_queue (
+    id, household_id, image_base64, status, extracted_json,
+    retry_count, created_at, updated_at
+  )
+  VALUES (
+    row.id, row.household_id, row.image_base64, row.status, row.extracted_json,
+    row.retry_count, row.created_at, row.updated_at
+  )
+  ON CONFLICT (id) DO UPDATE
+    SET
+      status         = EXCLUDED.status,
+      extracted_json = EXCLUDED.extracted_json,
+      retry_count    = EXCLUDED.retry_count,
+      updated_at     = EXCLUDED.updated_at
+    WHERE EXCLUDED.updated_at >= slip_queue.updated_at;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.merge_slip_queue(slip_queue) TO authenticated;
