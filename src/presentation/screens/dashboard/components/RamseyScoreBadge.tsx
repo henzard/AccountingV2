@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
 import Svg, { Circle } from 'react-native-svg';
-import { colours } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 interface RamseyScoreBadgeProps {
   score: number; // 0–100
@@ -17,11 +17,14 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const ARC = CIRCUMFERENCE * 0.75; // 270° sweep
 const GAP = CIRCUMFERENCE * 0.25; // 90° gap at the bottom
 
-function getScoreColour(score: number): string {
-  if (score >= 80) return colours.scoreExcellent;
-  if (score >= 60) return colours.scoreGood;
-  if (score >= 40) return colours.scoreFair;
-  return colours.scorePoor;
+function getScoreColour(
+  score: number,
+  colors: { scoreExcellent: string; scoreGood: string; scoreFair: string; scorePoor: string },
+): string {
+  if (score >= 80) return colors.scoreExcellent;
+  if (score >= 60) return colors.scoreGood;
+  if (score >= 40) return colors.scoreFair;
+  return colors.scorePoor;
 }
 
 function getScoreLabel(score: number): string {
@@ -32,7 +35,8 @@ function getScoreLabel(score: number): string {
 }
 
 export function RamseyScoreBadge({ score }: RamseyScoreBadgeProps): React.JSX.Element {
-  const colour = getScoreColour(score);
+  const { colors } = useAppTheme();
+  const colour = getScoreColour(score, colors);
   const clamped = Math.min(100, Math.max(0, score));
   const filled = ARC * (clamped / 100);
   const label = getScoreLabel(score);
@@ -51,7 +55,7 @@ export function RamseyScoreBadge({ score }: RamseyScoreBadgeProps): React.JSX.El
           cy={CY}
           r={RADIUS}
           fill="none"
-          stroke={colours.outlineVariant}
+          stroke={colors.outlineVariant}
           strokeWidth={STROKE}
           strokeDasharray={`${ARC} ${GAP}`}
           strokeLinecap="round"

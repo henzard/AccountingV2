@@ -5,12 +5,14 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { markOnboardingComplete } from '../../../../infrastructure/storage/onboardingFlag';
 import { useAppStore } from '../../../stores/appStore';
-import { colours, spacing } from '../../../theme/tokens';
+import { spacing } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { RootStackParamList } from '../../../navigation/types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export function FinishStep(): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
   const session = useAppStore((s) => s.session);
   const householdId = useAppStore((s) => s.householdId);
@@ -33,11 +35,11 @@ export function FinishStep(): React.JSX.Element {
   };
 
   return (
-    <View style={styles.container}>
-      <Text variant="displaySmall" style={styles.title}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text variant="displaySmall" style={[styles.title, { color: colors.primary }]}>
         Your budget is ready.
       </Text>
-      <Text variant="bodyLarge" style={styles.body}>
+      <Text variant="bodyLarge" style={[styles.body, { color: colors.onSurface }]}>
         You've set up your income, spending envelopes, and payday. Start logging transactions to
         grow your Ramsey Score.
       </Text>
@@ -60,15 +62,12 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: spacing.xl,
     justifyContent: 'center',
-    backgroundColor: colours.background,
   },
   title: {
-    color: colours.primary,
     fontFamily: 'PlusJakartaSans_700Bold',
     marginBottom: spacing.base,
   },
   body: {
-    color: colours.onSurface,
     marginBottom: spacing.xl,
     lineHeight: 24,
   },

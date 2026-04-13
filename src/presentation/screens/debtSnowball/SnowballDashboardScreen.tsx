@@ -14,13 +14,15 @@ import { DebtPayoffBar } from './components/DebtPayoffBar';
 import { PayoffProjectionCard } from './components/PayoffProjectionCard';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { SnowballDashboardScreenProps } from '../../navigation/types';
 
 const projector = new SnowballPayoffProjector();
 
 export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const { debts, loading, reload } = useDebts(householdId);
 
@@ -43,25 +45,28 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
     return (
       <TouchableRipple
         onPress={() => navigation.navigate('DebtDetail', { debtId: item.id })}
-        rippleColor={colours.primaryContainer}
+        rippleColor={colors.primaryContainer}
       >
-        <Surface style={styles.debtRow} elevation={1}>
+        <Surface style={[styles.debtRow, { backgroundColor: colors.surface }]} elevation={1}>
           <View style={styles.debtHeader}>
             <View style={styles.debtLeft}>
-              <Text variant="titleSmall" style={styles.creditor}>
+              <Text variant="titleSmall" style={[styles.creditor, { color: colors.onSurface }]}>
                 {item.creditorName}
               </Text>
-              <Text variant="bodySmall" style={styles.debtType}>
+              <Text
+                variant="bodySmall"
+                style={[styles.debtType, { color: colors.onSurfaceVariant }]}
+              >
                 {getDebtTypeLabel(item.debtType)}
               </Text>
             </View>
             {item.isPaidOff ? (
-              <MaterialCommunityIcons name="check-circle" size={22} color={colours.success} />
+              <MaterialCommunityIcons name="check-circle" size={22} color={colors.success} />
             ) : (
               <MaterialCommunityIcons
                 name="chevron-right"
                 size={20}
-                color={colours.onSurfaceVariant}
+                color={colors.onSurfaceVariant}
               />
             )}
           </View>
@@ -74,14 +79,14 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator animating color={colours.primary} />
+        <ActivityIndicator animating color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.flex}>
-      <Surface style={styles.header} elevation={0}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+      <Surface style={[styles.header, { backgroundColor: colors.surface }]} elevation={0}>
         <ScreenHeader
           eyebrow="Debt Snowball"
           title={
@@ -113,36 +118,32 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
 
       <FAB
         icon="plus"
-        style={styles.fab}
+        style={[styles.fab, { backgroundColor: colors.primary }]}
         onPress={() => navigation.navigate('AddDebt')}
-        color={colours.onPrimary}
+        color={colors.onPrimary}
       />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  header: {
-    backgroundColor: colours.surface,
-  },
+  header: {},
   debtRow: {
     marginHorizontal: spacing.base,
     marginVertical: spacing.xs / 2,
     borderRadius: radius.md,
     padding: spacing.base,
-    backgroundColor: colours.surface,
   },
   debtHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   debtLeft: { flex: 1 },
-  creditor: { color: colours.onSurface, fontFamily: 'PlusJakartaSans_600SemiBold' },
-  debtType: { color: colours.onSurfaceVariant, marginTop: 2 },
+  creditor: { fontFamily: 'PlusJakartaSans_600SemiBold' },
+  debtType: { marginTop: 2 },
   list: { paddingBottom: 100 },
   fab: {
     position: 'absolute',
     right: spacing.base,
     bottom: spacing.xl,
-    backgroundColor: colours.primary,
   },
 });

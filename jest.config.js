@@ -20,6 +20,8 @@ module.exports = {
     '^@expo/vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
     '^@expo/vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
     '^@react-native-firebase/crashlytics$': '<rootDir>/__mocks__/@react-native-firebase/crashlytics.js',
+    // Stub useAppTheme — avoids configureFonts (react-native-paper) in test env
+    '^.*/theme/useAppTheme$': '<rootDir>/__mocks__/useAppTheme.js',
   },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',

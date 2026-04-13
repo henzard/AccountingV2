@@ -6,12 +6,14 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { supabase } from '../../../data/remote/supabaseClient';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
 
 const WIFI_ONLY_KEY = '@settings:slip_wifi_only';
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const session = useAppStore((s) => s.session);
   const email = session?.user?.email ?? 'Unknown';
   const householdId = useAppStore((s) => s.householdId);
@@ -45,10 +47,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   };
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <List.Section>
         <List.Subheader style={styles.subheader}>Household</List.Subheader>
-        <Surface style={styles.section} elevation={0}>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
           <List.Item
             title={currentHousehold?.name ?? 'My Household'}
             description="Active household"
@@ -89,7 +91,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           )}
         </Surface>
       </List.Section>
-      <Surface style={styles.section} elevation={0}>
+      <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
         <List.Item
           title={email}
           description="Signed in account"
@@ -108,7 +110,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
       {/* Slip scanning */}
       <List.Section>
         <List.Subheader style={styles.subheader}>Slip scanning</List.Subheader>
-        <Surface style={styles.section} elevation={0}>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
           <List.Item
             title="Slip history"
             description="View scanned slips"
@@ -152,8 +154,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           mode="outlined"
           icon="logout"
           onPress={confirmSignOut}
-          textColor={colours.error}
-          style={styles.signOutButton}
+          textColor={colors.error}
+          style={[styles.signOutButton, { borderColor: colors.error }]}
           testID="sign-out-button"
         >
           Sign out
@@ -164,12 +166,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   section: {
     marginTop: spacing.base,
     marginHorizontal: spacing.base,
     borderRadius: 8,
-    backgroundColor: colours.surface,
   },
   subheader: {
     marginHorizontal: spacing.base,
@@ -178,7 +179,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginHorizontal: spacing.base,
   },
-  signOutButton: {
-    borderColor: colours.error,
-  },
+  signOutButton: {},
 });

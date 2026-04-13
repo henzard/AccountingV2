@@ -14,7 +14,8 @@ import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { format } from 'date-fns';
 import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
@@ -26,6 +27,7 @@ const engine = new BudgetPeriodEngine();
 const scoreCalculator = new RamseyScoreCalculator();
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
 
@@ -77,8 +79,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   };
 
   return (
-    <View style={styles.flex}>
-      <Surface style={styles.header} elevation={0}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+      <Surface style={[styles.header, { backgroundColor: colors.surface }]} elevation={0}>
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <ScreenHeader eyebrow="Budget Period" title={period.label} />
@@ -88,30 +90,48 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       </Surface>
 
       {envelopes.length > 0 && (
-        <Surface style={styles.summary} elevation={1}>
+        <Surface
+          style={[styles.summary, { backgroundColor: colors.primaryContainer }]}
+          elevation={1}
+        >
           <View style={styles.summaryItem}>
-            <Text variant="labelSmall" style={styles.summaryLabel}>
+            <Text
+              variant="labelSmall"
+              style={[styles.summaryLabel, { color: colors.onPrimaryContainer }]}
+            >
               ALLOCATED
             </Text>
-            <CurrencyText amountCents={totalAllocated} style={styles.summaryValue} />
+            <CurrencyText
+              amountCents={totalAllocated}
+              style={{ ...styles.summaryValue, color: colors.onPrimaryContainer }}
+            />
           </View>
-          <View style={styles.summaryDivider} />
+          <View style={[styles.summaryDivider, { backgroundColor: colors.outlineVariant }]} />
           <View style={styles.summaryItem}>
-            <Text variant="labelSmall" style={styles.summaryLabel}>
+            <Text
+              variant="labelSmall"
+              style={[styles.summaryLabel, { color: colors.onPrimaryContainer }]}
+            >
               SPENT
             </Text>
-            <CurrencyText amountCents={totalSpent} style={styles.summaryValue} />
+            <CurrencyText
+              amountCents={totalSpent}
+              style={{ ...styles.summaryValue, color: colors.onPrimaryContainer }}
+            />
           </View>
-          <View style={styles.summaryDivider} />
+          <View style={[styles.summaryDivider, { backgroundColor: colors.outlineVariant }]} />
           <View style={styles.summaryItem}>
-            <Text variant="labelSmall" style={styles.summaryLabel}>
+            <Text
+              variant="labelSmall"
+              style={[styles.summaryLabel, { color: colors.onPrimaryContainer }]}
+            >
               REMAINING
             </Text>
             <CurrencyText
               amountCents={totalRemaining}
               style={{
                 ...styles.summaryValue,
-                ...(totalRemaining < 0 ? styles.overBudget : undefined),
+                color: totalRemaining < 0 ? colors.error : colors.onPrimaryContainer,
               }}
             />
           </View>
@@ -143,17 +163,22 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           )}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl refreshing={loading} onRefresh={reload} colors={[colours.primary]} />
+            <RefreshControl refreshing={loading} onRefresh={reload} colors={[colors.primary]} />
           }
         />
       )}
 
-      <FAB icon="plus" style={styles.fab} onPress={handleAddEnvelope} color={colours.onPrimary} />
+      <FAB
+        icon="plus"
+        style={[styles.fab, { backgroundColor: colors.primary }]}
+        onPress={handleAddEnvelope}
+        color={colors.onPrimary}
+      />
       <FAB
         icon="camera-outline"
-        style={styles.fabCamera}
+        style={[styles.fabCamera, { backgroundColor: colors.secondary }]}
         onPress={() => navigation.navigate('SlipScanning' as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
-        color={colours.onPrimary}
+        color={colors.onPrimary}
         testID="camera-fab"
       />
     </View>
@@ -161,10 +186,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
-  header: {
-    backgroundColor: colours.surface,
-  },
+  flex: { flex: 1 },
+  header: {},
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -177,28 +200,23 @@ const styles = StyleSheet.create({
     marginTop: spacing.base,
     borderRadius: radius.lg,
     padding: spacing.base,
-    backgroundColor: colours.primaryContainer,
   },
   summaryItem: {
     flex: 1,
     alignItems: 'center',
   },
   summaryLabel: {
-    color: colours.onPrimaryContainer,
     letterSpacing: 0.8,
     marginBottom: spacing.xs,
   },
   summaryValue: {
-    color: colours.onPrimaryContainer,
     fontSize: 14,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
   summaryDivider: {
     width: 1,
-    backgroundColor: colours.outlineVariant,
     marginVertical: spacing.xs,
   },
-  overBudget: { color: colours.error },
   list: {
     padding: spacing.base,
     paddingBottom: 100,
@@ -207,12 +225,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: spacing.base,
     bottom: spacing.xl,
-    backgroundColor: colours.primary,
   },
   fabCamera: {
     position: 'absolute',
     right: spacing.base + 64 + spacing.sm,
     bottom: spacing.xl,
-    backgroundColor: colours.secondary,
   },
 });

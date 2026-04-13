@@ -9,7 +9,8 @@ import { AuditLogger } from '../../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../../domain/envelopes/CreateEnvelopeUseCase';
 import { BudgetPeriodEngine } from '../../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../../stores/appStore';
-import { colours, spacing } from '../../../theme/tokens';
+import { spacing } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'ExpenseCategories'>;
@@ -31,6 +32,7 @@ const DEFAULT_CATEGORIES = [
 ];
 
 export function ExpenseCategoriesStep(): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
@@ -83,11 +85,11 @@ export function ExpenseCategoriesStep(): React.JSX.Element {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text variant="headlineMedium" style={styles.title}>
+    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
+      <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
         What do you spend money on?
       </Text>
-      <Text variant="bodyMedium" style={styles.subtitle}>
+      <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
         Select categories to create your spending envelopes. You can adjust amounts later.
       </Text>
 
@@ -126,13 +128,12 @@ export function ExpenseCategoriesStep(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: spacing.xl, backgroundColor: colours.background },
+  container: { flexGrow: 1, padding: spacing.xl },
   title: {
-    color: colours.primary,
     fontFamily: 'PlusJakartaSans_700Bold',
     marginBottom: spacing.sm,
   },
-  subtitle: { color: colours.onSurfaceVariant, marginBottom: spacing.lg },
+  subtitle: { marginBottom: spacing.lg },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { marginBottom: spacing.xs },
   button: { marginTop: spacing.xl },

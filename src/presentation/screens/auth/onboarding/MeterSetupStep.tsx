@@ -9,7 +9,8 @@ import { db } from '../../../../data/local/db';
 import { meterReadings } from '../../../../data/local/schema';
 import { PendingSyncEnqueuer } from '../../../../data/sync/PendingSyncEnqueuer';
 import { useAppStore } from '../../../stores/appStore';
-import { colours, spacing } from '../../../theme/tokens';
+import { spacing } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'MeterSetup'>;
@@ -17,6 +18,7 @@ type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'MeterSetup'>;
 type MeterType = 'electricity' | 'water' | 'odometer';
 
 export function MeterSetupStep(): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
   const householdId = useAppStore((s) => s.householdId)!;
 
@@ -62,16 +64,16 @@ export function MeterSetupStep(): React.JSX.Element {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text variant="headlineMedium" style={styles.title}>
+    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
+      <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
         Track your meters?
       </Text>
-      <Text variant="bodyMedium" style={styles.subtitle}>
+      <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
         Enable meter tracking to log electricity, water, or vehicle usage. You can change this
         later.
       </Text>
 
-      <View style={styles.switchList}>
+      <View style={[styles.switchList, { backgroundColor: colors.surface }]}>
         <List.Item
           title="Electricity"
           description="Track kWh usage"
@@ -115,15 +117,13 @@ export function MeterSetupStep(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: spacing.xl, backgroundColor: colours.background },
+  container: { flexGrow: 1, padding: spacing.xl },
   title: {
-    color: colours.primary,
     fontFamily: 'PlusJakartaSans_700Bold',
     marginBottom: spacing.sm,
   },
-  subtitle: { color: colours.onSurfaceVariant, marginBottom: spacing.lg },
+  subtitle: { marginBottom: spacing.lg },
   switchList: {
-    backgroundColor: colours.surface,
     borderRadius: 8,
     marginBottom: spacing.lg,
   },
