@@ -23,6 +23,7 @@ import { and, eq } from 'drizzle-orm';
 import { useCelebrationStore } from './src/presentation/stores/celebrationStore';
 import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
 import { initCrashlytics } from './src/infrastructure/monitoring/crashlytics';
+import crashlytics from '@react-native-firebase/crashlytics';
 
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
@@ -57,9 +58,12 @@ async function initSession(
   if (result.success) {
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
-    setAvailableHouseholds([result.data, ...restoredHouseholds
-      .filter(h => h.id !== result.data.id)
-      .map(h => ({ ...h, userLevel: 1 as const }))]);
+    setAvailableHouseholds([
+      result.data,
+      ...restoredHouseholds
+        .filter((h) => h.id !== result.data.id)
+        .map((h) => ({ ...h, userLevel: 1 as const })),
+    ]);
   } else {
     console.error('[initSession] Failed to ensure household:', result.error);
   }
@@ -67,14 +71,17 @@ async function initSession(
   // 4. Push any pending local writes to Supabase (fire and forget).
   //    Pass householdId so the post-sync ReconcileEmergencyFundTypeUseCase fixer can run.
   const resolvedHouseholdId = result.success ? result.data.id : undefined;
-  void syncOrchestrator.syncPending(resolvedHouseholdId).then((syncResult) => {
-    if (syncResult.emfFlipped > 0) {
-      // Presentation-layer flag: show duplicate-EMF banner on Budget screen
-      useEmergencyFundReconcileStore.getState().setReconciledDuplicateEmf(true);
-    }
-  }).catch(() => {
-    // Sync failure is non-fatal
-  });
+  void syncOrchestrator
+    .syncPending(resolvedHouseholdId)
+    .then((syncResult) => {
+      if (syncResult.emfFlipped > 0) {
+        // Presentation-layer flag: show duplicate-EMF banner on Budget screen
+        useEmergencyFundReconcileStore.getState().setReconciledDuplicateEmf(true);
+      }
+    })
+    .catch(() => {
+      // Sync failure is non-fatal
+    });
 }
 
 export default function App(): React.JSX.Element {
@@ -120,7 +127,9 @@ export default function App(): React.JSX.Element {
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session ?? null;
       setSession(session);
-      void initCrashlytics(session?.user?.id ?? null);
+      initCrashlytics(session?.user?.id ?? null).catch((err) =>
+        console.warn('[crashlytics] init failed', err),
+      );
       if (session) {
         await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
         // Re-bind after household is resolved so checker uses the new householdId.
@@ -137,11 +146,21 @@ export default function App(): React.JSX.Element {
         bindCelebrationStore();
       } else {
         clearHousehold();
+        crashlytics()
+          .setUserId('')
+          .catch(() => {});
       }
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [setSession, setHouseholdId, setPaydayDay, clearHousehold, setAvailableHouseholds, bindCelebrationStore]);
+  }, [
+    setSession,
+    setHouseholdId,
+    setPaydayDay,
+    clearHousehold,
+    setAvailableHouseholds,
+    bindCelebrationStore,
+  ]);
 
   if (fontError || dbError) {
     return (
@@ -165,5 +184,10 @@ export default function App(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colours.surface },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colours.surface,
+  },
 });
