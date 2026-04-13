@@ -1,42 +1,48 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
-import { colours, spacing } from '../../theme/tokens';
-import { supabase } from '../../../data/remote/supabaseClient';
-import { SupabaseAuthService } from '../../../data/remote/SupabaseAuthService';
-import { useAppStore } from '../../stores/appStore';
-import type { LoginScreenProps } from '../../navigation/types';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { supabase } from '../../../data/remote/supabaseClient';
+import { colours, spacing } from '../../theme/tokens';
 import type { AuthStackParamList } from '../../navigation/types';
 
-const authService = new SupabaseAuthService(supabase);
+type Nav = NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
 
-export const LoginScreen: React.FC<LoginScreenProps> = () => {
-  const setSession = useAppStore((s) => s.setSession);
-  const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList, 'Login'>>();
+export function SignUpScreen(): React.JSX.Element {
+  const navigation = useNavigation<Nav>();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirm, setConfirm] = useState('');
+  const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = async (): Promise<void> => {
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail || !password) {
-      setError('Please enter your email and password.');
+  const onSubmit = async (): Promise<void> => {
+    setErr(null);
+    if (!email.trim()) {
+      setErr('Please enter your email address');
+      return;
+    }
+    if (password.length < 8) {
+      setErr('Password must be at least 8 characters');
+      return;
+    }
+    if (password !== confirm) {
+      setErr('Passwords do not match');
       return;
     }
     setLoading(true);
-    setError(null);
-    const result = await authService.signIn(trimmedEmail, password);
+    const { error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password });
     setLoading(false);
-    if (result.success) {
-      setSession(result.data);
-    } else {
-      setError(result.error.message);
+    if (error) {
+      setErr(error.message);
+      return;
     }
+    // On success the auth listener in App.tsx will set session in appStore.
+    // RootNavigator will then show CreateHouseholdNavigator.
+    // Navigate back so this screen is not in the back stack.
+    navigation.navigate('Login');
   };
 
   return (
@@ -46,11 +52,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text variant="displayMedium" style={styles.title}>
-            AccountingV2
+          <Text variant="displaySmall" style={styles.title}>
+            Create account
           </Text>
           <Text variant="bodyLarge" style={styles.subtitle}>
-            Sign in to your household account
+            Start managing your household budget
           </Text>
         </View>
 
@@ -72,52 +78,56 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             label="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry={!passwordVisible}
-            autoComplete="password"
-            textContentType="password"
+            secureTextEntry
+            autoComplete="password-new"
+            textContentType="newPassword"
             mode="outlined"
             style={styles.input}
             disabled={loading}
-            right={
-              <TextInput.Icon
-                icon={passwordVisible ? 'eye-off' : 'eye'}
-                onPress={() => setPasswordVisible((v) => !v)}
-              />
-            }
           />
+
+          <TextInput
+            label="Confirm password"
+            value={confirm}
+            onChangeText={setConfirm}
+            secureTextEntry
+            autoComplete="password-new"
+            textContentType="newPassword"
+            mode="outlined"
+            style={styles.input}
+            disabled={loading}
+          />
+
+          {err !== null && (
+            <HelperText type="error" visible testID="signup-error">
+              {err}
+            </HelperText>
+          )}
 
           <Button
             mode="contained"
-            onPress={handleSignIn}
+            onPress={onSubmit}
             loading={loading}
             disabled={loading}
             style={styles.button}
             contentStyle={styles.buttonContent}
+            testID="signup-submit"
           >
-            Sign In
+            Create Account
           </Button>
 
           <Button
             mode="text"
-            onPress={() => navigation.navigate('SignUp')}
+            onPress={() => navigation.navigate('Login')}
             style={styles.linkButton}
           >
-            New here? Create an account
+            Already have an account? Sign in
           </Button>
         </View>
       </ScrollView>
-
-      <Snackbar
-        visible={error !== null}
-        onDismiss={() => setError(null)}
-        duration={4000}
-        action={{ label: 'OK', onPress: () => setError(null) }}
-      >
-        {error}
-      </Snackbar>
     </KeyboardAvoidingView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   flex: {
