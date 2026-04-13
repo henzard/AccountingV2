@@ -8,3 +8,4 @@ export { babySteps } from './babySteps';
 export { slipQueue } from './slipQueue';
 export { auditEvents } from './auditEvents';
 export { pendingSync } from './pendingSync';
+export * from './userConsent';
