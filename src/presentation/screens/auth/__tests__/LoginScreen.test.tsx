@@ -69,7 +69,6 @@ jest.mock('../../../stores/appStore', () => ({
 
 // ─── AccessibilityInfo mock (via react-native top-level mock) ─────────────────
 jest.mock('react-native', () => {
-   
   const rn = jest.requireActual('react-native');
   rn.AccessibilityInfo = {
     announceForAccessibility: jest.fn(),
