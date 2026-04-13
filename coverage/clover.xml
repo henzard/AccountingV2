@@ -1,11 +1,285 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1776028043973" clover="3.2.0">
-  <project timestamp="1776028043973" name="All files">
-    <metrics statements="417" coveredstatements="381" conditionals="184" coveredconditionals="153" methods="90" coveredmethods="89" elements="691" coveredelements="623" complexity="0" loc="417" ncloc="417" packages="9" files="34" classes="34"/>
-    <package name="babySteps">
-      <metrics statements="115" coveredstatements="111" conditionals="58" coveredconditionals="48" methods="34" coveredmethods="33"/>
+<coverage generated="1776079986465" clover="3.2.0">
+  <project timestamp="1776079986465" name="All files">
+    <metrics statements="2006" coveredstatements="1308" conditionals="961" coveredconditionals="497" methods="589" coveredmethods="336" elements="3556" coveredelements="2141" complexity="0" loc="2006" ncloc="2006" packages="41" files="139" classes="139"/>
+    <package name="data.audit">
+      <metrics statements="5" coveredstatements="5" conditionals="4" coveredconditionals="2" methods="2" coveredmethods="2"/>
+      <file name="AuditLogger.ts" path="C:\Project\AccountingV2\src\data\audit\AuditLogger.ts">
+        <metrics statements="5" coveredstatements="5" conditionals="4" coveredconditionals="2" methods="2" coveredmethods="2"/>
+        <line num="20" count="2" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="26" count="1" type="stmt"/>
+        <line num="37" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="data.local">
+      <metrics statements="3" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+      <file name="db.ts" path="C:\Project\AccountingV2\src\data\local\db.ts">
+        <metrics statements="3" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="7" count="0" type="stmt"/>
+        <line num="8" count="0" type="stmt"/>
+        <line num="11" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="data.local.schema">
+      <metrics statements="14" coveredstatements="10" conditionals="0" coveredconditionals="0" methods="4" coveredmethods="0"/>
+      <file name="auditEvents.ts" path="C:\Project\AccountingV2\src\data\local\schema\auditEvents.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+      </file>
+      <file name="babySteps.ts" path="C:\Project\AccountingV2\src\data\local\schema\babySteps.ts">
+        <metrics statements="2" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+        <line num="17" count="0" type="stmt"/>
+      </file>
+      <file name="debts.ts" path="C:\Project\AccountingV2\src\data\local\schema\debts.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+      </file>
+      <file name="envelopes.ts" path="C:\Project\AccountingV2\src\data\local\schema\envelopes.ts">
+        <metrics statements="2" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+      </file>
+      <file name="householdMembers.ts" path="C:\Project\AccountingV2\src\data\local\schema\householdMembers.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+      </file>
+      <file name="households.ts" path="C:\Project\AccountingV2\src\data\local\schema\households.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+      </file>
+      <file name="meterReadings.ts" path="C:\Project\AccountingV2\src\data\local\schema\meterReadings.ts">
+        <metrics statements="2" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+      </file>
+      <file name="pendingSync.ts" path="C:\Project\AccountingV2\src\data\local\schema\pendingSync.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+      </file>
+      <file name="slipQueue.ts" path="C:\Project\AccountingV2\src\data\local\schema\slipQueue.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+      </file>
+      <file name="transactions.ts" path="C:\Project\AccountingV2\src\data\local\schema\transactions.ts">
+        <metrics statements="2" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="3" count="30" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="data.remote">
+      <metrics statements="17" coveredstatements="9" conditionals="14" coveredconditionals="5" methods="4" coveredmethods="4"/>
+      <file name="SupabaseAuthService.ts" path="C:\Project\AccountingV2\src\data\remote\SupabaseAuthService.ts">
+        <metrics statements="12" coveredstatements="9" conditionals="10" coveredconditionals="5" methods="4" coveredmethods="4"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="14" count="1" type="cond" truecount="3" falsecount="1"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="25" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="28" count="1" type="stmt"/>
+        <line num="32" count="1" type="stmt"/>
+        <line num="33" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="34" count="0" type="stmt"/>
+        <line num="39" count="1" type="stmt"/>
+      </file>
+      <file name="supabaseClient.ts" path="C:\Project\AccountingV2\src\data\remote\supabaseClient.ts">
+        <metrics statements="5" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="5" count="0" type="stmt"/>
+        <line num="6" count="0" type="stmt"/>
+        <line num="8" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="9" count="0" type="stmt"/>
+        <line num="12" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="data.repositories">
+      <metrics statements="21" coveredstatements="2" conditionals="11" coveredconditionals="0" methods="19" coveredmethods="2"/>
+      <file name="AuditLoggerAdapter.ts" path="C:\Project\AccountingV2\src\data\repositories\AuditLoggerAdapter.ts">
+        <metrics statements="2" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="10" count="0" type="stmt"/>
+        <line num="14" count="0" type="stmt"/>
+      </file>
+      <file name="DrizzleEnvelopeRepository.ts" path="C:\Project\AccountingV2\src\data\repositories\DrizzleEnvelopeRepository.ts">
+        <metrics statements="9" coveredstatements="0" conditionals="2" coveredconditionals="0" methods="8" coveredmethods="0"/>
+        <line num="12" count="0" type="stmt"/>
+        <line num="17" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="34" count="0" type="stmt"/>
+        <line num="50" count="0" type="stmt"/>
+        <line num="56" count="0" type="stmt"/>
+      </file>
+      <file name="DrizzleTransactionRepository.ts" path="C:\Project\AccountingV2\src\data\repositories\DrizzleTransactionRepository.ts">
+        <metrics statements="8" coveredstatements="0" conditionals="9" coveredconditionals="0" methods="7" coveredmethods="0"/>
+        <line num="12" count="0" type="stmt"/>
+        <line num="17" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="28" count="0" type="stmt"/>
+        <line num="32" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="42" count="0" type="stmt"/>
+      </file>
+      <file name="PendingSyncEnqueuerAdapter.ts" path="C:\Project\AccountingV2\src\data\repositories\PendingSyncEnqueuerAdapter.ts">
+        <metrics statements="2" coveredstatements="2" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
+        <line num="10" count="54" type="stmt"/>
+        <line num="14" count="31" type="stmt"/>
+      </file>
+    </package>
+    <package name="data.sync">
+      <metrics statements="127" coveredstatements="111" conditionals="54" coveredconditionals="40" methods="27" coveredmethods="25"/>
+      <file name="PendingSyncEnqueuer.ts" path="C:\Project\AccountingV2\src\data\sync\PendingSyncEnqueuer.ts">
+        <metrics statements="6" coveredstatements="6" conditionals="2" coveredconditionals="2" methods="2" coveredmethods="2"/>
+        <line num="13" count="40" type="stmt"/>
+        <line num="25" count="40" type="cond" truecount="2" falsecount="0"/>
+        <line num="29" count="5" type="stmt"/>
+        <line num="33" count="5" type="stmt"/>
+        <line num="36" count="35" type="stmt"/>
+        <line num="37" count="35" type="stmt"/>
+      </file>
+      <file name="PendingSyncTable.ts" path="C:\Project\AccountingV2\src\data\sync\PendingSyncTable.ts">
+        <metrics statements="6" coveredstatements="3" conditionals="2" coveredconditionals="0" methods="5" coveredmethods="4"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="37" count="1" type="stmt"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="46" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="47" count="0" type="stmt"/>
+      </file>
+      <file name="RestoreService.ts" path="C:\Project\AccountingV2\src\data\sync\RestoreService.ts">
+        <metrics statements="38" coveredstatements="28" conditionals="18" coveredconditionals="12" methods="7" coveredmethods="7"/>
+        <line num="35" count="2" type="stmt"/>
+        <line num="40" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="41" count="1" type="cond" truecount="3" falsecount="1"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="51" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="54" count="0" type="stmt"/>
+        <line num="63" count="7" type="stmt"/>
+        <line num="68" count="7" type="cond" truecount="3" falsecount="1"/>
+        <line num="71" count="7" type="stmt"/>
+        <line num="72" count="7" type="stmt"/>
+        <line num="86" count="7" type="stmt"/>
+        <line num="91" count="7" type="cond" truecount="1" falsecount="1"/>
+        <line num="92" count="0" type="stmt"/>
+        <line num="93" count="0" type="stmt"/>
+        <line num="94" count="0" type="stmt"/>
+        <line num="95" count="0" type="stmt"/>
+        <line num="100" count="0" type="stmt"/>
+        <line num="105" count="7" type="stmt"/>
+        <line num="106" count="7" type="stmt"/>
+        <line num="107" count="7" type="stmt"/>
+        <line num="108" count="7" type="stmt"/>
+        <line num="109" count="7" type="stmt"/>
+        <line num="110" count="7" type="stmt"/>
+        <line num="111" count="7" type="stmt"/>
+        <line num="114" count="7" type="stmt"/>
+        <line num="115" count="7" type="stmt"/>
+        <line num="117" count="7" type="stmt"/>
+        <line num="137" count="49" type="stmt"/>
+        <line num="142" count="49" type="cond" truecount="3" falsecount="1"/>
+        <line num="144" count="49" type="stmt"/>
+        <line num="145" count="13" type="stmt"/>
+        <line num="148" count="130" type="stmt"/>
+        <line num="149" count="13" type="stmt"/>
+        <line num="152" count="117" type="stmt"/>
+        <line num="153" count="117" type="stmt"/>
+        <line num="156" count="13" type="stmt"/>
+      </file>
+      <file name="SyncOrchestrator.ts" path="C:\Project\AccountingV2\src\data\sync\SyncOrchestrator.ts">
+        <metrics statements="69" coveredstatements="66" conditionals="32" coveredconditionals="26" methods="7" coveredmethods="6"/>
+        <line num="32" count="2" type="stmt"/>
+        <line num="44" count="2" type="stmt"/>
+        <line num="56" count="2" type="stmt"/>
+        <line num="57" count="2" type="stmt"/>
+        <line num="73" count="28" type="stmt"/>
+        <line num="74" count="28" type="stmt"/>
+        <line num="88" count="28" type="stmt"/>
+        <line num="89" count="28" type="stmt"/>
+        <line num="90" count="21" type="cond" truecount="2" falsecount="0"/>
+        <line num="91" count="21" type="stmt"/>
+        <line num="92" count="21" type="stmt"/>
+        <line num="96" count="28" type="stmt"/>
+        <line num="97" count="28" type="stmt"/>
+        <line num="99" count="21" type="stmt"/>
+        <line num="100" count="20" type="cond" truecount="2" falsecount="0"/>
+        <line num="102" count="19" type="stmt"/>
+        <line num="103" count="19" type="cond" truecount="1" falsecount="1"/>
+        <line num="105" count="19" type="stmt"/>
+        <line num="110" count="19" type="stmt"/>
+        <line num="111" count="19" type="stmt"/>
+        <line num="112" count="19" type="stmt"/>
+        <line num="113" count="19" type="stmt"/>
+        <line num="115" count="18" type="stmt"/>
+        <line num="119" count="28" type="stmt"/>
+        <line num="120" count="28" type="stmt"/>
+        <line num="122" count="28" type="stmt"/>
+        <line num="123" count="21" type="stmt"/>
+        <line num="124" count="21" type="stmt"/>
+        <line num="125" count="15" type="stmt"/>
+        <line num="126" count="15" type="stmt"/>
+        <line num="128" count="6" type="stmt"/>
+        <line num="129" count="6" type="stmt"/>
+        <line num="130" count="6" type="stmt"/>
+        <line num="133" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="136" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="137" count="1" type="stmt"/>
+        <line num="142" count="5" type="stmt"/>
+        <line num="143" count="5" type="stmt"/>
+        <line num="144" count="5" type="stmt"/>
+        <line num="149" count="6" type="stmt"/>
+        <line num="155" count="28" type="stmt"/>
+        <line num="156" count="28" type="cond" truecount="4" falsecount="0"/>
+        <line num="157" count="4" type="stmt"/>
+        <line num="158" count="4" type="stmt"/>
+        <line num="159" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="160" count="4" type="stmt"/>
+        <line num="164" count="28" type="stmt"/>
+        <line num="171" count="21" type="cond" truecount="2" falsecount="0"/>
+        <line num="172" count="1" type="stmt"/>
+        <line num="173" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="174" count="1" type="stmt"/>
+        <line num="177" count="20" type="stmt"/>
+        <line num="178" count="20" type="cond" truecount="1" falsecount="1"/>
+        <line num="181" count="20" type="stmt"/>
+        <line num="182" count="20" type="cond" truecount="2" falsecount="0"/>
+        <line num="183" count="1" type="stmt"/>
+        <line num="188" count="0" type="stmt"/>
+        <line num="191" count="19" type="cond" truecount="1" falsecount="1"/>
+        <line num="193" count="19" type="stmt"/>
+        <line num="195" count="19" type="stmt"/>
+        <line num="196" count="19" type="stmt"/>
+        <line num="197" count="19" type="cond" truecount="1" falsecount="1"/>
+        <line num="199" count="19" type="stmt"/>
+        <line num="200" count="18" type="stmt"/>
+        <line num="202" count="0" type="stmt"/>
+        <line num="205" count="0" type="stmt"/>
+        <line num="207" count="18" type="cond" truecount="2" falsecount="0"/>
+        <line num="210" count="14" type="cond" truecount="2" falsecount="0"/>
+        <line num="211" count="13" type="stmt"/>
+      </file>
+      <file name="rowConverters.ts" path="C:\Project\AccountingV2\src\data\sync\rowConverters.ts">
+        <metrics statements="8" coveredstatements="8" conditionals="0" coveredconditionals="0" methods="6" coveredmethods="6"/>
+        <line num="2" count="22" type="stmt"/>
+        <line num="3" count="22" type="stmt"/>
+        <line num="4" count="162" type="stmt"/>
+        <line num="5" count="143" type="stmt"/>
+        <line num="12" count="23" type="stmt"/>
+        <line num="13" count="183" type="stmt"/>
+        <line num="14" count="153" type="stmt"/>
+        <line num="18" count="23" type="stmt"/>
+      </file>
+    </package>
+    <package name="domain.babySteps">
+      <metrics statements="115" coveredstatements="111" conditionals="60" coveredconditionals="50" methods="34" coveredmethods="33"/>
       <file name="BabyStepEvaluator.ts" path="C:\Project\AccountingV2\src\domain\babySteps\BabyStepEvaluator.ts">
-        <metrics statements="44" coveredstatements="44" conditionals="20" coveredconditionals="20" methods="18" coveredmethods="18"/>
+        <metrics statements="43" coveredstatements="43" conditionals="20" coveredconditionals="20" methods="18" coveredmethods="18"/>
         <line num="49" count="22" type="stmt"/>
         <line num="54" count="80" type="stmt"/>
         <line num="55" count="46" type="cond" truecount="2" falsecount="0"/>
@@ -14,137 +288,137 @@
         <line num="62" count="17" type="stmt"/>
         <line num="63" count="23" type="cond" truecount="2" falsecount="0"/>
         <line num="64" count="5" type="stmt"/>
-        <line num="68" count="40" type="stmt"/>
-        <line num="69" count="40" type="cond" truecount="2" falsecount="0"/>
-        <line num="70" count="23" type="stmt"/>
-        <line num="72" count="17" type="stmt"/>
-        <line num="73" count="17" type="stmt"/>
+        <line num="70" count="40" type="stmt"/>
+        <line num="71" count="40" type="cond" truecount="2" falsecount="0"/>
+        <line num="72" count="23" type="stmt"/>
         <line num="74" count="17" type="stmt"/>
-        <line num="81" count="40" type="stmt"/>
-        <line num="82" count="40" type="cond" truecount="2" falsecount="0"/>
-        <line num="83" count="34" type="stmt"/>
-        <line num="85" count="6" type="stmt"/>
-        <line num="86" count="10" type="cond" truecount="2" falsecount="0"/>
-        <line num="88" count="6" type="stmt"/>
-        <line num="89" count="6" type="stmt"/>
-        <line num="99" count="40" type="stmt"/>
-        <line num="100" count="40" type="cond" truecount="2" falsecount="0"/>
-        <line num="101" count="23" type="stmt"/>
-        <line num="103" count="17" type="stmt"/>
-        <line num="104" count="17" type="cond" truecount="2" falsecount="0"/>
-        <line num="106" count="12" type="stmt"/>
-        <line num="109" count="5" type="stmt"/>
-        <line num="110" count="5" type="stmt"/>
+        <line num="75" count="17" type="stmt"/>
+        <line num="76" count="17" type="stmt"/>
+        <line num="83" count="40" type="stmt"/>
+        <line num="84" count="40" type="cond" truecount="2" falsecount="0"/>
+        <line num="85" count="34" type="stmt"/>
+        <line num="87" count="6" type="stmt"/>
+        <line num="88" count="10" type="cond" truecount="2" falsecount="0"/>
+        <line num="90" count="6" type="stmt"/>
+        <line num="91" count="6" type="stmt"/>
+        <line num="101" count="40" type="stmt"/>
+        <line num="102" count="40" type="cond" truecount="2" falsecount="0"/>
+        <line num="103" count="23" type="stmt"/>
+        <line num="105" count="17" type="stmt"/>
+        <line num="106" count="17" type="cond" truecount="2" falsecount="0"/>
+        <line num="108" count="12" type="stmt"/>
         <line num="111" count="5" type="stmt"/>
-        <line num="118" count="40" type="stmt"/>
-        <line num="119" count="40" type="cond" truecount="2" falsecount="0"/>
-        <line num="120" count="34" type="stmt"/>
-        <line num="122" count="6" type="stmt"/>
-        <line num="123" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="112" count="5" type="stmt"/>
+        <line num="113" count="5" type="stmt"/>
+        <line num="120" count="40" type="stmt"/>
+        <line num="121" count="40" type="cond" truecount="2" falsecount="0"/>
+        <line num="122" count="34" type="stmt"/>
+        <line num="124" count="7" type="cond" truecount="2" falsecount="0"/>
         <line num="125" count="6" type="stmt"/>
-        <line num="132" count="7" type="stmt"/>
         <line num="133" count="7" type="stmt"/>
-        <line num="146" count="40" type="stmt"/>
-        <line num="148" count="40" type="stmt"/>
-        <line num="149" count="40" type="stmt"/>
-        <line num="150" count="40" type="stmt"/>
+        <line num="136" count="7" type="stmt"/>
         <line num="151" count="40" type="stmt"/>
         <line num="153" count="40" type="stmt"/>
+        <line num="154" count="40" type="stmt"/>
+        <line num="155" count="40" type="stmt"/>
+        <line num="156" count="40" type="stmt"/>
+        <line num="158" count="40" type="stmt"/>
       </file>
       <file name="BabyStepRules.ts" path="C:\Project\AccountingV2\src\domain\babySteps\BabyStepRules.ts">
         <metrics statements="4" coveredstatements="4" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
-        <line num="25" count="13" type="stmt"/>
-        <line num="111" count="13" type="stmt"/>
-        <line num="112" count="91" type="stmt"/>
-        <line num="119" count="13" type="stmt"/>
+        <line num="25" count="14" type="stmt"/>
+        <line num="108" count="14" type="stmt"/>
+        <line num="109" count="98" type="stmt"/>
+        <line num="116" count="14" type="stmt"/>
       </file>
       <file name="ReconcileBabyStepsUseCase.ts" path="C:\Project\AccountingV2\src\domain\babySteps\ReconcileBabyStepsUseCase.ts">
-        <metrics statements="36" coveredstatements="34" conditionals="26" coveredconditionals="18" methods="5" coveredmethods="4"/>
+        <metrics statements="35" coveredstatements="33" conditionals="26" coveredconditionals="18" methods="5" coveredmethods="4"/>
+        <line num="33" count="5" type="stmt"/>
         <line num="35" count="5" type="stmt"/>
-        <line num="37" count="5" type="stmt"/>
-        <line num="47" count="5" type="stmt"/>
+        <line num="45" count="5" type="stmt"/>
+        <line num="60" count="5" type="stmt"/>
         <line num="62" count="5" type="stmt"/>
-        <line num="67" count="5" type="stmt"/>
-        <line num="85" count="5" type="stmt"/>
-        <line num="86" count="5" type="stmt"/>
-        <line num="89" count="5" type="stmt"/>
-        <line num="94" count="5" type="stmt"/>
-        <line num="95" count="35" type="stmt"/>
+        <line num="80" count="5" type="stmt"/>
+        <line num="81" count="5" type="stmt"/>
+        <line num="84" count="5" type="stmt"/>
+        <line num="89" count="35" type="stmt"/>
+        <line num="92" count="5" type="stmt"/>
         <line num="99" count="5" type="stmt"/>
-        <line num="106" count="5" type="stmt"/>
-        <line num="114" count="5" type="stmt"/>
-        <line num="115" count="5" type="stmt"/>
-        <line num="116" count="5" type="stmt"/>
-        <line num="117" count="5" type="stmt"/>
-        <line num="119" count="5" type="stmt"/>
+        <line num="107" count="5" type="stmt"/>
+        <line num="108" count="5" type="stmt"/>
+        <line num="109" count="5" type="stmt"/>
+        <line num="110" count="5" type="stmt"/>
+        <line num="112" count="5" type="stmt"/>
+        <line num="113" count="35" type="stmt"/>
+        <line num="114" count="35" type="cond" truecount="1" falsecount="1"/>
+        <line num="117" count="35" type="cond" truecount="2" falsecount="0"/>
+        <line num="118" count="35" type="cond" truecount="2" falsecount="0"/>
         <line num="120" count="35" type="stmt"/>
-        <line num="121" count="35" type="cond" truecount="1" falsecount="1"/>
-        <line num="124" count="35" type="cond" truecount="2" falsecount="0"/>
-        <line num="125" count="35" type="cond" truecount="2" falsecount="0"/>
-        <line num="127" count="35" type="stmt"/>
-        <line num="129" count="35" type="cond" truecount="4" falsecount="0"/>
-        <line num="131" count="3" type="stmt"/>
-        <line num="132" count="3" type="stmt"/>
-        <line num="134" count="3" type="cond" truecount="1" falsecount="1"/>
-        <line num="135" count="3" type="stmt"/>
-        <line num="151" count="32" type="cond" truecount="4" falsecount="0"/>
-        <line num="153" count="1" type="stmt"/>
-        <line num="154" count="1" type="stmt"/>
-        <line num="156" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="157" count="1" type="stmt"/>
-        <line num="175" count="35" type="stmt"/>
-        <line num="185" count="5" type="stmt"/>
-        <line num="187" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="188" count="0" type="stmt"/>
+        <line num="122" count="35" type="cond" truecount="4" falsecount="0"/>
+        <line num="124" count="3" type="stmt"/>
+        <line num="125" count="3" type="stmt"/>
+        <line num="127" count="3" type="cond" truecount="1" falsecount="1"/>
+        <line num="128" count="3" type="stmt"/>
+        <line num="144" count="32" type="cond" truecount="4" falsecount="0"/>
+        <line num="146" count="1" type="stmt"/>
+        <line num="147" count="1" type="stmt"/>
+        <line num="149" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="150" count="1" type="stmt"/>
+        <line num="168" count="35" type="stmt"/>
+        <line num="178" count="5" type="stmt"/>
+        <line num="180" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="181" count="0" type="stmt"/>
       </file>
       <file name="ReconcileEmergencyFundTypeUseCase.ts" path="C:\Project\AccountingV2\src\domain\babySteps\ReconcileEmergencyFundTypeUseCase.ts">
-        <metrics statements="9" coveredstatements="9" conditionals="2" coveredconditionals="2" methods="3" coveredmethods="3"/>
-        <line num="32" count="9" type="stmt"/>
-        <line num="44" count="9" type="stmt"/>
-        <line num="46" count="9" type="cond" truecount="2" falsecount="0"/>
-        <line num="48" count="5" type="stmt"/>
-        <line num="52" count="4" type="stmt"/>
-        <line num="53" count="4" type="stmt"/>
-        <line num="55" count="4" type="stmt"/>
-        <line num="56" count="5" type="stmt"/>
-        <line num="66" count="4" type="stmt"/>
+        <metrics statements="11" coveredstatements="11" conditionals="4" coveredconditionals="4" methods="3" coveredmethods="3"/>
+        <line num="34" count="9" type="cond" truecount="2" falsecount="0"/>
+        <line num="39" count="9" type="stmt"/>
+        <line num="51" count="9" type="stmt"/>
+        <line num="53" count="9" type="cond" truecount="2" falsecount="0"/>
+        <line num="55" count="5" type="stmt"/>
+        <line num="59" count="4" type="stmt"/>
+        <line num="60" count="4" type="stmt"/>
+        <line num="62" count="4" type="stmt"/>
+        <line num="63" count="5" type="stmt"/>
+        <line num="71" count="5" type="stmt"/>
+        <line num="74" count="4" type="stmt"/>
       </file>
       <file name="SeedBabyStepsUseCase.ts" path="C:\Project\AccountingV2\src\domain\babySteps\SeedBabyStepsUseCase.ts">
         <metrics statements="8" coveredstatements="6" conditionals="2" coveredconditionals="0" methods="3" coveredmethods="3"/>
-        <line num="27" count="17" type="stmt"/>
-        <line num="28" count="17" type="stmt"/>
-        <line num="30" count="119" type="stmt"/>
-        <line num="44" count="17" type="stmt"/>
-        <line num="45" count="119" type="stmt"/>
-        <line num="51" count="17" type="stmt"/>
-        <line num="53" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="54" count="0" type="stmt"/>
+        <line num="25" count="18" type="stmt"/>
+        <line num="26" count="18" type="stmt"/>
+        <line num="28" count="126" type="stmt"/>
+        <line num="42" count="18" type="stmt"/>
+        <line num="43" count="126" type="stmt"/>
+        <line num="46" count="18" type="stmt"/>
+        <line num="48" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="49" count="0" type="stmt"/>
       </file>
       <file name="StampCelebratedUseCase.ts" path="C:\Project\AccountingV2\src\domain\babySteps\StampCelebratedUseCase.ts">
         <metrics statements="9" coveredstatements="9" conditionals="4" coveredconditionals="4" methods="2" coveredmethods="2"/>
-        <line num="24" count="4" type="stmt"/>
-        <line num="34" count="4" type="stmt"/>
-        <line num="35" count="4" type="cond" truecount="2" falsecount="0"/>
-        <line num="36" count="1" type="stmt"/>
-        <line num="43" count="3" type="cond" truecount="2" falsecount="0"/>
-        <line num="44" count="1" type="stmt"/>
-        <line num="47" count="2" type="stmt"/>
-        <line num="49" count="2" type="stmt"/>
-        <line num="63" count="2" type="stmt"/>
+        <line num="22" count="4" type="stmt"/>
+        <line num="27" count="4" type="stmt"/>
+        <line num="28" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="29" count="1" type="stmt"/>
+        <line num="36" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="37" count="1" type="stmt"/>
+        <line num="40" count="2" type="stmt"/>
+        <line num="42" count="2" type="stmt"/>
+        <line num="51" count="2" type="stmt"/>
       </file>
       <file name="ToggleManualStepUseCase.ts" path="C:\Project\AccountingV2\src\domain\babySteps\ToggleManualStepUseCase.ts">
         <metrics statements="5" coveredstatements="5" conditionals="4" coveredconditionals="4" methods="2" coveredmethods="2"/>
-        <line num="28" count="9" type="cond" truecount="2" falsecount="0"/>
-        <line num="29" count="4" type="stmt"/>
+        <line num="26" count="9" type="cond" truecount="2" falsecount="0"/>
+        <line num="27" count="4" type="stmt"/>
+        <line num="33" count="5" type="stmt"/>
         <line num="35" count="5" type="stmt"/>
-        <line num="37" count="5" type="stmt"/>
-        <line num="52" count="5" type="stmt"/>
+        <line num="45" count="5" type="stmt"/>
       </file>
       <file name="types.ts" path="C:\Project\AccountingV2\src\domain\babySteps\types.ts">
         <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
       </file>
     </package>
-    <package name="budgets">
+    <package name="domain.budgets">
       <metrics statements="10" coveredstatements="10" conditionals="4" coveredconditionals="4" methods="1" coveredmethods="1"/>
       <file name="BudgetBalanceCalculator.ts" path="C:\Project\AccountingV2\src\domain\budgets\BudgetBalanceCalculator.ts">
         <metrics statements="10" coveredstatements="10" conditionals="4" coveredconditionals="4" methods="1" coveredmethods="1"/>
@@ -160,26 +434,26 @@
         <line num="44" count="25" type="stmt"/>
       </file>
     </package>
-    <package name="debtSnowball">
-      <metrics statements="61" coveredstatements="59" conditionals="27" coveredconditionals="22" methods="9" coveredmethods="9"/>
+    <package name="domain.debtSnowball">
+      <metrics statements="61" coveredstatements="59" conditionals="31" coveredconditionals="27" methods="9" coveredmethods="9"/>
       <file name="CreateDebtUseCase.ts" path="C:\Project\AccountingV2\src\domain\debtSnowball\CreateDebtUseCase.ts">
-        <metrics statements="16" coveredstatements="16" conditionals="8" coveredconditionals="7" methods="2" coveredmethods="2"/>
-        <line num="29" count="5" type="stmt"/>
-        <line num="33" count="5" type="cond" truecount="2" falsecount="0"/>
-        <line num="34" count="1" type="stmt"/>
-        <line num="36" count="4" type="cond" truecount="2" falsecount="0"/>
-        <line num="37" count="1" type="stmt"/>
-        <line num="39" count="3" type="cond" truecount="2" falsecount="0"/>
-        <line num="40" count="1" type="stmt"/>
-        <line num="43" count="2" type="stmt"/>
-        <line num="47" count="2" type="cond" truecount="1" falsecount="1"/>
-        <line num="49" count="2" type="stmt"/>
-        <line num="50" count="2" type="stmt"/>
-        <line num="52" count="2" type="stmt"/>
-        <line num="69" count="2" type="stmt"/>
-        <line num="71" count="2" type="stmt"/>
-        <line num="85" count="2" type="stmt"/>
-        <line num="87" count="2" type="stmt"/>
+        <metrics statements="16" coveredstatements="16" conditionals="10" coveredconditionals="10" methods="2" coveredmethods="2"/>
+        <line num="31" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="35" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="36" count="1" type="stmt"/>
+        <line num="41" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="42" count="1" type="stmt"/>
+        <line num="47" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="48" count="1" type="stmt"/>
+        <line num="51" count="2" type="stmt"/>
+        <line num="55" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="57" count="2" type="stmt"/>
+        <line num="58" count="2" type="stmt"/>
+        <line num="60" count="2" type="stmt"/>
+        <line num="77" count="2" type="stmt"/>
+        <line num="79" count="2" type="stmt"/>
+        <line num="93" count="2" type="stmt"/>
+        <line num="95" count="2" type="stmt"/>
       </file>
       <file name="DebtEntity.ts" path="C:\Project\AccountingV2\src\domain\debtSnowball\DebtEntity.ts">
         <metrics statements="4" coveredstatements="4" conditionals="2" coveredconditionals="1" methods="2" coveredmethods="2"/>
@@ -189,28 +463,28 @@
         <line num="39" count="3" type="stmt"/>
       </file>
       <file name="LogDebtPaymentUseCase.ts" path="C:\Project\AccountingV2\src\domain\debtSnowball\LogDebtPaymentUseCase.ts">
-        <metrics statements="12" coveredstatements="12" conditionals="2" coveredconditionals="2" methods="2" coveredmethods="2"/>
-        <line num="26" count="5" type="stmt"/>
-        <line num="30" count="5" type="cond" truecount="2" falsecount="0"/>
-        <line num="31" count="1" type="stmt"/>
-        <line num="34" count="4" type="stmt"/>
-        <line num="35" count="4" type="stmt"/>
+        <metrics statements="12" coveredstatements="12" conditionals="4" coveredconditionals="4" methods="2" coveredmethods="2"/>
+        <line num="28" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="32" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="33" count="1" type="stmt"/>
         <line num="39" count="4" type="stmt"/>
         <line num="40" count="4" type="stmt"/>
-        <line num="42" count="4" type="stmt"/>
-        <line num="53" count="4" type="stmt"/>
-        <line num="69" count="4" type="stmt"/>
-        <line num="71" count="4" type="stmt"/>
-        <line num="79" count="4" type="stmt"/>
+        <line num="44" count="4" type="stmt"/>
+        <line num="45" count="4" type="stmt"/>
+        <line num="47" count="4" type="stmt"/>
+        <line num="58" count="4" type="stmt"/>
+        <line num="74" count="4" type="stmt"/>
+        <line num="76" count="4" type="stmt"/>
+        <line num="84" count="4" type="stmt"/>
       </file>
       <file name="SnowballPayoffProjector.ts" path="C:\Project\AccountingV2\src\domain\debtSnowball\SnowballPayoffProjector.ts">
         <metrics statements="29" coveredstatements="27" conditionals="15" coveredconditionals="12" methods="3" coveredmethods="3"/>
-        <line num="17" count="1" type="stmt"/>
-        <line num="25" count="5" type="stmt"/>
+        <line num="17" count="3" type="stmt"/>
+        <line num="25" count="7" type="stmt"/>
         <line num="26" count="5" type="cond" truecount="2" falsecount="0"/>
         <line num="27" count="1" type="stmt"/>
-        <line num="29" count="5" type="cond" truecount="2" falsecount="0"/>
-        <line num="30" count="2" type="stmt"/>
+        <line num="29" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="30" count="4" type="stmt"/>
         <line num="33" count="3" type="stmt"/>
         <line num="34" count="3" type="stmt"/>
         <line num="35" count="3" type="stmt"/>
@@ -236,263 +510,296 @@
         <line num="75" count="3" type="stmt"/>
       </file>
     </package>
-    <package name="envelopes">
-      <metrics statements="43" coveredstatements="43" conditionals="18" coveredconditionals="18" methods="9" coveredmethods="9"/>
+    <package name="domain.envelopes">
+      <metrics statements="43" coveredstatements="43" conditionals="24" coveredconditionals="24" methods="9" coveredmethods="9"/>
       <file name="ArchiveEnvelopeUseCase.ts" path="C:\Project\AccountingV2\src\domain\envelopes\ArchiveEnvelopeUseCase.ts">
-        <metrics statements="6" coveredstatements="6" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
-        <line num="19" count="2" type="stmt"/>
-        <line num="23" count="2" type="stmt"/>
-        <line num="24" count="2" type="stmt"/>
-        <line num="29" count="2" type="stmt"/>
-        <line num="38" count="2" type="stmt"/>
+        <metrics statements="6" coveredstatements="6" conditionals="2" coveredconditionals="2" methods="2" coveredmethods="2"/>
+        <line num="21" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="25" count="2" type="stmt"/>
+        <line num="26" count="2" type="stmt"/>
+        <line num="31" count="2" type="stmt"/>
         <line num="40" count="2" type="stmt"/>
+        <line num="42" count="2" type="stmt"/>
       </file>
       <file name="CreateEnvelopeUseCase.ts" path="C:\Project\AccountingV2\src\domain\envelopes\CreateEnvelopeUseCase.ts">
-        <metrics statements="16" coveredstatements="16" conditionals="6" coveredconditionals="6" methods="2" coveredmethods="2"/>
-        <line num="28" count="7" type="stmt"/>
-        <line num="32" count="7" type="stmt"/>
-        <line num="33" count="7" type="cond" truecount="2" falsecount="0"/>
-        <line num="34" count="1" type="stmt"/>
-        <line num="36" count="6" type="cond" truecount="2" falsecount="0"/>
-        <line num="37" count="1" type="stmt"/>
-        <line num="41" count="5" type="cond" truecount="2" falsecount="0"/>
-        <line num="43" count="5" type="stmt"/>
-        <line num="44" count="5" type="stmt"/>
-        <line num="46" count="5" type="stmt"/>
-        <line num="60" count="5" type="stmt"/>
-        <line num="61" count="5" type="stmt"/>
-        <line num="63" count="5" type="stmt"/>
-        <line num="77" count="5" type="stmt"/>
-        <line num="86" count="5" type="stmt"/>
-        <line num="88" count="5" type="stmt"/>
+        <metrics statements="16" coveredstatements="16" conditionals="8" coveredconditionals="8" methods="2" coveredmethods="2"/>
+        <line num="30" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="34" count="8" type="stmt"/>
+        <line num="35" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="36" count="1" type="stmt"/>
+        <line num="38" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="46" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="48" count="6" type="stmt"/>
+        <line num="49" count="6" type="stmt"/>
+        <line num="51" count="6" type="stmt"/>
+        <line num="65" count="6" type="stmt"/>
+        <line num="66" count="6" type="stmt"/>
+        <line num="68" count="6" type="stmt"/>
+        <line num="82" count="6" type="stmt"/>
+        <line num="91" count="6" type="stmt"/>
+        <line num="93" count="6" type="stmt"/>
       </file>
       <file name="EnvelopeEntity.ts" path="C:\Project\AccountingV2\src\domain\envelopes\EnvelopeEntity.ts">
         <metrics statements="5" coveredstatements="5" conditionals="2" coveredconditionals="2" methods="3" coveredmethods="3"/>
-        <line num="18" count="2" type="stmt"/>
-        <line num="22" count="5" type="cond" truecount="2" falsecount="0"/>
-        <line num="23" count="4" type="stmt"/>
-        <line num="24" count="4" type="stmt"/>
-        <line num="28" count="3" type="stmt"/>
+        <line num="24" count="2" type="stmt"/>
+        <line num="28" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="29" count="4" type="stmt"/>
+        <line num="30" count="4" type="stmt"/>
+        <line num="34" count="3" type="stmt"/>
       </file>
       <file name="UpdateEnvelopeUseCase.ts" path="C:\Project\AccountingV2\src\domain\envelopes\UpdateEnvelopeUseCase.ts">
-        <metrics statements="16" coveredstatements="16" conditionals="10" coveredconditionals="10" methods="2" coveredmethods="2"/>
-        <line num="27" count="8" type="stmt"/>
-        <line num="31" count="8" type="stmt"/>
-        <line num="32" count="8" type="cond" truecount="2" falsecount="0"/>
-        <line num="33" count="1" type="stmt"/>
-        <line num="35" count="7" type="cond" truecount="2" falsecount="0"/>
-        <line num="36" count="1" type="stmt"/>
-        <line num="39" count="6" type="cond" truecount="6" falsecount="0"/>
-        <line num="40" count="1" type="stmt"/>
-        <line num="46" count="5" type="stmt"/>
-        <line num="47" count="5" type="stmt"/>
-        <line num="54" count="5" type="stmt"/>
+        <metrics statements="16" coveredstatements="16" conditionals="12" coveredconditionals="12" methods="2" coveredmethods="2"/>
+        <line num="29" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="33" count="8" type="stmt"/>
+        <line num="34" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="37" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="38" count="1" type="stmt"/>
+        <line num="44" count="6" type="cond" truecount="6" falsecount="0"/>
+        <line num="45" count="1" type="stmt"/>
+        <line num="51" count="5" type="stmt"/>
+        <line num="52" count="5" type="stmt"/>
         <line num="59" count="5" type="stmt"/>
-        <line num="73" count="5" type="stmt"/>
-        <line num="87" count="5" type="stmt"/>
-        <line num="96" count="5" type="stmt"/>
-        <line num="98" count="5" type="stmt"/>
+        <line num="69" count="5" type="stmt"/>
+        <line num="83" count="5" type="stmt"/>
+        <line num="97" count="5" type="stmt"/>
+        <line num="106" count="5" type="stmt"/>
+        <line num="108" count="5" type="stmt"/>
       </file>
     </package>
-    <package name="households">
-      <metrics statements="83" coveredstatements="58" conditionals="34" coveredconditionals="23" methods="10" coveredmethods="10"/>
+    <package name="domain.households">
+      <metrics statements="94" coveredstatements="76" conditionals="46" coveredconditionals="33" methods="11" coveredmethods="9"/>
       <file name="AcceptInviteUseCase.ts" path="C:\Project\AccountingV2\src\domain\households\AcceptInviteUseCase.ts">
-        <metrics statements="25" coveredstatements="8" conditionals="14" coveredconditionals="7" methods="2" coveredmethods="2"/>
-        <line num="27" count="3" type="stmt"/>
-        <line num="32" count="3" type="stmt"/>
-        <line num="38" count="3" type="cond" truecount="4" falsecount="0"/>
-        <line num="39" count="1" type="stmt"/>
-        <line num="42" count="2" type="cond" truecount="2" falsecount="0"/>
-        <line num="43" count="1" type="stmt"/>
-        <line num="46" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="47" count="1" type="stmt"/>
-        <line num="50" count="0" type="stmt"/>
-        <line num="53" count="0" type="stmt"/>
-        <line num="54" count="0" type="stmt"/>
-        <line num="56" count="0" type="stmt"/>
-        <line num="66" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="67" count="0" type="stmt"/>
-        <line num="71" count="0" type="stmt"/>
-        <line num="76" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="77" count="0" type="stmt"/>
-        <line num="81" count="0" type="stmt"/>
-        <line num="88" count="0" type="stmt"/>
-        <line num="89" count="0" type="stmt"/>
-        <line num="92" count="0" type="stmt"/>
-        <line num="93" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="94" count="0" type="stmt"/>
-        <line num="97" count="0" type="stmt"/>
-        <line num="104" count="0" type="stmt"/>
+        <metrics statements="25" coveredstatements="22" conditionals="16" coveredconditionals="13" methods="2" coveredmethods="2"/>
+        <line num="29" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="34" count="4" type="stmt"/>
+        <line num="40" count="4" type="cond" truecount="4" falsecount="0"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="44" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="45" count="1" type="stmt"/>
+        <line num="48" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="49" count="1" type="stmt"/>
+        <line num="55" count="1" type="stmt"/>
+        <line num="58" count="1" type="stmt"/>
+        <line num="59" count="1" type="stmt"/>
+        <line num="61" count="1" type="stmt"/>
+        <line num="69" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="70" count="0" type="stmt"/>
+        <line num="74" count="1" type="stmt"/>
+        <line num="78" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="79" count="0" type="stmt"/>
+        <line num="83" count="1" type="stmt"/>
+        <line num="91" count="1" type="stmt"/>
+        <line num="92" count="1" type="stmt"/>
+        <line num="95" count="1" type="stmt"/>
+        <line num="100" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="101" count="0" type="stmt"/>
+        <line num="107" count="1" type="stmt"/>
+        <line num="114" count="1" type="stmt"/>
       </file>
       <file name="CreateHouseholdUseCase.ts" path="C:\Project\AccountingV2\src\domain\households\CreateHouseholdUseCase.ts">
-        <metrics statements="19" coveredstatements="19" conditionals="6" coveredconditionals="6" methods="2" coveredmethods="2"/>
-        <line num="27" count="3" type="stmt"/>
-        <line num="31" count="3" type="stmt"/>
-        <line num="32" count="3" type="cond" truecount="2" falsecount="0"/>
-        <line num="33" count="1" type="stmt"/>
-        <line num="35" count="2" type="cond" truecount="4" falsecount="0"/>
-        <line num="36" count="1" type="stmt"/>
-        <line num="39" count="1" type="stmt"/>
-        <line num="40" count="1" type="stmt"/>
-        <line num="42" count="1" type="stmt"/>
-        <line num="51" count="1" type="stmt"/>
-        <line num="53" count="1" type="stmt"/>
-        <line num="54" count="1" type="stmt"/>
-        <line num="61" count="1" type="stmt"/>
-        <line num="63" count="1" type="stmt"/>
-        <line num="72" count="1" type="stmt"/>
-        <line num="73" count="1" type="stmt"/>
-        <line num="76" count="1" type="stmt"/>
-        <line num="77" count="1" type="stmt"/>
+        <metrics statements="19" coveredstatements="19" conditionals="8" coveredconditionals="8" methods="2" coveredmethods="2"/>
+        <line num="29" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="33" count="3" type="stmt"/>
+        <line num="34" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="37" count="2" type="cond" truecount="4" falsecount="0"/>
+        <line num="38" count="1" type="stmt"/>
+        <line num="44" count="1" type="stmt"/>
+        <line num="45" count="1" type="stmt"/>
+        <line num="47" count="1" type="stmt"/>
+        <line num="56" count="1" type="stmt"/>
+        <line num="58" count="1" type="stmt"/>
+        <line num="59" count="1" type="stmt"/>
+        <line num="67" count="1" type="stmt"/>
+        <line num="69" count="1" type="stmt"/>
+        <line num="78" count="1" type="stmt"/>
         <line num="79" count="1" type="stmt"/>
+        <line num="82" count="1" type="stmt"/>
+        <line num="83" count="1" type="stmt"/>
+        <line num="85" count="1" type="stmt"/>
       </file>
       <file name="CreateInviteUseCase.ts" path="C:\Project\AccountingV2\src\domain\households\CreateInviteUseCase.ts">
-        <metrics statements="8" coveredstatements="8" conditionals="6" coveredconditionals="5" methods="4" coveredmethods="4"/>
-        <line num="16" count="2" type="stmt"/>
-        <line num="17" count="12" type="stmt"/>
-        <line num="27" count="2" type="stmt"/>
-        <line num="28" count="2" type="stmt"/>
-        <line num="30" count="2" type="stmt"/>
-        <line num="41" count="2" type="cond" truecount="4" falsecount="0"/>
-        <line num="42" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="45" count="1" type="stmt"/>
+        <metrics statements="12" coveredstatements="12" conditionals="6" coveredconditionals="5" methods="3" coveredmethods="3"/>
+        <line num="17" count="1002" type="stmt"/>
+        <line num="18" count="1002" type="stmt"/>
+        <line num="19" count="1002" type="stmt"/>
+        <line num="20" count="1002" type="stmt"/>
+        <line num="21" count="6012" type="stmt"/>
+        <line num="23" count="1002" type="stmt"/>
+        <line num="33" count="2" type="stmt"/>
+        <line num="34" count="2" type="stmt"/>
+        <line num="36" count="2" type="stmt"/>
+        <line num="47" count="2" type="cond" truecount="4" falsecount="0"/>
+        <line num="48" count="1" type="stmt"/>
+        <line num="54" count="1" type="stmt"/>
       </file>
       <file name="EnsureHouseholdUseCase.ts" path="C:\Project\AccountingV2\src\domain\households\EnsureHouseholdUseCase.ts">
-        <metrics statements="31" coveredstatements="23" conditionals="8" coveredconditionals="5" methods="2" coveredmethods="2"/>
-        <line num="28" count="2" type="stmt"/>
-        <line num="33" count="2" type="stmt"/>
-        <line num="39" count="2" type="cond" truecount="2" falsecount="0"/>
-        <line num="40" count="1" type="stmt"/>
-        <line num="45" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="47" count="1" type="stmt"/>
-        <line num="48" count="1" type="stmt"/>
+        <metrics statements="31" coveredstatements="23" conditionals="10" coveredconditionals="7" methods="2" coveredmethods="2"/>
+        <line num="30" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="35" count="2" type="stmt"/>
+        <line num="41" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="42" count="1" type="stmt"/>
+        <line num="47" count="1" type="cond" truecount="1" falsecount="1"/>
         <line num="49" count="1" type="stmt"/>
-        <line num="59" count="1" type="stmt"/>
-        <line num="65" count="1" type="stmt"/>
-        <line num="67" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="68" count="0" type="stmt"/>
-        <line num="69" count="0" type="stmt"/>
-        <line num="76" count="0" type="stmt"/>
-        <line num="77" count="0" type="stmt"/>
-        <line num="78" count="0" type="stmt"/>
+        <line num="50" count="1" type="stmt"/>
+        <line num="51" count="1" type="stmt"/>
+        <line num="61" count="1" type="stmt"/>
+        <line num="67" count="1" type="stmt"/>
+        <line num="69" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="70" count="0" type="stmt"/>
+        <line num="71" count="0" type="stmt"/>
+        <line num="79" count="0" type="stmt"/>
+        <line num="80" count="0" type="stmt"/>
         <line num="81" count="0" type="stmt"/>
-        <line num="82" count="0" type="stmt"/>
         <line num="84" count="0" type="stmt"/>
-        <line num="93" count="1" type="stmt"/>
-        <line num="94" count="1" type="stmt"/>
-        <line num="103" count="1" type="stmt"/>
-        <line num="105" count="1" type="stmt"/>
+        <line num="85" count="0" type="stmt"/>
+        <line num="87" count="0" type="stmt"/>
+        <line num="96" count="1" type="stmt"/>
+        <line num="97" count="1" type="stmt"/>
         <line num="106" count="1" type="stmt"/>
-        <line num="113" count="1" type="stmt"/>
-        <line num="115" count="1" type="stmt"/>
-        <line num="124" count="1" type="stmt"/>
-        <line num="125" count="1" type="stmt"/>
+        <line num="108" count="1" type="stmt"/>
+        <line num="109" count="1" type="stmt"/>
+        <line num="117" count="1" type="stmt"/>
+        <line num="119" count="1" type="stmt"/>
         <line num="128" count="1" type="stmt"/>
         <line num="129" count="1" type="stmt"/>
-        <line num="131" count="1" type="stmt"/>
+        <line num="132" count="1" type="stmt"/>
+        <line num="133" count="1" type="stmt"/>
+        <line num="135" count="1" type="stmt"/>
+      </file>
+      <file name="UpdateHouseholdPaydayDayUseCase.ts" path="C:\Project\AccountingV2\src\domain\households\UpdateHouseholdPaydayDayUseCase.ts">
+        <metrics statements="7" coveredstatements="0" conditionals="6" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="19" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="23" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="24" count="0" type="stmt"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="31" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
       </file>
     </package>
-    <package name="meterReadings">
-      <metrics statements="40" coveredstatements="39" conditionals="16" coveredconditionals="15" methods="10" coveredmethods="10"/>
+    <package name="domain.meterReadings">
+      <metrics statements="40" coveredstatements="39" conditionals="18" coveredconditionals="17" methods="10" coveredmethods="10"/>
       <file name="AnomalyDetector.ts" path="C:\Project\AccountingV2\src\domain\meterReadings\AnomalyDetector.ts">
         <metrics statements="15" coveredstatements="14" conditionals="6" coveredconditionals="5" methods="3" coveredmethods="3"/>
         <line num="11" count="1" type="stmt"/>
         <line num="19" count="10" type="stmt"/>
         <line num="21" count="4" type="cond" truecount="2" falsecount="0"/>
         <line num="22" count="1" type="stmt"/>
-        <line num="26" count="3" type="stmt"/>
-        <line num="27" count="3" type="stmt"/>
-        <line num="28" count="9" type="stmt"/>
-        <line num="30" count="3" type="stmt"/>
-        <line num="32" count="9" type="stmt"/>
-        <line num="34" count="3" type="stmt"/>
+        <line num="31" count="3" type="stmt"/>
+        <line num="32" count="3" type="stmt"/>
+        <line num="33" count="9" type="stmt"/>
         <line num="35" count="3" type="stmt"/>
-        <line num="37" count="3" type="cond" truecount="3" falsecount="1"/>
-        <line num="38" count="0" type="stmt"/>
-        <line num="42" count="3" type="stmt"/>
-        <line num="44" count="3" type="stmt"/>
+        <line num="37" count="9" type="stmt"/>
+        <line num="39" count="3" type="stmt"/>
+        <line num="40" count="3" type="stmt"/>
+        <line num="42" count="3" type="cond" truecount="3" falsecount="1"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="52" count="3" type="stmt"/>
+        <line num="54" count="3" type="stmt"/>
       </file>
       <file name="LogMeterReadingUseCase.ts" path="C:\Project\AccountingV2\src\domain\meterReadings\LogMeterReadingUseCase.ts">
-        <metrics statements="10" coveredstatements="10" conditionals="2" coveredconditionals="2" methods="2" coveredmethods="2"/>
-        <line num="29" count="4" type="stmt"/>
-        <line num="33" count="4" type="cond" truecount="2" falsecount="0"/>
-        <line num="34" count="2" type="stmt"/>
-        <line num="37" count="2" type="stmt"/>
-        <line num="38" count="2" type="stmt"/>
-        <line num="40" count="2" type="stmt"/>
-        <line num="54" count="2" type="stmt"/>
-        <line num="56" count="2" type="stmt"/>
-        <line num="70" count="2" type="stmt"/>
-        <line num="72" count="2" type="stmt"/>
+        <metrics statements="10" coveredstatements="10" conditionals="4" coveredconditionals="4" methods="2" coveredmethods="2"/>
+        <line num="31" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="35" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="36" count="2" type="stmt"/>
+        <line num="42" count="2" type="stmt"/>
+        <line num="43" count="2" type="stmt"/>
+        <line num="45" count="2" type="stmt"/>
+        <line num="59" count="2" type="stmt"/>
+        <line num="61" count="2" type="stmt"/>
+        <line num="75" count="2" type="stmt"/>
+        <line num="77" count="2" type="stmt"/>
       </file>
       <file name="MeterReadingEntity.ts" path="C:\Project\AccountingV2\src\domain\meterReadings\MeterReadingEntity.ts">
         <metrics statements="7" coveredstatements="7" conditionals="0" coveredconditionals="0" methods="4" coveredmethods="4"/>
-        <line num="20" count="3" type="stmt"/>
-        <line num="25" count="3" type="stmt"/>
-        <line num="29" count="3" type="stmt"/>
-        <line num="34" count="3" type="stmt"/>
+        <line num="20" count="4" type="stmt"/>
+        <line num="25" count="4" type="stmt"/>
+        <line num="29" count="6" type="stmt"/>
+        <line num="34" count="6" type="stmt"/>
         <line num="38" count="3" type="stmt"/>
         <line num="43" count="3" type="stmt"/>
         <line num="47" count="1" type="stmt"/>
       </file>
       <file name="UnitRateCalculator.ts" path="C:\Project\AccountingV2\src\domain\meterReadings\UnitRateCalculator.ts">
         <metrics statements="8" coveredstatements="8" conditionals="8" coveredconditionals="8" methods="1" coveredmethods="1"/>
-        <line num="13" count="5" type="cond" truecount="2" falsecount="0"/>
-        <line num="14" count="1" type="stmt"/>
-        <line num="16" count="4" type="stmt"/>
-        <line num="17" count="4" type="cond" truecount="2" falsecount="0"/>
-        <line num="18" count="2" type="stmt"/>
-        <line num="20" count="2" type="cond" truecount="2" falsecount="0"/>
-        <line num="21" count="2" type="cond" truecount="2" falsecount="0"/>
-        <line num="22" count="2" type="stmt"/>
+        <line num="16" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="22" count="4" type="stmt"/>
+        <line num="23" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="24" count="2" type="stmt"/>
+        <line num="29" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="30" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="31" count="2" type="stmt"/>
       </file>
     </package>
-    <package name="scoring">
-      <metrics statements="15" coveredstatements="15" conditionals="12" coveredconditionals="11" methods="4" coveredmethods="4"/>
+    <package name="domain.ports">
+      <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+      <file name="IAuditPort.ts" path="C:\Project\AccountingV2\src\domain\ports\IAuditPort.ts">
+        <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+      </file>
+      <file name="IEnvelopeRepository.ts" path="C:\Project\AccountingV2\src\domain\ports\IEnvelopeRepository.ts">
+        <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+      </file>
+      <file name="ISyncEnqueuer.ts" path="C:\Project\AccountingV2\src\domain\ports\ISyncEnqueuer.ts">
+        <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+      </file>
+      <file name="ITransactionRepository.ts" path="C:\Project\AccountingV2\src\domain\ports\ITransactionRepository.ts">
+        <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+      </file>
+    </package>
+    <package name="domain.scoring">
+      <metrics statements="16" coveredstatements="16" conditionals="14" coveredconditionals="13" methods="5" coveredmethods="5"/>
       <file name="LevelAdvancementEvaluator.ts" path="C:\Project\AccountingV2\src\domain\scoring\LevelAdvancementEvaluator.ts">
-        <metrics statements="9" coveredstatements="9" conditionals="4" coveredconditionals="4" methods="3" coveredmethods="3"/>
+        <metrics statements="8" coveredstatements="8" conditionals="4" coveredconditionals="4" methods="3" coveredmethods="3"/>
         <line num="7" count="1" type="stmt"/>
         <line num="8" count="1" type="stmt"/>
         <line num="11" count="6" type="stmt"/>
         <line num="13" count="6" type="cond" truecount="2" falsecount="0"/>
         <line num="14" count="8" type="stmt"/>
         <line num="16" count="6" type="stmt"/>
-        <line num="18" count="6" type="cond" truecount="2" falsecount="0"/>
-        <line num="19" count="7" type="stmt"/>
-        <line num="21" count="6" type="stmt"/>
+        <line num="18" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="20" count="6" type="stmt"/>
       </file>
       <file name="RamseyScoreCalculator.ts" path="C:\Project\AccountingV2\src\domain\scoring\RamseyScoreCalculator.ts">
         <metrics statements="6" coveredstatements="6" conditionals="8" coveredconditionals="7" methods="1" coveredmethods="1"/>
-        <line num="21" count="6" type="cond" truecount="1" falsecount="1"/>
-        <line num="26" count="6" type="cond" truecount="2" falsecount="0"/>
-        <line num="30" count="6" type="cond" truecount="2" falsecount="0"/>
-        <line num="31" count="6" type="cond" truecount="2" falsecount="0"/>
-        <line num="33" count="6" type="stmt"/>
-        <line num="35" count="6" type="stmt"/>
+        <line num="21" count="8" type="cond" truecount="1" falsecount="1"/>
+        <line num="26" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="30" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="31" count="8" type="cond" truecount="2" falsecount="0"/>
+        <line num="33" count="8" type="stmt"/>
+        <line num="35" count="8" type="stmt"/>
+      </file>
+      <file name="resolveLoggingDays.ts" path="C:\Project\AccountingV2\src\domain\scoring\resolveLoggingDays.ts">
+        <metrics statements="2" coveredstatements="2" conditionals="2" coveredconditionals="2" methods="1" coveredmethods="1"/>
+        <line num="16" count="4" type="stmt"/>
+        <line num="26" count="4" type="cond" truecount="2" falsecount="0"/>
       </file>
     </package>
-    <package name="shared">
-      <metrics statements="24" coveredstatements="20" conditionals="9" coveredconditionals="6" methods="7" coveredmethods="7"/>
+    <package name="domain.shared">
+      <metrics statements="24" coveredstatements="20" conditionals="9" coveredconditionals="7" methods="7" coveredmethods="7"/>
       <file name="BudgetPeriodEngine.ts" path="C:\Project\AccountingV2\src\domain\shared\BudgetPeriodEngine.ts">
-        <metrics statements="19" coveredstatements="15" conditionals="9" coveredconditionals="6" methods="3" coveredmethods="3"/>
-        <line num="6" count="5" type="stmt"/>
-        <line num="10" count="5" type="stmt"/>
-        <line num="11" count="5" type="stmt"/>
-        <line num="12" count="5" type="stmt"/>
-        <line num="14" count="5" type="cond" truecount="2" falsecount="0"/>
-        <line num="18" count="3" type="stmt"/>
-        <line num="19" count="3" type="cond" truecount="1" falsecount="1"/>
+        <metrics statements="19" coveredstatements="15" conditionals="9" coveredconditionals="7" methods="3" coveredmethods="3"/>
+        <line num="6" count="13" type="stmt"/>
+        <line num="10" count="13" type="stmt"/>
+        <line num="11" count="13" type="stmt"/>
+        <line num="12" count="13" type="stmt"/>
+        <line num="14" count="13" type="cond" truecount="2" falsecount="0"/>
+        <line num="18" count="11" type="stmt"/>
+        <line num="19" count="11" type="cond" truecount="1" falsecount="1"/>
         <line num="20" count="0" type="stmt"/>
         <line num="21" count="0" type="stmt"/>
-        <line num="25" count="5" type="stmt"/>
-        <line num="28" count="5" type="stmt"/>
-        <line num="29" count="5" type="stmt"/>
-        <line num="30" count="5" type="cond" truecount="1" falsecount="1"/>
+        <line num="25" count="13" type="stmt"/>
+        <line num="28" count="13" type="stmt"/>
+        <line num="29" count="13" type="stmt"/>
+        <line num="30" count="13" type="cond" truecount="1" falsecount="1"/>
         <line num="31" count="0" type="stmt"/>
         <line num="32" count="0" type="stmt"/>
-        <line num="34" count="5" type="stmt"/>
-        <line num="36" count="5" type="stmt"/>
-        <line num="38" count="5" type="stmt"/>
+        <line num="34" count="13" type="stmt"/>
+        <line num="36" count="13" type="stmt"/>
+        <line num="38" count="13" type="stmt"/>
         <line num="42" count="2" type="cond" truecount="2" falsecount="0"/>
       </file>
       <file name="Command.ts" path="C:\Project\AccountingV2\src\domain\shared\Command.ts">
@@ -501,42 +808,42 @@
       <file name="resolveBabyStepIsActive.ts" path="C:\Project\AccountingV2\src\domain\shared\resolveBabyStepIsActive.ts">
         <metrics statements="2" coveredstatements="2" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
         <line num="19" count="6" type="stmt"/>
-        <line num="29" count="6" type="stmt"/>
+        <line num="24" count="6" type="stmt"/>
       </file>
       <file name="types.ts" path="C:\Project\AccountingV2\src\domain\shared\types.ts">
         <metrics statements="3" coveredstatements="3" conditionals="0" coveredconditionals="0" methods="3" coveredmethods="3"/>
-        <line num="12" count="75" type="stmt"/>
-        <line num="16" count="31" type="stmt"/>
+        <line num="12" count="78" type="stmt"/>
+        <line num="16" count="32" type="stmt"/>
         <line num="22" count="2" type="stmt"/>
       </file>
     </package>
-    <package name="transactions">
-      <metrics statements="26" coveredstatements="26" conditionals="6" coveredconditionals="6" methods="6" coveredmethods="6"/>
+    <package name="domain.transactions">
+      <metrics statements="26" coveredstatements="26" conditionals="10" coveredconditionals="10" methods="6" coveredmethods="6"/>
       <file name="CreateTransactionUseCase.ts" path="C:\Project\AccountingV2\src\domain\transactions\CreateTransactionUseCase.ts">
-        <metrics statements="17" coveredstatements="17" conditionals="6" coveredconditionals="6" methods="2" coveredmethods="2"/>
-        <line num="30" count="6" type="stmt"/>
-        <line num="34" count="6" type="cond" truecount="2" falsecount="0"/>
-        <line num="35" count="2" type="stmt"/>
-        <line num="39" count="4" type="stmt"/>
-        <line num="45" count="4" type="cond" truecount="2" falsecount="0"/>
-        <line num="46" count="1" type="stmt"/>
-        <line num="48" count="3" type="cond" truecount="2" falsecount="0"/>
-        <line num="49" count="1" type="stmt"/>
-        <line num="52" count="2" type="stmt"/>
-        <line num="53" count="2" type="stmt"/>
-        <line num="55" count="2" type="stmt"/>
-        <line num="69" count="2" type="stmt"/>
-        <line num="70" count="2" type="stmt"/>
-        <line num="73" count="2" type="stmt"/>
-        <line num="78" count="2" type="stmt"/>
-        <line num="93" count="2" type="stmt"/>
+        <metrics statements="17" coveredstatements="17" conditionals="8" coveredconditionals="8" methods="2" coveredmethods="2"/>
+        <line num="32" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="36" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="37" count="2" type="stmt"/>
+        <line num="42" count="5" type="stmt"/>
+        <line num="53" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="54" count="2" type="stmt"/>
+        <line num="56" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="57" count="1" type="stmt"/>
+        <line num="63" count="2" type="stmt"/>
+        <line num="64" count="2" type="stmt"/>
+        <line num="66" count="2" type="stmt"/>
+        <line num="80" count="2" type="stmt"/>
+        <line num="81" count="2" type="stmt"/>
+        <line num="85" count="2" type="stmt"/>
         <line num="95" count="2" type="stmt"/>
+        <line num="110" count="2" type="stmt"/>
+        <line num="112" count="2" type="stmt"/>
       </file>
       <file name="DeleteTransactionUseCase.ts" path="C:\Project\AccountingV2\src\domain\transactions\DeleteTransactionUseCase.ts">
-        <metrics statements="7" coveredstatements="7" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
-        <line num="19" count="3" type="stmt"/>
-        <line num="23" count="3" type="stmt"/>
+        <metrics statements="7" coveredstatements="7" conditionals="2" coveredconditionals="2" methods="2" coveredmethods="2"/>
+        <line num="21" count="3" type="cond" truecount="2" falsecount="0"/>
         <line num="25" count="3" type="stmt"/>
+        <line num="27" count="3" type="stmt"/>
         <line num="30" count="3" type="stmt"/>
         <line num="35" count="3" type="stmt"/>
         <line num="50" count="3" type="stmt"/>
@@ -546,6 +853,1699 @@
         <metrics statements="2" coveredstatements="2" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
         <line num="18" count="1" type="stmt"/>
         <line num="22" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="infrastructure.logging">
+      <metrics statements="16" coveredstatements="3" conditionals="12" coveredconditionals="1" methods="5" coveredmethods="1"/>
+      <file name="Logger.ts" path="C:\Project\AccountingV2\src\infrastructure\logging\Logger.ts">
+        <metrics statements="16" coveredstatements="3" conditionals="12" coveredconditionals="1" methods="5" coveredmethods="1"/>
+        <line num="10" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="11" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="12" count="0" type="stmt"/>
+        <line num="13" count="0" type="stmt"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="23" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="27" count="0" type="stmt"/>
+        <line num="31" count="6" type="stmt"/>
+        <line num="32" count="6" type="cond" truecount="1" falsecount="1"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="34" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="43" count="3" type="stmt"/>
+      </file>
+    </package>
+    <package name="infrastructure.monitoring">
+      <metrics statements="8" coveredstatements="0" conditionals="6" coveredconditionals="0" methods="4" coveredmethods="0"/>
+      <file name="crashlytics.ts" path="C:\Project\AccountingV2\src\infrastructure\monitoring\crashlytics.ts">
+        <metrics statements="8" coveredstatements="0" conditionals="6" coveredconditionals="0" methods="4" coveredmethods="0"/>
+        <line num="5" count="0" type="stmt"/>
+        <line num="6" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="13" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="14" count="0" type="stmt"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="18" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="infrastructure.network">
+      <metrics statements="10" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="6" coveredmethods="0"/>
+      <file name="NetworkObserver.ts" path="C:\Project\AccountingV2\src\infrastructure\network\NetworkObserver.ts">
+        <metrics statements="10" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="6" coveredmethods="0"/>
+        <line num="7" count="0" type="stmt"/>
+        <line num="8" count="0" type="stmt"/>
+        <line num="11" count="0" type="stmt"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="16" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="17" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="25" count="0" type="stmt"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="30" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="infrastructure.notifications">
+      <metrics statements="22" coveredstatements="12" conditionals="4" coveredconditionals="1" methods="10" coveredmethods="5"/>
+      <file name="LocalNotificationScheduler.ts" path="C:\Project\AccountingV2\src\infrastructure\notifications\LocalNotificationScheduler.ts">
+        <metrics statements="13" coveredstatements="12" conditionals="2" coveredconditionals="1" methods="8" coveredmethods="5"/>
+        <line num="6" count="1" type="stmt"/>
+        <line num="7" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="42" count="1" type="stmt"/>
+        <line num="69" count="12" type="stmt"/>
+        <line num="70" count="12" type="stmt"/>
+        <line num="71" count="12" type="stmt"/>
+        <line num="73" count="12" type="cond" truecount="1" falsecount="1"/>
+        <line num="74" count="0" type="stmt"/>
+        <line num="77" count="12" type="stmt"/>
+        <line num="89" count="1" type="stmt"/>
+      </file>
+      <file name="NotificationPreferences.ts" path="C:\Project\AccountingV2\src\infrastructure\notifications\NotificationPreferences.ts">
+        <metrics statements="1" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="11" count="0" type="stmt"/>
+      </file>
+      <file name="NotificationPreferencesRepository.ts" path="C:\Project\AccountingV2\src\infrastructure\notifications\NotificationPreferencesRepository.ts">
+        <metrics statements="8" coveredstatements="0" conditionals="2" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="6" count="0" type="stmt"/>
+        <line num="10" count="0" type="stmt"/>
+        <line num="11" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="12" count="0" type="stmt"/>
+        <line num="13" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="24" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="infrastructure.storage">
+      <metrics statements="9" coveredstatements="5" conditionals="0" coveredconditionals="0" methods="9" coveredmethods="4"/>
+      <file name="SecureStorageAdapter.ts" path="C:\Project\AccountingV2\src\infrastructure\storage\SecureStorageAdapter.ts">
+        <metrics statements="4" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="5" coveredmethods="0"/>
+        <line num="4" count="0" type="stmt"/>
+        <line num="5" count="0" type="stmt"/>
+        <line num="7" count="0" type="stmt"/>
+        <line num="9" count="0" type="stmt"/>
+      </file>
+      <file name="onboardingFlag.ts" path="C:\Project\AccountingV2\src\infrastructure\storage\onboardingFlag.ts">
+        <metrics statements="5" coveredstatements="5" conditionals="0" coveredconditionals="0" methods="4" coveredmethods="4"/>
+        <line num="11" count="4" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="19" count="2" type="stmt"/>
+        <line num="20" count="2" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.components.envelopes">
+      <metrics statements="5" coveredstatements="1" conditionals="2" coveredconditionals="0" methods="1" coveredmethods="0"/>
+      <file name="EnvelopeCard.tsx" path="C:\Project\AccountingV2\src\presentation\components\envelopes\EnvelopeCard.tsx">
+        <metrics statements="5" coveredstatements="1" conditionals="2" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="25" count="0" type="stmt"/>
+        <line num="52" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.components.shared">
+      <metrics statements="59" coveredstatements="19" conditionals="51" coveredconditionals="20" methods="22" coveredmethods="7"/>
+      <file name="CurrencyText.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\CurrencyText.tsx">
+        <metrics statements="5" coveredstatements="5" conditionals="5" coveredconditionals="5" methods="1" coveredmethods="1"/>
+        <line num="12" count="4" type="stmt"/>
+        <line num="13" count="4" type="stmt"/>
+        <line num="14" count="4" type="stmt"/>
+        <line num="20" count="4" type="cond" truecount="4" falsecount="0"/>
+        <line num="21" count="4" type="stmt"/>
+      </file>
+      <file name="DateText.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\DateText.tsx">
+        <metrics statements="2" coveredstatements="0" conditionals="1" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="13" count="0" type="stmt"/>
+        <line num="14" count="0" type="stmt"/>
+      </file>
+      <file name="EmptyState.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\EmptyState.tsx">
+        <metrics statements="2" coveredstatements="2" conditionals="8" coveredconditionals="8" methods="1" coveredmethods="1"/>
+        <line num="21" count="14" type="stmt"/>
+        <line num="62" count="5" type="stmt"/>
+      </file>
+      <file name="EnvelopeFillBar.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\EnvelopeFillBar.tsx">
+        <metrics statements="11" coveredstatements="1" conditionals="9" coveredconditionals="0" methods="3" coveredmethods="0"/>
+        <line num="11" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="12" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="13" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="14" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="31" count="0" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="54" count="1" type="stmt"/>
+      </file>
+      <file name="ErrorSnackbar.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\ErrorSnackbar.tsx">
+        <metrics statements="1" coveredstatements="0" conditionals="3" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="20" count="0" type="stmt"/>
+      </file>
+      <file name="LoadingSkeletonCard.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\LoadingSkeletonCard.tsx">
+        <metrics statements="6" coveredstatements="6" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
+        <line num="6" count="11" type="stmt"/>
+        <line num="8" count="11" type="stmt"/>
+        <line num="9" count="11" type="stmt"/>
+        <line num="18" count="11" type="stmt"/>
+        <line num="20" count="11" type="stmt"/>
+        <line num="29" count="2" type="stmt"/>
+      </file>
+      <file name="LoadingSkeletonList.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\LoadingSkeletonList.tsx">
+        <metrics statements="3" coveredstatements="3" conditionals="3" coveredconditionals="3" methods="2" coveredmethods="2"/>
+        <line num="15" count="3" type="stmt"/>
+        <line num="23" count="11" type="stmt"/>
+        <line num="29" count="2" type="stmt"/>
+      </file>
+      <file name="LoadingSplash.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\LoadingSplash.tsx">
+        <metrics statements="2" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="12" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+      </file>
+      <file name="OfflineBanner.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\OfflineBanner.tsx">
+        <metrics statements="8" coveredstatements="0" conditionals="6" coveredconditionals="0" methods="3" coveredmethods="0"/>
+        <line num="13" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="14" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="24" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+      </file>
+      <file name="ScreenHeader.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\ScreenHeader.tsx">
+        <metrics statements="2" coveredstatements="2" conditionals="4" coveredconditionals="4" methods="1" coveredmethods="1"/>
+        <line num="13" count="12" type="stmt"/>
+        <line num="37" count="4" type="stmt"/>
+      </file>
+      <file name="ToastHost.tsx" path="C:\Project\AccountingV2\src\presentation\components\shared\ToastHost.tsx">
+        <metrics statements="17" coveredstatements="0" conditionals="12" coveredconditionals="0" methods="6" coveredmethods="0"/>
+        <line num="13" count="0" type="stmt"/>
+        <line num="16" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="24" count="0" type="stmt"/>
+        <line num="29" count="0" type="stmt"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="31" count="0" type="stmt"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="34" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="40" count="0" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="44" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="46" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.hooks">
+      <metrics statements="117" coveredstatements="52" conditionals="35" coveredconditionals="15" methods="26" coveredmethods="12"/>
+      <file name="useBabySteps.ts" path="C:\Project\AccountingV2\src\presentation\hooks\useBabySteps.ts">
+        <metrics statements="61" coveredstatements="49" conditionals="26" coveredconditionals="15" methods="12" coveredmethods="10"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="62" count="37" type="cond" truecount="1" falsecount="1"/>
+        <line num="64" count="37" type="stmt"/>
+        <line num="65" count="37" type="stmt"/>
+        <line num="66" count="37" type="stmt"/>
+        <line num="69" count="37" type="stmt"/>
+        <line num="71" count="37" type="stmt"/>
+        <line num="72" count="37" type="stmt"/>
+        <line num="74" count="37" type="stmt"/>
+        <line num="76" count="19" type="cond" truecount="2" falsecount="0"/>
+        <line num="77" count="3" type="stmt"/>
+        <line num="80" count="16" type="stmt"/>
+        <line num="81" count="16" type="stmt"/>
+        <line num="83" count="16" type="stmt"/>
+        <line num="84" count="16" type="stmt"/>
+        <line num="85" count="16" type="stmt"/>
+        <line num="87" count="16" type="stmt"/>
+        <line num="88" count="16" type="stmt"/>
+        <line num="90" count="16" type="cond" truecount="1" falsecount="1"/>
+        <line num="91" count="0" type="stmt"/>
+        <line num="94" count="16" type="stmt"/>
+        <line num="95" count="16" type="stmt"/>
+        <line num="97" count="16" type="cond" truecount="2" falsecount="0"/>
+        <line num="99" count="13" type="stmt"/>
+        <line num="100" count="7" type="stmt"/>
+        <line num="105" count="3" type="stmt"/>
+        <line num="106" count="3" type="stmt"/>
+        <line num="111" count="16" type="stmt"/>
+        <line num="112" count="4" type="stmt"/>
+        <line num="113" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="114" count="4" type="stmt"/>
+        <line num="118" count="16" type="stmt"/>
+        <line num="120" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="121" count="0" type="stmt"/>
+        <line num="122" count="0" type="stmt"/>
+        <line num="124" count="16" type="stmt"/>
+        <line num="125" count="16" type="stmt"/>
+        <line num="129" count="16" type="stmt"/>
+        <line num="130" count="16" type="stmt"/>
+        <line num="134" count="37" type="stmt"/>
+        <line num="135" count="13" type="cond" truecount="2" falsecount="0"/>
+        <line num="136" count="8" type="stmt"/>
+        <line num="141" count="37" type="stmt"/>
+        <line num="142" count="13" type="stmt"/>
+        <line num="144" count="13" type="stmt"/>
+        <line num="146" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="147" count="4" type="stmt"/>
+        <line num="149" count="4" type="cond" truecount="4" falsecount="0"/>
+        <line num="150" count="3" type="stmt"/>
+        <line num="153" count="4" type="stmt"/>
+        <line num="156" count="13" type="stmt"/>
+        <line num="157" count="13" type="stmt"/>
+        <line num="161" count="37" type="stmt"/>
+        <line num="163" count="0" type="stmt"/>
+        <line num="164" count="0" type="stmt"/>
+        <line num="165" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="166" count="0" type="stmt"/>
+        <line num="167" count="0" type="stmt"/>
+        <line num="170" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="171" count="0" type="stmt"/>
+        <line num="177" count="37" type="stmt"/>
+      </file>
+      <file name="useBudgetBalance.ts" path="C:\Project\AccountingV2\src\presentation\hooks\useBudgetBalance.ts">
+        <metrics statements="3" coveredstatements="3" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
+        <line num="29" count="11" type="stmt"/>
+        <line num="30" count="11" type="stmt"/>
+        <line num="31" count="11" type="stmt"/>
+      </file>
+      <file name="useDebts.ts" path="C:\Project\AccountingV2\src\presentation\hooks\useDebts.ts">
+        <metrics statements="12" coveredstatements="0" conditionals="2" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="16" count="0" type="stmt"/>
+        <line num="17" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="28" count="0" type="stmt"/>
+        <line num="30" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="32" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+      </file>
+      <file name="useEmergencyFundReconcileFlag.ts" path="C:\Project\AccountingV2\src\presentation\hooks\useEmergencyFundReconcileFlag.ts">
+        <metrics statements="3" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="3" coveredmethods="0"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+      </file>
+      <file name="useEnvelopes.ts" path="C:\Project\AccountingV2\src\presentation\hooks\useEnvelopes.ts">
+        <metrics statements="14" coveredstatements="0" conditionals="2" coveredconditionals="0" methods="3" coveredmethods="0"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="16" count="0" type="stmt"/>
+        <line num="17" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="35" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+      </file>
+      <file name="useMeterReadings.ts" path="C:\Project\AccountingV2\src\presentation\hooks\useMeterReadings.ts">
+        <metrics statements="12" coveredstatements="0" conditionals="3" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="24" count="0" type="stmt"/>
+        <line num="25" count="0" type="stmt"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="27" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="40" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+      </file>
+      <file name="useTransactions.ts" path="C:\Project\AccountingV2\src\presentation\hooks\useTransactions.ts">
+        <metrics statements="12" coveredstatements="0" conditionals="2" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="16" count="0" type="stmt"/>
+        <line num="17" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="35" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.auth">
+      <metrics statements="65" coveredstatements="48" conditionals="30" coveredconditionals="20" methods="12" coveredmethods="7"/>
+      <file name="LoginScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\LoginScreen.tsx">
+        <metrics statements="29" coveredstatements="17" conditionals="12" coveredconditionals="5" methods="8" coveredmethods="4"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="23" count="7" type="stmt"/>
+        <line num="24" count="7" type="stmt"/>
+        <line num="26" count="7" type="stmt"/>
+        <line num="27" count="7" type="stmt"/>
+        <line num="28" count="7" type="stmt"/>
+        <line num="29" count="7" type="stmt"/>
+        <line num="30" count="7" type="stmt"/>
+        <line num="32" count="7" type="stmt"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="34" count="1" type="cond" truecount="2" falsecount="2"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="36" count="1" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="40" count="0" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="42" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="47" count="0" type="stmt"/>
+        <line num="51" count="7" type="stmt"/>
+        <line num="99" count="0" type="stmt"/>
+        <line num="121" count="1" type="stmt"/>
+        <line num="134" count="0" type="stmt"/>
+        <line num="136" count="0" type="stmt"/>
+        <line num="146" count="1" type="stmt"/>
+      </file>
+      <file name="SignUpScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\SignUpScreen.tsx">
+        <metrics statements="36" coveredstatements="31" conditionals="18" coveredconditionals="15" methods="4" coveredmethods="3"/>
+        <line num="20" count="24" type="stmt"/>
+        <line num="22" count="24" type="stmt"/>
+        <line num="23" count="24" type="stmt"/>
+        <line num="24" count="24" type="stmt"/>
+        <line num="25" count="24" type="stmt"/>
+        <line num="26" count="24" type="stmt"/>
+        <line num="27" count="24" type="stmt"/>
+        <line num="29" count="24" type="stmt"/>
+        <line num="30" count="4" type="stmt"/>
+        <line num="31" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="32" count="0" type="stmt"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="35" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="39" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="43" count="3" type="stmt"/>
+        <line num="44" count="3" type="stmt"/>
+        <line num="48" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="49" count="1" type="stmt"/>
+        <line num="50" count="1" type="stmt"/>
+        <line num="51" count="1" type="stmt"/>
+        <line num="54" count="2" type="stmt"/>
+        <line num="56" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="59" count="1" type="stmt"/>
+        <line num="62" count="1" type="stmt"/>
+        <line num="66" count="24" type="cond" truecount="2" falsecount="0"/>
+        <line num="67" count="1" type="stmt"/>
+        <line num="77" count="1" type="stmt"/>
+        <line num="88" count="23" type="cond" truecount="2" falsecount="0"/>
+        <line num="89" count="1" type="stmt"/>
+        <line num="99" count="22" type="stmt"/>
+        <line num="187" count="0" type="stmt"/>
+        <line num="198" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.auth.onboarding">
+      <metrics statements="145" coveredstatements="131" conditionals="48" coveredconditionals="35" methods="36" coveredmethods="32"/>
+      <file name="ExpenseCategoriesStep.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\ExpenseCategoriesStep.tsx">
+        <metrics statements="34" coveredstatements="32" conditionals="8" coveredconditionals="6" methods="8" coveredmethods="8"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="34" count="14" type="stmt"/>
+        <line num="35" count="14" type="stmt"/>
+        <line num="36" count="14" type="stmt"/>
+        <line num="38" count="14" type="stmt"/>
+        <line num="41" count="14" type="stmt"/>
+        <line num="42" count="14" type="stmt"/>
+        <line num="44" count="14" type="stmt"/>
+        <line num="45" count="7" type="stmt"/>
+        <line num="46" count="7" type="stmt"/>
+        <line num="47" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="48" count="5" type="stmt"/>
+        <line num="50" count="2" type="stmt"/>
+        <line num="52" count="7" type="stmt"/>
+        <line num="56" count="14" type="stmt"/>
+        <line num="57" count="2" type="stmt"/>
+        <line num="58" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="59" count="0" type="stmt"/>
+        <line num="60" count="0" type="stmt"/>
+        <line num="63" count="2" type="stmt"/>
+        <line num="64" count="2" type="stmt"/>
+        <line num="65" count="2" type="stmt"/>
+        <line num="66" count="2" type="stmt"/>
+        <line num="68" count="2" type="stmt"/>
+        <line num="69" count="5" type="stmt"/>
+        <line num="76" count="5" type="stmt"/>
+        <line num="79" count="2" type="stmt"/>
+        <line num="82" count="2" type="stmt"/>
+        <line num="85" count="14" type="stmt"/>
+        <line num="96" count="140" type="stmt"/>
+        <line num="99" count="7" type="stmt"/>
+        <line num="128" count="1" type="stmt"/>
+      </file>
+      <file name="FinishStep.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\FinishStep.tsx">
+        <metrics statements="14" coveredstatements="14" conditionals="4" coveredconditionals="3" methods="4" coveredmethods="4"/>
+        <line num="14" count="4" type="stmt"/>
+        <line num="15" count="4" type="stmt"/>
+        <line num="16" count="4" type="stmt"/>
+        <line num="17" count="4" type="stmt"/>
+        <line num="19" count="4" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="23" count="1" type="cond" truecount="3" falsecount="1"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="27" count="1" type="stmt"/>
+        <line num="32" count="1" type="stmt"/>
+        <line num="35" count="4" type="stmt"/>
+        <line num="58" count="1" type="stmt"/>
+      </file>
+      <file name="IncomeStep.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\IncomeStep.tsx">
+        <metrics statements="31" coveredstatements="29" conditionals="12" coveredconditionals="9" methods="5" coveredmethods="5"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="21" count="3" type="stmt"/>
+        <line num="22" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="23" count="2" type="stmt"/>
+        <line num="27" count="11" type="stmt"/>
+        <line num="28" count="11" type="stmt"/>
+        <line num="29" count="11" type="stmt"/>
+        <line num="31" count="11" type="stmt"/>
+        <line num="32" count="11" type="stmt"/>
+        <line num="33" count="11" type="stmt"/>
+        <line num="35" count="11" type="stmt"/>
+        <line num="36" count="3" type="stmt"/>
+        <line num="37" count="3" type="stmt"/>
+        <line num="38" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="43" count="2" type="stmt"/>
+        <line num="44" count="2" type="stmt"/>
+        <line num="45" count="2" type="stmt"/>
+        <line num="46" count="2" type="stmt"/>
+        <line num="48" count="2" type="stmt"/>
+        <line num="55" count="2" type="stmt"/>
+        <line num="56" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="57" count="0" type="stmt"/>
+        <line num="58" count="0" type="stmt"/>
+        <line num="60" count="1" type="stmt"/>
+        <line num="62" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="64" count="2" type="stmt"/>
+        <line num="68" count="11" type="stmt"/>
+        <line num="113" count="1" type="stmt"/>
+      </file>
+      <file name="MeterSetupStep.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\MeterSetupStep.tsx">
+        <metrics statements="30" coveredstatements="24" conditionals="11" coveredconditionals="7" methods="9" coveredmethods="6"/>
+        <line num="20" count="4" type="stmt"/>
+        <line num="21" count="4" type="stmt"/>
+        <line num="23" count="4" type="stmt"/>
+        <line num="24" count="4" type="stmt"/>
+        <line num="25" count="4" type="stmt"/>
+        <line num="26" count="4" type="stmt"/>
+        <line num="28" count="4" type="stmt"/>
+        <line num="29" count="1" type="stmt"/>
+        <line num="30" count="1" type="stmt"/>
+        <line num="31" count="1" type="stmt"/>
+        <line num="32" count="1" type="stmt"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="36" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="37" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="38" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="55" count="0" type="stmt"/>
+        <line num="58" count="1" type="stmt"/>
+        <line num="61" count="1" type="stmt"/>
+        <line num="64" count="4" type="stmt"/>
+        <line num="78" count="0" type="stmt"/>
+        <line num="80" count="3" type="stmt"/>
+        <line num="90" count="0" type="stmt"/>
+        <line num="91" count="3" type="stmt"/>
+        <line num="96" count="0" type="stmt"/>
+        <line num="98" count="3" type="stmt"/>
+        <line num="117" count="1" type="stmt"/>
+      </file>
+      <file name="OnboardingNavigator.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\OnboardingNavigator.tsx">
+        <metrics statements="2" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="14" count="0" type="stmt"/>
+        <line num="17" count="0" type="stmt"/>
+      </file>
+      <file name="PaydayStep.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\PaydayStep.tsx">
+        <metrics statements="26" coveredstatements="24" conditionals="13" coveredconditionals="10" methods="5" coveredmethods="5"/>
+        <line num="15" count="12" type="stmt"/>
+        <line num="16" count="12" type="stmt"/>
+        <line num="17" count="12" type="stmt"/>
+        <line num="18" count="12" type="stmt"/>
+        <line num="20" count="12" type="stmt"/>
+        <line num="21" count="12" type="stmt"/>
+        <line num="22" count="12" type="stmt"/>
+        <line num="24" count="12" type="stmt"/>
+        <line num="25" count="3" type="stmt"/>
+        <line num="26" count="3" type="stmt"/>
+        <line num="27" count="3" type="cond" truecount="5" falsecount="0"/>
+        <line num="28" count="1" type="stmt"/>
+        <line num="29" count="1" type="stmt"/>
+        <line num="32" count="2" type="stmt"/>
+        <line num="33" count="2" type="stmt"/>
+        <line num="34" count="2" type="stmt"/>
+        <line num="35" count="2" type="stmt"/>
+        <line num="36" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="43" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="45" count="2" type="stmt"/>
+        <line num="49" count="12" type="stmt"/>
+        <line num="93" count="1" type="stmt"/>
+      </file>
+      <file name="ScoreIntroStep.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\ScoreIntroStep.tsx">
+        <metrics statements="4" coveredstatements="4" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
+        <line num="12" count="4" type="stmt"/>
+        <line num="14" count="4" type="stmt"/>
+        <line num="78" count="1" type="stmt"/>
+        <line num="88" count="1" type="stmt"/>
+      </file>
+      <file name="WelcomeStep.tsx" path="C:\Project\AccountingV2\src\presentation\screens\auth\onboarding\WelcomeStep.tsx">
+        <metrics statements="4" coveredstatements="4" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
+        <line num="12" count="2" type="stmt"/>
+        <line num="14" count="2" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="34" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.babySteps">
+      <metrics statements="83" coveredstatements="61" conditionals="60" coveredconditionals="32" methods="30" coveredmethods="22"/>
+      <file name="BabyStepsScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\babySteps\BabyStepsScreen.tsx">
+        <metrics statements="34" coveredstatements="30" conditionals="26" coveredconditionals="14" methods="17" coveredmethods="15"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="36" count="7" type="stmt"/>
+        <line num="37" count="7" type="stmt"/>
+        <line num="38" count="7" type="stmt"/>
+        <line num="39" count="7" type="stmt"/>
+        <line num="40" count="7" type="stmt"/>
+        <line num="43" count="7" type="stmt"/>
+        <line num="45" count="7" type="stmt"/>
+        <line num="47" count="7" type="stmt"/>
+        <line num="51" count="49" type="stmt"/>
+        <line num="53" count="15" type="cond" truecount="1" falsecount="1"/>
+        <line num="55" count="7" type="stmt"/>
+        <line num="56" count="7" type="cond" truecount="1" falsecount="1"/>
+        <line num="57" count="15" type="stmt"/>
+        <line num="58" count="7" type="stmt"/>
+        <line num="61" count="7" type="stmt"/>
+        <line num="63" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="64" count="0" type="stmt"/>
+        <line num="70" count="7" type="stmt"/>
+        <line num="72" count="0" type="stmt"/>
+        <line num="79" count="7" type="cond" truecount="2" falsecount="2"/>
+        <line num="80" count="0" type="stmt"/>
+        <line num="87" count="7" type="stmt"/>
+        <line num="107" count="8" type="stmt"/>
+        <line num="150" count="34" type="stmt"/>
+        <line num="161" count="8" type="stmt"/>
+        <line num="162" count="8" type="cond" truecount="1" falsecount="1"/>
+        <line num="164" count="8" type="stmt"/>
+        <line num="186" count="1" type="stmt"/>
+        <line num="223" count="34" type="stmt"/>
+        <line num="225" count="34" type="stmt"/>
+        <line num="244" count="1" type="stmt"/>
+        <line num="275" count="1" type="stmt"/>
+      </file>
+      <file name="CelebrationModal.tsx" path="C:\Project\AccountingV2\src\presentation\screens\babySteps\CelebrationModal.tsx">
+        <metrics statements="31" coveredstatements="31" conditionals="22" coveredconditionals="18" methods="7" coveredmethods="7"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="36" count="1" type="stmt"/>
+        <line num="38" count="1" type="stmt"/>
+        <line num="46" count="6" type="stmt"/>
+        <line num="47" count="6" type="stmt"/>
+        <line num="48" count="6" type="stmt"/>
+        <line num="49" count="6" type="stmt"/>
+        <line num="50" count="6" type="stmt"/>
+        <line num="52" count="6" type="cond" truecount="1" falsecount="1"/>
+        <line num="54" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="55" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="57" count="6" type="stmt"/>
+        <line num="60" count="6" type="stmt"/>
+        <line num="61" count="6" type="cond" truecount="4" falsecount="0"/>
+        <line num="62" count="5" type="stmt"/>
+        <line num="66" count="6" type="stmt"/>
+        <line num="67" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="69" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="70" count="4" type="stmt"/>
+        <line num="71" count="4" type="stmt"/>
+        <line num="72" count="4" type="stmt"/>
+        <line num="76" count="1" type="stmt"/>
+        <line num="90" count="1" type="stmt"/>
+        <line num="91" count="1" type="stmt"/>
+        <line num="95" count="6" type="stmt"/>
+        <line num="96" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="97" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="98" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="102" count="6" type="cond" truecount="1" falsecount="1"/>
+        <line num="106" count="6" type="stmt"/>
+        <line num="162" count="1" type="stmt"/>
+      </file>
+      <file name="CelebrationModalHost.tsx" path="C:\Project\AccountingV2\src\presentation\screens\babySteps\CelebrationModalHost.tsx">
+        <metrics statements="18" coveredstatements="0" conditionals="12" coveredconditionals="0" methods="6" coveredmethods="0"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="34" count="0" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="37" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="40" count="0" type="stmt"/>
+        <line num="41" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="48" count="0" type="stmt"/>
+        <line num="50" count="0" type="stmt"/>
+        <line num="55" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="56" count="0" type="stmt"/>
+        <line num="59" count="0" type="stmt"/>
+        <line num="61" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.babySteps.components">
+      <metrics statements="114" coveredstatements="86" conditionals="56" coveredconditionals="42" methods="24" coveredmethods="16"/>
+      <file name="CurrentStepHero.tsx" path="C:\Project\AccountingV2\src\presentation\screens\babySteps\components\CurrentStepHero.tsx">
+        <metrics statements="38" coveredstatements="18" conditionals="21" coveredconditionals="10" methods="6" coveredmethods="2"/>
+        <line num="37" count="1" type="stmt"/>
+        <line num="38" count="1" type="stmt"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="82" count="0" type="stmt"/>
+        <line num="83" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="84" count="0" type="stmt"/>
+        <line num="91" count="0" type="stmt"/>
+        <line num="92" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="94" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="96" count="0" type="stmt"/>
+        <line num="97" count="0" type="stmt"/>
+        <line num="105" count="0" type="stmt"/>
+        <line num="106" count="0" type="stmt"/>
+        <line num="107" count="0" type="stmt"/>
+        <line num="108" count="0" type="stmt"/>
+        <line num="124" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="125" count="2" type="stmt"/>
+        <line num="133" count="0" type="stmt"/>
+        <line num="142" count="4" type="cond" truecount="2" falsecount="0"/>
+        <line num="143" count="3" type="stmt"/>
+        <line num="155" count="0" type="stmt"/>
+        <line num="164" count="1" type="cond" truecount="2" falsecount="2"/>
+        <line num="165" count="1" type="stmt"/>
+        <line num="178" count="0" type="stmt"/>
+        <line num="187" count="1" type="stmt"/>
+        <line num="194" count="7" type="stmt"/>
+        <line num="196" count="7" type="cond" truecount="1" falsecount="1"/>
+        <line num="199" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="200" count="1" type="stmt"/>
+        <line num="226" count="6" type="cond" truecount="1" falsecount="1"/>
+        <line num="227" count="6" type="stmt"/>
+        <line num="250" count="0" type="stmt"/>
+        <line num="252" count="0" type="stmt"/>
+        <line num="283" count="1" type="stmt"/>
+      </file>
+      <file name="ManualStepPanel.tsx" path="C:\Project\AccountingV2\src\presentation\screens\babySteps\components\ManualStepPanel.tsx">
+        <metrics statements="3" coveredstatements="3" conditionals="5" coveredconditionals="5" methods="1" coveredmethods="1"/>
+        <line num="28" count="2" type="stmt"/>
+        <line num="33" count="8" type="stmt"/>
+        <line num="64" count="2" type="stmt"/>
+      </file>
+      <file name="SevenDotPath.tsx" path="C:\Project\AccountingV2\src\presentation\screens\babySteps\components\SevenDotPath.tsx">
+        <metrics statements="54" coveredstatements="46" conditionals="20" coveredconditionals="17" methods="14" coveredmethods="10"/>
+        <line num="26" count="2" type="stmt"/>
+        <line num="27" count="2" type="stmt"/>
+        <line num="28" count="2" type="stmt"/>
+        <line num="29" count="2" type="stmt"/>
+        <line num="30" count="2" type="stmt"/>
+        <line num="39" count="21" type="cond" truecount="2" falsecount="0"/>
+        <line num="43" count="19" type="stmt"/>
+        <line num="44" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="45" count="1" type="stmt"/>
+        <line num="47" count="4" type="stmt"/>
+        <line num="55" count="0" type="stmt"/>
+        <line num="57" count="0" type="stmt"/>
+        <line num="58" count="0" type="stmt"/>
+        <line num="72" count="0" type="stmt"/>
+        <line num="73" count="0" type="stmt"/>
+        <line num="76" count="0" type="stmt"/>
+        <line num="92" count="2" type="stmt"/>
+        <line num="96" count="5" type="stmt"/>
+        <line num="99" count="5" type="stmt"/>
+        <line num="100" count="5" type="stmt"/>
+        <line num="101" count="5" type="stmt"/>
+        <line num="104" count="5" type="stmt"/>
+        <line num="106" count="35" type="stmt"/>
+        <line num="107" count="5" type="stmt"/>
+        <line num="109" count="5" type="stmt"/>
+        <line num="112" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="113" count="3" type="stmt"/>
+        <line num="114" count="3" type="stmt"/>
+        <line num="127" count="2" type="stmt"/>
+        <line num="128" count="2" type="stmt"/>
+        <line num="129" count="2" type="stmt"/>
+        <line num="130" count="2" type="stmt"/>
+        <line num="131" count="2" type="stmt"/>
+        <line num="132" count="2" type="stmt"/>
+        <line num="133" count="2" type="stmt"/>
+        <line num="136" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="141" count="0" type="stmt"/>
+        <line num="151" count="6" type="stmt"/>
+        <line num="154" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="156" count="2" type="stmt"/>
+        <line num="186" count="14" type="stmt"/>
+        <line num="187" count="14" type="stmt"/>
+        <line num="188" count="14" type="stmt"/>
+        <line num="190" count="14" type="cond" truecount="2" falsecount="0"/>
+        <line num="191" count="4" type="stmt"/>
+        <line num="214" count="10" type="cond" truecount="2" falsecount="0"/>
+        <line num="216" count="8" type="stmt"/>
+        <line num="229" count="2" type="stmt"/>
+        <line num="236" count="2" type="stmt"/>
+        <line num="237" count="2" type="stmt"/>
+        <line num="238" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="240" count="2" type="stmt"/>
+        <line num="253" count="0" type="stmt"/>
+        <line num="259" count="2" type="stmt"/>
+      </file>
+      <file name="StepSealMark.tsx" path="C:\Project\AccountingV2\src\presentation\screens\babySteps\components\StepSealMark.tsx">
+        <metrics statements="19" coveredstatements="19" conditionals="10" coveredconditionals="10" methods="3" coveredmethods="3"/>
+        <line num="35" count="54" type="cond" truecount="3" falsecount="0"/>
+        <line num="37" count="13" type="stmt"/>
+        <line num="43" count="7" type="stmt"/>
+        <line num="49" count="34" type="stmt"/>
+        <line num="70" count="54" type="stmt"/>
+        <line num="72" count="54" type="cond" truecount="7" falsecount="0"/>
+        <line num="75" count="10" type="stmt"/>
+        <line num="106" count="8" type="stmt"/>
+        <line num="146" count="8" type="stmt"/>
+        <line num="169" count="7" type="stmt"/>
+        <line num="212" count="7" type="stmt"/>
+        <line num="246" count="7" type="stmt"/>
+        <line num="286" count="7" type="stmt"/>
+        <line num="302" count="2" type="stmt"/>
+        <line num="303" count="54" type="stmt"/>
+        <line num="304" count="54" type="stmt"/>
+        <line num="305" count="54" type="stmt"/>
+        <line num="307" count="54" type="stmt"/>
+        <line num="309" count="54" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.budgets">
+      <metrics statements="25" coveredstatements="18" conditionals="10" coveredconditionals="5" methods="10" coveredmethods="4"/>
+      <file name="BudgetScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\budgets\BudgetScreen.tsx">
+        <metrics statements="25" coveredstatements="18" conditionals="10" coveredconditionals="5" methods="10" coveredmethods="4"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="26" count="1" type="stmt"/>
+        <line num="27" count="1" type="stmt"/>
+        <line num="28" count="1" type="stmt"/>
+        <line num="30" count="1" type="stmt"/>
+        <line num="31" count="1" type="stmt"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="42" count="1" type="stmt"/>
+        <line num="43" count="1" type="stmt"/>
+        <line num="44" count="1" type="stmt"/>
+        <line num="45" count="1" type="stmt"/>
+        <line num="46" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="47" count="0" type="stmt"/>
+        <line num="49" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="50" count="0" type="stmt"/>
+        <line num="52" count="1" type="stmt"/>
+        <line num="55" count="1" type="cond" truecount="2" falsecount="2"/>
+        <line num="56" count="0" type="stmt"/>
+        <line num="63" count="1" type="stmt"/>
+        <line num="80" count="0" type="stmt"/>
+        <line num="81" count="0" type="stmt"/>
+        <line num="83" count="0" type="stmt"/>
+        <line num="101" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.budgets.components">
+      <metrics statements="17" coveredstatements="11" conditionals="20" coveredconditionals="18" methods="4" coveredmethods="3"/>
+      <file name="BudgetBalanceBanner.tsx" path="C:\Project\AccountingV2\src\presentation\screens\budgets\components\BudgetBalanceBanner.tsx">
+        <metrics statements="11" coveredstatements="11" conditionals="18" coveredconditionals="18" methods="3" coveredmethods="3"/>
+        <line num="27" count="18" type="stmt"/>
+        <line num="30" count="1" type="stmt"/>
+        <line num="31" count="5" type="stmt"/>
+        <line num="33" count="5" type="stmt"/>
+        <line num="35" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="41" count="5" type="cond" truecount="4" falsecount="0"/>
+        <line num="43" count="5" type="cond" truecount="4" falsecount="0"/>
+        <line num="45" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="51" count="5" type="stmt"/>
+        <line num="107" count="15" type="stmt"/>
+        <line num="126" count="1" type="stmt"/>
+      </file>
+      <file name="DuplicateEmfBanner.tsx" path="C:\Project\AccountingV2\src\presentation\screens\budgets\components\DuplicateEmfBanner.tsx">
+        <metrics statements="6" coveredstatements="0" conditionals="2" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="25" count="0" type="stmt"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="28" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="53" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.dashboard">
+      <metrics statements="49" coveredstatements="24" conditionals="26" coveredconditionals="4" methods="21" coveredmethods="4"/>
+      <file name="BabyStepsCard.tsx" path="C:\Project\AccountingV2\src\presentation\screens\dashboard\BabyStepsCard.tsx">
+        <metrics statements="14" coveredstatements="2" conditionals="12" coveredconditionals="0" methods="5" coveredmethods="0"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="28" count="0" type="stmt"/>
+        <line num="29" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="31" count="0" type="stmt"/>
+        <line num="32" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="33" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="34" count="0" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="79" count="1" type="stmt"/>
+      </file>
+      <file name="DashboardScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\dashboard\DashboardScreen.tsx">
+        <metrics statements="35" coveredstatements="22" conditionals="14" coveredconditionals="4" methods="16" coveredmethods="4"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="26" count="1" type="stmt"/>
+        <line num="28" count="1" type="stmt"/>
+        <line num="29" count="2" type="stmt"/>
+        <line num="30" count="2" type="stmt"/>
+        <line num="32" count="2" type="stmt"/>
+        <line num="33" count="2" type="stmt"/>
+        <line num="35" count="2" type="stmt"/>
+        <line num="36" count="2" type="stmt"/>
+        <line num="37" count="2" type="stmt"/>
+        <line num="38" count="2" type="stmt"/>
+        <line num="40" count="2" type="stmt"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="45" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="47" count="0" type="stmt"/>
+        <line num="48" count="0" type="stmt"/>
+        <line num="49" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="51" count="0" type="stmt"/>
+        <line num="52" count="0" type="stmt"/>
+        <line num="57" count="2" type="stmt"/>
+        <line num="58" count="2" type="stmt"/>
+        <line num="59" count="2" type="stmt"/>
+        <line num="61" count="2" type="stmt"/>
+        <line num="62" count="2" type="stmt"/>
+        <line num="71" count="2" type="stmt"/>
+        <line num="72" count="1" type="stmt"/>
+        <line num="75" count="2" type="stmt"/>
+        <line num="76" count="0" type="stmt"/>
+        <line num="79" count="2" type="stmt"/>
+        <line num="125" count="0" type="stmt"/>
+        <line num="140" count="0" type="stmt"/>
+        <line num="142" count="0" type="stmt"/>
+        <line num="156" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.dashboard.components">
+      <metrics statements="22" coveredstatements="22" conditionals="12" coveredconditionals="6" methods="3" coveredmethods="3"/>
+      <file name="RamseyScoreBadge.tsx" path="C:\Project\AccountingV2\src\presentation\screens\dashboard\components\RamseyScoreBadge.tsx">
+        <metrics statements="22" coveredstatements="22" conditionals="12" coveredconditionals="6" methods="3" coveredmethods="3"/>
+        <line num="11" count="1" type="stmt"/>
+        <line num="12" count="1" type="stmt"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="14" count="1" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="16" count="1" type="stmt"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="21" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="22" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="23" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="24" count="2" type="stmt"/>
+        <line num="28" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="29" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="30" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="31" count="4" type="stmt"/>
+        <line num="35" count="2" type="stmt"/>
+        <line num="36" count="2" type="stmt"/>
+        <line num="37" count="2" type="stmt"/>
+        <line num="38" count="2" type="stmt"/>
+        <line num="40" count="2" type="stmt"/>
+        <line num="82" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.debtSnowball">
+      <metrics statements="112" coveredstatements="56" conditionals="57" coveredconditionals="13" methods="26" coveredmethods="14"/>
+      <file name="AddDebtScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\debtSnowball\AddDebtScreen.tsx">
+        <metrics statements="41" coveredstatements="16" conditionals="18" coveredconditionals="1" methods="6" coveredmethods="4"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="26" count="1" type="stmt"/>
+        <line num="27" count="1" type="stmt"/>
+        <line num="28" count="1" type="stmt"/>
+        <line num="29" count="1" type="stmt"/>
+        <line num="30" count="1" type="stmt"/>
+        <line num="31" count="1" type="stmt"/>
+        <line num="32" count="1" type="stmt"/>
+        <line num="34" count="1" type="stmt"/>
+        <line num="35" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="40" count="0" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="43" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="47" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="48" count="0" type="stmt"/>
+        <line num="49" count="0" type="stmt"/>
+        <line num="51" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="52" count="0" type="stmt"/>
+        <line num="53" count="0" type="stmt"/>
+        <line num="56" count="0" type="stmt"/>
+        <line num="57" count="0" type="stmt"/>
+        <line num="58" count="0" type="stmt"/>
+        <line num="66" count="0" type="stmt"/>
+        <line num="67" count="0" type="stmt"/>
+        <line num="68" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="69" count="0" type="stmt"/>
+        <line num="70" count="0" type="stmt"/>
+        <line num="72" count="0" type="stmt"/>
+        <line num="76" count="1" type="stmt"/>
+        <line num="83" count="0" type="stmt"/>
+        <line num="84" count="5" type="stmt"/>
+        <line num="145" count="1" type="stmt"/>
+      </file>
+      <file name="DebtDetailScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\debtSnowball\DebtDetailScreen.tsx">
+        <metrics statements="20" coveredstatements="10" conditionals="11" coveredconditionals="2" methods="4" coveredmethods="1"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="26" count="1" type="stmt"/>
+        <line num="27" count="0" type="stmt"/>
+        <line num="28" count="0" type="stmt"/>
+        <line num="29" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="39" count="1" type="cond" truecount="2" falsecount="2"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="47" count="0" type="stmt"/>
+        <line num="48" count="0" type="stmt"/>
+        <line num="49" count="0" type="stmt"/>
+        <line num="51" count="0" type="stmt"/>
+        <line num="108" count="0" type="stmt"/>
+        <line num="118" count="1" type="stmt"/>
+      </file>
+      <file name="LogPaymentScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\debtSnowball\LogPaymentScreen.tsx">
+        <metrics statements="31" coveredstatements="17" conditionals="18" coveredconditionals="7" methods="6" coveredmethods="5"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="26" count="1" type="stmt"/>
+        <line num="27" count="1" type="stmt"/>
+        <line num="31" count="1" type="stmt"/>
+        <line num="32" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="33" count="1" type="cond" truecount="2" falsecount="0"/>
+        <line num="37" count="1" type="stmt"/>
+        <line num="38" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="40" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="52" count="0" type="stmt"/>
+        <line num="53" count="0" type="stmt"/>
+        <line num="54" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="55" count="0" type="stmt"/>
+        <line num="56" count="0" type="stmt"/>
+        <line num="58" count="0" type="stmt"/>
+        <line num="62" count="1" type="stmt"/>
+        <line num="102" count="1" type="stmt"/>
+      </file>
+      <file name="SnowballDashboardScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\debtSnowball\SnowballDashboardScreen.tsx">
+        <metrics statements="20" coveredstatements="13" conditionals="10" coveredconditionals="3" methods="10" coveredmethods="4"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="2" type="stmt"/>
+        <line num="25" count="2" type="stmt"/>
+        <line num="27" count="2" type="stmt"/>
+        <line num="29" count="0" type="stmt"/>
+        <line num="33" count="2" type="stmt"/>
+        <line num="34" count="2" type="stmt"/>
+        <line num="35" count="2" type="stmt"/>
+        <line num="37" count="2" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="39" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="74" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="75" count="0" type="stmt"/>
+        <line num="82" count="2" type="stmt"/>
+        <line num="97" count="0" type="stmt"/>
+        <line num="117" count="1" type="stmt"/>
+        <line num="124" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.debtSnowball.components">
+      <metrics statements="12" coveredstatements="0" conditionals="14" coveredconditionals="0" methods="4" coveredmethods="0"/>
+      <file name="DebtPayoffBar.tsx" path="C:\Project\AccountingV2\src\presentation\screens\debtSnowball\components\DebtPayoffBar.tsx">
+        <metrics statements="7" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="12" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="13" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="14" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+        <line num="21" count="0" type="stmt"/>
+        <line num="51" count="0" type="stmt"/>
+      </file>
+      <file name="PayoffProjectionCard.tsx" path="C:\Project\AccountingV2\src\presentation\screens\debtSnowball\components\PayoffProjectionCard.tsx">
+        <metrics statements="5" coveredstatements="0" conditionals="10" coveredconditionals="0" methods="2" coveredmethods="0"/>
+        <line num="17" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="19" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="25" count="0" type="stmt"/>
+        <line num="59" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.envelopes">
+      <metrics statements="62" coveredstatements="23" conditionals="28" coveredconditionals="8" methods="15" coveredmethods="6"/>
+      <file name="AddEditEnvelopeScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\envelopes\AddEditEnvelopeScreen.tsx">
+        <metrics statements="62" coveredstatements="23" conditionals="28" coveredconditionals="8" methods="15" coveredmethods="6"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="24" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="25" count="0" type="stmt"/>
+        <line num="29" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="37" count="1" type="stmt"/>
+        <line num="38" count="1" type="stmt"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="42" count="1" type="stmt"/>
+        <line num="43" count="1" type="stmt"/>
+        <line num="44" count="1" type="stmt"/>
+        <line num="45" count="1" type="stmt"/>
+        <line num="46" count="1" type="stmt"/>
+        <line num="47" count="1" type="stmt"/>
+        <line num="50" count="1" type="stmt"/>
+        <line num="51" count="1" type="stmt"/>
+        <line num="52" count="1" type="cond" truecount="3" falsecount="1"/>
+        <line num="53" count="0" type="stmt"/>
+        <line num="58" count="1" type="stmt"/>
+        <line num="59" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="60" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="61" count="0" type="stmt"/>
+        <line num="66" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="67" count="0" type="stmt"/>
+        <line num="68" count="0" type="stmt"/>
+        <line num="69" count="0" type="stmt"/>
+        <line num="70" count="0" type="stmt"/>
+        <line num="76" count="1" type="stmt"/>
+        <line num="77" count="0" type="stmt"/>
+        <line num="78" count="0" type="stmt"/>
+        <line num="79" count="0" type="stmt"/>
+        <line num="80" count="0" type="stmt"/>
+        <line num="81" count="0" type="stmt"/>
+        <line num="82" count="0" type="stmt"/>
+        <line num="85" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="86" count="0" type="stmt"/>
+        <line num="87" count="0" type="stmt"/>
+        <line num="89" count="0" type="stmt"/>
+        <line num="96" count="0" type="stmt"/>
+        <line num="99" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="100" count="0" type="stmt"/>
+        <line num="101" count="0" type="stmt"/>
+        <line num="103" count="0" type="stmt"/>
+        <line num="106" count="0" type="stmt"/>
+        <line num="110" count="1" type="stmt"/>
+        <line num="111" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="112" count="0" type="stmt"/>
+        <line num="121" count="0" type="stmt"/>
+        <line num="122" count="0" type="stmt"/>
+        <line num="123" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="124" count="0" type="stmt"/>
+        <line num="125" count="0" type="stmt"/>
+        <line num="127" count="0" type="stmt"/>
+        <line num="135" count="1" type="stmt"/>
+        <line num="168" count="0" type="stmt"/>
+        <line num="206" count="0" type="stmt"/>
+        <line num="208" count="0" type="stmt"/>
+        <line num="217" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.household">
+      <metrics statements="107" coveredstatements="36" conditionals="32" coveredconditionals="4" methods="37" coveredmethods="17"/>
+      <file name="CreateHouseholdScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\household\CreateHouseholdScreen.tsx">
+        <metrics statements="29" coveredstatements="14" conditionals="6" coveredconditionals="1" methods="9" coveredmethods="6"/>
+        <line num="11" count="1" type="stmt"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="14" count="1" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="16" count="1" type="stmt"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="26" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="27" count="0" type="stmt"/>
+        <line num="28" count="0" type="stmt"/>
+        <line num="29" count="0" type="stmt"/>
+        <line num="31" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="39" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="40" count="0" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="50" count="1" type="stmt"/>
+        <line num="93" count="0" type="stmt"/>
+        <line num="95" count="0" type="stmt"/>
+        <line num="103" count="1" type="stmt"/>
+      </file>
+      <file name="HouseholdPickerScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\household\HouseholdPickerScreen.tsx">
+        <metrics statements="16" coveredstatements="8" conditionals="0" coveredconditionals="0" methods="11" coveredmethods="4"/>
+        <line num="10" count="1" type="stmt"/>
+        <line num="11" count="1" type="stmt"/>
+        <line num="12" count="1" type="stmt"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="16" count="0" type="stmt"/>
+        <line num="17" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="37" count="1" type="stmt"/>
+        <line num="50" count="0" type="stmt"/>
+        <line num="58" count="0" type="stmt"/>
+        <line num="66" count="0" type="stmt"/>
+        <line num="78" count="0" type="stmt"/>
+        <line num="85" count="1" type="stmt"/>
+      </file>
+      <file name="JoinHouseholdScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\household\JoinHouseholdScreen.tsx">
+        <metrics statements="35" coveredstatements="14" conditionals="10" coveredconditionals="3" methods="11" coveredmethods="7"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="16" count="1" type="stmt"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="27" count="1" type="stmt"/>
+        <line num="28" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="29" count="0" type="stmt"/>
+        <line num="30" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="31" count="0" type="stmt"/>
+        <line num="32" count="0" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="45" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="47" count="0" type="stmt"/>
+        <line num="50" count="0" type="stmt"/>
+        <line num="51" count="0" type="stmt"/>
+        <line num="52" count="0" type="stmt"/>
+        <line num="53" count="0" type="stmt"/>
+        <line num="54" count="0" type="stmt"/>
+        <line num="57" count="1" type="stmt"/>
+        <line num="70" count="0" type="stmt"/>
+        <line num="93" count="0" type="stmt"/>
+        <line num="95" count="0" type="stmt"/>
+        <line num="103" count="1" type="stmt"/>
+      </file>
+      <file name="ShareInviteScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\household\ShareInviteScreen.tsx">
+        <metrics statements="27" coveredstatements="0" conditionals="16" coveredconditionals="0" methods="6" coveredmethods="0"/>
+        <line num="10" count="0" type="stmt"/>
+        <line num="11" count="0" type="stmt"/>
+        <line num="12" count="0" type="stmt"/>
+        <line num="13" count="0" type="stmt"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="16" count="0" type="stmt"/>
+        <line num="17" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="21" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="27" count="0" type="stmt"/>
+        <line num="28" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="29" count="0" type="stmt"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="32" count="0" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="38" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="44" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="52" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="53" count="0" type="stmt"/>
+        <line num="62" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="64" count="0" type="stmt"/>
+        <line num="96" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.meters">
+      <metrics statements="95" coveredstatements="45" conditionals="40" coveredconditionals="5" methods="22" coveredmethods="10"/>
+      <file name="AddReadingScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\meters\AddReadingScreen.tsx">
+        <metrics statements="51" coveredstatements="21" conditionals="22" coveredconditionals="2" methods="9" coveredmethods="5"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="25" count="2" type="stmt"/>
+        <line num="26" count="2" type="stmt"/>
+        <line num="27" count="2" type="stmt"/>
+        <line num="28" count="2" type="stmt"/>
+        <line num="29" count="2" type="stmt"/>
+        <line num="30" count="2" type="stmt"/>
+        <line num="31" count="2" type="stmt"/>
+        <line num="32" count="2" type="stmt"/>
+        <line num="33" count="2" type="stmt"/>
+        <line num="34" count="2" type="stmt"/>
+        <line num="36" count="2" type="stmt"/>
+        <line num="38" count="2" type="stmt"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="49" count="1" type="stmt"/>
+        <line num="52" count="2" type="stmt"/>
+        <line num="54" count="0" type="stmt"/>
+        <line num="55" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="56" count="0" type="stmt"/>
+        <line num="57" count="0" type="stmt"/>
+        <line num="59" count="0" type="stmt"/>
+        <line num="72" count="0" type="stmt"/>
+        <line num="73" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="74" count="0" type="stmt"/>
+        <line num="75" count="0" type="stmt"/>
+        <line num="77" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="78" count="0" type="stmt"/>
+        <line num="82" count="0" type="stmt"/>
+        <line num="88" count="2" type="stmt"/>
+        <line num="89" count="0" type="stmt"/>
+        <line num="90" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="91" count="0" type="stmt"/>
+        <line num="92" count="0" type="stmt"/>
+        <line num="94" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="95" count="0" type="stmt"/>
+        <line num="96" count="0" type="stmt"/>
+        <line num="97" count="0" type="stmt"/>
+        <line num="106" count="0" type="stmt"/>
+        <line num="107" count="0" type="stmt"/>
+        <line num="108" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="109" count="0" type="stmt"/>
+        <line num="110" count="0" type="stmt"/>
+        <line num="112" count="0" type="stmt"/>
+        <line num="116" count="2" type="stmt"/>
+        <line num="124" count="0" type="stmt"/>
+        <line num="125" count="0" type="stmt"/>
+        <line num="139" count="0" type="stmt"/>
+        <line num="140" count="0" type="stmt"/>
+        <line num="191" count="1" type="stmt"/>
+      </file>
+      <file name="MeterDashboardScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\meters\MeterDashboardScreen.tsx">
+        <metrics statements="27" coveredstatements="13" conditionals="6" coveredconditionals="1" methods="8" coveredmethods="3"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="23" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="25" count="1" type="stmt"/>
+        <line num="26" count="1" type="stmt"/>
+        <line num="28" count="1" type="stmt"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="55" count="0" type="stmt"/>
+        <line num="60" count="0" type="stmt"/>
+        <line num="62" count="0" type="stmt"/>
+        <line num="66" count="1" type="stmt"/>
+        <line num="68" count="0" type="stmt"/>
+        <line num="72" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="73" count="1" type="stmt"/>
+        <line num="80" count="0" type="stmt"/>
+        <line num="92" count="0" type="stmt"/>
+        <line num="93" count="0" type="stmt"/>
+        <line num="99" count="0" type="stmt"/>
+        <line num="100" count="0" type="stmt"/>
+        <line num="109" count="1" type="stmt"/>
+      </file>
+      <file name="RateHistoryScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\meters\RateHistoryScreen.tsx">
+        <metrics statements="17" coveredstatements="11" conditionals="12" coveredconditionals="2" methods="5" coveredmethods="2"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="24" count="1" type="stmt"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="30" count="1" type="stmt"/>
+        <line num="32" count="1" type="stmt"/>
+        <line num="34" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="35" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="71" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="72" count="0" type="stmt"/>
+        <line num="79" count="1" type="stmt"/>
+        <line num="98" count="0" type="stmt"/>
+        <line num="107" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.meters.components">
+      <metrics statements="12" coveredstatements="0" conditionals="12" coveredconditionals="0" methods="1" coveredmethods="0"/>
+      <file name="MeterReadingCard.tsx" path="C:\Project\AccountingV2\src\presentation\screens\meters\components\MeterReadingCard.tsx">
+        <metrics statements="12" coveredstatements="0" conditionals="12" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="38" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="39" count="0" type="stmt"/>
+        <line num="40" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="42" count="0" type="stmt"/>
+        <line num="43" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="49" count="0" type="stmt"/>
+        <line num="97" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.settings">
+      <metrics statements="71" coveredstatements="23" conditionals="39" coveredconditionals="8" methods="41" coveredmethods="9"/>
+      <file name="NotificationPreferencesScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\settings\NotificationPreferencesScreen.tsx">
+        <metrics statements="42" coveredstatements="10" conditionals="31" coveredconditionals="5" methods="19" coveredmethods="2"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="14" count="1" type="stmt"/>
+        <line num="16" count="1" type="stmt"/>
+        <line num="17" count="2" type="stmt"/>
+        <line num="18" count="2" type="stmt"/>
+        <line num="19" count="2" type="stmt"/>
+        <line num="21" count="2" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="24" count="0" type="stmt"/>
+        <line num="26" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="27" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="28" count="0" type="stmt"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="35" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="36" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="40" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="43" count="0" type="stmt"/>
+        <line num="48" count="2" type="stmt"/>
+        <line num="50" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="51" count="0" type="stmt"/>
+        <line num="57" count="2" type="stmt"/>
+        <line num="74" count="0" type="stmt"/>
+        <line num="76" count="0" type="stmt"/>
+        <line num="87" count="0" type="stmt"/>
+        <line num="88" count="0" type="cond" truecount="0" falsecount="5"/>
+        <line num="89" count="0" type="stmt"/>
+        <line num="99" count="0" type="stmt"/>
+        <line num="100" count="0" type="cond" truecount="0" falsecount="5"/>
+        <line num="101" count="0" type="stmt"/>
+        <line num="119" count="0" type="stmt"/>
+        <line num="121" count="0" type="stmt"/>
+        <line num="132" count="0" type="stmt"/>
+        <line num="133" count="0" type="cond" truecount="0" falsecount="5"/>
+        <line num="134" count="0" type="stmt"/>
+        <line num="152" count="0" type="stmt"/>
+        <line num="154" count="0" type="stmt"/>
+        <line num="164" count="0" type="stmt"/>
+        <line num="166" count="0" type="stmt"/>
+        <line num="177" count="1" type="stmt"/>
+      </file>
+      <file name="SettingsScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\settings\SettingsScreen.tsx">
+        <metrics statements="27" coveredstatements="13" conditionals="8" coveredconditionals="3" methods="21" coveredmethods="7"/>
+        <line num="11" count="1" type="stmt"/>
+        <line num="12" count="3" type="stmt"/>
+        <line num="13" count="3" type="cond" truecount="1" falsecount="1"/>
+        <line num="14" count="3" type="stmt"/>
+        <line num="15" count="3" type="stmt"/>
+        <line num="16" count="3" type="stmt"/>
+        <line num="18" count="3" type="stmt"/>
+        <line num="20" count="3" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="26" count="3" type="stmt"/>
+        <line num="27" count="2" type="stmt"/>
+        <line num="33" count="3" type="stmt"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="47" count="0" type="stmt"/>
+        <line num="48" count="0" type="stmt"/>
+        <line num="50" count="0" type="stmt"/>
+        <line num="60" count="0" type="stmt"/>
+        <line num="61" count="0" type="stmt"/>
+        <line num="62" count="0" type="stmt"/>
+        <line num="70" count="0" type="stmt"/>
+        <line num="71" count="0" type="stmt"/>
+        <line num="72" count="0" type="stmt"/>
+        <line num="82" count="0" type="stmt"/>
+        <line num="88" count="0" type="stmt"/>
+        <line num="89" count="0" type="stmt"/>
+        <line num="90" count="0" type="stmt"/>
+        <line num="110" count="1" type="stmt"/>
+      </file>
+      <file name="SettingsStackNavigator.tsx" path="C:\Project\AccountingV2\src\presentation\screens\settings\SettingsStackNavigator.tsx">
+        <metrics statements="2" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="8" count="0" type="stmt"/>
+        <line num="11" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.screens.transactions">
+      <metrics statements="97" coveredstatements="63" conditionals="48" coveredconditionals="19" methods="36" coveredmethods="20"/>
+      <file name="AddTransactionScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\transactions\AddTransactionScreen.tsx">
+        <metrics statements="64" coveredstatements="42" conditionals="36" coveredconditionals="17" methods="20" coveredmethods="13"/>
+        <line num="27" count="1" type="stmt"/>
+        <line num="28" count="1" type="stmt"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="40" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="41" count="0" type="stmt"/>
+        <line num="45" count="5" type="stmt"/>
+        <line num="46" count="5" type="stmt"/>
+        <line num="47" count="5" type="cond" truecount="1" falsecount="1"/>
+        <line num="50" count="1" type="stmt"/>
+        <line num="51" count="8" type="stmt"/>
+        <line num="52" count="8" type="stmt"/>
+        <line num="53" count="8" type="stmt"/>
+        <line num="55" count="8" type="stmt"/>
+        <line num="56" count="8" type="stmt"/>
+        <line num="58" count="8" type="stmt"/>
+        <line num="59" count="8" type="stmt"/>
+        <line num="60" count="8" type="stmt"/>
+        <line num="61" count="8" type="stmt"/>
+        <line num="62" count="8" type="stmt"/>
+        <line num="63" count="8" type="stmt"/>
+        <line num="64" count="8" type="stmt"/>
+        <line num="65" count="8" type="stmt"/>
+        <line num="68" count="8" type="stmt"/>
+        <line num="69" count="8" type="stmt"/>
+        <line num="71" count="8" type="stmt"/>
+        <line num="72" count="3" type="stmt"/>
+        <line num="90" count="3" type="stmt"/>
+        <line num="91" count="3" type="cond" truecount="2" falsecount="0"/>
+        <line num="95" count="8" type="stmt"/>
+        <line num="96" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="97" count="0" type="stmt"/>
+        <line num="98" count="0" type="stmt"/>
+        <line num="100" count="1" type="stmt"/>
+        <line num="101" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="102" count="1" type="stmt"/>
+        <line num="103" count="1" type="stmt"/>
+        <line num="105" count="0" type="stmt"/>
+        <line num="106" count="0" type="stmt"/>
+        <line num="107" count="0" type="stmt"/>
+        <line num="108" count="0" type="stmt"/>
+        <line num="116" count="0" type="stmt"/>
+        <line num="117" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="118" count="0" type="stmt"/>
+        <line num="119" count="0" type="stmt"/>
+        <line num="121" count="0" type="stmt"/>
+        <line num="124" count="0" type="stmt"/>
+        <line num="137" count="8" type="stmt"/>
+        <line num="138" count="3" type="stmt"/>
+        <line num="139" count="3" type="cond" truecount="1" falsecount="1"/>
+        <line num="142" count="8" type="stmt"/>
+        <line num="152" count="1" type="stmt"/>
+        <line num="212" count="0" type="stmt"/>
+        <line num="233" count="0" type="stmt"/>
+        <line num="234" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="256" count="0" type="stmt"/>
+        <line num="261" count="0" type="stmt"/>
+        <line num="273" count="3" type="stmt"/>
+        <line num="275" count="2" type="stmt"/>
+        <line num="276" count="2" type="stmt"/>
+        <line num="279" count="0" type="stmt"/>
+        <line num="280" count="0" type="stmt"/>
+        <line num="323" count="0" type="stmt"/>
+        <line num="325" count="0" type="stmt"/>
+        <line num="334" count="1" type="stmt"/>
+      </file>
+      <file name="TransactionListScreen.tsx" path="C:\Project\AccountingV2\src\presentation\screens\transactions\TransactionListScreen.tsx">
+        <metrics statements="33" coveredstatements="21" conditionals="12" coveredconditionals="2" methods="16" coveredmethods="7"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="22" count="1" type="stmt"/>
+        <line num="30" count="4" type="stmt"/>
+        <line num="31" count="4" type="stmt"/>
+        <line num="32" count="0" type="stmt"/>
+        <line num="33" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="34" count="0" type="stmt"/>
+        <line num="36" count="4" type="stmt"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="40" count="4" type="stmt"/>
+        <line num="41" count="4" type="stmt"/>
+        <line num="42" count="4" type="stmt"/>
+        <line num="43" count="4" type="stmt"/>
+        <line num="45" count="4" type="stmt"/>
+        <line num="46" count="4" type="stmt"/>
+        <line num="48" count="4" type="stmt"/>
+        <line num="49" count="2" type="stmt"/>
+        <line num="53" count="2" type="stmt"/>
+        <line num="57" count="4" type="stmt"/>
+        <line num="59" count="0" type="stmt"/>
+        <line num="63" count="4" type="stmt"/>
+        <line num="65" count="0" type="stmt"/>
+        <line num="74" count="0" type="stmt"/>
+        <line num="75" count="0" type="stmt"/>
+        <line num="76" count="0" type="stmt"/>
+        <line num="85" count="4" type="stmt"/>
+        <line num="87" count="4" type="stmt"/>
+        <line num="106" count="0" type="stmt"/>
+        <line num="108" count="0" type="stmt"/>
+        <line num="115" count="0" type="stmt"/>
+        <line num="129" count="0" type="stmt"/>
+        <line num="142" count="1" type="stmt"/>
+        <line num="149" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="presentation.stores">
+      <metrics statements="56" coveredstatements="32" conditionals="16" coveredconditionals="9" methods="35" coveredmethods="18"/>
+      <file name="appStore.ts" path="C:\Project\AccountingV2\src\presentation\stores\appStore.ts">
+        <metrics statements="12" coveredstatements="5" conditionals="0" coveredconditionals="0" methods="12" coveredmethods="5"/>
+        <line num="35" count="1" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="47" count="0" type="stmt"/>
+        <line num="48" count="0" type="stmt"/>
+        <line num="49" count="0" type="stmt"/>
+        <line num="50" count="0" type="stmt"/>
+        <line num="51" count="2" type="stmt"/>
+        <line num="52" count="1" type="stmt"/>
+        <line num="53" count="1" type="stmt"/>
+        <line num="54" count="0" type="stmt"/>
+        <line num="56" count="1" type="stmt"/>
+      </file>
+      <file name="celebrationStore.ts" path="C:\Project\AccountingV2\src\presentation\stores\celebrationStore.ts">
+        <metrics statements="18" coveredstatements="16" conditionals="10" coveredconditionals="7" methods="7" coveredmethods="7"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="46" count="9" type="stmt"/>
+        <line num="50" count="16" type="stmt"/>
+        <line num="53" count="16" type="cond" truecount="2" falsecount="0"/>
+        <line num="54" count="1" type="stmt"/>
+        <line num="58" count="15" type="cond" truecount="1" falsecount="1"/>
+        <line num="59" count="15" type="stmt"/>
+        <line num="60" count="15" type="cond" truecount="2" falsecount="0"/>
+        <line num="61" count="2" type="stmt"/>
+        <line num="64" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="65" count="0" type="stmt"/>
+        <line num="72" count="13" type="stmt"/>
+        <line num="78" count="2" type="stmt"/>
+        <line num="79" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="80" count="1" type="stmt"/>
+        <line num="81" count="1" type="stmt"/>
+        <line num="82" count="1" type="stmt"/>
+        <line num="86" count="1" type="stmt"/>
+      </file>
+      <file name="emergencyFundReconcileStore.ts" path="C:\Project\AccountingV2\src\presentation\stores\emergencyFundReconcileStore.ts">
+        <metrics statements="4" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="3" coveredmethods="0"/>
+        <line num="26" count="0" type="stmt"/>
+        <line num="27" count="0" type="stmt"/>
+        <line num="31" count="0" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+      </file>
+      <file name="networkStore.ts" path="C:\Project\AccountingV2\src\presentation\stores\networkStore.ts">
+        <metrics statements="8" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="4" coveredmethods="0"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="22" count="0" type="stmt"/>
+        <line num="25" count="0" type="stmt"/>
+        <line num="32" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="34" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="37" count="0" type="stmt"/>
+      </file>
+      <file name="notificationStore.ts" path="C:\Project\AccountingV2\src\presentation\stores\notificationStore.ts">
+        <metrics statements="3" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="3" coveredmethods="0"/>
+        <line num="15" count="0" type="stmt"/>
+        <line num="18" count="0" type="stmt"/>
+        <line num="19" count="0" type="stmt"/>
+      </file>
+      <file name="toastStore.ts" path="C:\Project\AccountingV2\src\presentation\stores\toastStore.ts">
+        <metrics statements="11" coveredstatements="11" conditionals="2" coveredconditionals="2" methods="6" coveredmethods="6"/>
+        <line num="33" count="1" type="stmt"/>
+        <line num="36" count="14" type="stmt"/>
+        <line num="37" count="14" type="stmt"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="44" count="14" type="stmt"/>
+        <line num="59" count="2" type="stmt"/>
+        <line num="60" count="2" type="cond" truecount="2" falsecount="0"/>
+        <line num="61" count="1" type="stmt"/>
+        <line num="62" count="1" type="stmt"/>
+        <line num="63" count="1" type="stmt"/>
+        <line num="67" count="1" type="stmt"/>
       </file>
     </package>
   </project>
