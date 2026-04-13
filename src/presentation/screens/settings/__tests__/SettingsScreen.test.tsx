@@ -154,7 +154,7 @@ describe('SettingsScreen', () => {
     alertSpy.mockRestore();
   });
 
-  it('destructive action calls supabase.auth.signOut and store reset', async () => {
+  it('destructive action calls supabase.auth.signOut (reset is handled by auth listener)', async () => {
     // Auto-invoke the destructive button when Alert.alert is called
     jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
       const destructive = buttons?.find((b) => b.style === 'destructive');
@@ -164,11 +164,11 @@ describe('SettingsScreen', () => {
     const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
     fireEvent.press(getByTestId('sign-out-button'));
 
-    // handleSignOut is async: awaits signOut then calls reset.
-    // Use waitFor to allow the promise chain to resolve.
+    // handleSignOut is async: awaits signOut. reset() is now the listener's job.
     await waitFor(() => {
       expect(mockSignOut).toHaveBeenCalled();
-      expect(mockReset).toHaveBeenCalled();
     });
+    // reset() is NOT called from SettingsScreen — the auth listener owns it.
+    expect(mockReset).not.toHaveBeenCalled();
   });
 });

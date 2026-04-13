@@ -19,7 +19,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
 
   const handleSignOut = async (): Promise<void> => {
     await supabase.auth.signOut();
-    useAppStore.getState().reset();
+    // reset() is owned by the onAuthStateChange listener in App.tsx — it runs
+    // on any sign-out (including token expiry) so we don't duplicate it here.
   };
 
   const confirmSignOut = (): void => {

@@ -91,7 +91,6 @@ export default function App(): React.JSX.Element {
   const setSession = useAppStore((s) => s.setSession);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
-  const clearHousehold = useAppStore((s) => s.clearHousehold);
   const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const [sessionRestored, setSessionRestored] = useState(false);
 
@@ -149,7 +148,7 @@ export default function App(): React.JSX.Element {
         // Re-bind after household change (e.g. sign-out → sign-in as different household).
         bindCelebrationStore();
       } else {
-        clearHousehold();
+        useAppStore.getState().reset();
         crashlytics()
           .setUserId('')
           .catch(() => {});
@@ -157,14 +156,7 @@ export default function App(): React.JSX.Element {
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [
-    setSession,
-    setHouseholdId,
-    setPaydayDay,
-    clearHousehold,
-    setAvailableHouseholds,
-    bindCelebrationStore,
-  ]);
+  }, [setSession, setHouseholdId, setPaydayDay, setAvailableHouseholds, bindCelebrationStore]);
 
   if (fontError || dbError) {
     return (
