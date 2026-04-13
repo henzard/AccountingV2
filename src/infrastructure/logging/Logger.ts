@@ -7,13 +7,15 @@ export interface Logger {
 }
 
 class ConsoleLogger implements Logger {
-  info(msg: string, data?: Record<string, unknown>) {
+  info(msg: string, data?: Record<string, unknown>): void {
     if (__DEV__) console.log(msg, data);
   }
-  warn(msg: string, data?: Record<string, unknown>) {
+
+  warn(msg: string, data?: Record<string, unknown>): void {
     console.warn(msg, data);
   }
-  error(msg: string, err: unknown, data?: Record<string, unknown>) {
+
+  error(msg: string, err: unknown, data?: Record<string, unknown>): void {
     console.error(msg, err, data);
     recordError(err, data as Record<string, string | number | boolean> | undefined);
   }

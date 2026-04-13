@@ -50,8 +50,9 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(() => void updatePref(update), 600);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [preferences, permissionsGranted, paydayDay],
-  );  
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
