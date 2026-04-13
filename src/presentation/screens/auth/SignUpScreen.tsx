@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
 import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,6 +24,7 @@ export function SignUpScreen(): React.JSX.Element {
   const [confirm, setConfirm] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const onSubmit = async (): Promise<void> => {
     setErr(null);
@@ -39,11 +47,22 @@ export function SignUpScreen(): React.JSX.Element {
       setErr(error.message);
       return;
     }
-    // On success the auth listener in App.tsx will set session in appStore.
-    // RootNavigator will then show CreateHouseholdNavigator.
-    // Navigate back so this screen is not in the back stack.
-    navigation.navigate('Login');
+    // Stay on this screen; show a loading/success state.
+    // The onAuthStateChange listener in App.tsx will set the session in appStore,
+    // which causes RootNavigator to unmount AuthNavigator and show CreateHouseholdNavigator.
+    setSubmitted(true);
   };
+
+  if (submitted) {
+    return (
+      <View style={[styles.flex, styles.centerContent]} testID="signup-success">
+        <ActivityIndicator size="large" color={colours.primary} />
+        <Text variant="bodyLarge" style={styles.successText}>
+          Setting up your account…
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -133,6 +152,15 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
     backgroundColor: colours.surface,
+  },
+  centerContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.base,
+  },
+  successText: {
+    color: colours.onSurfaceVariant,
+    textAlign: 'center',
   },
   container: {
     flexGrow: 1,

@@ -56,7 +56,8 @@ jest.mock('react-native-paper', () => {
     visible?: boolean;
     type?: string;
   }) => (visible !== false ? React.createElement('Text', { testID }, children) : null);
-  return { Text, TextInput, Button, HelperText };
+  const ActivityIndicator = () => React.createElement('View', { testID: 'activity-indicator' });
+  return { Text, TextInput, Button, HelperText, ActivityIndicator };
 });
 
 // ─── supabase mock ────────────────────────────────────────────────────────────
@@ -95,9 +96,9 @@ describe('SignUpScreen', () => {
     });
   });
 
-  it('calls supabase.auth.signUp and navigates on success', async () => {
+  it('calls supabase.auth.signUp and shows success state on success', async () => {
     mockSignUp.mockResolvedValue({ error: null });
-    const { getByTestId, getByText } = render(<SignUpScreen />);
+    const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
     fireEvent.changeText(getByTestId('Email'), 'user@example.com');
     fireEvent.changeText(getByTestId('Password'), 'securepass1');
     fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
@@ -107,7 +108,10 @@ describe('SignUpScreen', () => {
         email: 'user@example.com',
         password: 'securepass1',
       });
-      expect(mockNavigate).toHaveBeenCalledWith('Login');
+      // Form should be replaced by the non-interactive confirmation view
+      expect(queryByTestId('signup-success')).toBeTruthy();
+      // navigate must NOT have been called — RootNavigator transitions via auth listener
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
   });
 
