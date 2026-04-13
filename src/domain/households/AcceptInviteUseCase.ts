@@ -85,6 +85,7 @@ export class AcceptInviteUseCase {
       userId: this.input.userId,
       role: 'member',
       joinedAt: now,
+      updatedAt: now,
     };
     await this.db.insert(householdMembers).values(localMember);
     await this.enqueuer.enqueue('household_members', memberId, 'INSERT');

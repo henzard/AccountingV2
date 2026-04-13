@@ -46,6 +46,10 @@ BEGIN
 END;
 $$;
 
+-- Defensive re-grant for merge_baby_step: CREATE OR REPLACE preserves grants in Postgres,
+-- but we re-state it here for auditability. The original GRANT lives in 003.
+GRANT EXECUTE ON FUNCTION public.merge_baby_step(baby_steps) TO authenticated;
+
 -- Mirror household_members inserts into user_households so RLS keeps working.
 -- (Remove if user_households is phased out later.)
 CREATE OR REPLACE FUNCTION public.sync_household_member_to_user_households()
@@ -91,7 +95,7 @@ DROP POLICY IF EXISTS inv_update ON public.invitations;
 CREATE POLICY inv_update ON public.invitations
   FOR UPDATE TO authenticated
   USING (invited_by_user_id = auth.uid() OR used_by_user_id IS NULL)
-  WITH CHECK (true);
+  WITH CHECK (invited_by_user_id = auth.uid());
 
 -- RLS on household_members: members can read their own households' members;
 -- only the user themself may insert their row (via the trigger chain);
@@ -133,8 +137,13 @@ CREATE TABLE IF NOT EXISTS public.household_members (
   household_id TEXT NOT NULL REFERENCES public.households(id),
   user_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'member',
-  joined_at TEXT NOT NULL
+  joined_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::TEXT
 );
+
+-- Add updated_at to existing rows (idempotent; no-op if table was just created above).
+ALTER TABLE public.household_members
+  ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::TEXT;
 
 -- Merge RPCs: one per sync table, LWW guard via WHERE EXCLUDED.updated_at >= existing.updated_at.
 
@@ -366,15 +375,17 @@ BEGIN
   END IF;
 
   INSERT INTO public.household_members (
-    id, household_id, user_id, role, joined_at
+    id, household_id, user_id, role, joined_at, updated_at
   )
   VALUES (
-    row.id, row.household_id, row.user_id, row.role, row.joined_at
+    row.id, row.household_id, row.user_id, row.role, row.joined_at, row.updated_at
   )
   ON CONFLICT (id) DO UPDATE
     SET
-      role      = EXCLUDED.role,
-      joined_at = EXCLUDED.joined_at;
+      role       = EXCLUDED.role,
+      joined_at  = EXCLUDED.joined_at,
+      updated_at = EXCLUDED.updated_at
+    WHERE EXCLUDED.updated_at >= household_members.updated_at;
 END;
 $$;
 

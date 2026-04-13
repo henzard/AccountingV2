@@ -72,6 +72,7 @@ export class EnsureHouseholdUseCase {
         userId: this.userId,
         role: 'owner',
         joinedAt: now,
+        updatedAt: now,
       };
       await this.db.insert(householdMembers).values(memberRow);
       await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
@@ -109,6 +110,7 @@ export class EnsureHouseholdUseCase {
       userId: this.userId,
       role: 'owner',
       joinedAt: now,
+      updatedAt: now,
     };
     await this.db.insert(householdMembers).values(memberRow);
 

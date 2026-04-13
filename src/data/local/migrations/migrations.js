@@ -8,6 +8,7 @@ import m0003 from './0003_grey_james_howlett.sql';
 import m0004 from './0004_safe_sleeper.sql';
 import m0005 from './0005_pending_sync_dlq.sql';
 import m0006 from './0006_round_betty_brant.sql';
+import m0007 from './0007_household_members_updated_at.sql';
 
   export default {
     journal,
@@ -18,7 +19,7 @@ m0002,
 m0003,
 m0004,
 m0005,
-m0006
+m0006,
+m0007
     }
   }
-  

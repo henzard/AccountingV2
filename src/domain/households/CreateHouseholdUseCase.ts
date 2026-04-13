@@ -60,6 +60,7 @@ export class CreateHouseholdUseCase {
       userId: this.input.userId,
       role: 'owner',
       joinedAt: now,
+      updatedAt: now,
     };
     await this.db.insert(householdMembers).values(memberRow);
 
