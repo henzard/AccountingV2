@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Snackbar } from 'react-native-paper';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -7,8 +7,10 @@ import { envelopes as envelopesTable } from '../../../data/local/schema';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../domain/envelopes/CreateEnvelopeUseCase';
 import { UpdateEnvelopeUseCase } from '../../../domain/envelopes/UpdateEnvelopeUseCase';
+import { ArchiveEnvelopeUseCase } from '../../../domain/envelopes/ArchiveEnvelopeUseCase';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
 import type { AddEditEnvelopeScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity, EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
@@ -34,6 +36,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
 }) => {
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
+  const enqueue = useToastStore((s) => s.enqueue);
   const envelopeId = route.params?.envelopeId;
 
   const [existing, setExisting] = useState<EnvelopeEntity | null>(null);
@@ -94,6 +97,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
       }
 
       if (result.success) {
+        enqueue('Envelope saved', 'info');
         navigation.goBack();
       } else {
         setError(result.error.message);
@@ -101,7 +105,32 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [name, amountStr, envelopeType, existing, householdId, paydayDay, navigation]);
+  }, [name, amountStr, envelopeType, existing, householdId, paydayDay, navigation, enqueue]);
+
+  const handleArchive = useCallback((): void => {
+    if (!existing) return;
+    Alert.alert(
+      'Archive envelope?',
+      'Historical transactions will keep their envelope name. You can not undo this.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Archive',
+          style: 'destructive',
+          onPress: async (): Promise<void> => {
+            const uc = new ArchiveEnvelopeUseCase(db, audit, existing);
+            const result = await uc.execute();
+            if (result.success) {
+              enqueue('Envelope archived', 'info');
+              navigation.goBack();
+            } else {
+              setError('Failed to archive envelope');
+            }
+          },
+        },
+      ],
+    );
+  }, [existing, navigation, enqueue]);
 
   return (
     <KeyboardAvoidingView
@@ -156,6 +185,20 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
         >
           {existing ? 'Save Changes' : 'Add Envelope'}
         </Button>
+
+        {existing && (
+          <Button
+            mode="outlined"
+            icon="archive-outline"
+            onPress={handleArchive}
+            textColor={colours.error}
+            style={styles.archiveButton}
+            contentStyle={styles.buttonContent}
+            testID="archive-envelope-button"
+          >
+            Archive Envelope
+          </Button>
+        )}
       </ScrollView>
 
       <Snackbar
@@ -177,5 +220,6 @@ const styles = StyleSheet.create({
   typeLabel: { color: colours.onSurface, marginTop: spacing.sm },
   segmented: { marginTop: spacing.xs },
   button: { marginTop: spacing.lg },
+  archiveButton: { marginTop: spacing.sm, borderColor: colours.error },
   buttonContent: { paddingVertical: spacing.xs },
 });
