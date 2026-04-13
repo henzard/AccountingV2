@@ -12,7 +12,7 @@ import {
 import { Text, TextInput, Button, Snackbar, TouchableRipple, Surface } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { and, eq, ne } from 'drizzle-orm';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { db } from '../../../data/local/db';
 import { envelopes as envelopesTable } from '../../../data/local/schema';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
@@ -326,10 +326,6 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
     </KeyboardAvoidingView>
   );
 };
-
-// Unused import cleanup — parseISO is used in other screens but not this one.
-// Kept here for the type of transactionDate display via date-fns format.
-void parseISO; // suppress unused-import lint if it appears
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colours.surface },
