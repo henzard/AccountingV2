@@ -38,13 +38,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_baby_steps_household_step
 --      - If the incoming row has celebrated_at IS NULL but the existing row has
 --        celebrated_at IS NOT NULL, keep the existing stamp (one-shot for life).
 --      - LWW on updated_at for all other columns.
+--
+--    Security note (CRITICAL-3 fix):
+--      The function is SECURITY DEFINER so it can bypass RLS for the upsert
+--      path. Without an explicit authz check, any authenticated user could call
+--      it with an arbitrary household_id. We guard that by verifying the caller
+--      is a member of the target household via user_households (the same
+--      junction table used by all RLS policies in 002_rls_policies.sql).
+--      Option A was chosen: keep SECURITY DEFINER + add explicit membership
+--      check. This is more robust than removing SECURITY DEFINER because RLS
+--      INSERT policies on baby_steps use FOR ALL, which would still allow
+--      arbitrary households for the upsert ON CONFLICT path in older Postgres
+--      versions.
+--      SET search_path = public prevents search_path injection attacks.
 -- ──────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.merge_baby_step(row baby_steps)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
+DECLARE
+  caller_id uuid := auth.uid();
+  is_member boolean;
 BEGIN
+  -- Verify the caller belongs to the target household before any write.
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_households
+    WHERE household_id = row.household_id
+      AND user_id = caller_id
+  ) INTO is_member;
+
+  IF NOT is_member THEN
+    RAISE EXCEPTION 'not a member of household %', row.household_id
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
   INSERT INTO public.baby_steps (
     id,
     household_id,
