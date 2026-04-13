@@ -184,15 +184,33 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('slip-images', 'slip-images', false)
 ON CONFLICT (id) DO NOTHING;
 
--- 10. Storage RLS policies (path: <household_id>/<slip_id>/<index>.jpg)
+-- 10. validate_slip_path: guards against path traversal + asserts household membership
+CREATE OR REPLACE FUNCTION public.validate_slip_path(first_segment text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Guard against path traversal; first_segment cannot contain '..'
+  IF first_segment LIKE '%..%' THEN
+    RETURN false;
+  END IF;
+  RETURN first_segment IN (
+    SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.validate_slip_path(text) TO authenticated;
+
+-- 10b. Storage RLS policies (path: <household_id>/<slip_id>/<index>.jpg)
 DROP POLICY IF EXISTS slip_images_read ON storage.objects;
 CREATE POLICY slip_images_read ON storage.objects
   FOR SELECT TO authenticated
   USING (
     bucket_id = 'slip-images'
-    AND (storage.foldername(name))[1] IN (
-      SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text
-    )
+    AND public.validate_slip_path((storage.foldername(name))[1])
   );
 
 DROP POLICY IF EXISTS slip_images_write ON storage.objects;
@@ -200,9 +218,7 @@ CREATE POLICY slip_images_write ON storage.objects
   FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id = 'slip-images'
-    AND (storage.foldername(name))[1] IN (
-      SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text
-    )
+    AND public.validate_slip_path((storage.foldername(name))[1])
   );
 
 DROP POLICY IF EXISTS slip_images_delete ON storage.objects;
@@ -210,15 +226,29 @@ CREATE POLICY slip_images_delete ON storage.objects
   FOR DELETE TO authenticated
   USING (
     bucket_id = 'slip-images'
-    AND (storage.foldername(name))[1] IN (
-      SELECT household_id FROM public.user_households WHERE user_id::text = auth.uid()::text
-    )
+    AND public.validate_slip_path((storage.foldername(name))[1])
   );
 
--- 11. Enable pg_net for HTTP DELETE from pg_cron
+-- 11. Trigger: keep slip_queue.updated_at always set to DB server time
+CREATE OR REPLACE FUNCTION public.set_slip_queue_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at = NOW()::text;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tr_slip_queue_set_updated_at ON public.slip_queue;
+CREATE TRIGGER tr_slip_queue_set_updated_at
+  BEFORE UPDATE ON public.slip_queue
+  FOR EACH ROW EXECUTE FUNCTION public.set_slip_queue_updated_at();
+
+-- 12. Enable pg_net for HTTP DELETE from pg_cron
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
--- 12. Cleanup function (callable from pg_cron)
+-- 13. Cleanup function (callable from pg_cron)
 CREATE OR REPLACE FUNCTION public.cleanup_old_slip_images()
 RETURNS void
 LANGUAGE plpgsql
@@ -269,7 +299,7 @@ BEGIN
 END;
 $$;
 
--- 13. Schedule daily cleanup at 03:00 UTC
+-- 14. Schedule daily cleanup at 03:00 UTC
 SELECT cron.schedule(
   'cleanup-old-slip-images',
   '0 3 * * *',

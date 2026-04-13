@@ -188,7 +188,6 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       .update({
         status: 'failed',
         error_message: 'OpenAI unreachable',
-        updated_at: new Date().toISOString(),
       })
       .eq('id', slip_id);
     return new Response('OpenAI unreachable', { status: 503 });
@@ -215,7 +214,6 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       .update({
         status: 'failed',
         error_message: 'OpenAI returned invalid JSON',
-        updated_at: new Date().toISOString(),
       })
       .eq('id', slip_id);
     return new Response('Invalid OpenAI response', { status: 503 });
@@ -228,7 +226,6 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       .update({
         status: 'failed',
         error_message: 'Unreasonable extraction',
-        updated_at: new Date().toISOString(),
       })
       .eq('id', slip_id);
     return new Response('Unreasonable extraction', { status: 422 });
@@ -253,7 +250,6 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       total_cents: parsed.total_cents,
       raw_response_json: rawResponse,
       openai_cost_cents: costCents,
-      updated_at: new Date().toISOString(),
     })
     .eq('id', slip_id);
 
