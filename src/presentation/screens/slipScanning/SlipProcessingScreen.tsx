@@ -94,6 +94,11 @@ export function SlipProcessingScreen({
       <Text variant="bodyLarge" style={styles.label} testID="progress-label">
         {progressLabel(progress)}
       </Text>
+      {!isFailed && (
+        <Text variant="bodySmall" style={styles.subLabel} testID="processing-sub-label">
+          This usually takes 5–15 seconds
+        </Text>
+      )}
       {isFailed && errorMessage && (
         <Text variant="bodyMedium" style={styles.error} testID="error-message">
           {errorMessage}
@@ -122,6 +127,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   spinner: { marginBottom: 24 },
-  label: { marginBottom: 16, textAlign: 'center' },
+  label: { marginBottom: 8, textAlign: 'center' },
+  subLabel: { marginBottom: 16, textAlign: 'center', color: '#888' },
   error: { marginBottom: 16, color: '#c62828', textAlign: 'center' },
 });

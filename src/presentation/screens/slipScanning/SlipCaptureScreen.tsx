@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, Text } from 'react-native';
+import { Button } from 'react-native-paper';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -198,6 +199,19 @@ export function SlipCaptureScreen({
       {!isOnline && (
         <View style={styles.offlineBanner} testID="offline-banner">
           <Text style={styles.offlineText}>You are offline — scanning unavailable</Text>
+          <Button
+            mode="outlined"
+            onPress={() =>
+              (navigation as unknown as { navigate: (s: string) => void }).navigate(
+                'AddTransaction',
+              )
+            }
+            testID="log-manually-button"
+            textColor="#fff"
+            style={styles.logManuallyButton}
+          >
+            Log manually
+          </Button>
         </View>
       )}
     </View>
@@ -278,4 +292,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   offlineText: { color: '#fff', fontWeight: 'bold' },
+  logManuallyButton: { marginTop: 6, borderColor: '#fff' },
 });

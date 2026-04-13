@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { Text, Chip } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
@@ -9,6 +9,8 @@ import type {
   ISlipQueueRepository,
 } from '../../../domain/ports/ISlipQueueRepository';
 import type { SlipStatus } from '../../../domain/slipScanning/types';
+
+const PAGE_SIZE = 20;
 
 export type SlipQueueScreenProps = {
   repo: ISlipQueueRepository;
@@ -85,7 +87,35 @@ export function SlipQueueScreen({ repo, householdId }: SlipQueueScreenProps): Re
     navigate: (screen: string, params?: object) => void;
     goBack: () => void;
   }>();
-  const slips = useSlipHistory(repo, householdId);
+  const [page, setPage] = useState(0);
+  const pageRows = useSlipHistory(repo, householdId, page, PAGE_SIZE);
+  const [slips, setSlips] = useState<SlipQueueRow[]>([]);
+  // Track which pages we have already merged to prevent double-appending
+  const mergedPagesRef = useRef<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    // Compute a stable key for this page's result to avoid duplicate merges
+    const key = pageRows.map((r) => r.id).join(',');
+    if (mergedPagesRef.current.get(page) === key) return;
+    mergedPagesRef.current.set(page, key);
+
+    if (page === 0) {
+      setSlips(pageRows);
+    } else {
+      setSlips((prev) => {
+        const existingIds = new Set(prev.map((r) => r.id));
+        const fresh = pageRows.filter((r) => !existingIds.has(r.id));
+        return fresh.length > 0 ? [...prev, ...fresh] : prev;
+      });
+    }
+  }, [page, pageRows]);
+
+  const loadMore = useCallback((): void => {
+    setPage((p) => {
+      if (pageRows.length === PAGE_SIZE) return p + 1;
+      return p;
+    });
+  }, [pageRows.length]);
 
   const handlePress = useCallback(
     (item: SlipQueueRow): void => {
@@ -112,6 +142,8 @@ export function SlipQueueScreen({ repo, householdId }: SlipQueueScreenProps): Re
         data={slips}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <SlipQueueItem item={item} onPress={handlePress} />}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.3}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text variant="bodyMedium" style={styles.emptyText}>
