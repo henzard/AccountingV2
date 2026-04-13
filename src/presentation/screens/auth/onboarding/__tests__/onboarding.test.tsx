@@ -218,6 +218,17 @@ describe('IncomeStep', () => {
       expect(mockNavigate).toHaveBeenCalledWith('ExpenseCategories');
     });
   });
+
+  it('does NOT navigate and shows error text when useCase throws', async () => {
+    mockExecute.mockRejectedValue(new Error('DB write failed'));
+    const { getByText, getByTestId, queryByTestId } = render(<IncomeStep />);
+    fireEvent.changeText(getByTestId('Monthly income (R)'), '5000');
+    fireEvent.press(getByText('Next'));
+    await waitFor(() => {
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(queryByTestId('helper-error')).toBeTruthy();
+    });
+  });
 });
 
 describe('PaydayStep', () => {
@@ -247,6 +258,17 @@ describe('PaydayStep', () => {
     await waitFor(() => {
       expect(mockPaydayExecute).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('MeterSetup');
+    });
+  });
+
+  it('does NOT navigate and shows error text when useCase throws', async () => {
+    mockPaydayExecute.mockRejectedValue(new Error('Payday update failed'));
+    const { getByText, getByTestId, queryByTestId } = render(<PaydayStep />);
+    fireEvent.changeText(getByTestId('Day of month (1–28)'), '15');
+    fireEvent.press(getByText('Next'));
+    await waitFor(() => {
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(queryByTestId('helper-error')).toBeTruthy();
     });
   });
 });

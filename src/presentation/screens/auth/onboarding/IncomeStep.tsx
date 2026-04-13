@@ -57,11 +57,12 @@ export function IncomeStep(): React.JSX.Element {
         setError(result.error.message);
         return;
       }
+      navigation.navigate('ExpenseCategories');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
       setLoading(false);
     }
-
-    navigation.navigate('ExpenseCategories');
   };
 
   return (

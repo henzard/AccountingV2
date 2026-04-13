@@ -38,11 +38,12 @@ export function PaydayStep(): React.JSX.Element {
         return;
       }
       setPaydayDay(day);
+      navigation.navigate('MeterSetup');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
       setLoading(false);
     }
-
-    navigation.navigate('MeterSetup');
   };
 
   return (
