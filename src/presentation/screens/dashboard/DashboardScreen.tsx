@@ -149,6 +149,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       )}
 
       <FAB icon="plus" style={styles.fab} onPress={handleAddEnvelope} color={colours.onPrimary} />
+      <FAB
+        icon="camera-outline"
+        style={styles.fabCamera}
+        onPress={() => navigation.navigate('SlipScanning' as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
+        color={colours.onPrimary}
+        testID="camera-fab"
+      />
     </View>
   );
 };
@@ -201,5 +208,11 @@ const styles = StyleSheet.create({
     right: spacing.base,
     bottom: spacing.xl,
     backgroundColor: colours.primary,
+  },
+  fabCamera: {
+    position: 'absolute',
+    right: spacing.base + 64 + spacing.sm,
+    bottom: spacing.xl,
+    backgroundColor: colours.secondary,
   },
 });

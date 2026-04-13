@@ -91,6 +91,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
         />
       </Surface>
 
+      {/* Slip scanning */}
+      <List.Section>
+        <List.Subheader style={styles.subheader}>Slip scanning</List.Subheader>
+        <Surface style={styles.section} elevation={0}>
+          <List.Item
+            title="Slip history"
+            description="View scanned slips"
+            left={(props) => <List.Icon {...props} icon="history" />}
+            right={(props) => <List.Icon {...props} icon="chevron-right" />}
+            onPress={() =>
+              (navigation as unknown as { navigate: (s: string) => void }).navigate('SlipScanning')
+            }
+            testID="slip-history-item"
+          />
+          <Divider />
+          <List.Item
+            title="Privacy — Slip scanning consent"
+            description="Manage your consent"
+            left={(props) => <List.Icon {...props} icon="shield-account-outline" />}
+            right={(props) => <List.Icon {...props} icon="chevron-right" />}
+            onPress={() =>
+              (navigation as unknown as { navigate: (s: string) => void }).navigate('SlipConsent')
+            }
+            testID="slip-consent-item"
+          />
+        </Surface>
+      </List.Section>
+
       <View style={styles.signOutSection}>
         <Button
           mode="outlined"
