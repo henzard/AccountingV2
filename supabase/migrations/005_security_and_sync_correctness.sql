@@ -45,3 +45,25 @@ BEGIN
     WHERE EXCLUDED.updated_at >= baby_steps.updated_at;
 END;
 $$;
+
+-- Mirror household_members inserts into user_households so RLS keeps working.
+-- (Remove if user_households is phased out later.)
+CREATE OR REPLACE FUNCTION public.sync_household_member_to_user_households()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.user_households (user_id, household_id, role, created_at)
+  VALUES (NEW.user_id, NEW.household_id, COALESCE(NEW.role, 'member'), NEW.created_at)
+  ON CONFLICT (user_id, household_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tr_household_members_sync_user_households
+  ON public.household_members;
+CREATE TRIGGER tr_household_members_sync_user_households
+  AFTER INSERT ON public.household_members
+  FOR EACH ROW EXECUTE FUNCTION public.sync_household_member_to_user_households();
