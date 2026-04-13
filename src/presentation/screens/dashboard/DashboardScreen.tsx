@@ -17,6 +17,7 @@ import { format } from 'date-fns';
 import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
+import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
 import { db } from '../../../data/local/db';
 
 const engine = new BudgetPeriodEngine();
@@ -32,6 +33,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
   const { statuses: babyStepStatuses } = useBabySteps(householdId, periodStart);
   const [babyStepIsActive, setBabyStepIsActive] = useState(false);
+  const [loggingDaysCount, setLoggingDaysCount] = useState(0);
 
   useFocusEffect(
     useCallback((): (() => void) => {
@@ -40,10 +42,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       resolveBabyStepIsActive(db, householdId).then((isActive) => {
         if (!cancelled) setBabyStepIsActive(isActive);
       });
+      const periodEnd = format(period.endDate, 'yyyy-MM-dd');
+      resolveLoggingDays(db, householdId, periodStart, periodEnd).then((days) => {
+        if (!cancelled) setLoggingDaysCount(days);
+      });
       return () => {
         cancelled = true;
       };
-    }, [reload, householdId]),
+    }, [reload, householdId, period.endDate, periodStart]),
   );
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
@@ -52,7 +58,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 
   const envelopesOnBudget = envelopes.filter((e) => e.spentCents <= e.allocatedCents).length;
   const scoreResult = scoreCalculator.calculate({
-    loggingDaysCount: 0,
+    loggingDaysCount,
     totalDaysInPeriod: 30,
     envelopesOnBudget,
     totalEnvelopes: envelopes.length,
