@@ -37,14 +37,23 @@ function makeSyncDb(
   pendingItems: Record<string, unknown>[],
   rowsByRecordId: Record<string, unknown[]>,
 ) {
+  // C7 N+1 fix: rows are now batch-fetched per table (inArray) before processItem.
+  // Group all rows into per-table batches (one batch SELECT per table, not per item).
+  const allRows = Object.values(rowsByRecordId).flat();
+
+  // Group pending items by tableName to build per-table batch calls
+  const tableNames = [...new Set(pendingItems.map((p) => p.tableName as string))];
+  const batchFetchByTable = tableNames.map((_tableName) => () => ({
+    // inArray fetch returns all rows for that table (no .limit() — just .from().where())
+    from: () => ({ where: () => Promise.resolve(allRows) }),
+  }));
+
   let selectCallIdx = 0;
   const selectCallOrder: (() => unknown)[] = [
     // First call: fetch pending sync queue (supports .where().orderBy().limit())
     () => makePendingQueueChain(pendingItems),
-    // Subsequent calls: fetch the local row for each pending item
-    ...Object.values(rowsByRecordId).map((rows) => () => ({
-      from: () => ({ where: () => ({ limit: () => Promise.resolve(rows) }) }),
-    })),
+    // C7: One batch fetch per table (inArray — no .limit())
+    ...batchFetchByTable,
   ];
 
   return {
@@ -209,12 +218,12 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
       isSynced: false,
     };
 
-    // Build db with 3 select slots: pending queue, row for bs-a, row for bs-b
+    // C7: Build db with 2 select slots: pending queue, then one batch fetch for all baby_steps
     let callIdx = 0;
     const selectImpls = [
       () => makePendingQueueChain(pending),
-      () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([rowA]) }) }) }),
-      () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([rowB]) }) }) }),
+      // C7: batch inArray fetch returns BOTH rows at once (all baby_steps)
+      () => ({ from: () => ({ where: () => Promise.resolve([rowA, rowB]) }) }),
     ];
     const db = {
       select: jest.fn().mockImplementation(() => {

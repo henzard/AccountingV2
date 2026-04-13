@@ -1,4 +1,4 @@
-import { asc, eq, isNull, or, lte, and } from 'drizzle-orm';
+import { asc, eq, inArray, isNull, or, lte, and } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
@@ -56,6 +56,8 @@ const TABLE_RPC_MAP: Record<string, string> = {
 const DLQ_MAX_RETRIES = 10;
 const DLQ_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+type PendingItem = typeof pendingSync.$inferSelect;
+
 export class SyncOrchestrator {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
@@ -81,12 +83,45 @@ export class SyncOrchestrator {
       .orderBy(asc(pendingSync.createdAt))
       .limit(100);
 
+    // C7: N+1 fix — group by table, batch-fetch all rows per table with inArray.
+    // This replaces one SELECT per item (N queries) with one SELECT per table (at most 9).
+    const byTable = new Map<string, PendingItem[]>();
+    for (const item of pending) {
+      const bucket = byTable.get(item.tableName) ?? [];
+      bucket.push(item);
+      byTable.set(item.tableName, bucket);
+    }
+
+    // Pre-fetch rows for upsert items grouped by table.
+    const rowCache = new Map<string, Record<string, Record<string, unknown>>>();
+    await Promise.allSettled(
+      Array.from(byTable.entries()).map(async ([tableName, items]) => {
+        const upsertIds = items.filter((i) => i.operation !== 'DELETE').map((i) => i.recordId);
+        if (upsertIds.length === 0) return;
+
+        const table = TABLE_MAP[tableName];
+        if (!table) return;
+
+        const rows = await this.db
+          .select()
+          .from(table)
+          .where(inArray((table as typeof envelopes).id, upsertIds));
+
+        const tableCache: Record<string, Record<string, unknown>> = {};
+        for (const row of rows) {
+          const r = row as Record<string, unknown>;
+          tableCache[r['id'] as string] = r;
+        }
+        rowCache.set(tableName, tableCache);
+      }),
+    );
+
     let synced = 0;
     let failed = 0;
 
     for (const item of pending) {
       try {
-        await this.processItem(item);
+        await this.processItem(item, rowCache.get(item.tableName));
         await this.db.delete(pendingSync).where(eq(pendingSync.id, item.id));
         synced++;
       } catch (err) {
@@ -129,7 +164,10 @@ export class SyncOrchestrator {
     return { synced, failed, emfFlipped };
   }
 
-  private async processItem(item: typeof pendingSync.$inferSelect): Promise<void> {
+  private async processItem(
+    item: PendingItem,
+    tableRowCache?: Record<string, Record<string, unknown>>,
+  ): Promise<void> {
     if (item.operation === 'DELETE') {
       const { error } = await this.supabase.from(item.tableName).delete().eq('id', item.recordId);
       if (error) throw new Error(error.message);
@@ -139,15 +177,20 @@ export class SyncOrchestrator {
     const table = TABLE_MAP[item.tableName];
     if (!table) throw new Error(`Unknown sync table: ${item.tableName}`);
 
-    const [row] = await this.db
-      .select()
-      .from(table)
-      .where(eq((table as typeof envelopes).id, item.recordId))
-      .limit(1);
+    // C7: Use pre-fetched row from cache when available; fall back to individual query.
+    let row: Record<string, unknown> | undefined = tableRowCache?.[item.recordId];
+    if (!row) {
+      const [fetched] = await this.db
+        .select()
+        .from(table)
+        .where(eq((table as typeof envelopes).id, item.recordId))
+        .limit(1);
+      row = fetched as Record<string, unknown> | undefined;
+    }
 
     if (!row) throw new Error(`Local row not found: ${item.tableName}/${item.recordId}`);
 
-    const snakeRow = toSupabaseRow(row as Record<string, unknown>);
+    const snakeRow = toSupabaseRow(row);
 
     let syncError: PostgrestError | null = null;
     const rpcName = TABLE_RPC_MAP[item.tableName];

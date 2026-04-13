@@ -12,6 +12,12 @@ function makePendingQueueChain(rows: unknown[]) {
   return { from: () => whereChain };
 }
 
+// Helper to build a batch row-fetch mock (from().where() — no .limit())
+// Used by the C7 N+1 fix: inArray batch pre-fetch per table.
+function makeBatchFetchChain(rows: unknown[]) {
+  return { from: () => ({ where: () => Promise.resolve(rows) }) };
+}
+
 describe('SyncOrchestrator.syncPending', () => {
   it('returns synced:0 failed:0 when queue is empty', async () => {
     const db = {
@@ -72,13 +78,10 @@ describe('SyncOrchestrator.syncPending', () => {
       select: jest
         .fn()
         .mockReturnValueOnce(makePendingQueueChain(pending))
-        .mockReturnValueOnce({
-          from: () => ({
-            where: () => ({
-              limit: () => Promise.resolve([{ id: 'e1', householdId: 'h1', isSynced: false }]),
-            }),
-          }),
-        }),
+        // C7: batch pre-fetch returns the row (inArray query)
+        .mockReturnValueOnce(
+          makeBatchFetchChain([{ id: 'e1', householdId: 'h1', isSynced: false }]),
+        ),
       update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
     } as any;
     const supabase = {
@@ -122,9 +125,8 @@ describe('SyncOrchestrator.syncPending', () => {
         select: jest
           .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
-          .mockReturnValueOnce({
-            from: () => ({ where: () => ({ limit: () => Promise.resolve([babyStepRow]) }) }),
-          }),
+          // C7: batch pre-fetch returns the row
+          .mockReturnValueOnce(makeBatchFetchChain([babyStepRow])),
         delete: () => ({ where: () => Promise.resolve() }),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
@@ -166,27 +168,23 @@ describe('SyncOrchestrator.syncPending', () => {
         select: jest
           .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({
-                limit: () =>
-                  Promise.resolve([
-                    {
-                      id: 'bs-2',
-                      householdId: 'hh-1',
-                      stepNumber: 2,
-                      isCompleted: false,
-                      completedAt: null,
-                      isManual: false,
-                      celebratedAt: null,
-                      createdAt: '2026-01-01T00:00:00Z',
-                      updatedAt: '2026-01-01T00:00:00Z',
-                      isSynced: false,
-                    },
-                  ]),
-              }),
-            }),
-          }),
+          // C7: batch pre-fetch returns the row
+          .mockReturnValueOnce(
+            makeBatchFetchChain([
+              {
+                id: 'bs-2',
+                householdId: 'hh-1',
+                stepNumber: 2,
+                isCompleted: false,
+                completedAt: null,
+                isManual: false,
+                celebratedAt: null,
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+                isSynced: false,
+              },
+            ]),
+          ),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
 
@@ -203,6 +201,20 @@ describe('SyncOrchestrator.syncPending', () => {
     });
 
     it('routes envelopes through merge_envelope RPC (all tables now use merge RPCs)', async () => {
+      const envelopeRow = {
+        id: 'e-1',
+        householdId: 'hh-1',
+        name: 'Groceries',
+        allocatedCents: 5000,
+        spentCents: 0,
+        envelopeType: 'spending',
+        isSavingsLocked: false,
+        isArchived: false,
+        periodStart: '2026-04-01',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      };
       const pending = [
         {
           id: 'p1',
@@ -218,29 +230,8 @@ describe('SyncOrchestrator.syncPending', () => {
         select: jest
           .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({
-                limit: () =>
-                  Promise.resolve([
-                    {
-                      id: 'e-1',
-                      householdId: 'hh-1',
-                      name: 'Groceries',
-                      allocatedCents: 5000,
-                      spentCents: 0,
-                      envelopeType: 'spending',
-                      isSavingsLocked: false,
-                      isArchived: false,
-                      periodStart: '2026-04-01',
-                      createdAt: '2026-01-01T00:00:00Z',
-                      updatedAt: '2026-01-01T00:00:00Z',
-                      isSynced: false,
-                    },
-                  ]),
-              }),
-            }),
-          }),
+          // C7: batch pre-fetch returns the row
+          .mockReturnValueOnce(makeBatchFetchChain([envelopeRow])),
         delete: () => ({ where: () => Promise.resolve() }),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
@@ -309,11 +300,8 @@ describe('SyncOrchestrator.syncPending', () => {
         select: jest
           .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
-            }),
-          }),
+          // C7: batch pre-fetch
+          .mockReturnValueOnce(makeBatchFetchChain([{ id: 'e1', isSynced: false }])),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
 
@@ -330,7 +318,7 @@ describe('SyncOrchestrator.syncPending', () => {
       expect(result.failed).toBe(1);
       // ReconcileEmergencyFundTypeUseCase should NOT have been called —
       // verify by checking the db.select call count stays at the sync-only count
-      // (pendingSync + 1 for row fetch = 2 calls max; no additional EMF query)
+      // (pendingSync + 1 for batch-fetch = 2 calls max; no additional EMF query)
       expect((db.select as jest.Mock).mock.calls.length).toBeLessThanOrEqual(2);
     });
 
@@ -391,11 +379,8 @@ describe('SyncOrchestrator.syncPending', () => {
         select: jest
           .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
-          .mockReturnValueOnce({
-            from: () => ({
-              where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
-            }),
-          }),
+          // C7: batch pre-fetch
+          .mockReturnValueOnce(makeBatchFetchChain([{ id: 'e1', isSynced: false }])),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
 
@@ -410,7 +395,7 @@ describe('SyncOrchestrator.syncPending', () => {
       const result = await orch.syncPending('h1');
 
       expect(result.failed).toBe(1);
-      // Fixer select must not be reached — capped at pending-queue + row fetch = 2
+      // Fixer select must not be reached — capped at pending-queue + batch-fetch = 2
       expect((db.select as jest.Mock).mock.calls.length).toBeLessThanOrEqual(2);
     });
   });
@@ -551,9 +536,8 @@ describe('SyncOrchestrator — per-table merge RPC routing', () => {
         select: jest
           .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
-          .mockReturnValueOnce({
-            from: () => ({ where: () => ({ limit: () => Promise.resolve([localRow]) }) }),
-          }),
+          // C7: batch pre-fetch returns the row via inArray
+          .mockReturnValueOnce(makeBatchFetchChain([localRow])),
         delete: () => ({ where: () => Promise.resolve() }),
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
       } as any;
@@ -614,15 +598,8 @@ describe('SyncOrchestrator — backoff timing enforcement', () => {
       const nowAtCall = new Date().toISOString();
       const rows = pendingRow.lastAttemptedAt <= nowAtCall ? [pendingRow] : [];
       if (rows.length > 0) {
-        // Return row fetch mock for processItem
-        return {
-          from: () => ({
-            where: () => ({
-              limit: () =>
-                Promise.resolve([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]),
-            }),
-          }),
-        };
+        // C7: Return batch pre-fetch mock for processItem (inArray, no .limit())
+        return makeBatchFetchChain([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]);
       }
       return makePendingQueueChain([]);
     });
@@ -646,7 +623,7 @@ describe('SyncOrchestrator — backoff timing enforcement', () => {
     // Advance time by 5 seconds — backoff (4s) has now elapsed
     jest.advanceTimersByTime(5000);
 
-    // Rebuild the select mock so it now simulates the pending-queue query and the row fetch
+    // Rebuild the select mock so it now simulates the pending-queue query and the batch row fetch
     callCount = 0;
     const selectMock2 = jest.fn().mockImplementation(() => {
       callCount++;
@@ -654,15 +631,8 @@ describe('SyncOrchestrator — backoff timing enforcement', () => {
         // Pending queue — backoff elapsed, row is returned
         return makePendingQueueChain([pendingRow]);
       }
-      // Row fetch for processItem
-      return {
-        from: () => ({
-          where: () => ({
-            limit: () =>
-              Promise.resolve([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]),
-          }),
-        }),
-      };
+      // C7: batch pre-fetch for processItem (inArray query, no .limit())
+      return makeBatchFetchChain([{ id: 'e-back-1', householdId: 'hh-1', isSynced: false }]);
     });
     db.select = selectMock2;
 
@@ -696,14 +666,10 @@ describe('SyncOrchestrator — DLQ after max retries', () => {
       select: jest
         .fn()
         .mockReturnValueOnce(makePendingQueueChain(pending))
-        .mockReturnValueOnce({
-          from: () => ({
-            where: () => ({
-              limit: () =>
-                Promise.resolve([{ id: 'e-poison', householdId: 'hh-1', isSynced: false }]),
-            }),
-          }),
-        }),
+        // C7: batch pre-fetch returns the row
+        .mockReturnValueOnce(
+          makeBatchFetchChain([{ id: 'e-poison', householdId: 'hh-1', isSynced: false }]),
+        ),
       update: updateMock,
     } as any;
 
