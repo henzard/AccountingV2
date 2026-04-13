@@ -1,12 +1,15 @@
-import React from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, Alert, Switch } from 'react-native';
 import { List, Surface, Divider, Button } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { colours, spacing } from '../../theme/tokens';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
+
+const WIFI_ONLY_KEY = '@settings:slip_wifi_only';
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const session = useAppStore((s) => s.session);
@@ -14,6 +17,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const householdId = useAppStore((s) => s.householdId);
   const availableHouseholds = useAppStore((s) => s.availableHouseholds);
   const currentHousehold = availableHouseholds.find((h) => h.id === householdId);
+
+  const [wifiOnly, setWifiOnly] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(WIFI_ONLY_KEY).then((v) => setWifiOnly(v === 'true'));
+  }, []);
+
+  const handleWifiOnlyToggle = async (value: boolean): Promise<void> => {
+    setWifiOnly(value);
+    await AsyncStorage.setItem(WIFI_ONLY_KEY, String(value));
+  };
 
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -115,6 +129,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
               (navigation as unknown as { navigate: (s: string) => void }).navigate('SlipConsent')
             }
             testID="slip-consent-item"
+          />
+          <Divider />
+          <List.Item
+            title="Upload on Wi-Fi only"
+            description="Slip images upload only when connected to Wi-Fi"
+            left={(props) => <List.Icon {...props} icon="wifi" />}
+            right={() => (
+              <Switch
+                value={wifiOnly}
+                onValueChange={handleWifiOnlyToggle}
+                testID="wifi-only-switch"
+              />
+            )}
+            testID="wifi-only-item"
           />
         </Surface>
       </List.Section>
