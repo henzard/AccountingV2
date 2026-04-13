@@ -94,8 +94,35 @@ CREATE POLICY inv_insert ON public.invitations
 DROP POLICY IF EXISTS inv_update ON public.invitations;
 CREATE POLICY inv_update ON public.invitations
   FOR UPDATE TO authenticated
-  USING (invited_by_user_id = auth.uid() OR used_by_user_id IS NULL)
+  USING (invited_by_user_id = auth.uid())
   WITH CHECK (invited_by_user_id = auth.uid());
+
+-- SECURITY DEFINER RPC for the "claim invite" path.
+-- Only this function (not the inv_update policy) may mark an invitation as used
+-- by a non-inviter, ensuring used_by_user_id is always set to the caller's own id
+-- and that the invite is not expired or already claimed.
+CREATE OR REPLACE FUNCTION public.claim_invite(invite_id TEXT)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  caller_id uuid := auth.uid();
+BEGIN
+  UPDATE public.invitations
+  SET used_by_user_id = caller_id, used_at = NOW()
+  WHERE id = invite_id
+    AND used_by_user_id IS NULL
+    AND expires_at > NOW();
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'invite not found, already claimed, or expired'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.claim_invite(TEXT) TO authenticated;
 
 -- RLS on household_members: members can read their own households' members;
 -- only the user themself may insert their row (via the trigger chain);

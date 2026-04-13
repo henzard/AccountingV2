@@ -33,7 +33,7 @@ export class AcceptInviteUseCase {
     // 1. Fetch the invitation
     const { data: invite, error: inviteError } = await this.supabase
       .from('invitations')
-      .select('household_id, expires_at, used_by')
+      .select('id, household_id, expires_at, used_by')
       .eq('code', this.input.code.toUpperCase())
       .single();
 
@@ -70,11 +70,10 @@ export class AcceptInviteUseCase {
       return createFailure({ code: 'JOIN_FAILED', message: insertError.message });
     }
 
-    // 3. Mark invitation as used
-    const { error: markUsedError } = await this.supabase
-      .from('invitations')
-      .update({ used_by: this.input.userId })
-      .eq('code', this.input.code.toUpperCase());
+    // 3. Mark invitation as used via SECURITY DEFINER RPC (validates caller owns the claim)
+    const { error: markUsedError } = await this.supabase.rpc('claim_invite', {
+      invite_id: invite.id as string,
+    });
 
     if (markUsedError) {
       return createFailure({ code: 'INVITE_MARK_FAILED', message: markUsedError.message });

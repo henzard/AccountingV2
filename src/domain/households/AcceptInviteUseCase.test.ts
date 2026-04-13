@@ -13,7 +13,6 @@ const makeSupabase = ({
         select: () => ({
           eq: () => ({ single: () => Promise.resolve({ data: inviteData, error: inviteError }) }),
         }),
-        update: () => ({ eq: () => Promise.resolve({ error: null }) }),
       };
     }
     if (table === 'household_members') {
@@ -23,6 +22,7 @@ const makeSupabase = ({
     }
     return {};
   }),
+  rpc: jest.fn().mockResolvedValue({ error: null }),
 });
 
 describe('AcceptInviteUseCase', () => {
@@ -81,6 +81,7 @@ describe('AcceptInviteUseCase', () => {
 describe('AcceptInviteUseCase — success path', () => {
   it('inserts household_members locally, enqueues sync, and triggers restore', async () => {
     const mockInvite = {
+      id: 'inv-1',
       household_id: 'h1',
       expires_at: new Date(Date.now() + 86_400_000).toISOString(),
       used_by: null,
@@ -93,7 +94,6 @@ describe('AcceptInviteUseCase — success path', () => {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             single: jest.fn().mockResolvedValue({ data: mockInvite, error: null }),
-            update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
           };
         }
         if (table === 'household_members') {
@@ -103,6 +103,7 @@ describe('AcceptInviteUseCase — success path', () => {
         }
         return {};
       }),
+      rpc: jest.fn().mockResolvedValue({ error: null }),
     };
 
     const dbInsertMock = jest.fn().mockReturnValue({
