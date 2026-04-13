@@ -14,7 +14,7 @@ export class CaptureSlipUseCase {
 
   async execute(input: CaptureSlipInput): Promise<Result<{ slipId: string }>> {
     if (input.frameLocalUris.length === 0 || input.frameLocalUris.length > 5) {
-      return createFailure({ code: 'INVALID_FRAME_COUNT', message: 'Slip needs 1-5 frames' });
+      return createFailure({ code: 'SLIP_INVALID_FRAME_COUNT', message: 'Slip needs 1-5 frames' });
     }
     const slipId = Crypto.randomUUID();
     const now = new Date().toISOString();
@@ -31,7 +31,7 @@ export class CaptureSlipUseCase {
       return createSuccess({ slipId });
     } catch (err) {
       return createFailure({
-        code: 'DB_ERROR',
+        code: 'SLIP_DB_ERROR',
         message: err instanceof Error ? err.message : String(err),
       });
     }

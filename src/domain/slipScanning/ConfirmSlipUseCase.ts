@@ -46,7 +46,7 @@ export class ConfirmSlipUseCase {
       const result = await usecase.execute();
       if (!result.success) {
         return createFailure({
-          code: 'PARTIAL_SAVE_FAILED',
+          code: 'SLIP_PARTIAL_SAVE_FAILED',
           message: `Transaction creation failed mid-loop: ${result.error.message}`,
         });
       }

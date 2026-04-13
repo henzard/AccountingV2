@@ -8,7 +8,10 @@ export type SlipScanErrorCode =
   | 'SLIP_PAYLOAD_TOO_LARGE'
   | 'SLIP_FORBIDDEN'
   | 'SLIP_UNREASONABLE_EXTRACTION'
-  | 'SLIP_WIFI_REQUIRED';
+  | 'SLIP_WIFI_REQUIRED'
+  | 'SLIP_INVALID_FRAME_COUNT'
+  | 'SLIP_DB_ERROR'
+  | 'SLIP_PARTIAL_SAVE_FAILED';
 
 export type SlipScanError = {
   code: SlipScanErrorCode;
