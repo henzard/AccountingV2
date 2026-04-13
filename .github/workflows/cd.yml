@@ -59,6 +59,12 @@ jobs:
           KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
           KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
 
+      - name: Upload JS source maps to Crashlytics
+        working-directory: android
+        run: |
+          ./gradlew uploadCrashlyticsSymbolFileRelease || echo "symbol upload skipped"
+          ./gradlew uploadCrashlyticsMappingFileRelease || echo "mapping upload skipped"
+
       - name: Upload to Play Store — Internal Testing
         uses: r0adkll/upload-google-play@v1
         with:
