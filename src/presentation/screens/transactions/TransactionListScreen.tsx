@@ -9,6 +9,8 @@ import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { DeleteTransactionUseCase } from '../../../domain/transactions/DeleteTransactionUseCase';
 import { useTransactions } from '../../hooks/useTransactions';
 import { CurrencyText } from '../../components/shared/CurrencyText';
+import { ScreenHeader } from '../../components/shared/ScreenHeader';
+import { EmptyState } from '../../components/shared/EmptyState';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
 import { colours, spacing, radius } from '../../theme/tokens';
@@ -85,12 +87,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   return (
     <View style={styles.flex}>
       <Surface style={styles.header} elevation={0}>
-        <Text variant="labelMedium" style={styles.periodLabel}>
-          TRANSACTIONS
-        </Text>
-        <Text variant="headlineSmall" style={styles.periodTitle}>
-          {period.label}
-        </Text>
+        <ScreenHeader eyebrow="Transactions" title={period.label} />
       </Surface>
 
       {loading ? (
@@ -98,14 +95,11 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           <ActivityIndicator animating color={colours.primary} />
         </View>
       ) : transactions.length === 0 ? (
-        <View style={styles.center}>
-          <Text variant="titleMedium" style={styles.emptyTitle}>
-            No transactions yet
-          </Text>
-          <Text variant="bodyMedium" style={styles.emptyBody}>
-            Tap + to record spending
-          </Text>
-        </View>
+        <EmptyState
+          title="No transactions yet"
+          body="Tap + to record spending"
+          testID="transaction-list-empty-state"
+        />
       ) : (
         <SectionList
           sections={sections}
@@ -155,16 +149,9 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colours.background },
   header: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.base,
     backgroundColor: colours.surface,
   },
-  periodLabel: { color: colours.onSurfaceVariant, letterSpacing: 1.5, marginBottom: spacing.xs },
-  periodTitle: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  emptyTitle: { color: colours.onSurface, marginTop: spacing.base },
-  emptyBody: { color: colours.onSurfaceVariant, textAlign: 'center', marginTop: spacing.sm },
   sectionHeader: {
     backgroundColor: colours.surfaceVariant,
     paddingHorizontal: spacing.base,

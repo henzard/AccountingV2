@@ -12,6 +12,8 @@ import {
 } from '../../../domain/debtSnowball/DebtEntity';
 import { DebtPayoffBar } from './components/DebtPayoffBar';
 import { PayoffProjectionCard } from './components/PayoffProjectionCard';
+import { ScreenHeader } from '../../components/shared/ScreenHeader';
+import { EmptyState } from '../../components/shared/EmptyState';
 import { colours, spacing, radius } from '../../theme/tokens';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { SnowballDashboardScreenProps } from '../../navigation/types';
@@ -80,15 +82,14 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
   return (
     <View style={styles.flex}>
       <Surface style={styles.header} elevation={0}>
-        <Text variant="labelMedium" style={styles.headerLabel}>
-          DEBT SNOWBALL
-        </Text>
-        {totalPaidCents > 0 && (
-          <Text variant="bodySmall" style={styles.paidSoFar}>
-            R{(totalPaidCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })} paid off
-            to date
-          </Text>
-        )}
+        <ScreenHeader
+          eyebrow="Debt Snowball"
+          title={
+            totalPaidCents > 0
+              ? `R${(totalPaidCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })} paid off to date`
+              : 'Your debt payoff plan'
+          }
+        />
       </Surface>
 
       <FlatList
@@ -102,15 +103,11 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
         renderItem={renderDebt}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <View style={styles.center}>
-            <MaterialCommunityIcons name="snowflake" size={64} color={colours.outlineVariant} />
-            <Text variant="titleMedium" style={styles.emptyTitle}>
-              No debts entered
-            </Text>
-            <Text variant="bodyMedium" style={styles.emptyBody}>
-              Tap + to add your first debt and start the snowball
-            </Text>
-          </View>
+          <EmptyState
+            title="No debts entered"
+            body="Tap + to add your first debt and start the snowball"
+            testID="snowball-empty-state"
+          />
         }
       />
 
@@ -128,16 +125,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colours.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   header: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.base,
     backgroundColor: colours.surface,
-  },
-  headerLabel: { color: colours.onSurfaceVariant, letterSpacing: 1.5 },
-  paidSoFar: {
-    color: colours.success,
-    marginTop: spacing.xs,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   debtRow: {
     marginHorizontal: spacing.base,
@@ -150,8 +138,6 @@ const styles = StyleSheet.create({
   debtLeft: { flex: 1 },
   creditor: { color: colours.onSurface, fontFamily: 'PlusJakartaSans_600SemiBold' },
   debtType: { color: colours.onSurfaceVariant, marginTop: 2 },
-  emptyTitle: { color: colours.onSurface, marginTop: spacing.base },
-  emptyBody: { color: colours.onSurfaceVariant, textAlign: 'center', marginTop: spacing.sm },
   list: { paddingBottom: 100 },
   fab: {
     position: 'absolute',

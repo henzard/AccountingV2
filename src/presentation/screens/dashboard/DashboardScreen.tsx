@@ -5,12 +5,13 @@ import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { BabyStepsCard } from './BabyStepsCard';
 import { Text, FAB, ActivityIndicator, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useBabySteps } from '../../hooks/useBabySteps';
 import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
 import { CurrencyText } from '../../components/shared/CurrencyText';
+import { ScreenHeader } from '../../components/shared/ScreenHeader';
+import { EmptyState } from '../../components/shared/EmptyState';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { colours, spacing, radius } from '../../theme/tokens';
 import { format } from 'date-fns';
@@ -79,12 +80,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       <Surface style={styles.header} elevation={0}>
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
-            <Text variant="labelMedium" style={styles.periodLabel}>
-              BUDGET PERIOD
-            </Text>
-            <Text variant="headlineSmall" style={styles.periodTitle}>
-              {period.label}
-            </Text>
+            <ScreenHeader eyebrow="Budget Period" title={period.label} />
           </View>
           <RamseyScoreBadge score={scoreResult.score} />
         </View>
@@ -134,15 +130,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           <ActivityIndicator animating color={colours.primary} />
         </View>
       ) : envelopes.length === 0 ? (
-        <View style={styles.center}>
-          <MaterialCommunityIcons name="wallet-outline" size={64} color={colours.outlineVariant} />
-          <Text variant="titleMedium" style={styles.emptyTitle}>
-            No envelopes yet
-          </Text>
-          <Text variant="bodyMedium" style={styles.emptyBody}>
-            Tap + to create your first envelope
-          </Text>
-        </View>
+        <EmptyState
+          title="No envelopes yet"
+          body="Tap + to create your first envelope"
+          testID="dashboard-empty-state"
+        />
       ) : (
         <FlatList
           data={envelopes}
@@ -165,9 +157,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colours.background },
   header: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.base,
     backgroundColor: colours.surface,
   },
   headerRow: {
@@ -176,15 +165,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerLeft: { flex: 1 },
-  periodLabel: {
-    color: colours.onSurfaceVariant,
-    letterSpacing: 1.5,
-    marginBottom: spacing.xs,
-  },
-  periodTitle: {
-    color: colours.primary,
-    fontFamily: 'PlusJakartaSans_700Bold',
-  },
   summary: {
     flexDirection: 'row',
     marginHorizontal: spacing.base,
@@ -222,15 +202,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
-  },
-  emptyTitle: {
-    color: colours.onSurface,
-    marginTop: spacing.base,
-  },
-  emptyBody: {
-    color: colours.onSurfaceVariant,
-    textAlign: 'center',
-    marginTop: spacing.sm,
   },
   fab: {
     position: 'absolute',
