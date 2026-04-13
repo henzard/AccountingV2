@@ -3,7 +3,7 @@ import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { RamseyScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { BabyStepsCard } from './BabyStepsCard';
-import { Text, FAB, ActivityIndicator, Surface } from 'react-native-paper';
+import { Text, FAB, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
@@ -12,6 +12,7 @@ import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
 import { CurrencyText } from '../../components/shared/CurrencyText';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
+import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { colours, spacing, radius } from '../../theme/tokens';
 import { format } from 'date-fns';
@@ -126,9 +127,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       )}
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator animating color={colours.primary} />
-        </View>
+        <LoadingSkeletonList count={4} testID="dashboard-loading" />
       ) : envelopes.length === 0 ? (
         <EmptyState
           title="No envelopes yet"
@@ -196,12 +195,6 @@ const styles = StyleSheet.create({
   list: {
     padding: spacing.base,
     paddingBottom: 100,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
   },
   fab: {
     position: 'absolute',
