@@ -60,6 +60,38 @@ describe('PendingSyncEnqueuer', () => {
     expect((insertedRows[0] as any).operation).toBe('DELETE');
   });
 
+  it('dedup preserves lastAttemptedAt — does not reset backoff window', async () => {
+    const futureTimestamp = new Date(Date.now() + 60_000).toISOString();
+    const updatedRows: unknown[] = [];
+
+    const mockDb = {
+      select: jest.fn().mockReturnValue({
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest
+          .fn()
+          .mockResolvedValue([{ id: 'existing-row-id', lastAttemptedAt: futureTimestamp }]),
+      }),
+      update: () => ({
+        set: (data: unknown) => {
+          updatedRows.push(data);
+          return { where: jest.fn().mockResolvedValue(undefined) };
+        },
+      }),
+    } as any;
+
+    const enqueuer = new PendingSyncEnqueuer(mockDb);
+    await enqueuer.enqueue('envelopes', 'rec-backoff', 'UPDATE');
+
+    expect(updatedRows).toHaveLength(1);
+    const updated = updatedRows[0] as Record<string, unknown>;
+    // operation should be updated
+    expect(updated.operation).toBe('UPDATE');
+    // lastAttemptedAt and retryCount must NOT be present in the update — preserving backoff
+    expect(updated).not.toHaveProperty('lastAttemptedAt');
+    expect(updated).not.toHaveProperty('retryCount');
+  });
+
   it('deduplicates: 5 consecutive enqueues of same recordId produce one entry', async () => {
     // Simulate that after first insert, subsequent selects return the existing row
     let callCount = 0;

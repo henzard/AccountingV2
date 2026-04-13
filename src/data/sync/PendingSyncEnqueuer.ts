@@ -23,10 +23,12 @@ export class PendingSyncEnqueuer {
       .limit(1);
 
     if (existing.length > 0) {
-      // Update the existing entry's operation so the newer op takes priority on LWW.
+      // Only update operation so the newer op takes priority on LWW.
+      // Do NOT touch lastAttemptedAt or retryCount — resetting them would
+      // defeat backoff for items currently in an exponential-backoff window.
       await this.db
         .update(pendingSync)
-        .set({ operation, lastAttemptedAt: new Date().toISOString() })
+        .set({ operation })
         .where(eq(pendingSync.id, existing[0].id));
       return;
     }
