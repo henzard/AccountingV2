@@ -40,6 +40,15 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({ ro
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Apply preselectedType param on mount (only for new envelopes)
+  const preselectedType = route.params?.preselectedType;
+  useEffect(() => {
+    if (!envelopeId && preselectedType) {
+      setEnvelopeType(preselectedType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     navigation.setOptions({ title: envelopeId ? 'Edit Envelope' : 'Add Envelope' });
     if (envelopeId) {
@@ -123,6 +132,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({ ro
           value={envelopeType}
           onValueChange={(v) => setEnvelopeType(v as EnvelopeType)}
           buttons={[
+            { value: 'income', label: 'Income' },
             { value: 'spending', label: 'Spending' },
             { value: 'savings', label: 'Savings' },
             { value: 'utility', label: 'Utility' },

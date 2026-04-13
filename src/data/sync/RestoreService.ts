@@ -9,8 +9,10 @@ import {
   transactions,
   debts,
   meterReadings,
+  babySteps,
 } from '../local/schema';
 import { toLocalRow } from './rowConverters';
+import { SeedBabyStepsUseCase } from '../../domain/babySteps/SeedBabyStepsUseCase';
 
 export interface RestoredHousehold {
   id: string;
@@ -97,6 +99,11 @@ export class RestoreService {
     await this.restoreTable('transactions', transactions, householdId);
     await this.restoreTable('debts', debts, householdId);
     await this.restoreTable('meter_readings', meterReadings, householdId);
+    await this.restoreTable('baby_steps', babySteps, householdId);
+
+    // Backfill any missing baby_steps rows (idempotent — INSERT OR IGNORE)
+    const seeder = new SeedBabyStepsUseCase(this.db);
+    await seeder.execute(householdId);
 
     return {
       id: hh.id as string,
@@ -112,7 +119,8 @@ export class RestoreService {
       | typeof envelopes
       | typeof transactions
       | typeof debts
-      | typeof meterReadings,
+      | typeof meterReadings
+      | typeof babySteps,
     householdId: string,
   ): Promise<void> {
     const { data, error } = await this.supabase

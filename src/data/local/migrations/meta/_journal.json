@@ -21,6 +21,20 @@
       "when": 1744574400000,
       "tag": "0002_household_members",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1776020824488,
+      "tag": "0003_grey_james_howlett",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776057152651,
+      "tag": "0004_safe_sleeper",
+      "breakpoints": true
     }
   ]
 }

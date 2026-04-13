@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -17,6 +17,11 @@ import type { HouseholdSummary } from './src/domain/households/EnsureHouseholdUs
 import { RestoreService } from './src/data/sync/RestoreService';
 import type { RestoredHousehold } from './src/data/sync/RestoreService';
 import { SyncOrchestrator } from './src/data/sync/SyncOrchestrator';
+import { SeedBabyStepsUseCase } from './src/domain/babySteps/SeedBabyStepsUseCase';
+import { babySteps as babyStepsTable } from './src/data/local/schema';
+import { and, eq } from 'drizzle-orm';
+import { useCelebrationStore } from './src/presentation/stores/celebrationStore';
+import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
 
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
@@ -36,7 +41,16 @@ async function initSession(
     // Offline or network error — continue with local data
   }
 
-  // 2. Ensure household exists locally
+  // 2. Seed all restored households first (before primary ensure, so gaps are backfilled even
+  //    if EnsureHouseholdUseCase fails for the current user's household).
+  const seeder = new SeedBabyStepsUseCase(db);
+  for (const restored of restoredHouseholds) {
+    void seeder.execute(restored.id).catch(() => {
+      // Non-fatal: seed failures don't block startup
+    });
+  }
+
+  // 3. Ensure household exists locally for the current user (seeds baby steps internally)
   const uc = new EnsureHouseholdUseCase(db, audit, userId);
   const result = await uc.execute();
   if (result.success) {
@@ -49,8 +63,15 @@ async function initSession(
     console.error('[initSession] Failed to ensure household:', result.error);
   }
 
-  // 3. Push any pending local writes to Supabase (fire and forget)
-  void syncOrchestrator.syncPending().catch(() => {
+  // 4. Push any pending local writes to Supabase (fire and forget).
+  //    Pass householdId so the post-sync ReconcileEmergencyFundTypeUseCase fixer can run.
+  const resolvedHouseholdId = result.success ? result.data.id : undefined;
+  void syncOrchestrator.syncPending(resolvedHouseholdId).then((syncResult) => {
+    if (syncResult.emfFlipped > 0) {
+      // Presentation-layer flag: show duplicate-EMF banner on Budget screen
+      useEmergencyFundReconcileStore.getState().setReconciledDuplicateEmf(true);
+    }
+  }).catch(() => {
     // Sync failure is non-fatal
   });
 }
@@ -65,12 +86,43 @@ export default function App(): React.JSX.Element {
   const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const [sessionRestored, setSessionRestored] = useState(false);
 
+  // Init celebrationStore checker — reads celebrated_at from local DB.
+  // Re-bound after every auth/household change so the checker always uses the
+  // current householdId rather than a stale closure over the initial render.
+  const initCelebrationStore = useCelebrationStore((s) => s.init);
+
+  const bindCelebrationStore = useCallback(() => {
+    initCelebrationStore(async (stepNumber: number) => {
+      // Read householdId at call time, not at bind time.
+      const householdId = useAppStore.getState().householdId;
+      if (!householdId) return false;
+      const rows = await db
+        .select()
+        .from(babyStepsTable)
+        .where(
+          and(
+            eq(babyStepsTable.householdId, householdId),
+            eq(babyStepsTable.stepNumber, stepNumber),
+          ),
+        )
+        .limit(1);
+      return rows[0]?.celebratedAt != null;
+    });
+  }, [initCelebrationStore]);
+
+  useEffect(() => {
+    // Bind once on mount (covers cold-start with existing session).
+    bindCelebrationStore();
+  }, [bindCelebrationStore]);
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session ?? null;
       setSession(session);
       if (session) {
         await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
+        // Re-bind after household is resolved so checker uses the new householdId.
+        bindCelebrationStore();
       }
       setSessionRestored(true);
     });
@@ -79,13 +131,15 @@ export default function App(): React.JSX.Element {
       setSession(session ?? null);
       if (session) {
         await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
+        // Re-bind after household change (e.g. sign-out → sign-in as different household).
+        bindCelebrationStore();
       } else {
         clearHousehold();
       }
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [setSession, setHouseholdId, setPaydayDay, clearHousehold, setAvailableHouseholds]);
+  }, [setSession, setHouseholdId, setPaydayDay, clearHousehold, setAvailableHouseholds, bindCelebrationStore]);
 
   if (fontError || dbError) {
     return (
