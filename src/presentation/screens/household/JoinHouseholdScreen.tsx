@@ -6,6 +6,7 @@ import { supabase } from '../../../data/remote/supabaseClient';
 import { AcceptInviteUseCase } from '../../../domain/households/AcceptInviteUseCase';
 import { RestoreService } from '../../../data/sync/RestoreService';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
 import type { JoinHouseholdScreenProps } from '../../navigation/types';
 
@@ -17,6 +18,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
   const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const availableHouseholds = useAppStore((s) => s.availableHouseholds);
+  const enqueue = useToastStore((s) => s.enqueue);
 
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -48,6 +50,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
     setAvailableHouseholds([...availableHouseholds, result.data]);
+    enqueue('Joined household', 'info');
     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
   };
 
