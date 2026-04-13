@@ -1,6 +1,9 @@
 import { ReconcileEmergencyFundTypeUseCase } from '../ReconcileEmergencyFundTypeUseCase';
 import type { ISyncEnqueuer } from '../../ports/ISyncEnqueuer';
 
+// expo-crypto is a native module pulled in transitively by PendingSyncEnqueuerAdapter
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-test' }));
+
 beforeAll(() => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-04-12T10:00:00.000Z'));

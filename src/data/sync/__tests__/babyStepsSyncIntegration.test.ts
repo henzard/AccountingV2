@@ -490,25 +490,33 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
 
     let selectCallIdx = 0;
 
-    // Select calls: (1) pending queue → empty; (2) fixer's envelope select → [older, newer]
+    // Select calls:
+    //   (0) pending queue → empty
+    //   (1) fixer's envelope select → [older, newer]
+    //   (2) enqueuer dedup select → no existing row (triggers insert path)
     const db = {
       select: jest.fn().mockImplementation(() => {
         const idx = selectCallIdx++;
         if (idx === 0) {
           return makePendingQueueChain([]);
         }
-        // Fixer's envelope query — returns both active EMFs
-        return { from: () => ({ where: () => Promise.resolve([older, newer]) }) };
+        if (idx === 1) {
+          // Fixer's envelope query — returns both active EMFs
+          return { from: () => ({ where: () => Promise.resolve([older, newer]) }) };
+        }
+        // Enqueuer dedup select (pendingSync table) — return empty → triggers insert
+        return {
+          from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+        };
       }),
       update: jest.fn().mockImplementation(() => ({
         set: jest.fn().mockImplementation(() => ({
           where: jest.fn().mockImplementation((_cond) => {
-            // Record the id being updated — we can't easily inspect the eq() condition
-            // but we can verify update was called once (the newer one)
             return Promise.resolve();
           }),
         })),
       })),
+      insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
     } as any;
 
     const supabase = {} as any;
