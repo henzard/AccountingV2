@@ -6,7 +6,7 @@
 
 **Architecture:** Phase A lands correctness + security fixes that protect shipping users. Phase B makes PRD Journey 1 reachable (onboarding, signup, sign-out, money-visibility). Phase C hardens foundations (domain abstractions, dark theme, a11y, performance, E2E). Each phase is internally cohesive and leaves the app green on `npm run typecheck && npm test && npm run lint`.
 
-**Tech Stack:** React Native + Expo SDK 55, TypeScript 5.9, Drizzle ORM + expo-sqlite, Supabase (PostgreSQL), Zustand, react-native-paper, @react-navigation/native-stack, Jest, @testing-library/react-native. New additions: husky, lint-staged, prettier config, @sentry/react-native.
+**Tech Stack:** React Native + Expo SDK 55, TypeScript 5.9, Drizzle ORM + expo-sqlite, Supabase (PostgreSQL), Zustand, react-native-paper, @react-navigation/native-stack, Jest, @testing-library/react-native. New additions: husky, lint-staged, prettier config, @react-native-firebase/crashlytics.
 
 **Source reports:** `C:\Users\henza\AppData\Local\Temp\claude\C--Project-AccountingV2\a4919458-1ae1-4b7f-b6e9-25f312a1c5e2\tasks\` (10 specialist reports from hive-1776061933751-bewhfm).
 
@@ -27,7 +27,7 @@ Phase A adds / modifies:
 - `src/domain/households/AcceptInviteUseCase.ts` (no behavioural change; tests added)
 - `src/domain/households/CreateInviteUseCase.ts` (expo-crypto CSPRNG)
 - `src/infrastructure/logging/Logger.ts` (new)
-- `src/infrastructure/monitoring/sentry.ts` (new)
+- `src/infrastructure/monitoring/crashlytics.ts` (new)
 - `package.json` (add deps + scripts)
 - `.github/workflows/ci.yml` (add prettier check)
 - `.husky/` + `.prettierrc.json` (new)
@@ -760,7 +760,7 @@ class ConsoleLogger implements Logger {
   warn(msg: string, data?: Record<string, unknown>) { console.warn(msg, data); }
   error(msg: string, err: unknown, data?: Record<string, unknown>) {
     console.error(msg, err, data);
-    // Sentry hook wired in Task A12
+    // Crashlytics hook wired in Task A12
   }
 }
 
@@ -805,74 +805,159 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task A12: Sentry + crash monitoring
+### Task A12: Firebase Crashlytics crash monitoring
+
+**Rationale:** The project already ships `@react-native-firebase/app` and `google-services.json`, so Crashlytics piggy-backs on existing Firebase integration. Native Android crash capture is best-in-class; JS crashes are routed via `recordError`. Free, no DSN management, no per-event billing.
 
 **Files:**
-- Modify: `package.json` (`@sentry/react-native`)
-- Create: `src/infrastructure/monitoring/sentry.ts`
-- Modify: `App.tsx` (init) + `Logger.ts` (hook)
-- Modify: `.env.example`
+- Modify: `package.json` (`@react-native-firebase/crashlytics`)
+- Modify: `app.config.ts` (add plugin entries)
+- Create: `src/infrastructure/monitoring/crashlytics.ts`
+- Modify: `App.tsx` (init) + `src/infrastructure/logging/Logger.ts` (wire `recordError` in `error()`)
+- Modify: `.github/workflows/cd.yml` (upload JS source maps post-build)
 
 - [ ] **Step 1: Install**
 
 ```bash
-npx expo install @sentry/react-native
+npx expo install @react-native-firebase/crashlytics
 ```
 
-- [ ] **Step 2: Init file**
+- [ ] **Step 2: `app.config.ts` — add Firebase + Crashlytics plugins**
 
-`src/infrastructure/monitoring/sentry.ts`:
 ```ts
-import * as Sentry from '@sentry/react-native';
-import Constants from 'expo-constants';
-
-export function initSentry(): void {
-  const dsn = Constants.expoConfig?.extra?.sentryDsn as string | undefined;
-  if (!dsn) return;
-  Sentry.init({
-    dsn,
-    enableAutoSessionTracking: true,
-    sessionTrackingIntervalMillis: 30000,
-    environment: __DEV__ ? 'development' : 'production',
-    beforeSend: (event) => {
-      // Strip PII — payee names and amounts
-      if (event.contexts?.state) delete event.contexts.state;
-      return event;
+plugins: [
+  // ...existing plugins,
+  '@react-native-firebase/app',
+  '@react-native-firebase/crashlytics',
+  [
+    'expo-build-properties',
+    {
+      android: {
+        // Crashlytics Gradle plugin needed for NDK symbol upload
+        extraMavenRepos: [],
+      },
     },
-  });
-}
-
-export function captureError(err: unknown, context?: Record<string, unknown>): void {
-  Sentry.captureException(err, { extra: context });
-}
+  ],
+],
 ```
 
-- [ ] **Step 3: Wire into `Logger.ts` and `App.tsx`**
+(If `expo-build-properties` is not installed: `npx expo install expo-build-properties`. If already installed with other config, merge rather than replace.)
 
-`Logger.error` body:
+- [ ] **Step 3: Init module**
+
+`src/infrastructure/monitoring/crashlytics.ts`:
 ```ts
-import { captureError } from '../monitoring/sentry';
-// ...
-error(msg: string, err: unknown, data?: Record<string, unknown>) {
-  console.error(msg, err, data);
-  captureError(err, { msg, ...data });
+import crashlytics from '@react-native-firebase/crashlytics';
+
+export async function initCrashlytics(userId: string | null): Promise<void> {
+  // Disable collection in dev so local errors don't spam the dashboard.
+  await crashlytics().setCrashlyticsCollectionEnabled(!__DEV__);
+  if (userId) await crashlytics().setUserId(userId);
+}
+
+export function recordError(
+  err: unknown,
+  context?: Record<string, string | number | boolean>,
+): void {
+  if (context) {
+    Object.entries(context).forEach(([k, v]) => {
+      crashlytics().setAttribute(k, String(v));
+    });
+  }
+  const error = err instanceof Error ? err : new Error(String(err));
+  crashlytics().recordError(error);
+}
+
+export function log(message: string): void {
+  crashlytics().log(message);
 }
 ```
 
-`App.tsx` — call `initSentry()` before any other boot code.
+- [ ] **Step 4: Wire into `Logger.ts`**
 
-- [ ] **Step 4: `.env.example` + `app.config.ts`**
+Replace the placeholder comment from Task A11 with the real Crashlytics call:
+```ts
+import { recordError } from '../monitoring/crashlytics';
 
-Add `EXPO_PUBLIC_SENTRY_DSN=`. In `app.config.ts`, surface via `extra.sentryDsn`.
+class ConsoleLogger implements Logger {
+  info(msg: string, data?: Record<string, unknown>) {
+    if (__DEV__) console.log(msg, data);
+  }
+  warn(msg: string, data?: Record<string, unknown>) {
+    console.warn(msg, data);
+  }
+  error(msg: string, err: unknown, data?: Record<string, unknown>) {
+    console.error(msg, err, data);
+    if (!__DEV__) {
+      // Coerce unknown context values to strings for Crashlytics attribute API.
+      const ctx: Record<string, string> = { msg };
+      if (data) {
+        Object.entries(data).forEach(([k, v]) => { ctx[k] = String(v); });
+      }
+      recordError(err, ctx);
+    }
+  }
+}
+```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: `App.tsx` — call `initCrashlytics` after auth resolves**
+
+Inside the `initSession` flow, after `supabase.auth.getSession()` returns:
+```ts
+await initCrashlytics(session?.user?.id ?? null);
+```
+
+On sign-out (Task B4) clear the user id:
+```ts
+await crashlytics().setUserId('');
+```
+
+- [ ] **Step 6: Enable in Firebase Console**
+
+One-time manual step (document in README):
+- Firebase Console → your project → **Crashlytics** → Enable.
+- First crash auto-creates the dashboard within ~5 min.
+
+- [ ] **Step 7: Upload JS source maps in CD**
+
+Minified JS stacks without source maps are useless. In `.github/workflows/cd.yml`, after the Gradle build step, add:
+
+```yaml
+- name: Upload JS source maps to Crashlytics
+  run: |
+    cd android
+    ./gradlew uploadCrashlyticsSymbolFileRelease
+    ./gradlew uploadCrashlyticsMappingFileRelease
+```
+
+(The tasks are added automatically by the Crashlytics Gradle plugin; no manual config needed.)
+
+- [ ] **Step 8: Verify with a test crash**
+
+Temporarily add a dev-only crash button in `SettingsScreen` (remove before commit):
+```tsx
+{__DEV__ && (
+  <Button onPress={() => crashlytics().crash()}>Test crash</Button>
+)}
+```
+Rebuild, tap, relaunch, confirm appearance in Firebase Console. Then delete the button.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(observability): Sentry crash reporting with PII stripping
+git commit -m "feat(observability): Firebase Crashlytics crash reporting
+
+Piggy-backs on existing @react-native-firebase/app integration. Native
+Android crashes captured automatically; JS errors routed via
+Logger.error → recordError. Crashlytics collection disabled in dev.
+
+Source maps uploaded during CD so minified JS stacks are symbolicated.
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 ```
+
+**Note on the active device crash:** Crashlytics only captures crashes *after* it's installed. For the crash you're seeing right now on the already-deployed draft build, use Play Console → Quality → Crashes & ANRs (which Google populates from Android's built-in crash reporting regardless of Crashlytics). Once this task lands and a new CD build ships, all future crashes land in Firebase.
 
 ---
 
@@ -1051,7 +1136,7 @@ git commit --allow-empty -m "chore: Phase A (correctness + security) complete
 - DLQ + exponential backoff in sync
 - auditEvents + slipQueue plumbed
 - RestoreService overwrites stale local
-- Logger abstraction + Sentry
+- Logger abstraction + Firebase Crashlytics
 - Commit hooks + prettier + CI format-check
 - Composite DB indexes
 - Android allowBackup=false
