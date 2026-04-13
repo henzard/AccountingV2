@@ -97,7 +97,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
       }
 
       if (result.success) {
-        enqueue('Envelope saved', 'info');
+        enqueue('Envelope saved', 'success');
         navigation.goBack();
       } else {
         setError(result.error.message);
@@ -121,7 +121,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
             const uc = new ArchiveEnvelopeUseCase(db, audit, existing);
             const result = await uc.execute();
             if (result.success) {
-              enqueue('Envelope archived', 'info');
+              enqueue('Envelope archived', 'success');
               navigation.goBack();
             } else {
               setError('Failed to archive envelope');

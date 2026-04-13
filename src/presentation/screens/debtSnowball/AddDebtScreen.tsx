@@ -66,7 +66,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
-      enqueue('Debt saved', 'info');
+      enqueue('Debt saved', 'success');
       navigation.goBack();
     } else {
       setError(result.error.message);

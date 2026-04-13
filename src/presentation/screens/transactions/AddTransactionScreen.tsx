@@ -115,7 +115,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       });
       const result = await uc.execute();
       if (result.success) {
-        enqueue('Transaction saved', 'info');
+        enqueue('Transaction saved', 'success');
         navigation.goBack();
       } else {
         setError(result.error.message);

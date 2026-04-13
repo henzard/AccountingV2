@@ -50,7 +50,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
     setAvailableHouseholds([...availableHouseholds, result.data]);
-    enqueue('Joined household', 'info');
+    enqueue('Joined household', 'success');
     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
   };
 

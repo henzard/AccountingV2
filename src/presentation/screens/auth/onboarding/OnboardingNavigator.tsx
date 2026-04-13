@@ -7,16 +7,9 @@ import { PaydayStep } from './PaydayStep';
 import { MeterSetupStep } from './MeterSetupStep';
 import { ScoreIntroStep } from './ScoreIntroStep';
 import { FinishStep } from './FinishStep';
+import type { OnboardingStackParamList } from '../../../navigation/types';
 
-export type OnboardingStackParamList = {
-  Welcome: undefined;
-  Income: undefined;
-  ExpenseCategories: undefined;
-  Payday: undefined;
-  MeterSetup: undefined;
-  ScoreIntro: undefined;
-  Finish: undefined;
-};
+export type { OnboardingStackParamList };
 
 const Stack = createNativeStackNavigator<OnboardingStackParamList>();
 

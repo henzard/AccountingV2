@@ -106,7 +106,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
-      enqueue('Reading saved', 'info');
+      enqueue('Reading saved', 'success');
       navigation.goBack();
     } else {
       setError(result.error.message);

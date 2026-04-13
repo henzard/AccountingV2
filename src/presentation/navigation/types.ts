@@ -3,6 +3,16 @@ import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { MeterType } from '../../domain/meterReadings/MeterReadingEntity';
 
+export type OnboardingStackParamList = {
+  Welcome: undefined;
+  Income: undefined;
+  ExpenseCategories: undefined;
+  Payday: undefined;
+  MeterSetup: undefined;
+  ScoreIntro: undefined;
+  Finish: undefined;
+};
+
 export type AuthStackParamList = {
   Login: undefined;
   SignUp: undefined;

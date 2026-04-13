@@ -10,12 +10,16 @@ import { Snackbar } from 'react-native-paper';
 import { useToastStore, type ToastQueueItem } from '../../stores/toastStore';
 import { colours } from '../../theme/tokens';
 
+const DEFAULT_DURATION_MS = 3000;
+
 function snackbarStyle(kind: ToastQueueItem['kind']): object {
   switch (kind) {
     case 'error':
       return { backgroundColor: colours.error };
     case 'regression':
       return { backgroundColor: colours.warning };
+    case 'success':
+      return { backgroundColor: colours.success };
     default:
       return { backgroundColor: colours.success };
   }
@@ -43,7 +47,7 @@ export function ToastHost(): React.JSX.Element | null {
     <Snackbar
       visible
       onDismiss={handleDismiss}
-      duration={3000}
+      duration={current.durationMs ?? DEFAULT_DURATION_MS}
       style={snackbarStyle(current.kind)}
       action={{ label: 'OK', onPress: handleDismiss }}
     >

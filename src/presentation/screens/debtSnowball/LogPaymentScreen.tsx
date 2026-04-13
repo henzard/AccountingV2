@@ -52,7 +52,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
-      enqueue('Payment logged', 'info');
+      enqueue('Payment logged', 'success');
       navigation.goBack();
     } else {
       setError(result.error.message);
