@@ -24,11 +24,18 @@ import { SeedBabyStepsUseCase } from '../../../domain/babySteps/SeedBabyStepsUse
 // Helper: build a mock DB suitable for SyncOrchestrator
 // ---------------------------------------------------------------------------
 
+function makePendingQueueChain(rows: unknown[]) {
+  const limitFn = () => Promise.resolve(rows);
+  const orderByFn = () => ({ limit: limitFn });
+  const whereChain = { where: () => ({ orderBy: orderByFn }), orderBy: orderByFn };
+  return { from: () => whereChain };
+}
+
 function makeSyncDb(pendingItems: Record<string, unknown>[], rowsByRecordId: Record<string, unknown[]>) {
   let selectCallIdx = 0;
   const selectCallOrder: (() => unknown)[] = [
-    // First call: fetch pending sync queue
-    () => ({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pendingItems) }) }) }),
+    // First call: fetch pending sync queue (supports .where().orderBy().limit())
+    () => makePendingQueueChain(pendingItems),
     // Subsequent calls: fetch the local row for each pending item
     ...Object.values(rowsByRecordId).map((rows) =>
       () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve(rows) }) }) }),
@@ -174,7 +181,7 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     // Build db with 3 select slots: pending queue, row for bs-a, row for bs-b
     let callIdx = 0;
     const selectImpls = [
-      () => ({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }) }),
+      () => makePendingQueueChain(pending),
       () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([rowA]) }) }) }),
       () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([rowB]) }) }) }),
     ];
@@ -447,7 +454,7 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
       select: jest.fn().mockImplementation(() => {
         const idx = selectCallIdx++;
         if (idx === 0) {
-          return { from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }) };
+          return makePendingQueueChain([]);
         }
         // Fixer's envelope query — returns both active EMFs
         return { from: () => ({ where: () => Promise.resolve([older, newer]) }) };
@@ -491,7 +498,7 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
       select: jest.fn().mockImplementation(() => {
         const idx = selectCallIdx++;
         if (idx === 0) {
-          return { from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }) };
+          return makePendingQueueChain([]);
         }
         return { from: () => ({ where: () => Promise.resolve([singleEMF]) }) };
       }),
@@ -512,12 +519,13 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
     ];
     const db = {
       select: jest.fn()
-        .mockReturnValueOnce({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }) })
+        .mockReturnValueOnce(makePendingQueueChain(pending))
         .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }) }) }),
       update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
     } as any;
 
     const supabase = {
+      rpc: () => Promise.resolve({ error: { message: 'fail' } }),
       from: () => ({ upsert: () => Promise.resolve({ error: { message: 'fail' } }) }),
     } as any;
 

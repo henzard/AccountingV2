@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js';
 import type * as schema from '../local/schema';
@@ -14,6 +14,7 @@ import {
 } from '../local/schema';
 import { toSupabaseRow } from './rowConverters';
 import { ReconcileEmergencyFundTypeUseCase } from '../../domain/babySteps/ReconcileEmergencyFundTypeUseCase';
+import { logger } from '../../infrastructure/logging/Logger';
 
 type SyncTable =
   | typeof envelopes
@@ -24,8 +25,6 @@ type SyncTable =
   | typeof householdMembers
   | typeof babySteps;
 
-const BABY_STEPS_TABLE = 'baby_steps' as const;
-
 const TABLE_MAP: Record<string, SyncTable> = {
   envelopes,
   transactions,
@@ -33,8 +32,21 @@ const TABLE_MAP: Record<string, SyncTable> = {
   meter_readings: meterReadings,
   households,
   household_members: householdMembers,
-  [BABY_STEPS_TABLE]: babySteps,
+  baby_steps: babySteps,
 };
+
+const TABLE_RPC_MAP: Record<string, string> = {
+  baby_steps: 'merge_baby_step',
+  envelopes: 'merge_envelope',
+  transactions: 'merge_transaction',
+  debts: 'merge_debt',
+  meter_readings: 'merge_meter_reading',
+  households: 'merge_household',
+  household_members: 'merge_household_member',
+};
+
+const DLQ_MAX_RETRIES = 10;
+const DLQ_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class SyncOrchestrator {
   constructor(
@@ -46,6 +58,7 @@ export class SyncOrchestrator {
     const pending = await this.db
       .select()
       .from(pendingSync)
+      .where(isNull(pendingSync.deadLetteredAt))
       .orderBy(asc(pendingSync.createdAt))
       .limit(100);
 
@@ -57,12 +70,28 @@ export class SyncOrchestrator {
         await this.processItem(item);
         await this.db.delete(pendingSync).where(eq(pendingSync.id, item.id));
         synced++;
-      } catch {
+      } catch (err) {
+        logger.error('sync item failed', err, { itemId: item.id, table: item.tableName });
         const now = new Date().toISOString();
-        await this.db
-          .update(pendingSync)
-          .set({ retryCount: item.retryCount + 1, lastAttemptedAt: now })
-          .where(eq(pendingSync.id, item.id));
+        const newRetryCount = item.retryCount + 1;
+
+        const shouldDLQ =
+          newRetryCount >= DLQ_MAX_RETRIES ||
+          (Date.now() - new Date(item.createdAt).getTime()) >= DLQ_MAX_AGE_MS;
+
+        if (shouldDLQ) {
+          await this.db
+            .update(pendingSync)
+            .set({ retryCount: newRetryCount, lastAttemptedAt: now, deadLetteredAt: now })
+            .where(eq(pendingSync.id, item.id));
+        } else {
+          const backoffMs = Math.min(60_000, 1000 * 2 ** item.retryCount);
+          const nextAttempt = new Date(Date.now() + backoffMs).toISOString();
+          await this.db
+            .update(pendingSync)
+            .set({ retryCount: newRetryCount, lastAttemptedAt: nextAttempt })
+            .where(eq(pendingSync.id, item.id));
+        }
         failed++;
       }
     }
@@ -105,9 +134,10 @@ export class SyncOrchestrator {
     const snakeRow = toSupabaseRow(row as Record<string, unknown>);
 
     let syncError: PostgrestError | null = null;
-    if (item.tableName === BABY_STEPS_TABLE && item.operation !== 'DELETE') {
-      // Route through merge_baby_step RPC to preserve celebrated_at on conflict
-      const { error } = await this.supabase.rpc('merge_baby_step', { row: snakeRow });
+    const rpcName = TABLE_RPC_MAP[item.tableName];
+    if (rpcName) {
+      // Route through per-table merge RPC with LWW guard
+      const { error } = await this.supabase.rpc(rpcName, { row: snakeRow });
       syncError = error;
     } else {
       const { error } = await this.supabase
