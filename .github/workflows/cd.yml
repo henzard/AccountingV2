@@ -61,9 +61,10 @@ jobs:
 
       - name: Upload JS source maps to Crashlytics
         working-directory: android
+        continue-on-error: true
         run: |
-          ./gradlew uploadCrashlyticsSymbolFileRelease || echo "symbol upload skipped"
-          ./gradlew uploadCrashlyticsMappingFileRelease || echo "mapping upload skipped"
+          ./gradlew uploadCrashlyticsSymbolFileRelease
+          ./gradlew uploadCrashlyticsMappingFileRelease
 
       - name: Upload to Play Store — Internal Testing
         uses: r0adkll/upload-google-play@v1
