@@ -67,3 +67,52 @@ DROP TRIGGER IF EXISTS tr_household_members_sync_user_households
 CREATE TRIGGER tr_household_members_sync_user_households
   AFTER INSERT ON public.household_members
   FOR EACH ROW EXECUTE FUNCTION public.sync_household_member_to_user_households();
+
+-- RLS on invitations: only the inviter or the person accepting may read;
+-- only authenticated users may insert; only the creator may update/delete.
+ALTER TABLE public.invitations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS inv_select ON public.invitations;
+CREATE POLICY inv_select ON public.invitations
+  FOR SELECT TO authenticated
+  USING (
+    invited_by_user_id = auth.uid()
+    OR used_by_user_id = auth.uid()
+    OR (used_by_user_id IS NULL AND expires_at > NOW())
+  );
+-- Note: the last clause lets an acceptor look up by code. The code is the secret.
+
+DROP POLICY IF EXISTS inv_insert ON public.invitations;
+CREATE POLICY inv_insert ON public.invitations
+  FOR INSERT TO authenticated
+  WITH CHECK (invited_by_user_id = auth.uid());
+
+DROP POLICY IF EXISTS inv_update ON public.invitations;
+CREATE POLICY inv_update ON public.invitations
+  FOR UPDATE TO authenticated
+  USING (invited_by_user_id = auth.uid() OR used_by_user_id IS NULL)
+  WITH CHECK (true);
+
+-- RLS on household_members: members can read their own households' members;
+-- only the user themself may insert their row (via the trigger chain);
+-- only the user themself may delete their row.
+ALTER TABLE public.household_members ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hm_select ON public.household_members;
+CREATE POLICY hm_select ON public.household_members
+  FOR SELECT TO authenticated
+  USING (
+    household_id IN (
+      SELECT household_id FROM public.user_households WHERE user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS hm_insert ON public.household_members;
+CREATE POLICY hm_insert ON public.household_members
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS hm_delete ON public.household_members;
+CREATE POLICY hm_delete ON public.household_members
+  FOR DELETE TO authenticated
+  USING (user_id = auth.uid());
