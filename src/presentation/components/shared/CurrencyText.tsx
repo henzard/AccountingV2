@@ -20,10 +20,7 @@ export function CurrencyText({ amountCents, style, showSign = false }: Props): R
   const prefix = isNegative ? '-' : showSign ? '+' : '';
   return (
     <Text
-      style={[
-        { fontFamily: 'PlusJakartaSans_600SemiBold', fontVariant: ['tabular-nums'] },
-        style,
-      ]}
+      style={[{ fontFamily: 'PlusJakartaSans_600SemiBold', fontVariant: ['tabular-nums'] }, style]}
     >
       {`${prefix}${rand}`}
     </Text>

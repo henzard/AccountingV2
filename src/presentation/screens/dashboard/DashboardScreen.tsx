@@ -87,20 +87,29 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       {envelopes.length > 0 && (
         <Surface style={styles.summary} elevation={1}>
           <View style={styles.summaryItem}>
-            <Text variant="labelSmall" style={styles.summaryLabel}>ALLOCATED</Text>
+            <Text variant="labelSmall" style={styles.summaryLabel}>
+              ALLOCATED
+            </Text>
             <CurrencyText amountCents={totalAllocated} style={styles.summaryValue} />
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryItem}>
-            <Text variant="labelSmall" style={styles.summaryLabel}>SPENT</Text>
+            <Text variant="labelSmall" style={styles.summaryLabel}>
+              SPENT
+            </Text>
             <CurrencyText amountCents={totalSpent} style={styles.summaryValue} />
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryItem}>
-            <Text variant="labelSmall" style={styles.summaryLabel}>REMAINING</Text>
+            <Text variant="labelSmall" style={styles.summaryLabel}>
+              REMAINING
+            </Text>
             <CurrencyText
               amountCents={totalRemaining}
-              style={{ ...styles.summaryValue, ...(totalRemaining < 0 ? styles.overBudget : undefined) }}
+              style={{
+                ...styles.summaryValue,
+                ...(totalRemaining < 0 ? styles.overBudget : undefined),
+              }}
             />
           </View>
         </Surface>
@@ -142,12 +151,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
         />
       )}
 
-      <FAB
-        icon="plus"
-        style={styles.fab}
-        onPress={handleAddEnvelope}
-        color={colours.onPrimary}
-      />
+      <FAB icon="plus" style={styles.fab} onPress={handleAddEnvelope} color={colours.onPrimary} />
     </View>
   );
 };

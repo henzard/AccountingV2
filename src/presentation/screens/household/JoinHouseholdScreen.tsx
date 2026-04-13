@@ -52,7 +52,10 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
   };
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <View style={styles.container}>
         <Text variant="bodyMedium" style={styles.description}>
           Enter the 6-character code shared by your household member.

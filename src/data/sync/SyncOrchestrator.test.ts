@@ -1,4 +1,6 @@
-jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2) }));
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
+}));
 
 import { SyncOrchestrator } from './SyncOrchestrator';
 
@@ -23,11 +25,17 @@ describe('SyncOrchestrator.syncPending', () => {
 
   it('baby_steps DELETE uses plain .delete() path, not rpc()', async () => {
     const pending = [
-      { id: 'p1', tableName: 'baby_steps', recordId: 'bs-del-1', operation: 'DELETE', retryCount: 0, createdAt: new Date().toISOString() },
+      {
+        id: 'p1',
+        tableName: 'baby_steps',
+        recordId: 'bs-del-1',
+        operation: 'DELETE',
+        retryCount: 0,
+        createdAt: new Date().toISOString(),
+      },
     ];
     const db = {
-      select: jest.fn()
-        .mockReturnValueOnce(makePendingQueueChain(pending)),
+      select: jest.fn().mockReturnValueOnce(makePendingQueueChain(pending)),
       delete: () => ({ where: () => Promise.resolve() }),
     } as any;
 
@@ -51,12 +59,26 @@ describe('SyncOrchestrator.syncPending', () => {
 
   it('increments failed count when Supabase upsert throws', async () => {
     const pending = [
-      { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0, createdAt: new Date().toISOString() },
+      {
+        id: 'p1',
+        tableName: 'envelopes',
+        recordId: 'e1',
+        operation: 'INSERT',
+        retryCount: 0,
+        createdAt: new Date().toISOString(),
+      },
     ];
     const db = {
-      select: jest.fn()
+      select: jest
+        .fn()
         .mockReturnValueOnce(makePendingQueueChain(pending))
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ id: 'e1', householdId: 'h1', isSynced: false }]) }) }) }),
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({
+              limit: () => Promise.resolve([{ id: 'e1', householdId: 'h1', isSynced: false }]),
+            }),
+          }),
+        }),
       update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
     } as any;
     const supabase = {
@@ -86,11 +108,19 @@ describe('SyncOrchestrator.syncPending', () => {
       };
 
       const pending = [
-        { id: 'p1', tableName: 'baby_steps', recordId: 'bs-1', operation: 'INSERT', retryCount: 0, createdAt: new Date().toISOString() },
+        {
+          id: 'p1',
+          tableName: 'baby_steps',
+          recordId: 'bs-1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
 
       const db = {
-        select: jest.fn()
+        select: jest
+          .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
           .mockReturnValueOnce({
             from: () => ({ where: () => ({ limit: () => Promise.resolve([babyStepRow]) }) }),
@@ -122,21 +152,38 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('increments failed when merge_baby_step RPC returns an error', async () => {
       const pending = [
-        { id: 'p1', tableName: 'baby_steps', recordId: 'bs-2', operation: 'INSERT', retryCount: 0, createdAt: new Date().toISOString() },
+        {
+          id: 'p1',
+          tableName: 'baby_steps',
+          recordId: 'bs-2',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
 
       const db = {
-        select: jest.fn()
+        select: jest
+          .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
           .mockReturnValueOnce({
             from: () => ({
               where: () => ({
-                limit: () => Promise.resolve([{
-                  id: 'bs-2', householdId: 'hh-1', stepNumber: 2,
-                  isCompleted: false, completedAt: null, isManual: false,
-                  celebratedAt: null, createdAt: '2026-01-01T00:00:00Z',
-                  updatedAt: '2026-01-01T00:00:00Z', isSynced: false,
-                }]),
+                limit: () =>
+                  Promise.resolve([
+                    {
+                      id: 'bs-2',
+                      householdId: 'hh-1',
+                      stepNumber: 2,
+                      isCompleted: false,
+                      completedAt: null,
+                      isManual: false,
+                      celebratedAt: null,
+                      createdAt: '2026-01-01T00:00:00Z',
+                      updatedAt: '2026-01-01T00:00:00Z',
+                      isSynced: false,
+                    },
+                  ]),
               }),
             }),
           }),
@@ -157,22 +204,40 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('routes envelopes through merge_envelope RPC (all tables now use merge RPCs)', async () => {
       const pending = [
-        { id: 'p1', tableName: 'envelopes', recordId: 'e-1', operation: 'INSERT', retryCount: 0, createdAt: new Date().toISOString() },
+        {
+          id: 'p1',
+          tableName: 'envelopes',
+          recordId: 'e-1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
 
       const db = {
-        select: jest.fn()
+        select: jest
+          .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
           .mockReturnValueOnce({
             from: () => ({
               where: () => ({
-                limit: () => Promise.resolve([{
-                  id: 'e-1', householdId: 'hh-1', name: 'Groceries',
-                  allocatedCents: 5000, spentCents: 0, envelopeType: 'spending',
-                  isSavingsLocked: false, isArchived: false, periodStart: '2026-04-01',
-                  createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
-                  isSynced: false,
-                }]),
+                limit: () =>
+                  Promise.resolve([
+                    {
+                      id: 'e-1',
+                      householdId: 'hh-1',
+                      name: 'Groceries',
+                      allocatedCents: 5000,
+                      spentCents: 0,
+                      envelopeType: 'spending',
+                      isSavingsLocked: false,
+                      isArchived: false,
+                      periodStart: '2026-04-01',
+                      createdAt: '2026-01-01T00:00:00Z',
+                      updatedAt: '2026-01-01T00:00:00Z',
+                      isSynced: false,
+                    },
+                  ]),
               }),
             }),
           }),
@@ -231,10 +296,18 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('does NOT call ReconcileEmergencyFundTypeUseCase when failed > 0', async () => {
       const pending = [
-        { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0, createdAt: new Date().toISOString() },
+        {
+          id: 'p1',
+          tableName: 'envelopes',
+          recordId: 'e1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
       const db = {
-        select: jest.fn()
+        select: jest
+          .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
           .mockReturnValueOnce({
             from: () => ({
@@ -305,10 +378,18 @@ describe('SyncOrchestrator.syncPending', () => {
 
     it('does NOT invoke fixer when syncPending(householdId) has partial failure', async () => {
       const pending = [
-        { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0, createdAt: new Date().toISOString() },
+        {
+          id: 'p1',
+          tableName: 'envelopes',
+          recordId: 'e1',
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
       ];
       const db = {
-        select: jest.fn()
+        select: jest
+          .fn()
           .mockReturnValueOnce(makePendingQueueChain(pending))
           .mockReturnValueOnce({
             from: () => ({
@@ -340,63 +421,154 @@ describe('SyncOrchestrator — per-table merge RPC routing', () => {
     {
       tableName: 'envelopes',
       rpcName: 'merge_envelope',
-      localRow: { id: 'e-1', householdId: 'hh-1', name: 'Groceries', allocatedCents: 5000, spentCents: 0, envelopeType: 'spending', isSavingsLocked: false, isArchived: false, periodStart: '2026-04-01', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isSynced: false },
+      localRow: {
+        id: 'e-1',
+        householdId: 'hh-1',
+        name: 'Groceries',
+        allocatedCents: 5000,
+        spentCents: 0,
+        envelopeType: 'spending',
+        isSavingsLocked: false,
+        isArchived: false,
+        periodStart: '2026-04-01',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
     },
     {
       tableName: 'transactions',
       rpcName: 'merge_transaction',
-      localRow: { id: 'tx-1', householdId: 'hh-1', envelopeId: 'e-1', amountCents: 1000, payee: 'Shop', description: null, transactionDate: '2026-04-01', isBusinessExpense: false, spendingTriggerNote: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isSynced: false },
+      localRow: {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'e-1',
+        amountCents: 1000,
+        payee: 'Shop',
+        description: null,
+        transactionDate: '2026-04-01',
+        isBusinessExpense: false,
+        spendingTriggerNote: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
     },
     {
       tableName: 'debts',
       rpcName: 'merge_debt',
-      localRow: { id: 'd-1', householdId: 'hh-1', creditorName: 'Bank', debtType: 'credit_card', outstandingBalanceCents: 10000, initialBalanceCents: 10000, interestRatePercent: 20, minimumPaymentCents: 500, sortOrder: 0, isPaidOff: false, totalPaidCents: 0, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isSynced: false },
+      localRow: {
+        id: 'd-1',
+        householdId: 'hh-1',
+        creditorName: 'Bank',
+        debtType: 'credit_card',
+        outstandingBalanceCents: 10000,
+        initialBalanceCents: 10000,
+        interestRatePercent: 20,
+        minimumPaymentCents: 500,
+        sortOrder: 0,
+        isPaidOff: false,
+        totalPaidCents: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
     },
     {
       tableName: 'meter_readings',
       rpcName: 'merge_meter_reading',
-      localRow: { id: 'mr-1', householdId: 'hh-1', meterType: 'electricity', readingValue: 1234.5, readingDate: '2026-04-01', costCents: null, vehicleId: null, notes: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isSynced: false },
+      localRow: {
+        id: 'mr-1',
+        householdId: 'hh-1',
+        meterType: 'electricity',
+        readingValue: 1234.5,
+        readingDate: '2026-04-01',
+        costCents: null,
+        vehicleId: null,
+        notes: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
     },
     {
       tableName: 'households',
       rpcName: 'merge_household',
-      localRow: { id: 'hh-1', name: 'Test', paydayDay: 25, userLevel: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isSynced: false },
+      localRow: {
+        id: 'hh-1',
+        name: 'Test',
+        paydayDay: 25,
+        userLevel: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
     },
     {
       tableName: 'household_members',
       rpcName: 'merge_household_member',
-      localRow: { id: 'hm-1', householdId: 'hh-1', userId: 'user-1', role: 'member', joinedAt: '2026-01-01T00:00:00Z' },
+      localRow: {
+        id: 'hm-1',
+        householdId: 'hh-1',
+        userId: 'user-1',
+        role: 'member',
+        joinedAt: '2026-01-01T00:00:00Z',
+      },
     },
     {
       tableName: 'baby_steps',
       rpcName: 'merge_baby_step',
-      localRow: { id: 'bs-1', householdId: 'hh-1', stepNumber: 1, isCompleted: false, completedAt: null, isManual: false, celebratedAt: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isSynced: false },
+      localRow: {
+        id: 'bs-1',
+        householdId: 'hh-1',
+        stepNumber: 1,
+        isCompleted: false,
+        completedAt: null,
+        isManual: false,
+        celebratedAt: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
     },
   ];
 
-  it.each(tables)('routes $tableName through $rpcName on upsert', async ({ tableName, rpcName, localRow }) => {
-    const pending = [
-      { id: 'p1', tableName, recordId: localRow.id as string, operation: 'INSERT', retryCount: 0, createdAt: new Date().toISOString() },
-    ];
+  it.each(tables)(
+    'routes $tableName through $rpcName on upsert',
+    async ({ tableName, rpcName, localRow }) => {
+      const pending = [
+        {
+          id: 'p1',
+          tableName,
+          recordId: localRow.id as string,
+          operation: 'INSERT',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+        },
+      ];
 
-    const db = {
-      select: jest.fn()
-        .mockReturnValueOnce(makePendingQueueChain(pending))
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([localRow]) }) }) }),
-      delete: () => ({ where: () => Promise.resolve() }),
-      update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-    } as any;
+      const db = {
+        select: jest
+          .fn()
+          .mockReturnValueOnce(makePendingQueueChain(pending))
+          .mockReturnValueOnce({
+            from: () => ({ where: () => ({ limit: () => Promise.resolve([localRow]) }) }),
+          }),
+        delete: () => ({ where: () => Promise.resolve() }),
+        update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+      } as any;
 
-    const rpcMock = jest.fn().mockResolvedValue({ error: null });
-    const supabase = { rpc: rpcMock, from: () => ({ upsert: jest.fn() }) } as any;
+      const rpcMock = jest.fn().mockResolvedValue({ error: null });
+      const supabase = { rpc: rpcMock, from: () => ({ upsert: jest.fn() }) } as any;
 
-    const orch = new SyncOrchestrator(db, supabase);
-    const result = await orch.syncPending();
+      const orch = new SyncOrchestrator(db, supabase);
+      const result = await orch.syncPending();
 
-    expect(result.synced).toBe(1);
-    expect(result.failed).toBe(0);
-    expect(rpcMock).toHaveBeenCalledWith(rpcName, expect.any(Object));
-  });
+      expect(result.synced).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(rpcMock).toHaveBeenCalledWith(rpcName, expect.any(Object));
+    },
+  );
 });
 
 describe('SyncOrchestrator — DLQ after max retries', () => {
@@ -413,13 +585,23 @@ describe('SyncOrchestrator — DLQ after max retries', () => {
 
     const pending = [poisonRow];
 
-    const updateSetMock = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
+    const updateSetMock = jest
+      .fn()
+      .mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
     const updateMock = jest.fn().mockReturnValue({ set: updateSetMock });
 
     const db = {
-      select: jest.fn()
+      select: jest
+        .fn()
         .mockReturnValueOnce(makePendingQueueChain(pending))
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ id: 'e-poison', householdId: 'hh-1', isSynced: false }]) }) }) }),
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({
+              limit: () =>
+                Promise.resolve([{ id: 'e-poison', householdId: 'hh-1', isSynced: false }]),
+            }),
+          }),
+        }),
       update: updateMock,
     } as any;
 

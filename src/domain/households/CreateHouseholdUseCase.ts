@@ -33,7 +33,10 @@ export class CreateHouseholdUseCase {
       return createFailure({ code: 'INVALID_NAME', message: 'Household name is required' });
     }
     if (this.input.paydayDay < 1 || this.input.paydayDay > 28) {
-      return createFailure({ code: 'INVALID_PAYDAY', message: 'Payday day must be between 1 and 28' });
+      return createFailure({
+        code: 'INVALID_PAYDAY',
+        message: 'Payday day must be between 1 and 28',
+      });
     }
 
     const now = new Date().toISOString();

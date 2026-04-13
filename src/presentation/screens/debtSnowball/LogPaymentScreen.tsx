@@ -22,7 +22,9 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    db.select().from(debtsTable).where(eq(debtsTable.id, debtId))
+    db.select()
+      .from(debtsTable)
+      .where(eq(debtsTable.id, debtId))
       .then((rows) => {
         const row = rows[0] as DebtEntity | undefined;
         if (row) setAmountRands((row.minimumPaymentCents / 100).toFixed(2));
@@ -58,7 +60,10 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       {debt && (
         <Text variant="bodyMedium" style={styles.hint}>
-          Outstanding: R{(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+          Outstanding: R
+          {(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', {
+            minimumFractionDigits: 2,
+          })}
         </Text>
       )}
       <TextInput

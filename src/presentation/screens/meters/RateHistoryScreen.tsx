@@ -4,7 +4,10 @@ import { Text, Surface, ActivityIndicator } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { format, parseISO } from 'date-fns';
 import { UnitRateCalculator } from '../../../domain/meterReadings/UnitRateCalculator';
-import { getMeterTypeLabel, getMeterUnitLabel } from '../../../domain/meterReadings/MeterReadingEntity';
+import {
+  getMeterTypeLabel,
+  getMeterUnitLabel,
+} from '../../../domain/meterReadings/MeterReadingEntity';
 import { useMeterReadings } from '../../hooks/useMeterReadings';
 import { useAppStore } from '../../stores/appStore';
 import { colours, spacing, radius } from '../../theme/tokens';
@@ -18,7 +21,11 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
   const householdId = useAppStore((s) => s.householdId)!;
   const { readings, loading, reload } = useMeterReadings(householdId, meterType, 24);
 
-  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
 
   const unit = getMeterUnitLabel(meterType);
 
@@ -50,7 +57,9 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
                 ) : null}
               </>
             ) : (
-              <Text variant="bodySmall" style={styles.firstReading}>First reading</Text>
+              <Text variant="bodySmall" style={styles.firstReading}>
+                First reading
+              </Text>
             )}
           </View>
         </Surface>
@@ -76,8 +85,12 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
       </Surface>
       {readings.length === 0 ? (
         <View style={styles.center}>
-          <Text variant="titleMedium" style={styles.empty}>No readings yet</Text>
-          <Text variant="bodyMedium" style={styles.emptySub}>Go back and log your first reading</Text>
+          <Text variant="titleMedium" style={styles.empty}>
+            No readings yet
+          </Text>
+          <Text variant="bodyMedium" style={styles.emptySub}>
+            Go back and log your first reading
+          </Text>
         </View>
       ) : (
         <FlatList

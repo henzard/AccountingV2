@@ -1,18 +1,18 @@
 export interface RamseyScoreInput {
-  loggingDaysCount: number;     // days with at least one transaction logged
-  totalDaysInPeriod: number;    // calendar days in the current budget period
-  envelopesOnBudget: number;    // envelopes where spentCents <= allocatedCents
+  loggingDaysCount: number; // days with at least one transaction logged
+  totalDaysInPeriod: number; // calendar days in the current budget period
+  envelopesOnBudget: number; // envelopes where spentCents <= allocatedCents
   totalEnvelopes: number;
   meterReadingsLoggedThisPeriod: boolean; // at least one reading logged this period
-  babyStepIsActive: boolean;    // household has at least one Baby Step configured
+  babyStepIsActive: boolean; // household has at least one Baby Step configured
 }
 
 export interface RamseyScoreResult {
-  score: number;             // 0–100
-  loggingPoints: number;     // 0–30
-  disciplinePoints: number;  // 0–30
-  metersPoints: number;      // 0–20
-  babyStepPoints: number;    // 0–20
+  score: number; // 0–100
+  loggingPoints: number; // 0–30
+  disciplinePoints: number; // 0–30
+  metersPoints: number; // 0–20
+  babyStepPoints: number; // 0–20
 }
 
 export class RamseyScoreCalculator {

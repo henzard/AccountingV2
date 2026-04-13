@@ -27,8 +27,30 @@ export function LoadingSkeletonCard(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colours.surface, borderRadius: radius.lg, padding: spacing.base, marginBottom: spacing.md },
-  titleLine: { height: 16, width: '60%', backgroundColor: colours.outlineVariant, borderRadius: radius.sm, marginBottom: spacing.sm },
-  amountLine: { height: 22, width: '40%', backgroundColor: colours.outlineVariant, borderRadius: radius.sm, marginBottom: spacing.md },
-  barLine: { height: 8, width: '100%', backgroundColor: colours.outlineVariant, borderRadius: radius.full },
+  card: {
+    backgroundColor: colours.surface,
+    borderRadius: radius.lg,
+    padding: spacing.base,
+    marginBottom: spacing.md,
+  },
+  titleLine: {
+    height: 16,
+    width: '60%',
+    backgroundColor: colours.outlineVariant,
+    borderRadius: radius.sm,
+    marginBottom: spacing.sm,
+  },
+  amountLine: {
+    height: 22,
+    width: '40%',
+    backgroundColor: colours.outlineVariant,
+    borderRadius: radius.sm,
+    marginBottom: spacing.md,
+  },
+  barLine: {
+    height: 8,
+    width: '100%',
+    backgroundColor: colours.outlineVariant,
+    borderRadius: radius.full,
+  },
 });

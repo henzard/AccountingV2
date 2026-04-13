@@ -23,9 +23,7 @@ export interface ReconcileEmergencyFundTypeResult {
 }
 
 export class ReconcileEmergencyFundTypeUseCase {
-  constructor(
-    private readonly db: ExpoSQLiteDatabase<typeof schema>,
-  ) {}
+  constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
 
   async execute(householdId: string): Promise<Result<ReconcileEmergencyFundTypeResult>> {
     // 1. Find all non-archived emergency_fund envelopes, ordered by createdAt ASC

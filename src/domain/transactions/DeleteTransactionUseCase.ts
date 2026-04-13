@@ -22,9 +22,7 @@ export class DeleteTransactionUseCase {
   async execute(): Promise<Result<void>> {
     const now = new Date().toISOString();
 
-    await this.db
-      .delete(transactions)
-      .where(sql`${transactions.id} = ${this.tx.id}`);
+    await this.db.delete(transactions).where(sql`${transactions.id} = ${this.tx.id}`);
 
     // Atomically decrement spentCents
     await this.db

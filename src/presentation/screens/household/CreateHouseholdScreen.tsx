@@ -48,7 +48,10 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = ({ na
   };
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text variant="bodyMedium" style={styles.description}>
           Give your household a name and set your payday. You can invite members after creating it.

@@ -10,7 +10,10 @@ export class NotificationPreferencesRepository {
     const json = await AsyncStorage.getItem(STORAGE_KEY);
     if (!json) return { ...DEFAULT_NOTIFICATION_PREFERENCES };
     try {
-      return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...JSON.parse(json) } as NotificationPreferences;
+      return {
+        ...DEFAULT_NOTIFICATION_PREFERENCES,
+        ...JSON.parse(json),
+      } as NotificationPreferences;
     } catch (err) {
       logger.warn('NotificationPreferences read failed, using defaults', { err: String(err) });
       return { ...DEFAULT_NOTIFICATION_PREFERENCES };

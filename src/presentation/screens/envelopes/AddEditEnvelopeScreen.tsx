@@ -28,7 +28,10 @@ function toRandString(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
-export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({ route, navigation }) => {
+export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
+  route,
+  navigation,
+}) => {
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
   const envelopeId = route.params?.envelopeId;
@@ -101,7 +104,10 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({ ro
   }, [name, amountStr, envelopeType, existing, householdId, paydayDay, navigation]);
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <TextInput
           label="Envelope name"

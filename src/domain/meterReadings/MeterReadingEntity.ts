@@ -6,9 +6,9 @@ export interface MeterReadingEntity {
   id: string;
   householdId: string;
   meterType: MeterType;
-  readingValue: number;      // kWh, kL, or km
-  readingDate: string;       // ISO date YYYY-MM-DD
-  costCents: number | null;  // cost associated with this billing period
+  readingValue: number; // kWh, kL, or km
+  readingDate: string; // ISO date YYYY-MM-DD
+  costCents: number | null; // cost associated with this billing period
   vehicleId: string | null;
   notes: string | null;
   createdAt: string;

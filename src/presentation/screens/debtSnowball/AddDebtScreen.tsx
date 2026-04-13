@@ -30,14 +30,26 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = async (): Promise<void> => {
-    if (!creditorName.trim()) { setError('Creditor name is required'); return; }
+    if (!creditorName.trim()) {
+      setError('Creditor name is required');
+      return;
+    }
     const balanceCents = Math.round(parseFloat(balanceRands) * 100);
     const rate = parseFloat(ratePercent);
     const minPayCents = Math.round(parseFloat(minPaymentRands) * 100);
 
-    if (isNaN(balanceCents) || balanceCents <= 0) { setError('Enter a valid outstanding balance'); return; }
-    if (isNaN(rate) || rate < 0) { setError('Enter a valid interest rate (0 for interest-free)'); return; }
-    if (isNaN(minPayCents) || minPayCents <= 0) { setError('Enter a valid minimum monthly payment'); return; }
+    if (isNaN(balanceCents) || balanceCents <= 0) {
+      setError('Enter a valid outstanding balance');
+      return;
+    }
+    if (isNaN(rate) || rate < 0) {
+      setError('Enter a valid interest rate (0 for interest-free)');
+      return;
+    }
+    if (isNaN(minPayCents) || minPayCents <= 0) {
+      setError('Enter a valid minimum monthly payment');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -60,7 +72,9 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text variant="titleMedium" style={styles.sectionLabel}>Debt Type</Text>
+      <Text variant="titleMedium" style={styles.sectionLabel}>
+        Debt Type
+      </Text>
       <SegmentedButtons
         value={debtType}
         onValueChange={(v) => setDebtType(v as DebtType)}

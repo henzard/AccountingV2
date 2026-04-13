@@ -45,7 +45,10 @@ export class CreateInviteUseCase {
       .single();
 
     if (error || !data) {
-      return createFailure({ code: 'INVITE_CREATE_FAILED', message: error?.message ?? 'Failed to create invite' });
+      return createFailure({
+        code: 'INVITE_CREATE_FAILED',
+        message: error?.message ?? 'Failed to create invite',
+      });
     }
 
     return createSuccess({ code: data.code as string, expiresAt });

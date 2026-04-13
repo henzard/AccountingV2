@@ -1,10 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View,
-  StyleSheet,
-  SectionList,
-  Alert,
-} from 'react-native';
+import { View, StyleSheet, SectionList, Alert } from 'react-native';
 import { Text, FAB, ActivityIndicator, Surface, TouchableRipple } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { eq } from 'drizzle-orm';
@@ -90,8 +85,12 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   return (
     <View style={styles.flex}>
       <Surface style={styles.header} elevation={0}>
-        <Text variant="labelMedium" style={styles.periodLabel}>TRANSACTIONS</Text>
-        <Text variant="headlineSmall" style={styles.periodTitle}>{period.label}</Text>
+        <Text variant="labelMedium" style={styles.periodLabel}>
+          TRANSACTIONS
+        </Text>
+        <Text variant="headlineSmall" style={styles.periodTitle}>
+          {period.label}
+        </Text>
       </Surface>
 
       {loading ? (
@@ -100,8 +99,12 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
         </View>
       ) : transactions.length === 0 ? (
         <View style={styles.center}>
-          <Text variant="titleMedium" style={styles.emptyTitle}>No transactions yet</Text>
-          <Text variant="bodyMedium" style={styles.emptyBody}>Tap + to record spending</Text>
+          <Text variant="titleMedium" style={styles.emptyTitle}>
+            No transactions yet
+          </Text>
+          <Text variant="bodyMedium" style={styles.emptyBody}>
+            Tap + to record spending
+          </Text>
         </View>
       ) : (
         <SectionList
@@ -109,11 +112,16 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           keyExtractor={(item) => item.id}
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionHeader}>
-              <Text variant="labelMedium" style={styles.sectionTitle}>{section.title}</Text>
+              <Text variant="labelMedium" style={styles.sectionTitle}>
+                {section.title}
+              </Text>
             </View>
           )}
           renderItem={({ item }) => (
-            <TouchableRipple onLongPress={() => handleDelete(item)} rippleColor={colours.errorContainer}>
+            <TouchableRipple
+              onLongPress={() => handleDelete(item)}
+              rippleColor={colours.errorContainer}
+            >
               <Surface style={styles.row} elevation={1}>
                 <View style={styles.rowLeft}>
                   <Text variant="bodyLarge" style={styles.payee} numberOfLines={1}>
@@ -175,5 +183,10 @@ const styles = StyleSheet.create({
   envelopeName: { color: colours.onSurfaceVariant, marginTop: 2 },
   amount: { color: colours.error, fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold' },
   list: { paddingBottom: 100 },
-  fab: { position: 'absolute', right: spacing.base, bottom: spacing.xl, backgroundColor: colours.primary },
+  fab: {
+    position: 'absolute',
+    right: spacing.base,
+    bottom: spacing.xl,
+    backgroundColor: colours.primary,
+  },
 });

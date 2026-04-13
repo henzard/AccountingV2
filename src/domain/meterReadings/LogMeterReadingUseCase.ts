@@ -31,7 +31,10 @@ export class LogMeterReadingUseCase {
 
   async execute(): Promise<Result<MeterReadingEntity>> {
     if (this.input.readingValue <= 0) {
-      return createFailure({ code: 'INVALID_READING', message: 'Reading value must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_READING',
+        message: 'Reading value must be greater than zero',
+      });
     }
 
     const now = new Date().toISOString();

@@ -52,7 +52,10 @@ export function RootNavigator(): React.JSX.Element {
       if (!granted) return;
 
       if (prefs.eveningLogPromptEnabled) {
-        await scheduler.scheduleEveningLogPrompt(prefs.eveningLogPromptHour, prefs.eveningLogPromptMinute);
+        await scheduler.scheduleEveningLogPrompt(
+          prefs.eveningLogPromptHour,
+          prefs.eveningLogPromptMinute,
+        );
       }
       if (prefs.meterReadingReminderEnabled) {
         await scheduler.scheduleMeterReadingReminder(prefs.meterReadingReminderDay);
@@ -73,10 +76,26 @@ export function RootNavigator(): React.JSX.Element {
         ) : (
           <Stack.Screen name="Auth" component={AuthNavigator} />
         )}
-        <Stack.Screen name="HouseholdPicker" component={HouseholdPickerScreen} options={{ title: 'Your Households' }} />
-        <Stack.Screen name="CreateHousehold" component={CreateHouseholdScreen} options={{ title: 'New Household' }} />
-        <Stack.Screen name="ShareInvite" component={ShareInviteScreen} options={{ title: 'Invite Member' }} />
-        <Stack.Screen name="JoinHousehold" component={JoinHouseholdScreen} options={{ title: 'Join a Household' }} />
+        <Stack.Screen
+          name="HouseholdPicker"
+          component={HouseholdPickerScreen}
+          options={{ title: 'Your Households' }}
+        />
+        <Stack.Screen
+          name="CreateHousehold"
+          component={CreateHouseholdScreen}
+          options={{ title: 'New Household' }}
+        />
+        <Stack.Screen
+          name="ShareInvite"
+          component={ShareInviteScreen}
+          options={{ title: 'Invite Member' }}
+        />
+        <Stack.Screen
+          name="JoinHousehold"
+          component={JoinHouseholdScreen}
+          options={{ title: 'Join a Household' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

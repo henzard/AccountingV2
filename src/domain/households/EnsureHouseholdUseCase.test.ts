@@ -9,12 +9,19 @@ describe('EnsureHouseholdUseCase', () => {
         .fn()
         .mockReturnValueOnce({
           from: () => ({
-            where: () => ({ limit: () => Promise.resolve([{ householdId: 'hh-1', role: 'owner' }]) }),
+            where: () => ({
+              limit: () => Promise.resolve([{ householdId: 'hh-1', role: 'owner' }]),
+            }),
           }),
         })
         .mockReturnValueOnce({
           from: () => ({
-            where: () => ({ limit: () => Promise.resolve([{ id: 'hh-1', name: 'My Household', paydayDay: 25, userLevel: 1 }]) }),
+            where: () => ({
+              limit: () =>
+                Promise.resolve([
+                  { id: 'hh-1', name: 'My Household', paydayDay: 25, userLevel: 1 },
+                ]),
+            }),
           }),
         }),
       insert: jest.fn().mockReturnValue({
@@ -33,19 +40,30 @@ describe('EnsureHouseholdUseCase', () => {
 
   it('creates new household + membership when none exists', async () => {
     const insertedRows: unknown[] = [];
-    const emptySelectChain = { from: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };
+    const emptySelectChain = {
+      from: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue([]),
+    };
     const db = {
       select: jest
         .fn()
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) })
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) })
+        .mockReturnValueOnce({
+          from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+        })
+        .mockReturnValueOnce({
+          from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+        })
         .mockReturnValue(emptySelectChain), // default for PendingSyncEnqueuer dedup checks
       insert: jest.fn().mockReturnValue({
         values: (row: unknown) => {
           insertedRows.push(row);
           return {
             onConflictDoNothing: () => Promise.resolve(undefined),
-            then: (resolve: (v: undefined) => void) => { resolve(undefined); return Promise.resolve(undefined); },
+            then: (resolve: (v: undefined) => void) => {
+              resolve(undefined);
+              return Promise.resolve(undefined);
+            },
           };
         },
       }),

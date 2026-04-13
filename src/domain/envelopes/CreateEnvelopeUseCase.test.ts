@@ -3,9 +3,15 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => 'new-env-uuid' }));
 import { CreateEnvelopeUseCase } from './CreateEnvelopeUseCase';
 
 const makeDb = () => ({
-  select: jest.fn().mockReturnValue({ from: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) }),
+  select: jest.fn().mockReturnValue({
+    from: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue([]),
+  }),
   insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
-  update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
+  update: jest.fn().mockReturnValue({
+    set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+  }),
 });
 const makeAudit = () => ({ log: jest.fn().mockResolvedValue(undefined) });
 

@@ -14,8 +14,8 @@ const RADIUS = 28;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-const ARC = CIRCUMFERENCE * 0.75;  // 270° sweep
-const GAP = CIRCUMFERENCE * 0.25;  // 90° gap at the bottom
+const ARC = CIRCUMFERENCE * 0.75; // 270° sweep
+const GAP = CIRCUMFERENCE * 0.25; // 90° gap at the bottom
 
 function getScoreColour(score: number): string {
   if (score >= 80) return colours.scoreExcellent;

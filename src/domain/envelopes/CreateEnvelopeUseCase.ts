@@ -34,7 +34,10 @@ export class CreateEnvelopeUseCase {
       return createFailure({ code: 'INVALID_NAME', message: 'Envelope name is required' });
     }
     if (this.input.allocatedCents <= 0) {
-      return createFailure({ code: 'INVALID_AMOUNT', message: 'Budget amount must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_AMOUNT',
+        message: 'Budget amount must be greater than zero',
+      });
     }
 
     const isSavingsLocked =

@@ -7,7 +7,10 @@ import { format } from 'date-fns';
 import { db } from '../../../data/local/db';
 import { debts as debtsTable } from '../../../data/local/schema';
 import { SnowballPayoffProjector } from '../../../domain/debtSnowball/SnowballPayoffProjector';
-import { getDebtTypeLabel, getPayoffProgressPercent } from '../../../domain/debtSnowball/DebtEntity';
+import {
+  getDebtTypeLabel,
+  getPayoffProgressPercent,
+} from '../../../domain/debtSnowball/DebtEntity';
 import { DebtPayoffBar } from './components/DebtPayoffBar';
 import { colours, spacing, radius } from '../../theme/tokens';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
@@ -27,10 +30,18 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
     setLoading(false);
   }, [debtId]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   if (loading || !debt) {
-    return <View style={styles.center}><ActivityIndicator animating color={colours.primary} /></View>;
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator animating color={colours.primary} />
+      </View>
+    );
   }
 
   const plan = projector.project([debt]);
@@ -40,18 +51,29 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Surface style={styles.card} elevation={1}>
-        <Text variant="titleLarge" style={styles.creditor}>{debt.creditorName}</Text>
-        <Text variant="bodyMedium" style={styles.type}>{getDebtTypeLabel(debt.debtType)}</Text>
+        <Text variant="titleLarge" style={styles.creditor}>
+          {debt.creditorName}
+        </Text>
+        <Text variant="bodyMedium" style={styles.type}>
+          {getDebtTypeLabel(debt.debtType)}
+        </Text>
 
         <View style={styles.statsRow}>
           <View style={styles.stat}>
-            <Text variant="labelSmall" style={styles.statLabel}>OUTSTANDING</Text>
+            <Text variant="labelSmall" style={styles.statLabel}>
+              OUTSTANDING
+            </Text>
             <Text variant="titleMedium" style={styles.statValue}>
-              R{(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+              R
+              {(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', {
+                minimumFractionDigits: 2,
+              })}
             </Text>
           </View>
           <View style={styles.stat}>
-            <Text variant="labelSmall" style={styles.statLabel}>PAID TO DATE</Text>
+            <Text variant="labelSmall" style={styles.statLabel}>
+              PAID TO DATE
+            </Text>
             <Text variant="titleMedium" style={[styles.statValue, { color: colours.success }]}>
               R{(debt.totalPaidCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
             </Text>
@@ -62,7 +84,9 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 
         <View style={styles.detailsRow}>
           <Text variant="bodySmall" style={styles.detail}>
-            Min payment: R{(debt.minimumPaymentCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}/month
+            Min payment: R
+            {(debt.minimumPaymentCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+            /month
           </Text>
           <Text variant="bodySmall" style={styles.detail}>
             Rate: {debt.interestRatePercent}% p.a.
@@ -71,7 +95,8 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 
         {projection && projection.monthsToPayoff > 0 && (
           <Text variant="bodyMedium" style={styles.payoffDate}>
-            Projected payoff: {format(projection.payoffDate, 'MMMM yyyy')} ({projection.monthsToPayoff} months)
+            Projected payoff: {format(projection.payoffDate, 'MMMM yyyy')} (
+            {projection.monthsToPayoff} months)
           </Text>
         )}
       </Surface>
@@ -99,9 +124,17 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', marginBottom: spacing.base },
   stat: { flex: 1 },
   statLabel: { color: colours.onSurfaceVariant, letterSpacing: 0.8 },
-  statValue: { color: colours.onSurface, fontFamily: 'PlusJakartaSans_700Bold', marginTop: spacing.xs / 2 },
+  statValue: {
+    color: colours.onSurface,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    marginTop: spacing.xs / 2,
+  },
   detailsRow: { marginTop: spacing.sm, gap: spacing.xs },
   detail: { color: colours.onSurfaceVariant },
-  payoffDate: { color: colours.primary, marginTop: spacing.sm, fontFamily: 'PlusJakartaSans_600SemiBold' },
+  payoffDate: {
+    color: colours.primary,
+    marginTop: spacing.sm,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+  },
   payButton: { marginTop: spacing.base, backgroundColor: colours.primary },
 });

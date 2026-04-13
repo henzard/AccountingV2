@@ -10,7 +10,12 @@ export type AuthStackParamList = {
 
 export type DashboardStackParamList = {
   DashboardHome: undefined;
-  AddEditEnvelope: { envelopeId?: string; preselectedType?: import('../../domain/envelopes/EnvelopeEntity').EnvelopeType } | undefined;
+  AddEditEnvelope:
+    | {
+        envelopeId?: string;
+        preselectedType?: import('../../domain/envelopes/EnvelopeEntity').EnvelopeType;
+      }
+    | undefined;
   BabySteps: undefined;
 };
 
@@ -110,7 +115,13 @@ export type NotificationPreferencesScreenProps = NativeStackScreenProps<
   'NotificationPreferences'
 >;
 
-export type HouseholdPickerScreenProps = NativeStackScreenProps<RootStackParamList, 'HouseholdPicker'>;
-export type CreateHouseholdScreenProps = NativeStackScreenProps<RootStackParamList, 'CreateHousehold'>;
+export type HouseholdPickerScreenProps = NativeStackScreenProps<
+  RootStackParamList,
+  'HouseholdPicker'
+>;
+export type CreateHouseholdScreenProps = NativeStackScreenProps<
+  RootStackParamList,
+  'CreateHousehold'
+>;
 export type ShareInviteScreenProps = NativeStackScreenProps<RootStackParamList, 'ShareInvite'>;
 export type JoinHouseholdScreenProps = NativeStackScreenProps<RootStackParamList, 'JoinHousehold'>;

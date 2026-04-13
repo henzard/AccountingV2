@@ -14,7 +14,9 @@
  * receiving mock persistence.
  */
 
-jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2) }));
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
+}));
 
 import { SyncOrchestrator } from '../SyncOrchestrator';
 import { RestoreService } from '../RestoreService';
@@ -31,20 +33,25 @@ function makePendingQueueChain(rows: unknown[]) {
   return { from: () => whereChain };
 }
 
-function makeSyncDb(pendingItems: Record<string, unknown>[], rowsByRecordId: Record<string, unknown[]>) {
+function makeSyncDb(
+  pendingItems: Record<string, unknown>[],
+  rowsByRecordId: Record<string, unknown[]>,
+) {
   let selectCallIdx = 0;
   const selectCallOrder: (() => unknown)[] = [
     // First call: fetch pending sync queue (supports .where().orderBy().limit())
     () => makePendingQueueChain(pendingItems),
     // Subsequent calls: fetch the local row for each pending item
-    ...Object.values(rowsByRecordId).map((rows) =>
-      () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve(rows) }) }) }),
-    ),
+    ...Object.values(rowsByRecordId).map((rows) => () => ({
+      from: () => ({ where: () => ({ limit: () => Promise.resolve(rows) }) }),
+    })),
   ];
 
   return {
     select: jest.fn().mockImplementation(() => {
-      const fn = selectCallOrder[selectCallIdx] ?? (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
+      const fn =
+        selectCallOrder[selectCallIdx] ??
+        (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
       selectCallIdx++;
       return fn();
     }),
@@ -85,7 +92,13 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     };
 
     const pending = [
-      { id: 'psync-1', tableName: 'baby_steps', recordId: 'bs-device-a-1', operation: 'INSERT', retryCount: 0 },
+      {
+        id: 'psync-1',
+        tableName: 'baby_steps',
+        recordId: 'bs-device-a-1',
+        operation: 'INSERT',
+        retryCount: 0,
+      },
     ];
 
     const db = makeSyncDb(pending, { 'bs-device-a-1': [deviceARow] });
@@ -133,7 +146,13 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     };
 
     const pending = [
-      { id: 'psync-2', tableName: 'baby_steps', recordId: 'bs-device-b-1', operation: 'INSERT', retryCount: 0 },
+      {
+        id: 'psync-2',
+        tableName: 'baby_steps',
+        recordId: 'bs-device-b-1',
+        operation: 'INSERT',
+        retryCount: 0,
+      },
     ];
 
     const db = makeSyncDb(pending, { 'bs-device-b-1': [deviceBRow] });
@@ -166,16 +185,28 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     ];
 
     const rowA = {
-      id: 'bs-a', householdId: 'hh-1', stepNumber: 1, isCompleted: true,
-      completedAt: '2026-04-12T10:00:00Z', isManual: false,
+      id: 'bs-a',
+      householdId: 'hh-1',
+      stepNumber: 1,
+      isCompleted: true,
+      completedAt: '2026-04-12T10:00:00Z',
+      isManual: false,
       celebratedAt: '2026-04-12T10:05:00Z',
-      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-04-12T10:05:00Z', isSynced: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-04-12T10:05:00Z',
+      isSynced: false,
     };
     const rowB = {
-      id: 'bs-b', householdId: 'hh-1', stepNumber: 1, isCompleted: true,
-      completedAt: '2026-04-10T08:00:00Z', isManual: false,
+      id: 'bs-b',
+      householdId: 'hh-1',
+      stepNumber: 1,
+      isCompleted: true,
+      completedAt: '2026-04-10T08:00:00Z',
+      isManual: false,
       celebratedAt: null,
-      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-04-10T08:00:00Z', isSynced: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-04-10T08:00:00Z',
+      isSynced: false,
     };
 
     // Build db with 3 select slots: pending queue, row for bs-a, row for bs-b
@@ -187,7 +218,8 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     ];
     const db = {
       select: jest.fn().mockImplementation(() => {
-        const fn = selectImpls[callIdx] ?? (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
+        const fn =
+          selectImpls[callIdx] ?? (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
         callIdx++;
         return fn();
       }),
@@ -518,10 +550,17 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
       { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
     ];
     const db = {
-      select: jest.fn()
+      select: jest
+        .fn()
         .mockReturnValueOnce(makePendingQueueChain(pending))
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }) }) }),
-      update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
+          }),
+        }),
+      update: jest.fn().mockReturnValue({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+      }),
     } as any;
 
     const supabase = {

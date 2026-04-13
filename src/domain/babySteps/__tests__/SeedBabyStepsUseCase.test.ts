@@ -78,9 +78,7 @@ describe('SeedBabyStepsUseCase', () => {
     const uc = new SeedBabyStepsUseCase(db as any);
     await uc.execute(HOUSEHOLD_ID);
 
-    const byStep = Object.fromEntries(
-      db._rows.map((r) => [(r as any).stepNumber, r]),
-    );
+    const byStep = Object.fromEntries(db._rows.map((r) => [(r as any).stepNumber, r]));
     expect((byStep[1] as any).isManual).toBe(false);
     expect((byStep[2] as any).isManual).toBe(false);
     expect((byStep[3] as any).isManual).toBe(false);
@@ -112,7 +110,10 @@ describe('SeedBabyStepsUseCase', () => {
   });
 
   it('all 7 rows already exist → no-op (no new rows inserted)', async () => {
-    const existing = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ householdId: HOUSEHOLD_ID, stepNumber: n }));
+    const existing = [1, 2, 3, 4, 5, 6, 7].map((n) => ({
+      householdId: HOUSEHOLD_ID,
+      stepNumber: n,
+    }));
     const db = makeDb(existing);
     const uc = new SeedBabyStepsUseCase(db as any);
     await uc.execute(HOUSEHOLD_ID);
@@ -125,7 +126,9 @@ describe('SeedBabyStepsUseCase', () => {
     const db = makeDb();
     const uc = new SeedBabyStepsUseCase(db as any);
 
-    await expect(Promise.all([uc.execute(HOUSEHOLD_ID), uc.execute(HOUSEHOLD_ID)])).resolves.not.toThrow();
+    await expect(
+      Promise.all([uc.execute(HOUSEHOLD_ID), uc.execute(HOUSEHOLD_ID)]),
+    ).resolves.not.toThrow();
 
     // Should have exactly 7 unique step numbers
     const stepNumbers = new Set(db._rows.map((r) => (r as any).stepNumber));

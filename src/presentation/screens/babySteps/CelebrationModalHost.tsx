@@ -57,11 +57,5 @@ export const CelebrationModalHost: React.FC = () => {
 
   const status = makePlaceholderStatus(head.stepNumber);
 
-  return (
-    <CelebrationModal
-      visible
-      status={status}
-      onDismiss={handleDismiss}
-    />
-  );
+  return <CelebrationModal visible status={status} onDismiss={handleDismiss} />;
 };

@@ -11,10 +11,7 @@ export interface UseTransactionsResult {
   reload: () => Promise<void>;
 }
 
-export function useTransactions(
-  householdId: string,
-  periodStart: string,
-): UseTransactionsResult {
+export function useTransactions(householdId: string, periodStart: string): UseTransactionsResult {
   const [txs, setTxs] = useState<TransactionEntity[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);

@@ -16,9 +16,7 @@ import { createSuccess, createFailure } from '../shared/types';
 import { MANUAL_STEP_NUMBERS } from './BabyStepRules';
 
 export class ToggleManualStepUseCase {
-  constructor(
-    private readonly db: ExpoSQLiteDatabase<typeof schema>,
-  ) {}
+  constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
 
   async execute(
     householdId: string,
@@ -42,12 +40,7 @@ export class ToggleManualStepUseCase {
         updatedAt: now,
         isSynced: false,
       })
-      .where(
-        and(
-          eq(babySteps.householdId, householdId),
-          eq(babySteps.stepNumber, stepNumber),
-        ),
-      );
+      .where(and(eq(babySteps.householdId, householdId), eq(babySteps.stepNumber, stepNumber)));
 
     return createSuccess(undefined);
   }

@@ -43,7 +43,11 @@ export class RestoreService {
     const summaries: RestoredHousehold[] = [];
 
     for (const member of members) {
-      const summary = await this.restoreHousehold(member.household_id as string, member.role as string, userId);
+      const summary = await this.restoreHousehold(
+        member.household_id as string,
+        member.role as string,
+        userId,
+      );
       if (summary) summaries.push(summary);
     }
 

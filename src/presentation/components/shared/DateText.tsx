@@ -9,11 +9,7 @@ interface Props {
   style?: TextStyle;
 }
 
-export function DateText({
-  isoDate,
-  formatStr = 'dd MMM yyyy',
-  style,
-}: Props): React.JSX.Element {
+export function DateText({ isoDate, formatStr = 'dd MMM yyyy', style }: Props): React.JSX.Element {
   const date = parseISO(isoDate);
   return (
     <Text style={[{ fontFamily: 'PlusJakartaSans_400Regular' }, style]}>

@@ -8,13 +8,7 @@
  */
 
 import React, { useCallback, useMemo } from 'react';
-import {
-  View,
-  StyleSheet,
-  SectionList,
-  RefreshControl,
-  ActivityIndicator,
-} from 'react-native';
+import { View, StyleSheet, SectionList, RefreshControl, ActivityIndicator } from 'react-native';
 import { Text, Divider } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { format } from 'date-fns';
@@ -94,11 +88,7 @@ export const BudgetScreen: React.FC = () => {
           )}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl
-              refreshing={loading}
-              onRefresh={reload}
-              colors={[colours.primary]}
-            />
+            <RefreshControl refreshing={loading} onRefresh={reload} colors={[colours.primary]} />
           }
           stickySectionHeadersEnabled={false}
         />

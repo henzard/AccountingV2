@@ -2,7 +2,6 @@ import { AcceptInviteUseCase } from './AcceptInviteUseCase';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 
-
 const makeSupabase = ({
   inviteData = null as unknown,
   inviteError = null as unknown,
@@ -11,7 +10,9 @@ const makeSupabase = ({
   from: jest.fn().mockImplementation((table: string) => {
     if (table === 'invitations') {
       return {
-        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: inviteData, error: inviteError }) }) }),
+        select: () => ({
+          eq: () => ({ single: () => Promise.resolve({ data: inviteData, error: inviteError }) }),
+        }),
         update: () => ({ eq: () => Promise.resolve({ error: null }) }),
       };
     }
@@ -29,7 +30,10 @@ describe('AcceptInviteUseCase', () => {
     const supabase = makeSupabase({ inviteData: null, inviteError: { message: 'not found' } });
     const db = {} as any;
     const restoreSvc = {} as any;
-    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, { code: 'ZZZ999', userId: 'u-1' });
+    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, {
+      code: 'ZZZ999',
+      userId: 'u-1',
+    });
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVITE_NOT_FOUND');
@@ -45,7 +49,10 @@ describe('AcceptInviteUseCase', () => {
     });
     const db = {} as any;
     const restoreSvc = {} as any;
-    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, { code: 'ABC123', userId: 'u-1' });
+    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, {
+      code: 'ABC123',
+      userId: 'u-1',
+    });
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVITE_EXPIRED');
@@ -61,7 +68,10 @@ describe('AcceptInviteUseCase', () => {
     });
     const db = {} as any;
     const restoreSvc = {} as any;
-    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, { code: 'ABC123', userId: 'u-1' });
+    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, {
+      code: 'ABC123',
+      userId: 'u-1',
+    });
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVITE_ALREADY_USED');
@@ -105,7 +115,9 @@ describe('AcceptInviteUseCase — success path', () => {
         limit: jest.fn().mockResolvedValue([]),
       }),
       insert: dbInsertMock,
-      update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
+      update: jest.fn().mockReturnValue({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+      }),
     };
 
     const restoreService = {
@@ -117,12 +129,10 @@ describe('AcceptInviteUseCase — success path', () => {
       }),
     };
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restoreService as any,
-      { userId: 'user-b', code: 'ABC123' },
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      userId: 'user-b',
+      code: 'ABC123',
+    });
     const result = await uc.execute();
 
     expect(result.success).toBe(true);

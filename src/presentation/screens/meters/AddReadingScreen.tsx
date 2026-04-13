@@ -10,7 +10,10 @@ import { LogMeterReadingUseCase } from '../../../domain/meterReadings/LogMeterRe
 import { AnomalyDetector } from '../../../domain/meterReadings/AnomalyDetector';
 import { useAppStore } from '../../stores/appStore';
 import { colours, spacing } from '../../theme/tokens';
-import type { MeterReadingEntity, MeterType } from '../../../domain/meterReadings/MeterReadingEntity';
+import type {
+  MeterReadingEntity,
+  MeterType,
+} from '../../../domain/meterReadings/MeterReadingEntity';
 import { getMeterUnitLabel } from '../../../domain/meterReadings/MeterReadingEntity';
 import type { AddReadingScreenProps } from '../../navigation/types';
 
@@ -68,7 +71,8 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       if (result.isAnomaly) {
         const pct = Math.round(result.deviationPercent * 100);
         const unit = getMeterUnitLabel(meterType);
-        const direction = result.currentConsumption > result.rollingAverageConsumption ? 'above' : 'below';
+        const direction =
+          result.currentConsumption > result.rollingAverageConsumption ? 'above' : 'below';
         setAnomalyWarning(
           `Consumption is ${pct}% ${direction} your ${result.rollingAverageConsumption.toFixed(1)} ${unit} average. Please verify before saving.`,
         );
@@ -108,10 +112,15 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text variant="titleMedium" style={styles.label}>Meter Type</Text>
+      <Text variant="titleMedium" style={styles.label}>
+        Meter Type
+      </Text>
       <SegmentedButtons
         value={meterType}
-        onValueChange={(v) => { setMeterType(v as MeterType); setAnomalyWarning(null); }}
+        onValueChange={(v) => {
+          setMeterType(v as MeterType);
+          setAnomalyWarning(null);
+        }}
         buttons={[
           { value: 'electricity', label: 'Electricity', icon: 'lightning-bolt' },
           { value: 'water', label: 'Water', icon: 'water' },
@@ -123,7 +132,10 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       <TextInput
         label={`Current reading (${getMeterUnitLabel(meterType)})`}
         value={readingValue}
-        onChangeText={(v) => { setReadingValue(v); checkAnomaly(v); }}
+        onChangeText={(v) => {
+          setReadingValue(v);
+          checkAnomaly(v);
+        }}
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}

@@ -70,7 +70,12 @@ describe('useBudgetBalance', () => {
     const envelopes = [
       makeEnvelope({ id: 'i1', envelopeType: 'income', allocatedCents: 500000 }),
       makeEnvelope({ id: 'e1', envelopeType: 'spending', allocatedCents: 500000 }),
-      makeEnvelope({ id: 'archived', envelopeType: 'spending', allocatedCents: 999999, isArchived: true }),
+      makeEnvelope({
+        id: 'archived',
+        envelopeType: 'spending',
+        allocatedCents: 999999,
+        isArchived: true,
+      }),
     ];
     const { result } = renderHook(() => useBudgetBalance(envelopes));
     expect(result.current.toAssign).toBe(0);

@@ -28,7 +28,10 @@ export class LogDebtPaymentUseCase {
 
   async execute(): Promise<Result<DebtEntity>> {
     if (this.input.paymentAmountCents <= 0) {
-      return createFailure({ code: 'INVALID_PAYMENT', message: 'Payment amount must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_PAYMENT',
+        message: 'Payment amount must be greater than zero',
+      });
     }
 
     const now = new Date().toISOString();

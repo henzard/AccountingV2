@@ -24,7 +24,11 @@ describe('CreateInviteUseCase', () => {
   it('returns the 6-character code on success', async () => {
     const supabase = {
       from: () => ({
-        insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { code: 'ABC123' }, error: null }) }) }),
+        insert: () => ({
+          select: () => ({
+            single: () => Promise.resolve({ data: { code: 'ABC123' }, error: null }),
+          }),
+        }),
       }),
     } as any;
     const uc = new CreateInviteUseCase(supabase, { householdId: 'hh-1', createdByUserId: 'u-1' });
@@ -39,7 +43,11 @@ describe('CreateInviteUseCase', () => {
   it('returns INVITE_CREATE_FAILED when Supabase errors', async () => {
     const supabase = {
       from: () => ({
-        insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: null, error: { message: 'fail' } }) }) }),
+        insert: () => ({
+          select: () => ({
+            single: () => Promise.resolve({ data: null, error: { message: 'fail' } }),
+          }),
+        }),
       }),
     } as any;
     const uc = new CreateInviteUseCase(supabase, { householdId: 'hh-1', createdByUserId: 'u-1' });

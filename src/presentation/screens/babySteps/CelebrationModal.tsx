@@ -11,13 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Modal,
-  View,
-  StyleSheet,
-  Animated,
-  AccessibilityInfo,
-} from 'react-native';
+import { Modal, View, StyleSheet, Animated, AccessibilityInfo } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { format, parseISO } from 'date-fns';
 import { StepSealMark } from './components/StepSealMark';
@@ -128,28 +122,16 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
             ]}
             testID="celebration-seal"
           >
-            <StepSealMark
-              stepNumber={status.stepNumber}
-              state="complete"
-              size={SEAL_SIZE}
-            />
+            <StepSealMark stepNumber={status.stepNumber} state="complete" size={SEAL_SIZE} />
           </Animated.View>
 
           {/* Step title */}
-          <Text
-            variant="headlineMedium"
-            style={styles.stepTitle}
-            testID="celebration-title"
-          >
+          <Text variant="headlineMedium" style={styles.stepTitle} testID="celebration-title">
             {rule.shortTitle}
           </Text>
 
           {/* Completion message */}
-          <Text
-            variant="bodyLarge"
-            style={styles.completionMessage}
-            testID="celebration-message"
-          >
+          <Text variant="bodyLarge" style={styles.completionMessage} testID="celebration-message">
             {rule.completionMessage}
           </Text>
 

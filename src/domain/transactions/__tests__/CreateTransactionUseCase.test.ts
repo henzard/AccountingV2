@@ -12,9 +12,17 @@ function makeSelectMock(envelopeRows: unknown[]) {
   return jest.fn().mockImplementation(() => {
     callCount++;
     if (callCount === 1) {
-      return { from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue(envelopeRows) }) }) };
+      return {
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue(envelopeRows) }),
+        }),
+      };
     }
-    return { from: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };
+    return {
+      from: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue([]),
+    };
   });
 }
 const mockSelect = makeSelectMock([{ id: 'e1', envelopeType: 'spending' }]);

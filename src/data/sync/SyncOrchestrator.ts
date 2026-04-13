@@ -62,7 +62,9 @@ export class SyncOrchestrator {
     private readonly supabase: SupabaseClient,
   ) {}
 
-  async syncPending(householdId?: string): Promise<{ synced: number; failed: number; emfFlipped: number }> {
+  async syncPending(
+    householdId?: string,
+  ): Promise<{ synced: number; failed: number; emfFlipped: number }> {
     const pending = await this.db
       .select()
       .from(pendingSync)
@@ -85,7 +87,7 @@ export class SyncOrchestrator {
 
         const shouldDLQ =
           newRetryCount >= DLQ_MAX_RETRIES ||
-          (Date.now() - new Date(item.createdAt).getTime()) >= DLQ_MAX_AGE_MS;
+          Date.now() - new Date(item.createdAt).getTime() >= DLQ_MAX_AGE_MS;
 
         if (shouldDLQ) {
           await this.db
@@ -120,10 +122,7 @@ export class SyncOrchestrator {
 
   private async processItem(item: typeof pendingSync.$inferSelect): Promise<void> {
     if (item.operation === 'DELETE') {
-      const { error } = await this.supabase
-        .from(item.tableName)
-        .delete()
-        .eq('id', item.recordId);
+      const { error } = await this.supabase.from(item.tableName).delete().eq('id', item.recordId);
       if (error) throw new Error(error.message);
       return;
     }

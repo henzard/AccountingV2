@@ -101,8 +101,9 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-
-        <Text variant="labelLarge" style={styles.label}>Envelope</Text>
+        <Text variant="labelLarge" style={styles.label}>
+          Envelope
+        </Text>
         <TouchableRipple onPress={() => setShowPicker(true)} style={styles.pickerButton}>
           <View style={styles.pickerInner}>
             <Text
@@ -169,10 +170,16 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         animationType="slide"
         onRequestClose={() => setShowPicker(false)}
       >
-        <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowPicker(false)} activeOpacity={1}>
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          onPress={() => setShowPicker(false)}
+          activeOpacity={1}
+        >
           <Surface style={styles.modalSheet} elevation={4}>
             <View style={styles.modalHandle} />
-            <Text variant="titleMedium" style={styles.modalTitle}>Select Envelope</Text>
+            <Text variant="titleMedium" style={styles.modalTitle}>
+              Select Envelope
+            </Text>
             <FlatList
               data={envelopes}
               keyExtractor={(item) => item.id}

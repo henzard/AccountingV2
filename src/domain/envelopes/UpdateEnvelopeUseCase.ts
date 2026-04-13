@@ -33,7 +33,10 @@ export class UpdateEnvelopeUseCase {
       return createFailure({ code: 'INVALID_NAME', message: 'Envelope name is required' });
     }
     if (this.input.allocatedCents <= 0) {
-      return createFailure({ code: 'INVALID_AMOUNT', message: 'Budget amount must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_AMOUNT',
+        message: 'Budget amount must be greater than zero',
+      });
     }
     // Income envelopes must always have spentCents = 0
     if (this.current.envelopeType === 'income' && (this.input.spentCents ?? 0) !== 0) {
@@ -53,7 +56,12 @@ export class UpdateEnvelopeUseCase {
 
     await this.db
       .update(envelopes)
-      .set({ name: updated.name, allocatedCents: updated.allocatedCents, updatedAt: now, isSynced: false })
+      .set({
+        name: updated.name,
+        allocatedCents: updated.allocatedCents,
+        updatedAt: now,
+        isSynced: false,
+      })
       .where(eq(envelopes.id, this.current.id));
 
     const previousValueRecord: Record<string, unknown> = {

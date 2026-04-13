@@ -40,14 +40,22 @@ export class CreateTransactionUseCase {
     const [targetEnvelope] = await this.db
       .select()
       .from(envelopes)
-      .where(and(eq(envelopes.id, this.input.envelopeId), eq(envelopes.householdId, this.input.householdId)))
+      .where(
+        and(
+          eq(envelopes.id, this.input.envelopeId),
+          eq(envelopes.householdId, this.input.householdId),
+        ),
+      )
       .limit(1);
 
     if (!targetEnvelope) {
       return createFailure({ code: 'ENVELOPE_NOT_FOUND', message: 'Envelope does not exist' });
     }
     if (targetEnvelope.envelopeType === 'income') {
-      return createFailure({ code: 'INVALID_ENVELOPE_TYPE', message: 'Cannot create a transaction against an income envelope' });
+      return createFailure({
+        code: 'INVALID_ENVELOPE_TYPE',
+        message: 'Cannot create a transaction against an income envelope',
+      });
     }
 
     const now = new Date().toISOString();
@@ -75,7 +83,12 @@ export class CreateTransactionUseCase {
     await this.db
       .update(envelopes)
       .set({ spentCents: sql`${envelopes.spentCents} + ${this.input.amountCents}`, updatedAt: now })
-      .where(and(eq(envelopes.id, this.input.envelopeId), eq(envelopes.householdId, this.input.householdId)));
+      .where(
+        and(
+          eq(envelopes.id, this.input.envelopeId),
+          eq(envelopes.householdId, this.input.householdId),
+        ),
+      );
 
     await this.audit.log({
       householdId: this.input.householdId,

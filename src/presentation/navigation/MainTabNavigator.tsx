@@ -11,7 +11,15 @@ import type { MainTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-function TabIcon({ name, color, size }: { name: string; color: string; size: number }): React.JSX.Element {
+function TabIcon({
+  name,
+  color,
+  size,
+}: {
+  name: string;
+  color: string;
+  size: number;
+}): React.JSX.Element {
   return <MaterialCommunityIcons name={name} color={color} size={size} />;
 }
 
@@ -30,14 +38,18 @@ export function MainTabNavigator(): React.JSX.Element {
         name="DashboardTab"
         component={DashboardStackNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <TabIcon name="wallet-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => (
+            <TabIcon name="wallet-outline" color={color} size={size} />
+          ),
         }}
       />
       <Tab.Screen
         name="Transactions"
         component={TransactionsStackNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <TabIcon name="swap-horizontal" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => (
+            <TabIcon name="swap-horizontal" color={color} size={size} />
+          ),
         }}
       />
       <Tab.Screen

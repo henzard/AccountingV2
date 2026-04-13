@@ -11,12 +11,12 @@ export interface DebtEntity {
   creditorName: string;
   debtType: DebtType;
   outstandingBalanceCents: number;
-  initialBalanceCents: number;   // balance at creation — never changes
+  initialBalanceCents: number; // balance at creation — never changes
   interestRatePercent: number;
   minimumPaymentCents: number;
-  sortOrder: number;             // 0 = smallest balance first (Ramsey default)
+  sortOrder: number; // 0 = smallest balance first (Ramsey default)
   isPaidOff: boolean;
-  totalPaidCents: number;        // running total of all payments
+  totalPaidCents: number; // running total of all payments
   createdAt: string;
   updatedAt: string;
   isSynced: boolean;

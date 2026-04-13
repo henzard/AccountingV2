@@ -1,4 +1,6 @@
-jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2) }));
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
+}));
 
 import { RestoreService } from './RestoreService';
 
@@ -38,7 +40,10 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
   interface SupabaseMockShape {
     from: (table: string) => {
       select: () => {
-        eq: (col: string, val: unknown) =>
+        eq: (
+          col: string,
+          val: unknown,
+        ) =>
           | Promise<{ data: unknown[]; error: null }>
           | { single: () => Promise<{ data: unknown; error: null }> };
       };
@@ -128,11 +133,7 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
     const db = {
       insert: () => ({
         values: (row: unknown) => {
-          if (
-            row &&
-            typeof row === 'object' &&
-            'stepNumber' in (row as Record<string, unknown>)
-          ) {
+          if (row && typeof row === 'object' && 'stepNumber' in (row as Record<string, unknown>)) {
             insertedRows.push(row);
           }
           return {

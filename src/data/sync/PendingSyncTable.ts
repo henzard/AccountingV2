@@ -42,11 +42,7 @@ export class PendingSyncTable {
   }
 
   async incrementRetry(syncRowId: string): Promise<void> {
-    const row = await this.db
-      .select()
-      .from(pendingSync)
-      .where(eq(pendingSync.id, syncRowId))
-      .get();
+    const row = await this.db.select().from(pendingSync).where(eq(pendingSync.id, syncRowId)).get();
     if (!row) return;
     await this.db
       .update(pendingSync)

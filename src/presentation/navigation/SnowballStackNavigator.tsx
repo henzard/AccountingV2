@@ -24,8 +24,16 @@ export function SnowballStackNavigator(): React.JSX.Element {
         options={{ headerShown: false }}
       />
       <Stack.Screen name="AddDebt" component={AddDebtScreen} options={{ title: 'Add Debt' }} />
-      <Stack.Screen name="DebtDetail" component={DebtDetailScreen} options={{ title: 'Debt Details' }} />
-      <Stack.Screen name="LogPayment" component={LogPaymentScreen} options={{ title: 'Log Payment' }} />
+      <Stack.Screen
+        name="DebtDetail"
+        component={DebtDetailScreen}
+        options={{ title: 'Debt Details' }}
+      />
+      <Stack.Screen
+        name="LogPayment"
+        component={LogPaymentScreen}
+        options={{ title: 'Log Payment' }}
+      />
     </Stack.Navigator>
   );
 }

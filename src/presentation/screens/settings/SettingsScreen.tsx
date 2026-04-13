@@ -32,10 +32,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             description="Share an invite code"
             left={(props) => <List.Icon {...props} icon="account-plus-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
-            onPress={() => rootNavigation.navigate('ShareInvite', {
-              householdId: householdId!,
-              householdName: currentHousehold?.name ?? 'My Household',
-            })}
+            onPress={() =>
+              rootNavigation.navigate('ShareInvite', {
+                householdId: householdId!,
+                householdName: currentHousehold?.name ?? 'My Household',
+              })
+            }
           />
           <Divider />
           <List.Item

@@ -31,10 +31,16 @@ export class CreateDebtUseCase {
 
   async execute(): Promise<Result<DebtEntity>> {
     if (this.input.outstandingBalanceCents <= 0) {
-      return createFailure({ code: 'INVALID_BALANCE', message: 'Outstanding balance must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_BALANCE',
+        message: 'Outstanding balance must be greater than zero',
+      });
     }
     if (this.input.minimumPaymentCents <= 0) {
-      return createFailure({ code: 'INVALID_PAYMENT', message: 'Minimum payment must be greater than zero' });
+      return createFailure({
+        code: 'INVALID_PAYMENT',
+        message: 'Minimum payment must be greater than zero',
+      });
     }
     if (this.input.interestRatePercent < 0) {
       return createFailure({ code: 'INVALID_RATE', message: 'Interest rate cannot be negative' });

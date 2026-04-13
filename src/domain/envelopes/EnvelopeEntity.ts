@@ -1,4 +1,10 @@
-export type EnvelopeType = 'spending' | 'savings' | 'emergency_fund' | 'baby_step' | 'utility' | 'income';
+export type EnvelopeType =
+  | 'spending'
+  | 'savings'
+  | 'emergency_fund'
+  | 'baby_step'
+  | 'utility'
+  | 'income';
 
 export interface EnvelopeEntity {
   id: string;

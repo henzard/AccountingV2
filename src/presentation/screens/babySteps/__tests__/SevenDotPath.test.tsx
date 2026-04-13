@@ -68,27 +68,21 @@ describe('SevenDotPath', () => {
 
     it('renders compact text with step number and title', () => {
       const statuses = makeStatuses(2);
-      const { getByText } = render(
-        <SevenDotPath statuses={statuses} reducedMotion />,
-      );
+      const { getByText } = render(<SevenDotPath statuses={statuses} reducedMotion />);
       // Current step is step 3 (first incomplete)
       expect(getByText(/Step 3 of 7/)).toBeTruthy();
     });
 
     it('renders filled/empty dot ratio string', () => {
       const statuses = makeStatuses(2);
-      const { getByText } = render(
-        <SevenDotPath statuses={statuses} reducedMotion />,
-      );
+      const { getByText } = render(<SevenDotPath statuses={statuses} reducedMotion />);
       // 2 filled, 5 empty
       expect(getByText('●●○○○○○')).toBeTruthy();
     });
 
     it('renders all filled when all complete', () => {
       const statuses = makeStatuses(7);
-      const { getByText } = render(
-        <SevenDotPath statuses={statuses} reducedMotion />,
-      );
+      const { getByText } = render(<SevenDotPath statuses={statuses} reducedMotion />);
       expect(getByText('●●●●●●●')).toBeTruthy();
     });
   });
@@ -100,18 +94,14 @@ describe('SevenDotPath', () => {
 
     it('renders without compact text', () => {
       const statuses = makeStatuses(2);
-      const { queryByText } = render(
-        <SevenDotPath statuses={statuses} reducedMotion />,
-      );
+      const { queryByText } = render(<SevenDotPath statuses={statuses} reducedMotion />);
       // The compact dot string should NOT appear
       expect(queryByText('●●○○○○○')).toBeNull();
     });
 
     it('has the correct accessibilityLabel', () => {
       const statuses = makeStatuses(2);
-      const { getByLabelText } = render(
-        <SevenDotPath statuses={statuses} reducedMotion />,
-      );
+      const { getByLabelText } = render(<SevenDotPath statuses={statuses} reducedMotion />);
       expect(
         getByLabelText('Baby Steps progress: 2 of 7 steps complete, currently on Step 3'),
       ).toBeTruthy();

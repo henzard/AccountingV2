@@ -15,8 +15,7 @@ export class LevelAdvancementEvaluator {
 
     const lastTwo = recentScores.slice(-2);
     const shouldShowCoachingWarning =
-      lastTwo.length >= 2 &&
-      lastTwo.every((s) => s < LevelAdvancementEvaluator.WARNING_THRESHOLD);
+      lastTwo.length >= 2 && lastTwo.every((s) => s < LevelAdvancementEvaluator.WARNING_THRESHOLD);
 
     return { shouldAdvanceToLevel2, shouldShowCoachingWarning };
   }

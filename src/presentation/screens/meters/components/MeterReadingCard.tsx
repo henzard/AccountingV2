@@ -3,7 +3,10 @@ import { View, StyleSheet } from 'react-native';
 import { Surface, Text, TouchableRipple } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colours, spacing, radius } from '../../../theme/tokens';
-import type { MeterReadingEntity, MeterType } from '../../../../domain/meterReadings/MeterReadingEntity';
+import type {
+  MeterReadingEntity,
+  MeterType,
+} from '../../../../domain/meterReadings/MeterReadingEntity';
 import {
   getMeterTypeLabel,
   getMeterUnitLabel,
@@ -48,10 +51,16 @@ export function MeterReadingCard({
       <TouchableRipple onPress={onPress} rippleColor={colours.primaryContainer} style={styles.main}>
         <View style={styles.row}>
           <View style={styles.iconContainer}>
-            <MaterialCommunityIcons name={getMeterIcon(meterType)} size={24} color={colours.primary} />
+            <MaterialCommunityIcons
+              name={getMeterIcon(meterType)}
+              size={24}
+              color={colours.primary}
+            />
           </View>
           <View style={styles.content}>
-            <Text variant="titleMedium" style={styles.title}>{getMeterTypeLabel(meterType)}</Text>
+            <Text variant="titleMedium" style={styles.title}>
+              {getMeterTypeLabel(meterType)}
+            </Text>
             {latestReading ? (
               <>
                 <Text variant="bodyMedium" style={styles.reading}>
@@ -62,7 +71,9 @@ export function MeterReadingCard({
                 </Text>
               </>
             ) : (
-              <Text variant="bodyMedium" style={styles.noReading}>No readings yet — tap to add</Text>
+              <Text variant="bodyMedium" style={styles.noReading}>
+                No readings yet — tap to add
+              </Text>
             )}
           </View>
           <MaterialCommunityIcons name="plus-circle-outline" size={22} color={colours.primary} />
@@ -74,7 +85,9 @@ export function MeterReadingCard({
           rippleColor={colours.surfaceVariant}
           style={styles.historyRow}
         >
-          <Text variant="labelSmall" style={styles.historyLink}>View rate history →</Text>
+          <Text variant="labelSmall" style={styles.historyLink}>
+            View rate history →
+          </Text>
         </TouchableRipple>
       )}
     </Surface>

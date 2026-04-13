@@ -65,7 +65,10 @@ jest.mock('../../../infrastructure/notifications/LocalNotificationScheduler', ()
 
 jest.mock('../../../domain/babySteps/ReconcileBabyStepsUseCase', () => ({
   ReconcileBabyStepsUseCase: jest.fn().mockImplementation(() => ({
-    execute: jest.fn().mockResolvedValue({ success: true, data: { statuses: [], newlyCompleted: [], newlyRegressed: [] } }),
+    execute: jest.fn().mockResolvedValue({
+      success: true,
+      data: { statuses: [], newlyCompleted: [], newlyRegressed: [] },
+    }),
   })),
 }));
 
@@ -99,7 +102,9 @@ function makeDeps(reconcileImpl?: () => Promise<ReturnType<typeof makeSuccessRes
   mockToggleExecute: jest.Mock;
   mockFireCelebration: jest.Mock;
 } {
-  const mockReconcileExecute = jest.fn(reconcileImpl ?? (() => Promise.resolve(makeSuccessResult())));
+  const mockReconcileExecute = jest.fn(
+    reconcileImpl ?? (() => Promise.resolve(makeSuccessResult())),
+  );
   const mockToggleExecute = jest.fn().mockResolvedValue({ success: true, data: undefined });
   const mockFireCelebration = jest.fn().mockResolvedValue(undefined);
 
@@ -163,7 +168,9 @@ describe('useBabySteps', () => {
     mockAppStateStore.currentState = 'active';
     const { deps, mockReconcileExecute } = makeDeps();
     renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     const callsAfterMount = mockReconcileExecute.mock.calls.length;
 
     mockAppStateStore.currentState = 'background';
@@ -218,12 +225,14 @@ describe('useBabySteps', () => {
   it('enqueues to celebrationStore for each newly completed step (foreground)', async () => {
     mockAppStateStore.currentState = 'active';
     const { deps } = makeDeps();
-    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
-      makeSuccessResult({ newlyCompleted: [1, 2] }),
-    );
+    deps.reconcileUseCase.execute = jest
+      .fn()
+      .mockResolvedValue(makeSuccessResult({ newlyCompleted: [1, 2] }));
 
     renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(mockCelebrationEnqueue).toHaveBeenCalledWith(1);
     expect(mockCelebrationEnqueue).toHaveBeenCalledWith(2);
@@ -235,12 +244,14 @@ describe('useBabySteps', () => {
   it('enqueues regression toast to toastStore for each newly regressed step', async () => {
     mockAppStateStore.currentState = 'active';
     const { deps } = makeDeps();
-    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
-      makeSuccessResult({ newlyRegressed: [1] }),
-    );
+    deps.reconcileUseCase.execute = jest
+      .fn()
+      .mockResolvedValue(makeSuccessResult({ newlyRegressed: [1] }));
 
     renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(mockToastEnqueue).toHaveBeenCalledWith(
       'Your Starter Fund dropped below R1,000 — Step 1 is paused until the balance recovers.',
@@ -251,12 +262,14 @@ describe('useBabySteps', () => {
   it('enqueues correct regression copy per step', async () => {
     mockAppStateStore.currentState = 'active';
     const { deps } = makeDeps();
-    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
-      makeSuccessResult({ newlyRegressed: [2, 3, 6] }),
-    );
+    deps.reconcileUseCase.execute = jest
+      .fn()
+      .mockResolvedValue(makeSuccessResult({ newlyRegressed: [2, 3, 6] }));
 
     renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(mockToastEnqueue).toHaveBeenCalledWith(
       'A non-bond debt is back on the books — Step 2 is paused.',
@@ -277,9 +290,9 @@ describe('useBabySteps', () => {
   it('fires notification scheduler (not celebrationStore) when reconcile detects completion while backgrounded', async () => {
     mockAppStateStore.currentState = 'background';
     const { deps, mockFireCelebration } = makeDeps();
-    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
-      makeSuccessResult({ newlyCompleted: [2] }),
-    );
+    deps.reconcileUseCase.execute = jest
+      .fn()
+      .mockResolvedValue(makeSuccessResult({ newlyCompleted: [2] }));
 
     const { result } = renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
 
@@ -294,20 +307,22 @@ describe('useBabySteps', () => {
   it('re-reconcile on foreground after background completion enqueues celebration modal', async () => {
     mockAppStateStore.currentState = 'background';
     const { deps, mockFireCelebration } = makeDeps();
-    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
-      makeSuccessResult({ newlyCompleted: [2] }),
-    );
+    deps.reconcileUseCase.execute = jest
+      .fn()
+      .mockResolvedValue(makeSuccessResult({ newlyCompleted: [2] }));
 
     const { result } = renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
-    await act(async () => { await result.current.reconcile(); });
+    await act(async () => {
+      await result.current.reconcile();
+    });
     expect(mockCelebrationEnqueue).not.toHaveBeenCalled();
     expect(mockFireCelebration).toHaveBeenCalledWith(2);
 
     // Foreground transition: re-reconcile sees celebrated_at=null → enqueues modal
     mockAppStateStore.currentState = 'active';
-    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
-      makeSuccessResult({ newlyCompleted: [2] }),
-    );
+    deps.reconcileUseCase.execute = jest
+      .fn()
+      .mockResolvedValue(makeSuccessResult({ newlyCompleted: [2] }));
 
     await act(async () => {
       for (const listener of mockAppStateStore.listeners) {
@@ -396,14 +411,16 @@ describe('useBabySteps', () => {
   it('6.6 — background→foreground with re-reconcile mid-modal does not double-enqueue (dedup rule a)', async () => {
     mockAppStateStore.currentState = 'background';
     const { deps } = makeDeps();
-    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
-      makeSuccessResult({ newlyCompleted: [2] }),
-    );
+    deps.reconcileUseCase.execute = jest
+      .fn()
+      .mockResolvedValue(makeSuccessResult({ newlyCompleted: [2] }));
 
     const { result } = renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
 
     // Background reconcile: fires scheduler, not store
-    await act(async () => { await result.current.reconcile(); });
+    await act(async () => {
+      await result.current.reconcile();
+    });
     expect(mockCelebrationEnqueue).not.toHaveBeenCalled();
 
     // Foreground transition: reconcile again → should enqueue once
@@ -422,7 +439,9 @@ describe('useBabySteps', () => {
     // The mock celebrationStore enqueue is already set up with dedup at the mock level;
     // the store's dedup rule (a) ensures it won't re-enqueue if step is already in queue.
     // Here we just verify the hook doesn't fire enqueue a second time when called again:
-    await act(async () => { await result.current.reconcile(); });
+    await act(async () => {
+      await result.current.reconcile();
+    });
 
     // Still only called once total — second reconcile for the same step is dropped
     // because the hook calls enqueue which the mock records (mock does not itself dedup,

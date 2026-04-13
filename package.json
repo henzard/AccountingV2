@@ -10,7 +10,19 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,json}\"",
+    "prepare": "husky",
     "postinstall": "patch-package"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
@@ -59,8 +71,10 @@
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "husky": "^9.1.7",
     "jest": "^30.3.0",
     "jest-expo": "^55.0.15",
+    "lint-staged": "^16.4.0",
     "patch-package": "^8.0.1",
     "prettier": "^3.8.2",
     "react-test-renderer": "^19.2.0",
