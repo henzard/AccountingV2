@@ -10,7 +10,10 @@ interface PayoffProjectionCardProps {
   totalDebtCents: number;
 }
 
-export function PayoffProjectionCard({ plan, totalDebtCents }: PayoffProjectionCardProps): React.JSX.Element | null {
+export function PayoffProjectionCard({
+  plan,
+  totalDebtCents,
+}: PayoffProjectionCardProps): React.JSX.Element | null {
   if (plan.projections.length === 0) return null;
 
   const monthsRemaining = plan.debtFreeDate

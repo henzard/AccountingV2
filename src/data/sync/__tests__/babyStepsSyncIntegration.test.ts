@@ -14,7 +14,9 @@
  * receiving mock persistence.
  */
 
-jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2) }));
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
+}));
 
 import { SyncOrchestrator } from '../SyncOrchestrator';
 import { RestoreService } from '../RestoreService';
@@ -24,20 +26,41 @@ import { SeedBabyStepsUseCase } from '../../../domain/babySteps/SeedBabyStepsUse
 // Helper: build a mock DB suitable for SyncOrchestrator
 // ---------------------------------------------------------------------------
 
-function makeSyncDb(pendingItems: Record<string, unknown>[], rowsByRecordId: Record<string, unknown[]>) {
+function makePendingQueueChain(rows: unknown[]) {
+  const limitFn = () => Promise.resolve(rows);
+  const orderByFn = () => ({ limit: limitFn });
+  const whereChain = { where: () => ({ orderBy: orderByFn }), orderBy: orderByFn };
+  return { from: () => whereChain };
+}
+
+function makeSyncDb(
+  pendingItems: Record<string, unknown>[],
+  rowsByRecordId: Record<string, unknown[]>,
+) {
+  // C7 N+1 fix: rows are now batch-fetched per table (inArray) before processItem.
+  // Group all rows into per-table batches (one batch SELECT per table, not per item).
+  const allRows = Object.values(rowsByRecordId).flat();
+
+  // Group pending items by tableName to build per-table batch calls
+  const tableNames = [...new Set(pendingItems.map((p) => p.tableName as string))];
+  const batchFetchByTable = tableNames.map((_tableName) => () => ({
+    // inArray fetch returns all rows for that table (no .limit() — just .from().where())
+    from: () => ({ where: () => Promise.resolve(allRows) }),
+  }));
+
   let selectCallIdx = 0;
   const selectCallOrder: (() => unknown)[] = [
-    // First call: fetch pending sync queue
-    () => ({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pendingItems) }) }) }),
-    // Subsequent calls: fetch the local row for each pending item
-    ...Object.values(rowsByRecordId).map((rows) =>
-      () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve(rows) }) }) }),
-    ),
+    // First call: fetch pending sync queue (supports .where().orderBy().limit())
+    () => makePendingQueueChain(pendingItems),
+    // C7: One batch fetch per table (inArray — no .limit())
+    ...batchFetchByTable,
   ];
 
   return {
     select: jest.fn().mockImplementation(() => {
-      const fn = selectCallOrder[selectCallIdx] ?? (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
+      const fn =
+        selectCallOrder[selectCallIdx] ??
+        (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
       selectCallIdx++;
       return fn();
     }),
@@ -78,7 +101,13 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     };
 
     const pending = [
-      { id: 'psync-1', tableName: 'baby_steps', recordId: 'bs-device-a-1', operation: 'INSERT', retryCount: 0 },
+      {
+        id: 'psync-1',
+        tableName: 'baby_steps',
+        recordId: 'bs-device-a-1',
+        operation: 'INSERT',
+        retryCount: 0,
+      },
     ];
 
     const db = makeSyncDb(pending, { 'bs-device-a-1': [deviceARow] });
@@ -126,7 +155,13 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     };
 
     const pending = [
-      { id: 'psync-2', tableName: 'baby_steps', recordId: 'bs-device-b-1', operation: 'INSERT', retryCount: 0 },
+      {
+        id: 'psync-2',
+        tableName: 'baby_steps',
+        recordId: 'bs-device-b-1',
+        operation: 'INSERT',
+        retryCount: 0,
+      },
     ];
 
     const db = makeSyncDb(pending, { 'bs-device-b-1': [deviceBRow] });
@@ -159,28 +194,41 @@ describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_
     ];
 
     const rowA = {
-      id: 'bs-a', householdId: 'hh-1', stepNumber: 1, isCompleted: true,
-      completedAt: '2026-04-12T10:00:00Z', isManual: false,
+      id: 'bs-a',
+      householdId: 'hh-1',
+      stepNumber: 1,
+      isCompleted: true,
+      completedAt: '2026-04-12T10:00:00Z',
+      isManual: false,
       celebratedAt: '2026-04-12T10:05:00Z',
-      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-04-12T10:05:00Z', isSynced: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-04-12T10:05:00Z',
+      isSynced: false,
     };
     const rowB = {
-      id: 'bs-b', householdId: 'hh-1', stepNumber: 1, isCompleted: true,
-      completedAt: '2026-04-10T08:00:00Z', isManual: false,
+      id: 'bs-b',
+      householdId: 'hh-1',
+      stepNumber: 1,
+      isCompleted: true,
+      completedAt: '2026-04-10T08:00:00Z',
+      isManual: false,
       celebratedAt: null,
-      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-04-10T08:00:00Z', isSynced: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-04-10T08:00:00Z',
+      isSynced: false,
     };
 
-    // Build db with 3 select slots: pending queue, row for bs-a, row for bs-b
+    // C7: Build db with 2 select slots: pending queue, then one batch fetch for all baby_steps
     let callIdx = 0;
     const selectImpls = [
-      () => ({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }) }),
-      () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([rowA]) }) }) }),
-      () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([rowB]) }) }) }),
+      () => makePendingQueueChain(pending),
+      // C7: batch inArray fetch returns BOTH rows at once (all baby_steps)
+      () => ({ from: () => ({ where: () => Promise.resolve([rowA, rowB]) }) }),
     ];
     const db = {
       select: jest.fn().mockImplementation(() => {
-        const fn = selectImpls[callIdx] ?? (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
+        const fn =
+          selectImpls[callIdx] ?? (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
         callIdx++;
         return fn();
       }),
@@ -318,24 +366,24 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
     }));
 
     // Track the first write for each (householdId, stepNumber) pair.
-    // INSERT OR IGNORE means subsequent attempts for the same key must not
-    // overwrite the first write — in a real SQLite DB the row is unchanged.
+    // onConflictDoUpdate is called by restoreTable (remote authoritative);
+    // onConflictDoNothing is called by the seeder (idempotent backfill).
     const firstWriteByKey = new Map<string, Record<string, unknown>>();
 
     const db = {
       insert: () => ({
         values: (row: Record<string, unknown>) => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
+          onConflictDoUpdate: jest.fn().mockImplementation(() => {
             if ('stepNumber' in row) {
               const key = `${row.householdId}:${row.stepNumber}`;
-              // Only record the first write — INSERT OR IGNORE semantics
+              // Only record the first write from restoreTable
               if (!firstWriteByKey.has(key)) {
                 firstWriteByKey.set(key, { ...row });
               }
             }
             return Promise.resolve();
           }),
+          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
         }),
       }),
     } as any;
@@ -381,14 +429,13 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
       },
     ];
 
-    // Track the first write for each step
+    // Track the first write for each step (via onConflictDoUpdate from restoreTable)
     const firstWriteByKey = new Map<string, Record<string, unknown>>();
 
     const db = {
       insert: () => ({
         values: (row: Record<string, unknown>) => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
+          onConflictDoUpdate: jest.fn().mockImplementation(() => {
             if ('stepNumber' in row) {
               const key = `${row.householdId}:${row.stepNumber}`;
               if (!firstWriteByKey.has(key)) {
@@ -397,6 +444,7 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
             }
             return Promise.resolve();
           }),
+          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
         }),
       }),
     } as any;
@@ -442,25 +490,33 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
 
     let selectCallIdx = 0;
 
-    // Select calls: (1) pending queue → empty; (2) fixer's envelope select → [older, newer]
+    // Select calls:
+    //   (0) pending queue → empty
+    //   (1) fixer's envelope select → [older, newer]
+    //   (2) enqueuer dedup select → no existing row (triggers insert path)
     const db = {
       select: jest.fn().mockImplementation(() => {
         const idx = selectCallIdx++;
         if (idx === 0) {
-          return { from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }) };
+          return makePendingQueueChain([]);
         }
-        // Fixer's envelope query — returns both active EMFs
-        return { from: () => ({ where: () => Promise.resolve([older, newer]) }) };
+        if (idx === 1) {
+          // Fixer's envelope query — returns both active EMFs
+          return { from: () => ({ where: () => Promise.resolve([older, newer]) }) };
+        }
+        // Enqueuer dedup select (pendingSync table) — return empty → triggers insert
+        return {
+          from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+        };
       }),
       update: jest.fn().mockImplementation(() => ({
         set: jest.fn().mockImplementation(() => ({
           where: jest.fn().mockImplementation((_cond) => {
-            // Record the id being updated — we can't easily inspect the eq() condition
-            // but we can verify update was called once (the newer one)
             return Promise.resolve();
           }),
         })),
       })),
+      insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
     } as any;
 
     const supabase = {} as any;
@@ -491,7 +547,7 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
       select: jest.fn().mockImplementation(() => {
         const idx = selectCallIdx++;
         if (idx === 0) {
-          return { from: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }) };
+          return makePendingQueueChain([]);
         }
         return { from: () => ({ where: () => Promise.resolve([singleEMF]) }) };
       }),
@@ -511,13 +567,21 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
       { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
     ];
     const db = {
-      select: jest.fn()
-        .mockReturnValueOnce({ from: () => ({ orderBy: () => ({ limit: () => Promise.resolve(pending) }) }) })
-        .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }) }) }),
-      update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
+      select: jest
+        .fn()
+        .mockReturnValueOnce(makePendingQueueChain(pending))
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
+          }),
+        }),
+      update: jest.fn().mockReturnValue({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+      }),
     } as any;
 
     const supabase = {
+      rpc: () => Promise.resolve({ error: { message: 'fail' } }),
       from: () => ({ upsert: () => Promise.resolve({ error: { message: 'fail' } }) }),
     } as any;
 

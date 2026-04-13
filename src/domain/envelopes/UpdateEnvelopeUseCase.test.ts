@@ -5,6 +5,11 @@ import { ArchiveEnvelopeUseCase } from './ArchiveEnvelopeUseCase';
 import type { EnvelopeEntity } from './EnvelopeEntity';
 
 const makeDb = () => ({
+  select: jest.fn().mockReturnValue({
+    from: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue([]),
+  }),
   insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
   update: jest.fn().mockReturnValue({
     set: jest.fn().mockReturnValue({

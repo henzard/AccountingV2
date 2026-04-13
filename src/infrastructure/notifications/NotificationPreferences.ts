@@ -1,7 +1,7 @@
 export interface NotificationPreferences {
   eveningLogPromptEnabled: boolean;
-  eveningLogPromptHour: number;    // 0–23 (default 19 = 7pm)
-  eveningLogPromptMinute: number;  // 0–59 (default 0)
+  eveningLogPromptHour: number; // 0–23 (default 19 = 7pm)
+  eveningLogPromptMinute: number; // 0–59 (default 0)
   meterReadingReminderEnabled: boolean;
   meterReadingReminderDay: number; // 1–28 (default 1)
   monthStartPreflightEnabled: boolean;

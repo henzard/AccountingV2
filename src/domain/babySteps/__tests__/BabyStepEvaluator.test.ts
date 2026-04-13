@@ -84,7 +84,12 @@ describe('Step 1 — Starter Fund', () => {
       allocatedCents: allocated,
       spentCents: allocated - emfBalance, // balance = allocated - spent
     });
-    return { envelopes: [emf], debts: NO_DEBTS, monthlyExpenseBaseline: 0, manualFlags: DEFAULT_MANUAL_FLAGS };
+    return {
+      envelopes: [emf],
+      debts: NO_DEBTS,
+      monthlyExpenseBaseline: 0,
+      manualFlags: DEFAULT_MANUAL_FLAGS,
+    };
   }
 
   it('pre-threshold: balance well below R1,000 → incomplete', () => {
@@ -203,7 +208,11 @@ describe('Step 2 — Debt Free', () => {
 // ---------------------------------------------------------------------------
 
 describe('Step 3 — Full Emergency Fund', () => {
-  function makeInput(emfBalance: number, incomeAllocated: number, baseline: number): EvaluatorInput {
+  function makeInput(
+    emfBalance: number,
+    incomeAllocated: number,
+    baseline: number,
+  ): EvaluatorInput {
     const emf = makeEnvelope({
       envelopeType: 'emergency_fund',
       allocatedCents: emfBalance,
@@ -380,11 +389,23 @@ describe('Step 7 — Build & Give (manual)', () => {
 
 describe('Step 6 — House Free', () => {
   function makeInput(bonds: DebtEntity[]): EvaluatorInput {
-    return { envelopes: [], debts: bonds, monthlyExpenseBaseline: 0, manualFlags: DEFAULT_MANUAL_FLAGS };
+    return {
+      envelopes: [],
+      debts: bonds,
+      monthlyExpenseBaseline: 0,
+      manualFlags: DEFAULT_MANUAL_FLAGS,
+    };
   }
 
   it('pre-threshold: bond outstanding → incomplete', () => {
-    const bonds = [makeDebt({ debtType: 'bond', isPaidOff: false, outstandingBalanceCents: 1_000_000, initialBalanceCents: 2_000_000 })];
+    const bonds = [
+      makeDebt({
+        debtType: 'bond',
+        isPaidOff: false,
+        outstandingBalanceCents: 1_000_000,
+        initialBalanceCents: 2_000_000,
+      }),
+    ];
     const result = evaluate(makeInput(bonds));
     expect(result[5].isCompleted).toBe(false);
     // Progress shows paid amount vs total
@@ -392,7 +413,14 @@ describe('Step 6 — House Free', () => {
   });
 
   it('at threshold − 1 cent: one bond, outstanding_balance_cents = 1, is_paid_off = false → incomplete; progress shows 99,999 of 100,000 cents paid', () => {
-    const bonds = [makeDebt({ debtType: 'bond', isPaidOff: false, outstandingBalanceCents: 1, initialBalanceCents: 100_000 })];
+    const bonds = [
+      makeDebt({
+        debtType: 'bond',
+        isPaidOff: false,
+        outstandingBalanceCents: 1,
+        initialBalanceCents: 100_000,
+      }),
+    ];
     const result = evaluate(makeInput(bonds));
     expect(result[5].isCompleted).toBe(false);
     expect(result[5].progress?.current).toBe(99_999);
@@ -402,15 +430,32 @@ describe('Step 6 — House Free', () => {
 
   it('at threshold: all bonds paid off (both isPaidOff=true and outstandingBalance=0 paths) → complete', () => {
     const bonds = [
-      makeDebt({ debtType: 'bond', isPaidOff: true, outstandingBalanceCents: 0, initialBalanceCents: 2_000_000 }),
-      makeDebt({ debtType: 'bond', isPaidOff: false, outstandingBalanceCents: 0, initialBalanceCents: 500_000 }),
+      makeDebt({
+        debtType: 'bond',
+        isPaidOff: true,
+        outstandingBalanceCents: 0,
+        initialBalanceCents: 2_000_000,
+      }),
+      makeDebt({
+        debtType: 'bond',
+        isPaidOff: false,
+        outstandingBalanceCents: 0,
+        initialBalanceCents: 500_000,
+      }),
     ];
     const result = evaluate(makeInput(bonds));
     expect(result[5].isCompleted).toBe(true);
   });
 
   it('at threshold + 1 cent: one bond, outstanding_balance_cents = 0, is_paid_off = true → complete; transition past zero behavior', () => {
-    const bonds = [makeDebt({ debtType: 'bond', isPaidOff: true, outstandingBalanceCents: 0, initialBalanceCents: 100_000 })];
+    const bonds = [
+      makeDebt({
+        debtType: 'bond',
+        isPaidOff: true,
+        outstandingBalanceCents: 0,
+        initialBalanceCents: 100_000,
+      }),
+    ];
     const result = evaluate(makeInput(bonds));
     expect(result[5].isCompleted).toBe(true);
     expect(result[5].progress?.current).toBe(100_000);
@@ -420,14 +465,21 @@ describe('Step 6 — House Free', () => {
 
   it('regression: re-mortgaged → bond back on books → incomplete', () => {
     const bonds = [
-      makeDebt({ debtType: 'bond', isPaidOff: false, outstandingBalanceCents: 2_000_000, initialBalanceCents: 2_000_000 }),
+      makeDebt({
+        debtType: 'bond',
+        isPaidOff: false,
+        outstandingBalanceCents: 2_000_000,
+        initialBalanceCents: 2_000_000,
+      }),
     ];
     const result = evaluate(makeInput(bonds));
     expect(result[5].isCompleted).toBe(false);
   });
 
   it('no bond debts → progress = null, incomplete', () => {
-    const debts = [makeDebt({ debtType: 'credit_card', isPaidOff: false, outstandingBalanceCents: 50000 })];
+    const debts = [
+      makeDebt({ debtType: 'credit_card', isPaidOff: false, outstandingBalanceCents: 50000 }),
+    ];
     const result = evaluate(makeInput(debts));
     expect(result[5].isCompleted).toBe(false);
     expect(result[5].progress).toBeNull();

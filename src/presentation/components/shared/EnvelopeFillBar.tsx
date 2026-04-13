@@ -39,7 +39,12 @@ export function EnvelopeFillBar({ percentRemaining, height = 8 }: Props): React.
       <Animated.View
         style={[
           styles.fill,
-          { width, height, borderRadius: radius.full, backgroundColor: getFillColour(percentRemaining) },
+          {
+            width,
+            height,
+            borderRadius: radius.full,
+            backgroundColor: getFillColour(percentRemaining),
+          },
         ]}
       />
     </View>

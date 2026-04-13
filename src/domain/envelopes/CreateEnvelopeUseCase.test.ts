@@ -3,7 +3,15 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => 'new-env-uuid' }));
 import { CreateEnvelopeUseCase } from './CreateEnvelopeUseCase';
 
 const makeDb = () => ({
+  select: jest.fn().mockReturnValue({
+    from: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue([]),
+  }),
   insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
+  update: jest.fn().mockReturnValue({
+    set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+  }),
 });
 const makeAudit = () => ({ log: jest.fn().mockResolvedValue(undefined) });
 
@@ -94,5 +102,14 @@ describe('CreateEnvelopeUseCase', () => {
     const result = await uc.execute();
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.isSavingsLocked).toBe(false);
+  });
+
+  it('calls injected ISyncEnqueuer instead of default adapter', async () => {
+    const db = makeDb();
+    const mockEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const uc = new CreateEnvelopeUseCase(db as any, makeAudit() as any, validInput, mockEnqueuer);
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(mockEnqueuer.enqueue).toHaveBeenCalledWith('envelopes', 'new-env-uuid', 'INSERT');
   });
 });

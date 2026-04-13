@@ -1,16 +1,27 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  AccessibilityInfo,
+} from 'react-native';
 import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
 import { colours, spacing } from '../../theme/tokens';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { SupabaseAuthService } from '../../../data/remote/SupabaseAuthService';
 import { useAppStore } from '../../stores/appStore';
 import type { LoginScreenProps } from '../../navigation/types';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
+import type { AuthStackParamList } from '../../navigation/types';
 
 const authService = new SupabaseAuthService(supabase);
 
 export const LoginScreen: React.FC<LoginScreenProps> = () => {
   const setSession = useAppStore((s) => s.setSession);
+  const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList, 'Login'>>();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +42,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
     if (result.success) {
       setSession(result.data);
     } else {
-      setError(result.error.message);
+      const msg = result.error.message;
+      setError(msg);
+      AccessibilityInfo.announceForAccessibility(`Sign in failed: ${msg}`);
     }
   };
 
@@ -62,6 +75,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             mode="outlined"
             style={styles.input}
             disabled={loading}
+            accessibilityLabel="Email address"
+            accessibilityRole="none"
+            maxFontSizeMultiplier={1.6}
           />
 
           <TextInput
@@ -74,10 +90,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             mode="outlined"
             style={styles.input}
             disabled={loading}
+            accessibilityLabel="Password"
+            accessibilityRole="none"
+            maxFontSizeMultiplier={1.6}
             right={
               <TextInput.Icon
                 icon={passwordVisible ? 'eye-off' : 'eye'}
                 onPress={() => setPasswordVisible((v) => !v)}
+                accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}
               />
             }
           />
@@ -89,8 +109,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             disabled={loading}
             style={styles.button}
             contentStyle={styles.buttonContent}
+            testID="login-submit"
+            accessibilityLabel="Sign In"
+            accessibilityRole="button"
           >
             Sign In
+          </Button>
+
+          <Button
+            mode="text"
+            onPress={() => navigation.navigate('SignUp')}
+            style={styles.linkButton}
+            testID="login-signup-link"
+            accessibilityLabel="New here? Create an account"
+            accessibilityRole="button"
+          >
+            New here? Create an account
           </Button>
         </View>
       </ScrollView>
@@ -100,6 +134,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
         onDismiss={() => setError(null)}
         duration={4000}
         action={{ label: 'OK', onPress: () => setError(null) }}
+        accessibilityLiveRegion="assertive"
+        accessibilityRole="alert"
       >
         {error}
       </Snackbar>
@@ -141,5 +177,8 @@ const styles = StyleSheet.create({
   },
   buttonContent: {
     paddingVertical: spacing.xs,
+  },
+  linkButton: {
+    marginTop: spacing.xs,
   },
 });

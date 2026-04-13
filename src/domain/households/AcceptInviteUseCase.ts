@@ -4,7 +4,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { householdMembers } from '../../data/local/schema';
-import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { RestoreService } from '../../data/sync/RestoreService';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
 import type { Result } from '../shared/types';
@@ -16,22 +17,23 @@ interface AcceptInviteInput {
 }
 
 export class AcceptInviteUseCase {
-  private readonly enqueuer: PendingSyncEnqueuer;
+  private readonly enqueuer: ISyncEnqueuer;
 
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly restoreService: RestoreService,
     private readonly input: AcceptInviteInput,
+    enqueuer?: ISyncEnqueuer,
   ) {
-    this.enqueuer = new PendingSyncEnqueuer(db);
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
   }
 
   async execute(): Promise<Result<HouseholdSummary>> {
     // 1. Fetch the invitation
     const { data: invite, error: inviteError } = await this.supabase
       .from('invitations')
-      .select('household_id, expires_at, used_by')
+      .select('id, household_id, expires_at, used_by')
       .eq('code', this.input.code.toUpperCase())
       .single();
 
@@ -44,7 +46,10 @@ export class AcceptInviteUseCase {
     }
 
     if (invite.used_by) {
-      return createFailure({ code: 'INVITE_ALREADY_USED', message: 'This invite code has already been used' });
+      return createFailure({
+        code: 'INVITE_ALREADY_USED',
+        message: 'This invite code has already been used',
+      });
     }
 
     const householdId = invite.household_id as string;
@@ -53,25 +58,22 @@ export class AcceptInviteUseCase {
     const memberId = randomUUID();
     const now = new Date().toISOString();
 
-    const { error: insertError } = await this.supabase
-      .from('household_members')
-      .insert({
-        id: memberId,
-        household_id: householdId,
-        user_id: this.input.userId,
-        role: 'member',
-        joined_at: now,
-      });
+    const { error: insertError } = await this.supabase.from('household_members').insert({
+      id: memberId,
+      household_id: householdId,
+      user_id: this.input.userId,
+      role: 'member',
+      joined_at: now,
+    });
 
     if (insertError) {
       return createFailure({ code: 'JOIN_FAILED', message: insertError.message });
     }
 
-    // 3. Mark invitation as used
-    const { error: markUsedError } = await this.supabase
-      .from('invitations')
-      .update({ used_by: this.input.userId })
-      .eq('code', this.input.code.toUpperCase());
+    // 3. Mark invitation as used via SECURITY DEFINER RPC (validates caller owns the claim)
+    const { error: markUsedError } = await this.supabase.rpc('claim_invite', {
+      invite_id: invite.id as string,
+    });
 
     if (markUsedError) {
       return createFailure({ code: 'INVITE_MARK_FAILED', message: markUsedError.message });
@@ -84,14 +86,22 @@ export class AcceptInviteUseCase {
       userId: this.input.userId,
       role: 'member',
       joinedAt: now,
+      updatedAt: now,
     };
     await this.db.insert(householdMembers).values(localMember);
     await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
 
     // 5. Restore the household data locally
-    const restored = await this.restoreService.restoreHousehold(householdId, 'member', this.input.userId);
+    const restored = await this.restoreService.restoreHousehold(
+      householdId,
+      'member',
+      this.input.userId,
+    );
     if (!restored) {
-      return createFailure({ code: 'RESTORE_FAILED', message: 'Joined but failed to restore household data' });
+      return createFailure({
+        code: 'RESTORE_FAILED',
+        message: 'Joined but failed to restore household data',
+      });
     }
 
     const summary: HouseholdSummary = {

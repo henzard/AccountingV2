@@ -1,7 +1,11 @@
 import { UnitRateCalculator } from '../UnitRateCalculator';
 import type { MeterReadingEntity } from '../MeterReadingEntity';
 
-function makeReading(value: number, costCents: number | null, type: 'electricity' | 'water' | 'odometer' = 'electricity'): MeterReadingEntity {
+function makeReading(
+  value: number,
+  costCents: number | null,
+  type: 'electricity' | 'water' | 'odometer' = 'electricity',
+): MeterReadingEntity {
   return {
     id: 'r1',
     householdId: 'h1',
@@ -21,7 +25,10 @@ describe('UnitRateCalculator', () => {
   const calculator = new UnitRateCalculator();
 
   it('returns TYPE_MISMATCH when meter types differ', () => {
-    const result = calculator.calculate(makeReading(1200, 500, 'electricity'), makeReading(1000, null, 'water'));
+    const result = calculator.calculate(
+      makeReading(1200, 500, 'electricity'),
+      makeReading(1000, null, 'water'),
+    );
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('TYPE_MISMATCH');
   });

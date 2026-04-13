@@ -5,7 +5,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { transactions, envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuer } from '../../data/sync/PendingSyncEnqueuer';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { TransactionEntity } from './TransactionEntity';
@@ -20,14 +21,15 @@ interface CreateTransactionInput {
 }
 
 export class CreateTransactionUseCase {
-  private readonly enqueuer: PendingSyncEnqueuer;
+  private readonly enqueuer: ISyncEnqueuer;
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateTransactionInput,
+    enqueuer?: ISyncEnqueuer,
   ) {
-    this.enqueuer = new PendingSyncEnqueuer(db);
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
   }
 
   async execute(): Promise<Result<TransactionEntity>> {
@@ -40,14 +42,22 @@ export class CreateTransactionUseCase {
     const [targetEnvelope] = await this.db
       .select()
       .from(envelopes)
-      .where(and(eq(envelopes.id, this.input.envelopeId), eq(envelopes.householdId, this.input.householdId)))
+      .where(
+        and(
+          eq(envelopes.id, this.input.envelopeId),
+          eq(envelopes.householdId, this.input.householdId),
+        ),
+      )
       .limit(1);
 
     if (!targetEnvelope) {
       return createFailure({ code: 'ENVELOPE_NOT_FOUND', message: 'Envelope does not exist' });
     }
     if (targetEnvelope.envelopeType === 'income') {
-      return createFailure({ code: 'INVALID_ENVELOPE_TYPE', message: 'Cannot create a transaction against an income envelope' });
+      return createFailure({
+        code: 'INVALID_ENVELOPE_TYPE',
+        message: 'Cannot create a transaction against an income envelope',
+      });
     }
 
     const now = new Date().toISOString();
@@ -75,7 +85,12 @@ export class CreateTransactionUseCase {
     await this.db
       .update(envelopes)
       .set({ spentCents: sql`${envelopes.spentCents} + ${this.input.amountCents}`, updatedAt: now })
-      .where(and(eq(envelopes.id, this.input.envelopeId), eq(envelopes.householdId, this.input.householdId)));
+      .where(
+        and(
+          eq(envelopes.id, this.input.envelopeId),
+          eq(envelopes.householdId, this.input.householdId),
+        ),
+      );
 
     await this.audit.log({
       householdId: this.input.householdId,

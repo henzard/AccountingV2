@@ -64,7 +64,9 @@ function computeIncomeTotal(envelopes: EnvelopeEntity[]): number {
     .reduce((sum, e) => sum + e.allocatedCents, 0);
 }
 
-function evaluateStep1(envelopes: EnvelopeEntity[]): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
+function evaluateStep1(
+  envelopes: EnvelopeEntity[],
+): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
   const emf = findEMF(envelopes);
   if (!emf) {
     return { isCompleted: false, progress: null };
@@ -119,9 +121,7 @@ function evaluateStep6(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' 
   if (bondDebts.length === 0) {
     return { isCompleted: false, progress: null };
   }
-  const allPaid = bondDebts.every(
-    (d) => d.isPaidOff || d.outstandingBalanceCents === 0,
-  );
+  const allPaid = bondDebts.every((d) => d.isPaidOff || d.outstandingBalanceCents === 0);
   return {
     isCompleted: allPaid,
     // For Step 6, current = sum of outstanding paid, target = total bond count is not how spec shows it.
@@ -129,7 +129,10 @@ function evaluateStep6(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' 
     // Actually spec says progress template for 6 is R{current} of R{target}, so we use cents like step 1/3.
     // We'll report paid vs total bond count in cents: outstanding vs initial
     progress: {
-      current: bondDebts.reduce((s, d) => s + (d.initialBalanceCents - d.outstandingBalanceCents), 0),
+      current: bondDebts.reduce(
+        (s, d) => s + (d.initialBalanceCents - d.outstandingBalanceCents),
+        0,
+      ),
       target: bondDebts.reduce((s, d) => s + d.initialBalanceCents, 0),
       unit: 'cents',
     },
@@ -142,7 +145,9 @@ function evaluateStep6(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' 
  * Does NOT read timestamps — `completedAt` and `celebratedAt` come from persisted rows
  * and are threaded through by ReconcileBabyStepsUseCase.
  */
-export function evaluate(input: EvaluatorInput): Omit<BabyStepStatus, 'completedAt' | 'celebratedAt'>[] {
+export function evaluate(
+  input: EvaluatorInput,
+): Omit<BabyStepStatus, 'completedAt' | 'celebratedAt'>[] {
   const { envelopes, debts, monthlyExpenseBaseline, manualFlags } = input;
 
   const step1 = evaluateStep1(envelopes);
@@ -154,9 +159,24 @@ export function evaluate(input: EvaluatorInput): Omit<BabyStepStatus, 'completed
     { stepNumber: 1, isManual: BABY_STEP_RULES[1].isManual, ...step1 },
     { stepNumber: 2, isManual: BABY_STEP_RULES[2].isManual, ...step2 },
     { stepNumber: 3, isManual: BABY_STEP_RULES[3].isManual, ...step3 },
-    { stepNumber: 4, isManual: BABY_STEP_RULES[4].isManual, isCompleted: manualFlags[4], progress: null },
-    { stepNumber: 5, isManual: BABY_STEP_RULES[5].isManual, isCompleted: manualFlags[5], progress: null },
+    {
+      stepNumber: 4,
+      isManual: BABY_STEP_RULES[4].isManual,
+      isCompleted: manualFlags[4],
+      progress: null,
+    },
+    {
+      stepNumber: 5,
+      isManual: BABY_STEP_RULES[5].isManual,
+      isCompleted: manualFlags[5],
+      progress: null,
+    },
     { stepNumber: 6, isManual: BABY_STEP_RULES[6].isManual, ...step6 },
-    { stepNumber: 7, isManual: BABY_STEP_RULES[7].isManual, isCompleted: manualFlags[7], progress: null },
+    {
+      stepNumber: 7,
+      isManual: BABY_STEP_RULES[7].isManual,
+      isCompleted: manualFlags[7],
+      progress: null,
+    },
   ];
 }

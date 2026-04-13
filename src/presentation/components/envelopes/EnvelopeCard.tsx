@@ -37,10 +37,8 @@ export function EnvelopeCard({ envelope, onPress }: Props): React.JSX.Element {
           </View>
           <Text variant="bodySmall" style={styles.meta}>
             {`of `}
-            <CurrencyText
-              amountCents={envelope.allocatedCents}
-              style={styles.meta}
-            />{` budgeted · ${pct}% remaining`}
+            <CurrencyText amountCents={envelope.allocatedCents} style={styles.meta} />
+            {` budgeted · ${pct}% remaining`}
           </Text>
           <View style={styles.bar}>
             <EnvelopeFillBar percentRemaining={pct} height={6} />

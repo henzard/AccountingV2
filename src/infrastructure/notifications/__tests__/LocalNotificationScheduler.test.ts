@@ -85,9 +85,7 @@ describe('LocalNotificationScheduler', () => {
       await scheduler.fireBabyStepCelebration(2);
       await scheduler.fireBabyStepCelebration(2);
 
-      const ids = mockSchedule.mock.calls.map(
-        (c: [{ identifier: string }]) => c[0].identifier,
-      );
+      const ids = mockSchedule.mock.calls.map((c: [{ identifier: string }]) => c[0].identifier);
       // Identifiers may differ because Math.random() still advances even under fake timers
       expect(ids).toHaveLength(2);
 

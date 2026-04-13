@@ -10,16 +10,19 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { Text, TextInput, Button, Snackbar, TouchableRipple, Surface } from 'react-native-paper';
-import { and, eq } from 'drizzle-orm';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { and, eq, ne } from 'drizzle-orm';
 import { format } from 'date-fns';
 import { db } from '../../../data/local/db';
 import { envelopes as envelopesTable } from '../../../data/local/schema';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTransactionUseCase';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
 import { colours, spacing, radius } from '../../theme/tokens';
 import type { AddTransactionScreenProps } from '../../navigation/types';
+import type { EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
@@ -27,6 +30,9 @@ const engine = new BudgetPeriodEngine();
 interface EnvelopeOption {
   id: string;
   name: string;
+  allocatedCents: number;
+  spentCents: number;
+  envelopeType: EnvelopeType;
 }
 
 function toCents(randStr: string): number {
@@ -35,13 +41,19 @@ function toCents(randStr: string): number {
   return Math.round(n * 100);
 }
 
+function formatBalance(env: EnvelopeOption): string {
+  const balance = env.allocatedCents - env.spentCents;
+  const absR = Math.abs(balance / 100).toFixed(2);
+  return balance < 0 ? `-R${absR}` : `R${absR}`;
+}
+
 export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navigation }) => {
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
+  const enqueue = useToastStore((s) => s.enqueue);
 
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
-  const today = format(new Date(), 'yyyy-MM-dd');
 
   const [envelopes, setEnvelopes] = useState<EnvelopeOption[]>([]);
   const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeOption | null>(null);
@@ -52,19 +64,31 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Date picker
+  const [transactionDate, setTransactionDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   useEffect(() => {
-    db.select({ id: envelopesTable.id, name: envelopesTable.name })
+    db.select({
+      id: envelopesTable.id,
+      name: envelopesTable.name,
+      allocatedCents: envelopesTable.allocatedCents,
+      spentCents: envelopesTable.spentCents,
+      envelopeType: envelopesTable.envelopeType,
+    })
       .from(envelopesTable)
       .where(
         and(
           eq(envelopesTable.householdId, householdId),
           eq(envelopesTable.periodStart, periodStart),
           eq(envelopesTable.isArchived, false),
+          // Exclude income-type envelopes per domain rule
+          ne(envelopesTable.envelopeType, 'income'),
         ),
       )
       .then((rows) => {
-        setEnvelopes(rows);
-        if (rows.length === 1) setSelectedEnvelope(rows[0]);
+        setEnvelopes(rows as EnvelopeOption[]);
+        if (rows.length === 1) setSelectedEnvelope(rows[0] as EnvelopeOption);
       });
   }, [householdId, periodStart]);
 
@@ -73,19 +97,25 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       setError('Please select an envelope');
       return;
     }
+    const cents = toCents(amountStr);
+    if (cents <= 0) {
+      setError('Amount must be greater than R0');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const uc = new CreateTransactionUseCase(db, audit, {
         householdId,
         envelopeId: selectedEnvelope.id,
-        amountCents: toCents(amountStr),
+        amountCents: cents,
         payee: payee.trim() || null,
         description: description.trim() || null,
-        transactionDate: today,
+        transactionDate: format(transactionDate, 'yyyy-MM-dd'),
       });
       const result = await uc.execute();
       if (result.success) {
+        enqueue('Transaction saved', 'success');
         navigation.goBack();
       } else {
         setError(result.error.message);
@@ -93,7 +123,21 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
     } finally {
       setLoading(false);
     }
-  }, [selectedEnvelope, amountStr, payee, description, householdId, today, navigation]);
+  }, [
+    selectedEnvelope,
+    amountStr,
+    payee,
+    description,
+    householdId,
+    transactionDate,
+    navigation,
+    enqueue,
+  ]);
+
+  const balanceColor = (env: EnvelopeOption): string => {
+    const balance = env.allocatedCents - env.spentCents;
+    return balance < 0 ? colours.error : colours.onSurfaceVariant;
+  };
 
   return (
     <KeyboardAvoidingView
@@ -101,9 +145,14 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-
-        <Text variant="labelLarge" style={styles.label}>Envelope</Text>
-        <TouchableRipple onPress={() => setShowPicker(true)} style={styles.pickerButton}>
+        <Text variant="labelLarge" style={styles.label}>
+          Envelope
+        </Text>
+        <TouchableRipple
+          onPress={() => setShowPicker(true)}
+          style={styles.pickerButton}
+          testID="envelope-picker-trigger"
+        >
           <View style={styles.pickerInner}>
             <Text
               variant="bodyLarge"
@@ -111,6 +160,17 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
             >
               {selectedEnvelope ? selectedEnvelope.name : 'Select envelope…'}
             </Text>
+            {selectedEnvelope && (
+              <Text
+                variant="bodySmall"
+                style={{
+                  color: balanceColor(selectedEnvelope),
+                  marginRight: spacing.sm,
+                }}
+              >
+                {formatBalance(selectedEnvelope)} left
+              </Text>
+            )}
             <Text style={styles.pickerChevron}>›</Text>
           </View>
         </TouchableRipple>
@@ -147,9 +207,34 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           placeholder="e.g. Weekly groceries"
         />
 
-        <Text variant="bodySmall" style={styles.dateNote}>
-          Date: {format(new Date(), 'd MMM yyyy')} (today)
-        </Text>
+        {/* Date picker row */}
+        <TouchableRipple
+          onPress={() => setShowDatePicker(true)}
+          style={styles.dateButton}
+          testID="date-picker-trigger"
+        >
+          <View style={styles.pickerInner}>
+            <Text variant="bodyMedium" style={styles.dateLabel}>
+              Date
+            </Text>
+            <Text variant="bodyMedium" style={styles.dateValue}>
+              {format(transactionDate, 'd MMM yyyy')}
+            </Text>
+          </View>
+        </TouchableRipple>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={transactionDate}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            maximumDate={new Date()}
+            onChange={(_, date) => {
+              setShowDatePicker(false);
+              if (date) setTransactionDate(date);
+            }}
+          />
+        )}
 
         <Button
           mode="contained"
@@ -163,39 +248,64 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         </Button>
       </ScrollView>
 
+      {/* Envelope picker modal */}
       <Modal
         visible={showPicker}
         transparent
         animationType="slide"
         onRequestClose={() => setShowPicker(false)}
+        accessibilityViewIsModal
       >
-        <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowPicker(false)} activeOpacity={1}>
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          onPress={() => setShowPicker(false)}
+          activeOpacity={1}
+          accessibilityLabel="Close envelope picker"
+          accessibilityRole="button"
+        >
           <Surface style={styles.modalSheet} elevation={4}>
             <View style={styles.modalHandle} />
-            <Text variant="titleMedium" style={styles.modalTitle}>Select Envelope</Text>
+            <Text variant="titleMedium" style={styles.modalTitle}>
+              Select Envelope
+            </Text>
             <FlatList
               data={envelopes}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableRipple
-                  onPress={() => {
-                    setSelectedEnvelope(item);
-                    setShowPicker(false);
-                  }}
-                  style={styles.modalItem}
-                >
-                  <Text
-                    variant="bodyLarge"
-                    style={
-                      selectedEnvelope?.id === item.id
-                        ? styles.modalItemSelected
-                        : styles.modalItemText
-                    }
+              renderItem={({ item }) => {
+                const balance = item.allocatedCents - item.spentCents;
+                return (
+                  <TouchableRipple
+                    onPress={() => {
+                      setSelectedEnvelope(item);
+                      setShowPicker(false);
+                    }}
+                    style={styles.modalItem}
+                    testID={`envelope-option-${item.id}`}
                   >
-                    {item.name}
-                  </Text>
-                </TouchableRipple>
-              )}
+                    <View style={styles.modalItemInner}>
+                      <Text
+                        variant="bodyLarge"
+                        style={
+                          selectedEnvelope?.id === item.id
+                            ? styles.modalItemSelected
+                            : styles.modalItemText
+                        }
+                      >
+                        {item.name}
+                      </Text>
+                      <Text
+                        variant="bodySmall"
+                        style={{
+                          color: balance < 0 ? colours.error : colours.onSurfaceVariant,
+                        }}
+                        testID={`envelope-balance-${item.id}`}
+                      >
+                        {formatBalance(item)} left
+                      </Text>
+                    </View>
+                  </TouchableRipple>
+                );
+              }}
               ListEmptyComponent={
                 <View style={styles.center}>
                   <Text variant="bodyMedium" style={{ color: colours.onSurfaceVariant }}>
@@ -213,6 +323,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         onDismiss={() => setError(null)}
         duration={4000}
         action={{ label: 'OK', onPress: () => setError(null) }}
+        accessibilityLiveRegion="polite"
       >
         {error}
       </Snackbar>
@@ -239,7 +350,14 @@ const styles = StyleSheet.create({
   pickerValue: { flex: 1, color: colours.onSurface },
   pickerPlaceholder: { flex: 1, color: colours.onSurfaceVariant },
   pickerChevron: { color: colours.onSurfaceVariant, fontSize: 20 },
-  dateNote: { color: colours.onSurfaceVariant, marginTop: spacing.xs },
+  dateButton: {
+    borderWidth: 1,
+    borderColor: colours.outline,
+    borderRadius: radius.sm,
+    marginBottom: spacing.xs,
+  },
+  dateLabel: { flex: 1, color: colours.onSurfaceVariant },
+  dateValue: { color: colours.onSurface },
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: colours.scrim },
@@ -266,6 +384,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   modalItem: { paddingHorizontal: spacing.base, paddingVertical: spacing.md },
+  modalItemInner: { gap: 2 },
   modalItemText: { color: colours.onSurface },
   modalItemSelected: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold' },
   center: { padding: spacing.base },

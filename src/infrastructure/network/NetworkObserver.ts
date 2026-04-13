@@ -1,4 +1,5 @@
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
+import { logger } from '../logging/Logger';
 
 type OnConnectedCallback = () => Promise<void>;
 
@@ -13,7 +14,9 @@ export class NetworkObserver {
   start(): void {
     this.unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
       if (state.isConnected && state.isInternetReachable) {
-        this.callbacks.forEach((cb) => cb().catch(console.warn));
+        this.callbacks.forEach((cb) =>
+          cb().catch((err: unknown) => logger.warn('NetworkObserver: callback error', { err })),
+        );
       }
     });
   }

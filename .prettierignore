@@ -1,0 +1,8 @@
+node_modules
+coverage
+android
+ios
+.expo
+dist
+build
+src/data/local/migrations

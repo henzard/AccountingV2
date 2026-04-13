@@ -31,17 +31,9 @@ export const ManualStepPanel: React.FC<ManualStepPanelProps> = ({
   loading = false,
 }) => {
   return (
-    <Surface
-      style={styles.container}
-      elevation={0}
-      testID="manual-step-panel"
-    >
+    <Surface style={styles.container} elevation={0} testID="manual-step-panel">
       <View style={styles.iconRow}>
-        <MaterialCommunityIcons
-          name="hand-pointing-right"
-          size={32}
-          color={colours.secondary}
-        />
+        <MaterialCommunityIcons name="hand-pointing-right" size={32} color={colours.secondary} />
       </View>
 
       <Text variant="bodyMedium" style={styles.label}>

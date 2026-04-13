@@ -22,8 +22,12 @@ export const HouseholdPickerScreen: React.FC<HouseholdPickerScreenProps> = ({ na
     <TouchableRipple onPress={() => handleSelect(item)} rippleColor={colours.primaryContainer}>
       <Surface style={styles.row} elevation={1}>
         <View style={styles.rowLeft}>
-          <Text variant="titleSmall" style={styles.name}>{item.name}</Text>
-          <Text variant="bodySmall" style={styles.sub}>Payday: day {item.paydayDay}</Text>
+          <Text variant="titleSmall" style={styles.name}>
+            {item.name}
+          </Text>
+          <Text variant="bodySmall" style={styles.sub}>
+            Payday: day {item.paydayDay}
+          </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={colours.onSurfaceVariant} />
       </Surface>
@@ -33,8 +37,12 @@ export const HouseholdPickerScreen: React.FC<HouseholdPickerScreenProps> = ({ na
   return (
     <View style={styles.flex}>
       <Surface style={styles.header} elevation={0}>
-        <Text variant="labelMedium" style={styles.headerLabel}>YOUR HOUSEHOLDS</Text>
-        <Text variant="bodySmall" style={styles.headerSub}>Select a household to manage</Text>
+        <Text variant="labelMedium" style={styles.headerLabel}>
+          YOUR HOUSEHOLDS
+        </Text>
+        <Text variant="bodySmall" style={styles.headerSub}>
+          Select a household to manage
+        </Text>
       </Surface>
 
       <FlatList
@@ -99,5 +107,10 @@ const styles = StyleSheet.create({
   sub: { color: colours.onSurfaceVariant, marginTop: 2 },
   footer: { padding: spacing.base, gap: spacing.sm },
   footerBtn: { marginTop: spacing.xs },
-  fab: { position: 'absolute', right: spacing.base, bottom: spacing.xl, backgroundColor: colours.primary },
+  fab: {
+    position: 'absolute',
+    right: spacing.base,
+    bottom: spacing.xl,
+    backgroundColor: colours.primary,
+  },
 });

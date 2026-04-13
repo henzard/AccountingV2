@@ -9,9 +9,9 @@ interface DebtPayoffBarProps {
 }
 
 function getFillColour(progress: number): string {
-  if (progress >= 100) return colours.debtBarPaid;   // green — paid off
-  if (progress >= 50) return colours.secondary;       // amber — making good progress
-  return colours.debtBar;                             // red — just getting started
+  if (progress >= 100) return colours.debtBarPaid; // green — paid off
+  if (progress >= 50) return colours.secondary; // amber — making good progress
+  return colours.debtBar; // red — just getting started
 }
 
 export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): React.JSX.Element {
@@ -20,7 +20,12 @@ export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): R
 
   return (
     <View style={styles.container}>
-      <View style={styles.track}>
+      <View
+        style={styles.track}
+        accessibilityRole="progressbar"
+        accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
+        accessibilityLabel={`${label}: ${Math.round(clamped)}% paid off`}
+      >
         <View
           style={[
             styles.fill,
@@ -32,7 +37,9 @@ export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): R
         />
       </View>
       <View style={styles.labelRow}>
-        <Text variant="labelSmall" style={styles.label}>{label}</Text>
+        <Text variant="labelSmall" style={styles.label}>
+          {label}
+        </Text>
         <Text variant="labelSmall" style={[styles.percent, { color: fillColour }]}>
           {Math.round(clamped)}%
         </Text>

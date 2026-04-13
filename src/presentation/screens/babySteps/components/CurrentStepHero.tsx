@@ -71,14 +71,21 @@ function ProgressRing({ percent }: { percent: number }): React.JSX.Element {
   );
 }
 
-function formatProgress(status: BabyStepStatus, rule: (typeof BABY_STEP_RULES)[1]): {
+function formatProgress(
+  status: BabyStepStatus,
+  rule: (typeof BABY_STEP_RULES)[1],
+): {
   label: string;
   percent: number;
   a11y: string;
 } {
   const { progress, stepNumber } = status;
   if (!progress) {
-    return { label: '', percent: 0, a11y: `Step ${stepNumber}: ${rule.shortTitle}, no progress data` };
+    return {
+      label: '',
+      percent: 0,
+      a11y: `Step ${stepNumber}: ${rule.shortTitle}, no progress data`,
+    };
   }
 
   const { current, target, unit } = progress;
@@ -135,7 +142,11 @@ function NoDataCTA({
   if (stepNumber === 1) {
     return (
       <View style={styles.ctaContainer} testID="cta-no-emf">
-        <MaterialCommunityIcons name="shield-alert-outline" size={40} color={colours.outlineVariant} />
+        <MaterialCommunityIcons
+          name="shield-alert-outline"
+          size={40}
+          color={colours.outlineVariant}
+        />
         <Text variant="bodyMedium" style={styles.ctaText}>
           No emergency fund envelope yet. Create one to start Step 1.
         </Text>
@@ -157,11 +168,7 @@ function NoDataCTA({
         <Text variant="bodyMedium" style={styles.ctaText}>
           No debts tracked yet. Add accounts in the Debt tracker to unlock.
         </Text>
-        <Button
-          mode="outlined"
-          onPress={onNavigateToAddDebt}
-          style={styles.ctaButton}
-        >
+        <Button mode="outlined" onPress={onNavigateToAddDebt} style={styles.ctaButton}>
           Add debt account
         </Button>
       </View>
@@ -245,11 +252,7 @@ export const CurrentStepHero: React.FC<CurrentStepHeroProps> = ({
   return (
     <Surface style={styles.heroCard} elevation={1} testID="current-step-hero">
       <View style={styles.heroHeader}>
-        <View
-          accessible
-          accessibilityLabel={progressA11y}
-          style={styles.ringContainer}
-        >
+        <View accessible accessibilityLabel={progressA11y} style={styles.ringContainer}>
           <ProgressRing percent={percent} />
           {/* Seal mark overlaid in ring centre */}
           <View style={styles.sealOverlay}>
@@ -270,10 +273,7 @@ export const CurrentStepHero: React.FC<CurrentStepHeroProps> = ({
       </View>
 
       {/* Progress label — tabular-numeric (no accessibilityLabel: a11y is on the wrapping ringContainer View) */}
-      <Text
-        variant="titleMedium"
-        style={styles.progressLabel}
-      >
+      <Text variant="titleMedium" style={styles.progressLabel}>
         {progressLabel}
       </Text>
     </Surface>

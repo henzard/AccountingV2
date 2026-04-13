@@ -1,0 +1,76 @@
+/**
+ * DashboardScreen.test.tsx — C8 screen test
+ * Tests render and primary interaction (FAB navigation to AddTransaction).
+ */
+import React from 'react';
+import { render, fireEvent } from '@testing-library/react-native';
+
+// ─── Navigation mock ──────────────────────────────────────────────────────────
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useFocusEffect: jest.fn(),
+}));
+
+// ─── Local DB mock ────────────────────────────────────────────────────────────
+jest.mock('../../../../data/local/db', () => ({ db: {} }));
+
+// ─── Domain/hooks mocks ───────────────────────────────────────────────────────
+jest.mock('../../../hooks/useEnvelopes', () => ({
+  useEnvelopes: jest.fn().mockReturnValue({ envelopes: [], loading: false, reload: jest.fn() }),
+}));
+
+jest.mock('../../../hooks/useBabySteps', () => ({
+  useBabySteps: jest.fn().mockReturnValue({ statuses: [] }),
+}));
+
+jest.mock('../../../../domain/shared/resolveBabyStepIsActive', () => ({
+  resolveBabyStepIsActive: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock('../../../../domain/scoring/resolveLoggingDays', () => ({
+  resolveLoggingDays: jest.fn().mockResolvedValue(7),
+}));
+
+// ─── Store mock ───────────────────────────────────────────────────────────────
+jest.mock('../../../stores/appStore', () => ({
+  useAppStore: jest.fn((sel: (s: { householdId: string; paydayDay: number }) => unknown) =>
+    sel({ householdId: 'hh-1', paydayDay: 25 }),
+  ),
+}));
+
+// ─── react-native-paper mocks ─────────────────────────────────────────────────
+jest.mock('react-native-paper', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  return {
+    Text: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement('Text', null, children),
+    FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
+      React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
+    ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
+    Surface: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement('View', null, children),
+  };
+});
+
+jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
+
+import { DashboardScreen } from '../DashboardScreen';
+
+describe('DashboardScreen', () => {
+  it('renders without crashing and shows FAB', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('fab')).toBeTruthy();
+  });
+
+  it('pressing FAB navigates to AddEditEnvelope', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByTestId('fab'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', expect.any(Object));
+  });
+});

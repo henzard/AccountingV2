@@ -21,10 +21,7 @@ export interface BabyStepsCardProps {
 }
 
 export const BabyStepsCard: React.FC<BabyStepsCardProps> = ({ statuses, onPress }) => {
-  const currentStep = useMemo(
-    () => statuses.find((s) => !s.isCompleted) ?? null,
-    [statuses],
-  );
+  const currentStep = useMemo(() => statuses.find((s) => !s.isCompleted) ?? null, [statuses]);
 
   const completedCount = statuses.filter((s) => s.isCompleted).length;
 

@@ -25,7 +25,10 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
 
     if (permissionsGranted) {
       if (updated.eveningLogPromptEnabled) {
-        await scheduler.scheduleEveningLogPrompt(updated.eveningLogPromptHour, updated.eveningLogPromptMinute);
+        await scheduler.scheduleEveningLogPrompt(
+          updated.eveningLogPromptHour,
+          updated.eveningLogPromptMinute,
+        );
       } else {
         await Notifications.cancelScheduledNotificationAsync('evening-log').catch(() => {});
       }
@@ -42,10 +45,14 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
     }
   };
 
-  const debouncedUpdatePref = useCallback((update: Partial<NotificationPreferences>) => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => void updatePref(update), 600);
-  }, [preferences, permissionsGranted, paydayDay]); // eslint-disable-line react-hooks/exhaustive-deps
+  const debouncedUpdatePref = useCallback(
+    (update: Partial<NotificationPreferences>) => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      debounceTimer.current = setTimeout(() => void updatePref(update), 600);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preferences, permissionsGranted, paydayDay],
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -78,7 +85,8 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 value={String(preferences.eveningLogPromptHour)}
                 onChangeText={(v) => {
                   const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 0 && n <= 23) debouncedUpdatePref({ eveningLogPromptHour: n });
+                  if (!isNaN(n) && n >= 0 && n <= 23)
+                    debouncedUpdatePref({ eveningLogPromptHour: n });
                 }}
                 keyboardType="numeric"
                 mode="outlined"
@@ -89,7 +97,8 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 value={String(preferences.eveningLogPromptMinute)}
                 onChangeText={(v) => {
                   const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 0 && n <= 59) debouncedUpdatePref({ eveningLogPromptMinute: n });
+                  if (!isNaN(n) && n >= 0 && n <= 59)
+                    debouncedUpdatePref({ eveningLogPromptMinute: n });
                 }}
                 keyboardType="numeric"
                 mode="outlined"
@@ -121,7 +130,8 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 value={String(preferences.meterReadingReminderDay)}
                 onChangeText={(v) => {
                   const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 1 && n <= 28) debouncedUpdatePref({ meterReadingReminderDay: n });
+                  if (!isNaN(n) && n >= 1 && n <= 28)
+                    debouncedUpdatePref({ meterReadingReminderDay: n });
                 }}
                 keyboardType="numeric"
                 mode="outlined"
@@ -175,7 +185,12 @@ const styles = StyleSheet.create({
   permWarningText: { color: colours.warning },
   subheader: { color: colours.onSurfaceVariant, letterSpacing: 1 },
   section: { backgroundColor: colours.surface, borderRadius: 8, marginBottom: spacing.sm },
-  timeRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.base, paddingBottom: spacing.sm },
+  timeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.sm,
+  },
   timeInput: { flex: 1, backgroundColor: colours.surface },
   dayRow: { paddingHorizontal: spacing.base, paddingBottom: spacing.sm },
   dayInput: { backgroundColor: colours.surface },

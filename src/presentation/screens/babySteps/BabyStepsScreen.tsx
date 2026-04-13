@@ -13,13 +13,7 @@
  */
 
 import React, { useCallback, useMemo } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-} from 'react-native';
+import { View, StyleSheet, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
 import { Text, Surface, Chip } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { format, parseISO } from 'date-fns';
@@ -46,10 +40,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
     return format(period.startDate, 'yyyy-MM-dd');
   }, [paydayDay]);
 
-  const { statuses, loading, reconcile, toggleManualStep } = useBabySteps(
-    householdId,
-    periodStart,
-  );
+  const { statuses, loading, reconcile, toggleManualStep } = useBabySteps(householdId, periodStart);
 
   useFocusEffect(
     useCallback(() => {
@@ -57,15 +48,9 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
     }, [reconcile]),
   );
 
-  const completedSteps = useMemo(
-    () => statuses.filter((s) => s.isCompleted),
-    [statuses],
-  );
+  const completedSteps = useMemo(() => statuses.filter((s) => s.isCompleted), [statuses]);
 
-  const currentStep = useMemo(
-    () => statuses.find((s) => !s.isCompleted) ?? null,
-    [statuses],
-  );
+  const currentStep = useMemo(() => statuses.find((s) => !s.isCompleted) ?? null, [statuses]);
 
   const futureSteps = useMemo(() => {
     if (!currentStep) return [];
@@ -104,11 +89,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
       style={styles.flex}
       contentContainerStyle={styles.content}
       refreshControl={
-        <RefreshControl
-          refreshing={loading}
-          onRefresh={reconcile}
-          colors={[colours.primary]}
-        />
+        <RefreshControl refreshing={loading} onRefresh={reconcile} colors={[colours.primary]} />
       }
     >
       {/* ── Tier 1: Completed chips ────────────────────────────────── */}
@@ -178,9 +159,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
 
 function CompletedChip({ status }: { status: BabyStepStatus }): React.JSX.Element {
   const rule = BABY_STEP_RULES[status.stepNumber];
-  const dateLabel = status.completedAt
-    ? format(parseISO(status.completedAt), 'd MMM yyyy')
-    : '';
+  const dateLabel = status.completedAt ? format(parseISO(status.completedAt), 'd MMM yyyy') : '';
 
   return (
     <View style={chipStyles.container}>

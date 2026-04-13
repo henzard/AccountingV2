@@ -11,13 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Modal,
-  View,
-  StyleSheet,
-  Animated,
-  AccessibilityInfo,
-} from 'react-native';
+import { Modal, View, StyleSheet, Animated, AccessibilityInfo } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { format, parseISO } from 'date-fns';
 import { StepSealMark } from './components/StepSealMark';
@@ -60,6 +54,15 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
   const scaleAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0.6)).current;
   const opacityAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0)).current;
 
+  const rule = BABY_STEP_RULES[status.stepNumber];
+
+  // Announce step completion for screen reader users when modal becomes visible
+  useEffect(() => {
+    if (visible && rule) {
+      void AccessibilityInfo.announceForAccessibility(`Step completed — ${rule.shortTitle}`);
+    }
+  }, [visible, rule]);
+
   useEffect((): (() => void) | void => {
     if (!visible) return;
 
@@ -96,8 +99,6 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
     }
   }, [visible, reducedMotion, scaleAnim, opacityAnim]);
 
-  const rule = BABY_STEP_RULES[status.stepNumber];
-
   const completedDate = status.completedAt
     ? format(parseISO(status.completedAt), 'd MMM yyyy')
     : format(new Date(), 'd MMM yyyy');
@@ -109,6 +110,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
       animationType="none"
       onRequestClose={onDismiss}
       testID="celebration-modal"
+      accessibilityViewIsModal
     >
       {/* Ledger-paper tint overlay */}
       <View style={styles.overlay}>
@@ -128,28 +130,16 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
             ]}
             testID="celebration-seal"
           >
-            <StepSealMark
-              stepNumber={status.stepNumber}
-              state="complete"
-              size={SEAL_SIZE}
-            />
+            <StepSealMark stepNumber={status.stepNumber} state="complete" size={SEAL_SIZE} />
           </Animated.View>
 
           {/* Step title */}
-          <Text
-            variant="headlineMedium"
-            style={styles.stepTitle}
-            testID="celebration-title"
-          >
+          <Text variant="headlineMedium" style={styles.stepTitle} testID="celebration-title">
             {rule.shortTitle}
           </Text>
 
           {/* Completion message */}
-          <Text
-            variant="bodyLarge"
-            style={styles.completionMessage}
-            testID="celebration-message"
-          >
+          <Text variant="bodyLarge" style={styles.completionMessage} testID="celebration-message">
             {rule.completionMessage}
           </Text>
 

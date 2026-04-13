@@ -8,7 +8,7 @@ export interface AnomalyResult {
 }
 
 export class AnomalyDetector {
-  private static readonly THRESHOLD = 0.20;
+  private static readonly THRESHOLD = 0.2;
 
   /**
    * Detects if currentReading deviates >20% from the 3-month rolling average.
@@ -19,7 +19,12 @@ export class AnomalyDetector {
     const sorted = [...previousReadings].sort((a, b) => a.readingDate.localeCompare(b.readingDate));
 
     if (sorted.length < 4) {
-      return { isAnomaly: false, currentConsumption: 0, rollingAverageConsumption: 0, deviationPercent: 0 };
+      return {
+        isAnomaly: false,
+        currentConsumption: 0,
+        rollingAverageConsumption: 0,
+        deviationPercent: 0,
+      };
     }
 
     // Compute sequential consumption deltas from prior readings
@@ -35,7 +40,12 @@ export class AnomalyDetector {
     const currentConsumption = current.readingValue - lastPrior.readingValue;
 
     if (rollingAverageConsumption <= 0 || currentConsumption <= 0) {
-      return { isAnomaly: false, currentConsumption, rollingAverageConsumption, deviationPercent: 0 };
+      return {
+        isAnomaly: false,
+        currentConsumption,
+        rollingAverageConsumption,
+        deviationPercent: 0,
+      };
     }
 
     const deviationPercent =

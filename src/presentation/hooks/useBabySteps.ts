@@ -143,8 +143,7 @@ export function useBabySteps(
 
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       const wasBackground =
-        previousStateRef.current === 'background' ||
-        previousStateRef.current === 'inactive';
+        previousStateRef.current === 'background' || previousStateRef.current === 'inactive';
       const isNowActive = nextState === 'active';
 
       if (wasBackground && isNowActive) {

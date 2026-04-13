@@ -19,9 +19,7 @@ import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 
 export class SeedBabyStepsUseCase {
-  constructor(
-    private readonly db: ExpoSQLiteDatabase<typeof schema>,
-  ) {}
+  constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
 
   async execute(householdId: string): Promise<Result<void>> {
     try {
@@ -42,10 +40,7 @@ export class SeedBabyStepsUseCase {
 
       // INSERT OR IGNORE — safe under concurrent invocation
       for (const row of rows) {
-        await this.db
-          .insert(babySteps)
-          .values(row)
-          .onConflictDoNothing();
+        await this.db.insert(babySteps).values(row).onConflictDoNothing();
       }
 
       return createSuccess(undefined);

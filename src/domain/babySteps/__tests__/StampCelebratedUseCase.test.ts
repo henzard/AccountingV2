@@ -72,8 +72,6 @@ describe('StampCelebratedUseCase', () => {
     const uc = new StampCelebratedUseCase(db as any);
     await uc.execute(HOUSEHOLD_ID, STEP_NUMBER);
 
-    expect(db._setFn).toHaveBeenCalledWith(
-      expect.objectContaining({ isSynced: false }),
-    );
+    expect(db._setFn).toHaveBeenCalledWith(expect.objectContaining({ isSynced: false }));
   });
 });

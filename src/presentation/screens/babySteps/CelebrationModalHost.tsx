@@ -13,6 +13,7 @@ import { CelebrationModal } from './CelebrationModal';
 import { db } from '../../../data/local/db';
 import { StampCelebratedUseCase } from '../../../domain/babySteps/StampCelebratedUseCase';
 import { useAppStore } from '../../stores/appStore';
+import { logger } from '../../../infrastructure/logging/Logger';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
 
@@ -44,7 +45,7 @@ export const CelebrationModalHost: React.FC = () => {
       try {
         await stampUseCase.execute(householdId, currentHead.stepNumber);
       } catch (e) {
-        if (__DEV__) console.warn('[celebrationStore] stamp failed', e);
+        logger.warn('[CelebrationModalHost] stamp failed', { err: e });
       } finally {
         useCelebrationStore.getState().dequeue();
       }
@@ -57,11 +58,5 @@ export const CelebrationModalHost: React.FC = () => {
 
   const status = makePlaceholderStatus(head.stepNumber);
 
-  return (
-    <CelebrationModal
-      visible
-      status={status}
-      onDismiss={handleDismiss}
-    />
-  );
+  return <CelebrationModal visible status={status} onDismiss={handleDismiss} />;
 };

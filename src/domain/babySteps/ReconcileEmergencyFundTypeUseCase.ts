@@ -14,6 +14,8 @@ import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
+import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
 
@@ -23,9 +25,14 @@ export interface ReconcileEmergencyFundTypeResult {
 }
 
 export class ReconcileEmergencyFundTypeUseCase {
+  private readonly enqueuer: ISyncEnqueuer;
+
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
-  ) {}
+    enqueuer?: ISyncEnqueuer,
+  ) {
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
+  }
 
   async execute(householdId: string): Promise<Result<ReconcileEmergencyFundTypeResult>> {
     // 1. Find all non-archived emergency_fund envelopes, ordered by createdAt ASC
@@ -61,6 +68,7 @@ export class ReconcileEmergencyFundTypeUseCase {
           isSynced: false,
         })
         .where(eq(envelopes.id, envelope.id));
+      await this.enqueuer.enqueue('envelopes', envelope.id, 'UPDATE');
     }
 
     return createSuccess({ flipped: toFlip.length });

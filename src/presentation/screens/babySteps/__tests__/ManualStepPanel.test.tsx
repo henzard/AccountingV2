@@ -39,9 +39,7 @@ describe('ManualStepPanel', () => {
     const { getByText } = render(
       <ManualStepPanel isCompleted={false} onToggle={() => undefined} />,
     );
-    expect(
-      getByText('You decide when this is complete — tap to mark done.'),
-    ).toBeTruthy();
+    expect(getByText('You decide when this is complete — tap to mark done.')).toBeTruthy();
   });
 
   it('switch has accessibilityRole switch', () => {
@@ -60,18 +58,14 @@ describe('ManualStepPanel', () => {
   });
 
   it('switch reports checked state when isCompleted=true', () => {
-    const { getByRole } = render(
-      <ManualStepPanel isCompleted onToggle={() => undefined} />,
-    );
+    const { getByRole } = render(<ManualStepPanel isCompleted onToggle={() => undefined} />);
     const sw = getByRole('switch');
     expect(sw.props.accessibilityState?.checked).toBe(true);
   });
 
   it('calls onToggle with new value when switch flipped', () => {
     const onToggle = jest.fn();
-    const { getByTestId } = render(
-      <ManualStepPanel isCompleted={false} onToggle={onToggle} />,
-    );
+    const { getByTestId } = render(<ManualStepPanel isCompleted={false} onToggle={onToggle} />);
     fireEvent(getByTestId('manual-step-switch'), 'valueChange', true);
     expect(onToggle).toHaveBeenCalledWith(true);
   });

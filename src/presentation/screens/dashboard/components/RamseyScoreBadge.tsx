@@ -14,8 +14,8 @@ const RADIUS = 28;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-const ARC = CIRCUMFERENCE * 0.75;  // 270° sweep
-const GAP = CIRCUMFERENCE * 0.25;  // 90° gap at the bottom
+const ARC = CIRCUMFERENCE * 0.75; // 270° sweep
+const GAP = CIRCUMFERENCE * 0.25; // 90° gap at the bottom
 
 function getScoreColour(score: number): string {
   if (score >= 80) return colours.scoreExcellent;
@@ -35,9 +35,15 @@ export function RamseyScoreBadge({ score }: RamseyScoreBadgeProps): React.JSX.El
   const colour = getScoreColour(score);
   const clamped = Math.min(100, Math.max(0, score));
   const filled = ARC * (clamped / 100);
+  const label = getScoreLabel(score);
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 100, now: clamped }}
+      accessibilityLabel={`Ramsey score: ${score} — ${label}`}
+    >
       <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
         {/* Track arc */}
         <Circle

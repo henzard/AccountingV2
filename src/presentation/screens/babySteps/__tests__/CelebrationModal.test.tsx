@@ -21,12 +21,16 @@ jest.mock('react-native-paper', () => {
   return {
     Text: ({ children, testID, ...p }: { children?: React.ReactNode; testID?: string }) =>
       React.createElement('Text', { testID, ...p }, children),
-    Button: ({ children, onPress, testID, ...p }: {
+    Button: ({
+      children,
+      onPress,
+      testID,
+      ...p
+    }: {
       children?: React.ReactNode;
       onPress?: () => void;
       testID?: string;
-    }) =>
-      React.createElement('TouchableOpacity', { onPress, testID, ...p }, children),
+    }) => React.createElement('TouchableOpacity', { onPress, testID, ...p }, children),
   };
 });
 
@@ -75,12 +79,7 @@ describe('CelebrationModal', () => {
     it('renders final state immediately — seal and title visible', () => {
       const status = makeStatus(1);
       const { getByTestId, getByText } = render(
-        <CelebrationModal
-          visible
-          status={status}
-          onDismiss={() => undefined}
-          reducedMotion
-        />,
+        <CelebrationModal visible status={status} onDismiss={() => undefined} reducedMotion />,
       );
       expect(getByTestId('celebration-seal')).toBeTruthy();
       expect(getByTestId('celebration-title')).toBeTruthy();
@@ -91,12 +90,7 @@ describe('CelebrationModal', () => {
     it('shows step completion message', () => {
       const status = makeStatus(1);
       const { getByText } = render(
-        <CelebrationModal
-          visible
-          status={status}
-          onDismiss={() => undefined}
-          reducedMotion
-        />,
+        <CelebrationModal visible status={status} onDismiss={() => undefined} reducedMotion />,
       );
       expect(getByText('You saved your first R1,000. The foundation is laid.')).toBeTruthy();
     });
@@ -104,12 +98,7 @@ describe('CelebrationModal', () => {
     it('shows ribbon with completion date', () => {
       const status = makeStatus(1, '2026-04-12T10:00:00.000Z');
       const { getByText } = render(
-        <CelebrationModal
-          visible
-          status={status}
-          onDismiss={() => undefined}
-          reducedMotion
-        />,
+        <CelebrationModal visible status={status} onDismiss={() => undefined} reducedMotion />,
       );
       expect(getByText(/Completed/)).toBeTruthy();
       expect(getByText(/12 Apr 2026/)).toBeTruthy();
@@ -150,12 +139,7 @@ describe('CelebrationModal', () => {
       const onDismiss = jest.fn();
       const status = makeStatus(3);
       const { getByTestId } = render(
-        <CelebrationModal
-          visible
-          status={status}
-          onDismiss={onDismiss}
-          reducedMotion
-        />,
+        <CelebrationModal visible status={status} onDismiss={onDismiss} reducedMotion />,
       );
       fireEvent.press(getByTestId('celebration-dismiss'));
       expect(onDismiss).toHaveBeenCalledTimes(1);

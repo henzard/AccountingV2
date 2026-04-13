@@ -28,11 +28,7 @@ export const DuplicateEmfBanner: React.FC = () => {
   if (!hasFlag) return null;
 
   return (
-    <Surface
-      style={styles.banner}
-      elevation={0}
-      testID="duplicate-emf-banner"
-    >
+    <Surface style={styles.banner} elevation={0} testID="duplicate-emf-banner">
       <MaterialCommunityIcons
         name="information-outline"
         size={20}

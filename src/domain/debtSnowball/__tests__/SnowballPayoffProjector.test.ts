@@ -1,7 +1,12 @@
 import { SnowballPayoffProjector } from '../SnowballPayoffProjector';
 import type { DebtEntity } from '../DebtEntity';
 
-function makeDebt(id: string, balanceCents: number, minPayCents: number, sortOrder: number): DebtEntity {
+function makeDebt(
+  id: string,
+  balanceCents: number,
+  minPayCents: number,
+  sortOrder: number,
+): DebtEntity {
   return {
     id,
     householdId: 'h1',

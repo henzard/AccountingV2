@@ -28,33 +28,32 @@ function formatRand(cents: number): string {
 }
 
 export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelopes }) => {
-  const { incomeTotal, expenseAllocationTotal, toAssign, isBalanced } =
-    useBudgetBalance(envelopes);
+  const { incomeTotal, expenseAllocationTotal, toAssign, isBalanced } = useBudgetBalance(envelopes);
 
   const isOver = toAssign < 0;
 
   const bannerBg = isBalanced
     ? colours.successContainer
     : isOver
-    ? colours.warningContainer
-    : colours.primaryContainer;
+      ? colours.warningContainer
+      : colours.primaryContainer;
 
-  const bannerFg = isBalanced
-    ? colours.success
-    : isOver
-    ? colours.warning
-    : colours.primary;
+  const bannerFg = isBalanced ? colours.success : isOver ? colours.warning : colours.primary;
 
   const iconName = isBalanced ? 'check-circle-outline' : isOver ? 'alert-outline' : 'cash-clock';
 
   const mainLabel = isBalanced
     ? 'Every rand assigned \u2713'
     : isOver
-    ? `-${formatRand(Math.abs(toAssign))} overcommitted`
-    : `${formatRand(toAssign)} left to assign`;
+      ? `-${formatRand(Math.abs(toAssign))} overcommitted`
+      : `${formatRand(toAssign)} left to assign`;
 
   return (
-    <Surface style={[styles.banner, { backgroundColor: bannerBg }]} elevation={0} testID="budget-balance-banner">
+    <Surface
+      style={[styles.banner, { backgroundColor: bannerBg }]}
+      elevation={0}
+      testID="budget-balance-banner"
+    >
       {/* Main status row */}
       <View style={styles.mainRow}>
         <MaterialCommunityIcons name={iconName} size={22} color={bannerFg} />
@@ -107,10 +106,17 @@ function BreakdownItem({
 }): React.JSX.Element {
   return (
     <View style={styles.breakdownItem}>
-      <Text variant="labelSmall" style={[styles.breakdownLabel, { color: colours.onSurfaceVariant }]}>
+      <Text
+        variant="labelSmall"
+        style={[styles.breakdownLabel, { color: colours.onSurfaceVariant }]}
+      >
         {label}
       </Text>
-      <Text variant="labelMedium" style={[styles.breakdownValue, { color: colour }]} testID={testID}>
+      <Text
+        variant="labelMedium"
+        style={[styles.breakdownValue, { color: colour }]}
+        testID={testID}
+      >
         {value}
       </Text>
     </View>

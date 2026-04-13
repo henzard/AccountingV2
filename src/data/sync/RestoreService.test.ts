@@ -1,4 +1,6 @@
-jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2) }));
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
+}));
 
 import { RestoreService } from './RestoreService';
 
@@ -38,7 +40,10 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
   interface SupabaseMockShape {
     from: (table: string) => {
       select: () => {
-        eq: (col: string, val: unknown) =>
+        eq: (
+          col: string,
+          val: unknown,
+        ) =>
           | Promise<{ data: unknown[]; error: null }>
           | { single: () => Promise<{ data: unknown; error: null }> };
       };
@@ -128,11 +133,7 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
     const db = {
       insert: () => ({
         values: (row: unknown) => {
-          if (
-            row &&
-            typeof row === 'object' &&
-            'stepNumber' in (row as Record<string, unknown>)
-          ) {
+          if (row && typeof row === 'object' && 'stepNumber' in (row as Record<string, unknown>)) {
             insertedRows.push(row);
           }
           return {
@@ -151,5 +152,47 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
     const inserted = insertedRows[0] as Record<string, unknown>;
     expect(inserted.stepNumber).toBe(1);
     expect(inserted.isSynced).toBe(true);
+  });
+
+  it('onConflictDoUpdate: local row gets overwritten by remote on restore', async () => {
+    const remoteUpdatedAt = '2026-04-13T00:00:00Z';
+    const babyStepRows = [
+      {
+        id: 'bs-overwrite',
+        household_id: 'hh-1',
+        step_number: 1,
+        is_completed: true,
+        completed_at: remoteUpdatedAt,
+        is_manual: false,
+        celebrated_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: remoteUpdatedAt,
+      },
+    ];
+
+    const { supabase } = makeSupabaseMock(baseHhRow, [], { baby_steps: babyStepRows });
+
+    const onConflictDoUpdateMock = jest.fn().mockResolvedValue({});
+    const insertedValues: unknown[] = [];
+    const db = {
+      insert: () => ({
+        values: (row: unknown) => {
+          insertedValues.push(row);
+          return {
+            onConflictDoUpdate: onConflictDoUpdateMock,
+            onConflictDoNothing: jest.fn().mockResolvedValue({}),
+          };
+        },
+      }),
+    } as any;
+
+    const svc = new RestoreService(db, supabase as any);
+    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
+
+    // The baby_steps row should have been inserted with onConflictDoUpdate
+    expect(onConflictDoUpdateMock).toHaveBeenCalled();
+    // Verify the target is id-based (remote is authoritative)
+    const updateCall = onConflictDoUpdateMock.mock.calls[0][0];
+    expect(updateCall).toHaveProperty('target');
   });
 });

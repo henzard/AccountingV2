@@ -8,19 +8,14 @@
  */
 
 import React, { useCallback, useMemo } from 'react';
-import {
-  View,
-  StyleSheet,
-  SectionList,
-  RefreshControl,
-  ActivityIndicator,
-} from 'react-native';
+import { View, StyleSheet, SectionList, RefreshControl, ActivityIndicator } from 'react-native';
 import { Text, Divider } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { format } from 'date-fns';
 import { BudgetBalanceBanner } from './components/BudgetBalanceBanner';
 import { DuplicateEmfBanner } from './components/DuplicateEmfBanner';
 import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
+import { EmptyState } from '../../components/shared/EmptyState';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
@@ -74,11 +69,11 @@ export const BudgetScreen: React.FC = () => {
       <BudgetBalanceBanner envelopes={envelopes} />
 
       {sections.length === 0 ? (
-        <View style={styles.center}>
-          <Text variant="bodyMedium" style={styles.emptyText}>
-            No envelopes yet for this period.
-          </Text>
-        </View>
+        <EmptyState
+          title="No envelopes yet"
+          body="No envelopes configured for this period."
+          testID="budget-empty-state"
+        />
       ) : (
         <SectionList
           sections={sections}
@@ -94,11 +89,7 @@ export const BudgetScreen: React.FC = () => {
           )}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl
-              refreshing={loading}
-              onRefresh={reload}
-              colors={[colours.primary]}
-            />
+            <RefreshControl refreshing={loading} onRefresh={reload} colors={[colours.primary]} />
           }
           stickySectionHeadersEnabled={false}
         />
@@ -110,7 +101,6 @@ export const BudgetScreen: React.FC = () => {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colours.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  emptyText: { color: colours.onSurfaceVariant, textAlign: 'center' },
   list: { paddingBottom: spacing.xxl },
   sectionHeader: {
     paddingHorizontal: spacing.base,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView, View } from 'react-native';
 import { TextInput, Button, HelperText, Text } from 'react-native-paper';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -7,6 +7,7 @@ import { debts as debtsTable } from '../../../data/local/schema';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { LogDebtPaymentUseCase } from '../../../domain/debtSnowball/LogDebtPaymentUseCase';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { colours, spacing } from '../../theme/tokens';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { LogPaymentScreenProps } from '../../navigation/types';
@@ -16,13 +17,16 @@ const audit = new AuditLogger(db);
 export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, route }) => {
   const { debtId } = route.params;
   const householdId = useAppStore((s) => s.householdId)!;
+  const enqueue = useToastStore((s) => s.enqueue);
   const [debt, setDebt] = useState<DebtEntity | null>(null);
   const [amountRands, setAmountRands] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    db.select().from(debtsTable).where(eq(debtsTable.id, debtId))
+    db.select()
+      .from(debtsTable)
+      .where(eq(debtsTable.id, debtId))
       .then((rows) => {
         const row = rows[0] as DebtEntity | undefined;
         if (row) setAmountRands((row.minimumPaymentCents / 100).toFixed(2));
@@ -48,6 +52,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
     const result = await uc.execute();
     setSaving(false);
     if (result.success) {
+      enqueue('Payment logged', 'success');
       navigation.goBack();
     } else {
       setError(result.error.message);
@@ -58,7 +63,10 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       {debt && (
         <Text variant="bodyMedium" style={styles.hint}>
-          Outstanding: R{(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+          Outstanding: R
+          {(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', {
+            minimumFractionDigits: 2,
+          })}
         </Text>
       )}
       <TextInput
@@ -69,8 +77,15 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
         mode="outlined"
         style={styles.input}
         autoFocus
+        accessibilityHint="Required — enter the payment amount in rands"
       />
-      {error ? <HelperText type="error">{error}</HelperText> : null}
+      <View accessibilityLiveRegion="polite">
+        {error ? (
+          <HelperText type="error" visible>
+            {error}
+          </HelperText>
+        ) : null}
+      </View>
       <Button
         mode="contained"
         onPress={handleSave}
