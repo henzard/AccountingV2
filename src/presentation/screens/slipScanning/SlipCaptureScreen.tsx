@@ -10,7 +10,9 @@ import { useNetworkStore } from '../../stores/networkStore';
 const MAX_FRAMES = 5;
 const DAILY_LIMIT = 25;
 const COACHMARK_KEY = 'slip_capture_coachmark_shown';
-const DAILY_COUNT_KEY = 'slip_scan_daily_count';
+const DAILY_COUNT_KEY = '@slip:daily_count';
+
+const todayKey = (): string => new Date().toISOString().slice(0, 10);
 
 export type SlipCaptureScreenProps = {
   householdId: string;
@@ -24,6 +26,7 @@ export function SlipCaptureScreen({
   const navigation = useNavigation<any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<InstanceType<typeof CameraView>>(null);
+  const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const [frames, setFrames] = useState<string[]>([]);
   const [showCoachmark, setShowCoachmark] = useState(false);
   const [dailyCount, setDailyCount] = useState(0);
@@ -34,9 +37,23 @@ export function SlipCaptureScreen({
     AsyncStorage.getItem(COACHMARK_KEY).then((val) => {
       if (!val) setShowCoachmark(true);
     });
-    AsyncStorage.getItem(DAILY_COUNT_KEY).then((val) => {
-      setDailyCount(val ? parseInt(val, 10) : 0);
+    AsyncStorage.getItem(DAILY_COUNT_KEY).then((raw) => {
+      if (!raw) {
+        setDailyCount(0);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw) as { date: string; count: number };
+        setDailyCount(parsed.date === todayKey() ? parsed.count : 0);
+      } catch {
+        setDailyCount(0);
+      }
     });
+    const pending = timeoutsRef.current;
+    return () => {
+      pending.forEach(clearTimeout);
+      pending.clear();
+    };
   }, []);
 
   const dismissCoachmark = useCallback(async (): Promise<void> => {
@@ -63,15 +80,20 @@ export function SlipCaptureScreen({
     setFrames(newFrames);
     const newCount = dailyCount + 1;
     setDailyCount(newCount);
-    await AsyncStorage.setItem(DAILY_COUNT_KEY, String(newCount));
+    await AsyncStorage.setItem(
+      DAILY_COUNT_KEY,
+      JSON.stringify({ date: todayKey(), count: newCount }),
+    );
   }, [cameraRef, frames, isOnline, dailyCount, showCoachmark, dismissCoachmark]);
 
   const removeFrame = useCallback((idx: number): void => {
     setPendingDelete(idx);
-    setTimeout(() => {
+    const handle = setTimeout(() => {
+      timeoutsRef.current.delete(handle);
       setPendingDelete(null);
       setFrames((prev) => prev.filter((_, i) => i !== idx));
     }, 3000);
+    timeoutsRef.current.add(handle);
   }, []);
 
   const undoDelete = useCallback((): void => {
