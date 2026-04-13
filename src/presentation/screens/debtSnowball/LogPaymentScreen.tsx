@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView, View } from 'react-native';
 import { TextInput, Button, HelperText, Text } from 'react-native-paper';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -77,8 +77,13 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
         mode="outlined"
         style={styles.input}
         autoFocus
+        accessibilityHint="Required — enter the payment amount in rands"
       />
-      {error ? <HelperText type="error">{error}</HelperText> : null}
+      {error ? (
+        <View accessibilityLiveRegion="polite">
+          <HelperText type="error">{error}</HelperText>
+        </View>
+      ) : null}
       <Button
         mode="contained"
         onPress={handleSave}

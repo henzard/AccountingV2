@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView, View } from 'react-native';
 import { TextInput, Button, HelperText, SegmentedButtons, Text } from 'react-native-paper';
 import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
@@ -91,6 +91,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         onChangeText={setCreditorName}
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter the creditor or account name"
       />
       <TextInput
         label="Outstanding balance (R)"
@@ -99,6 +100,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter the current outstanding balance in rands"
       />
       <TextInput
         label="Interest rate (%)"
@@ -107,6 +109,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter 0 for interest-free"
       />
       <TextInput
         label="Minimum monthly payment (R)"
@@ -115,9 +118,14 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         keyboardType="numeric"
         mode="outlined"
         style={styles.input}
+        accessibilityHint="Required — enter the minimum monthly payment in rands"
       />
 
-      {error ? <HelperText type="error">{error}</HelperText> : null}
+      {error ? (
+        <View accessibilityLiveRegion="polite">
+          <HelperText type="error">{error}</HelperText>
+        </View>
+      ) : null}
 
       <Button
         mode="contained"

@@ -54,6 +54,15 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
   const scaleAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0.6)).current;
   const opacityAnim = useRef(new Animated.Value(reducedMotion ? 1.0 : 0)).current;
 
+  const rule = BABY_STEP_RULES[status.stepNumber];
+
+  // Announce step completion for screen reader users when modal becomes visible
+  useEffect(() => {
+    if (visible && rule) {
+      void AccessibilityInfo.announceForAccessibility(`Step completed — ${rule.shortTitle}`);
+    }
+  }, [visible, rule]);
+
   useEffect((): (() => void) | void => {
     if (!visible) return;
 
@@ -90,8 +99,6 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
     }
   }, [visible, reducedMotion, scaleAnim, opacityAnim]);
 
-  const rule = BABY_STEP_RULES[status.stepNumber];
-
   const completedDate = status.completedAt
     ? format(parseISO(status.completedAt), 'd MMM yyyy')
     : format(new Date(), 'd MMM yyyy');
@@ -103,6 +110,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
       animationType="none"
       onRequestClose={onDismiss}
       testID="celebration-modal"
+      accessibilityViewIsModal
     >
       {/* Ledger-paper tint overlay */}
       <View style={styles.overlay}>

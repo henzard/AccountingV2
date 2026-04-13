@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView, View } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, HelperText, Chip } from 'react-native-paper';
 import { format } from 'date-fns';
 import { and, eq, desc } from 'drizzle-orm';
@@ -167,7 +167,11 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         style={styles.input}
       />
 
-      {error ? <HelperText type="error">{error}</HelperText> : null}
+      {error ? (
+        <View accessibilityLiveRegion="polite">
+          <HelperText type="error">{error}</HelperText>
+        </View>
+      ) : null}
 
       <Button
         mode="contained"

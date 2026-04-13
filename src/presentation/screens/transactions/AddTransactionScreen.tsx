@@ -254,11 +254,14 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         transparent
         animationType="slide"
         onRequestClose={() => setShowPicker(false)}
+        accessibilityViewIsModal
       >
         <TouchableOpacity
           style={styles.modalBackdrop}
           onPress={() => setShowPicker(false)}
           activeOpacity={1}
+          accessibilityLabel="Close envelope picker"
+          accessibilityRole="button"
         >
           <Surface style={styles.modalSheet} elevation={4}>
             <View style={styles.modalHandle} />
@@ -320,6 +323,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         onDismiss={() => setError(null)}
         duration={4000}
         action={{ label: 'OK', onPress: () => setError(null) }}
+        accessibilityLiveRegion="polite"
       >
         {error}
       </Snackbar>
