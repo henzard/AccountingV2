@@ -46,7 +46,8 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
         raw_response_json: null,
         created_by: 'u1',
       };
-      const chainedEq = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chainedEq: any = {
         eq: () => chainedEq,
         maybeSingle: () => Promise.resolve({ data: slipRow, error: null }),
         gte: () => Promise.resolve({ data: null, count: 0, error: null }),
@@ -338,8 +339,9 @@ function makeAdminWithRateCount(householdCount: number, userCount: number) {
         created_by: 'u1',
       };
       let callCount = 0;
-      const chainedEq = {
-        eq: (): typeof chainedEq => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chainedEq: any = {
+        eq: () => {
           callCount++;
           return chainedEq;
         },
