@@ -6,7 +6,7 @@
  * without pulling in camera / AsyncStorage / expo-image-manipulator.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SlipScanningStackNavigator } from './SlipScanningStackNavigator';
 import { useSlipScanner } from '../hooks/useSlipScanner';
 import { SlipScanFlow } from '../../application/SlipScanFlow';
@@ -94,8 +94,9 @@ export function SlipScanningScreen(): React.JSX.Element {
   const confirmSlipUseCase = useMemo(
     () =>
       new ConfirmSlipUseCase(
-        (input) =>
-          new CreateTransactionUseCase(db, slipAudit, {
+        db,
+        (tx, input) =>
+          new CreateTransactionUseCase(tx as unknown as typeof db, slipAudit, {
             householdId: input.householdId,
             envelopeId: input.envelopeId,
             amountCents: input.amountCents,
@@ -146,6 +147,10 @@ export function SlipScanningScreen(): React.JSX.Element {
     [confirmSlipUseCase, householdId],
   );
 
+  const cancelSlip = useCallback(async (slipId: string): Promise<void> => {
+    await slipQueueRepo.update(slipId, { status: 'cancelled' });
+  }, []);
+
   return (
     <SlipScanningStackNavigator
       householdId={householdId}
@@ -153,6 +158,7 @@ export function SlipScanningScreen(): React.JSX.Element {
       recordConsent={recordConsent}
       repo={slipQueueRepo}
       startScan={start}
+      cancelSlip={cancelSlip}
       progress={progress}
       confirmSlip={confirmSlip}
       envelopes={envelopes}
