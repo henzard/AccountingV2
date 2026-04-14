@@ -246,6 +246,7 @@ Deno.test('returns 200 on idempotent cache hit', async () => {
                         status: 'completed',
                         raw_response_json: cachedResponse,
                         created_by: 'u1',
+                        household_id: 'h1',
                       },
                       error: null,
                     }),
