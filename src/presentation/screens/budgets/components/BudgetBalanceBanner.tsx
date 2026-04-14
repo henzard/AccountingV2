@@ -17,7 +17,8 @@ import { Text, Surface } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { EnvelopeEntity } from '../../../../domain/envelopes/EnvelopeEntity';
 import { useBudgetBalance } from '../../../hooks/useBudgetBalance';
-import { colours, spacing, radius } from '../../../theme/tokens';
+import { spacing, radius } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 export interface BudgetBalanceBannerProps {
   envelopes: EnvelopeEntity[];
@@ -28,17 +29,18 @@ function formatRand(cents: number): string {
 }
 
 export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelopes }) => {
+  const { colors } = useAppTheme();
   const { incomeTotal, expenseAllocationTotal, toAssign, isBalanced } = useBudgetBalance(envelopes);
 
   const isOver = toAssign < 0;
 
   const bannerBg = isBalanced
-    ? colours.successContainer
+    ? colors.successContainer
     : isOver
-      ? colours.warningContainer
-      : colours.primaryContainer;
+      ? colors.warningContainer
+      : colors.primaryContainer;
 
-  const bannerFg = isBalanced ? colours.success : isOver ? colours.warning : colours.primary;
+  const bannerFg = isBalanced ? colors.success : isOver ? colors.warning : colors.primary;
 
   const iconName = isBalanced ? 'check-circle-outline' : isOver ? 'alert-outline' : 'cash-clock';
 
@@ -71,19 +73,22 @@ export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelo
         <BreakdownItem
           label="INCOME"
           value={formatRand(incomeTotal)}
-          colour={colours.onSurfaceVariant}
+          colour={colors.onSurfaceVariant}
+          labelColour={colors.onSurfaceVariant}
           testID="banner-income"
         />
-        <View style={styles.divider} />
+        <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
         <BreakdownItem
           label="EXPENSES"
           value={formatRand(expenseAllocationTotal)}
-          colour={colours.onSurfaceVariant}
+          colour={colors.onSurfaceVariant}
+          labelColour={colors.onSurfaceVariant}
           testID="banner-expenses"
         />
-        <View style={styles.divider} />
+        <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
         <BreakdownItem
           label="TO ASSIGN"
+          labelColour={colors.onSurfaceVariant}
           value={toAssign < 0 ? `-${formatRand(Math.abs(toAssign))}` : formatRand(toAssign)}
           colour={bannerFg}
           testID="banner-to-assign"
@@ -97,19 +102,18 @@ function BreakdownItem({
   label,
   value,
   colour,
+  labelColour,
   testID,
 }: {
   label: string;
   value: string;
   colour: string;
+  labelColour: string;
   testID?: string;
 }): React.JSX.Element {
   return (
     <View style={styles.breakdownItem}>
-      <Text
-        variant="labelSmall"
-        style={[styles.breakdownLabel, { color: colours.onSurfaceVariant }]}
-      >
+      <Text variant="labelSmall" style={[styles.breakdownLabel, { color: labelColour }]}>
         {label}
       </Text>
       <Text
@@ -159,6 +163,5 @@ const styles = StyleSheet.create({
   divider: {
     width: 1,
     height: 28,
-    backgroundColor: colours.outlineVariant,
   },
 });

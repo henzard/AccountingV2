@@ -82,6 +82,17 @@ jest.mock('../../screens/household/JoinHouseholdScreen', () => {
   };
 });
 
+// ─── Mock SlipScanningScreen — encapsulates all DI / camera / AsyncStorage ────
+jest.mock('../SlipScanningScreen', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+  return {
+    SlipScanningScreen: () => React.createElement(View, { testID: 'slip-scanning-screen' }),
+  };
+});
+
 // ─── Mock expo-notifications (used in RootNavigator) ─────────────────────────
 jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),

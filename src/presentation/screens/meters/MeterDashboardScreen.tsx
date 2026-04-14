@@ -7,7 +7,8 @@ import { db } from '../../../data/local/db';
 import { meterReadings as meterReadingsTable } from '../../../data/local/schema';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { MeterReadingCard } from './components/MeterReadingCard';
 import type {
   MeterReadingEntity,
@@ -21,6 +22,7 @@ const engine = new BudgetPeriodEngine();
 type LatestPairByType = Record<MeterType, [MeterReadingEntity | null, MeterReadingEntity | null]>;
 
 export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
   const period = engine.getCurrentPeriod(paydayDay);
@@ -72,18 +74,21 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator animating color={colours.primary} />
+        <ActivityIndicator animating color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.flex}>
-      <Surface style={styles.header} elevation={0}>
-        <Text variant="labelMedium" style={styles.headerLabel}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+      <Surface style={[styles.header, { backgroundColor: colors.surface }]} elevation={0}>
+        <Text
+          variant="labelMedium"
+          style={[styles.headerLabel, { color: colors.onSurfaceVariant }]}
+        >
           METER READINGS
         </Text>
-        <Text variant="headlineSmall" style={styles.headerTitle}>
+        <Text variant="headlineSmall" style={[styles.headerTitle, { color: colors.primary }]}>
           {period.label}
         </Text>
       </Surface>
@@ -107,15 +112,14 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     paddingHorizontal: spacing.base,
     paddingTop: spacing.xl,
     paddingBottom: spacing.base,
-    backgroundColor: colours.surface,
   },
-  headerLabel: { color: colours.onSurfaceVariant, letterSpacing: 1.5, marginBottom: spacing.xs },
-  headerTitle: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold' },
+  headerLabel: { letterSpacing: 1.5, marginBottom: spacing.xs },
+  headerTitle: { fontFamily: 'PlusJakartaSans_700Bold' },
   list: { paddingVertical: spacing.sm, paddingBottom: spacing.xl },
 });

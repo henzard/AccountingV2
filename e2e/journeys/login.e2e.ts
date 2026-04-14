@@ -15,7 +15,7 @@ declare const device: any;
 declare const element: any;
 declare const by: any;
 
-describe.skip('Login journey (Detox — BLOCKED: not installed)', () => {
+describe('Login journey (Detox — BLOCKED: not installed)', () => {
   beforeAll(async () => {
     await device.launchApp({ newInstance: true });
   });

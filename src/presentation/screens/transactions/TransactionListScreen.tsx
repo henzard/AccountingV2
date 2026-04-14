@@ -13,7 +13,8 @@ import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { format, parseISO } from 'date-fns';
 import type { TransactionListScreenProps } from '../../navigation/types';
 import type { TransactionEntity } from '../../../domain/transactions/TransactionEntity';
@@ -37,6 +38,7 @@ function groupByDate(txs: TransactionEntity[]): Section[] {
 }
 
 export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
   const period = engine.getCurrentPeriod(paydayDay);
@@ -85,14 +87,14 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   const sections = groupByDate(transactions);
 
   return (
-    <View style={styles.flex}>
-      <Surface style={styles.header} elevation={0}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+      <Surface style={[styles.header, { backgroundColor: colors.surface }]} elevation={0}>
         <ScreenHeader eyebrow="Transactions" title={period.label} />
       </Surface>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator animating color={colours.primary} />
+          <ActivityIndicator animating color={colors.primary} />
         </View>
       ) : transactions.length === 0 ? (
         <EmptyState
@@ -105,26 +107,39 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           sections={sections}
           keyExtractor={(item) => item.id}
           renderSectionHeader={({ section }) => (
-            <View style={styles.sectionHeader}>
-              <Text variant="labelMedium" style={styles.sectionTitle}>
+            <View style={[styles.sectionHeader, { backgroundColor: colors.surfaceVariant }]}>
+              <Text
+                variant="labelMedium"
+                style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}
+              >
                 {section.title}
               </Text>
             </View>
           )}
           renderItem={({ item }) => (
-            <Surface style={styles.row} elevation={1}>
+            <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={1}>
               <View style={styles.rowLeft}>
-                <Text variant="bodyLarge" style={styles.payee} numberOfLines={1}>
+                <Text
+                  variant="bodyLarge"
+                  style={[styles.payee, { color: colors.onSurface }]}
+                  numberOfLines={1}
+                >
                   {item.payee ?? 'Unknown'}
                 </Text>
-                <Text variant="bodySmall" style={styles.envelopeName}>
+                <Text
+                  variant="bodySmall"
+                  style={[styles.envelopeName, { color: colors.onSurfaceVariant }]}
+                >
                   {envelopeNames.get(item.envelopeId) ?? '—'}
                 </Text>
               </View>
-              <CurrencyText amountCents={item.amountCents} style={styles.amount} />
+              <CurrencyText
+                amountCents={item.amountCents}
+                style={{ ...styles.amount, color: colors.error }}
+              />
               <IconButton
                 icon="delete-outline"
-                iconColor={colours.error}
+                iconColor={colors.error}
                 size={20}
                 onPress={() => handleDelete(item)}
                 testID={`delete-tx-${item.id}`}
@@ -138,26 +153,23 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
 
       <FAB
         icon="plus"
-        style={styles.fab}
+        style={[styles.fab, { backgroundColor: colors.primary }]}
         onPress={() => navigation.navigate('AddTransaction')}
-        color={colours.onPrimary}
+        color={colors.onPrimary}
       />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
-  header: {
-    backgroundColor: colours.surface,
-  },
+  flex: { flex: 1 },
+  header: {},
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   sectionHeader: {
-    backgroundColor: colours.surfaceVariant,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
   },
-  sectionTitle: { color: colours.onSurfaceVariant, letterSpacing: 0.8 },
+  sectionTitle: { letterSpacing: 0.8 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -165,17 +177,15 @@ const styles = StyleSheet.create({
     marginVertical: spacing.xs / 2,
     borderRadius: radius.md,
     padding: spacing.base,
-    backgroundColor: colours.surface,
   },
   rowLeft: { flex: 1, marginRight: spacing.base },
-  payee: { color: colours.onSurface, fontFamily: 'PlusJakartaSans_600SemiBold' },
-  envelopeName: { color: colours.onSurfaceVariant, marginTop: 2 },
-  amount: { color: colours.error, fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold' },
+  payee: { fontFamily: 'PlusJakartaSans_600SemiBold' },
+  envelopeName: { marginTop: 2 },
+  amount: { fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold' },
   list: { paddingBottom: 100 },
   fab: {
     position: 'absolute',
     right: spacing.base,
     bottom: spacing.xl,
-    backgroundColor: colours.primary,
   },
 });

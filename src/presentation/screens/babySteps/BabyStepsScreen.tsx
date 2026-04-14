@@ -24,7 +24,8 @@ import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DashboardStackParamList } from '../../navigation/types';
 
@@ -33,6 +34,7 @@ export type BabyStepsScreenProps = NativeStackScreenProps<DashboardStackParamLis
 const engine = new BudgetPeriodEngine();
 
 export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
   const periodStart = useMemo(() => {
@@ -79,23 +81,26 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
   if (loading && statuses.length === 0) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={colours.primary} />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   return (
     <ScrollView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.content}
       refreshControl={
-        <RefreshControl refreshing={loading} onRefresh={reconcile} colors={[colours.primary]} />
+        <RefreshControl refreshing={loading} onRefresh={reconcile} colors={[colors.primary]} />
       }
     >
       {/* ── Tier 1: Completed chips ────────────────────────────────── */}
       {completedSteps.length > 0 && (
         <View style={styles.section}>
-          <Text variant="labelSmall" style={styles.sectionLabel}>
+          <Text
+            variant="labelSmall"
+            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
+          >
             COMPLETED
           </Text>
           <ScrollView
@@ -113,7 +118,10 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
       {/* ── Tier 2: Current step hero ──────────────────────────────── */}
       {currentStep ? (
         <View style={styles.section}>
-          <Text variant="labelSmall" style={styles.sectionLabel}>
+          <Text
+            variant="labelSmall"
+            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
+          >
             CURRENT STEP
           </Text>
           <CurrentStepHero
@@ -126,10 +134,13 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
       ) : (
         <View style={styles.allDoneContainer}>
           <StepSealMark stepNumber={7} state="complete" size={96} />
-          <Text variant="headlineSmall" style={styles.allDoneTitle}>
+          <Text variant="headlineSmall" style={[styles.allDoneTitle, { color: colors.primary }]}>
             All 7 Baby Steps complete!
           </Text>
-          <Text variant="bodyMedium" style={styles.allDoneBody}>
+          <Text
+            variant="bodyMedium"
+            style={[styles.allDoneBody, { color: colors.onSurfaceVariant }]}
+          >
             You have built wealth and live generously. Remarkable.
           </Text>
         </View>
@@ -143,7 +154,10 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
           importantForAccessibility="no-hide-descendants"
           testID="future-steps-section"
         >
-          <Text variant="labelSmall" style={styles.sectionLabel}>
+          <Text
+            variant="labelSmall"
+            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
+          >
             COMING UP
           </Text>
           {futureSteps.map((s) => (
@@ -158,24 +172,29 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
 // ─── Completed chip ──────────────────────────────────────────────────────────
 
 function CompletedChip({ status }: { status: BabyStepStatus }): React.JSX.Element {
+  const { colors } = useAppTheme();
   const rule = BABY_STEP_RULES[status.stepNumber];
   const dateLabel = status.completedAt ? format(parseISO(status.completedAt), 'd MMM yyyy') : '';
 
   return (
-    <View style={chipStyles.container}>
+    <View style={[chipStyles.container, { backgroundColor: colors.primaryContainer }]}>
       <StepSealMark stepNumber={status.stepNumber} state="complete" size={24} />
       <View style={chipStyles.textBlock}>
-        <Text variant="labelSmall" style={chipStyles.title}>
+        <Text variant="labelSmall" style={[chipStyles.title, { color: colors.onPrimaryContainer }]}>
           {`${status.stepNumber}. ${rule.shortTitle}`}
         </Text>
         {dateLabel ? (
-          <Text variant="bodySmall" style={chipStyles.date}>
+          <Text variant="bodySmall" style={[chipStyles.date, { color: colors.onPrimaryContainer }]}>
             {dateLabel}
           </Text>
         ) : null}
       </View>
       {status.isManual && (
-        <Chip compact style={chipStyles.manualChip} textStyle={chipStyles.manualChipText}>
+        <Chip
+          compact
+          style={[chipStyles.manualChip, { backgroundColor: colors.secondaryContainer }]}
+          textStyle={[chipStyles.manualChipText, { color: colors.onSecondaryContainer }]}
+        >
           Manual
         </Chip>
       )}
@@ -187,7 +206,6 @@ const chipStyles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colours.primaryContainer,
     borderRadius: radius.full,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -198,42 +216,46 @@ const chipStyles = StyleSheet.create({
     gap: 2,
   },
   title: {
-    color: colours.onPrimaryContainer,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
   date: {
-    color: colours.onPrimaryContainer,
     opacity: 0.7,
     // 5.7: tabular-numeric so completion dates align in the horizontal chip row
     fontVariant: ['tabular-nums'],
   },
   manualChip: {
-    backgroundColor: colours.secondaryContainer,
     height: 20,
   },
   manualChipText: {
     fontSize: 10,
-    color: colours.onSecondaryContainer,
   },
 });
 
 // ─── Future step card ─────────────────────────────────────────────────────────
 
 function FutureStepCard({ status }: { status: BabyStepStatus }): React.JSX.Element {
+  const { colors } = useAppTheme();
   const rule = BABY_STEP_RULES[status.stepNumber];
 
   return (
-    <Surface style={futureStyles.card} elevation={0}>
+    <Surface style={[futureStyles.card, { backgroundColor: colors.surfaceVariant }]} elevation={0}>
       <StepSealMark stepNumber={status.stepNumber} state="future" size={40} />
       <View style={futureStyles.textBlock}>
-        <Text variant="labelSmall" style={futureStyles.stepNum}>
+        <Text
+          variant="labelSmall"
+          style={[futureStyles.stepNum, { color: colors.onSurfaceVariant }]}
+        >
           {`STEP ${status.stepNumber}`}
           {status.isManual ? ' · MANUAL' : ''}
         </Text>
-        <Text variant="titleSmall" style={futureStyles.title}>
+        <Text variant="titleSmall" style={[futureStyles.title, { color: colors.onSurface }]}>
           {rule.shortTitle}
         </Text>
-        <Text variant="bodySmall" style={futureStyles.desc} numberOfLines={2}>
+        <Text
+          variant="bodySmall"
+          style={[futureStyles.desc, { color: colors.onSurfaceVariant }]}
+          numberOfLines={2}
+        >
           {rule.description}
         </Text>
       </View>
@@ -248,7 +270,6 @@ const futureStyles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.sm,
     borderRadius: radius.lg,
-    backgroundColor: colours.surfaceVariant,
     opacity: 0.6,
     marginBottom: spacing.sm,
   },
@@ -257,15 +278,12 @@ const futureStyles = StyleSheet.create({
     gap: 2,
   },
   stepNum: {
-    color: colours.onSurfaceVariant,
     letterSpacing: 0.8,
   },
   title: {
-    color: colours.onSurface,
     opacity: 0.7,
   },
   desc: {
-    color: colours.onSurfaceVariant,
     opacity: 0.7,
   },
 });
@@ -273,11 +291,10 @@ const futureStyles = StyleSheet.create({
 // ─── Screen styles ────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   content: { padding: spacing.base, paddingBottom: spacing.xl, gap: spacing.base },
   section: { gap: spacing.sm },
   sectionLabel: {
-    color: colours.onSurfaceVariant,
     letterSpacing: 1.2,
     marginBottom: spacing.xs,
   },
@@ -290,12 +307,10 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   allDoneTitle: {
-    color: colours.primary,
     fontFamily: 'PlusJakartaSans_700Bold',
     textAlign: 'center',
   },
   allDoneBody: {
-    color: colours.onSurfaceVariant,
     textAlign: 'center',
   },
   center: {

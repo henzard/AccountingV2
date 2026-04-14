@@ -1,0 +1,7 @@
+{
+  "gpt_4o_mini": {
+    "input_cents_per_1k": 0.015,
+    "output_cents_per_1k": 0.06,
+    "_note": "Update on OpenAI price changes; checked into repo for reproducibility."
+  }
+}

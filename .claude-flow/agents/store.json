@@ -41,6 +41,20 @@
       "domain": "implementation-planning",
       "model": "opus",
       "modelRoutedBy": "explicit"
+    },
+    "agent-1776084957604-di1urn": {
+      "agentId": "agent-1776084957604-di1urn",
+      "agentType": "queen-coordinator",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "model": "opus"
+      },
+      "createdAt": "2026-04-13T12:55:57.604Z",
+      "domain": "spec-review",
+      "model": "opus",
+      "modelRoutedBy": "explicit"
     }
   },
   "version": "3.0.0"

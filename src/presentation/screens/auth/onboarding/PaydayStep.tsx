@@ -6,12 +6,14 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { db } from '../../../../data/local/db';
 import { UpdateHouseholdPaydayDayUseCase } from '../../../../domain/households/UpdateHouseholdPaydayDayUseCase';
 import { useAppStore } from '../../../stores/appStore';
-import { colours, spacing } from '../../../theme/tokens';
+import { spacing } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Payday'>;
 
 export function PaydayStep(): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
   const householdId = useAppStore((s) => s.householdId)!;
   const currentPaydayDay = useAppStore((s) => s.paydayDay);
@@ -48,14 +50,14 @@ export function PaydayStep(): React.JSX.Element {
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text variant="headlineMedium" style={styles.title}>
+        <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
           When do you get paid?
         </Text>
-        <Text variant="bodyMedium" style={styles.subtitle}>
+        <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
           Your payday resets your budget period each month.
         </Text>
 
@@ -64,7 +66,7 @@ export function PaydayStep(): React.JSX.Element {
           value={dayStr}
           onChangeText={setDayStr}
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           keyboardType="numeric"
           disabled={loading}
           placeholder="25"
@@ -91,11 +93,11 @@ export function PaydayStep(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   container: { flexGrow: 1, padding: spacing.xl, justifyContent: 'center', gap: spacing.base },
-  title: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold' },
-  subtitle: { color: colours.onSurfaceVariant, marginBottom: spacing.base },
-  input: { backgroundColor: colours.surface },
+  title: { fontFamily: 'PlusJakartaSans_700Bold' },
+  subtitle: { marginBottom: spacing.base },
+  input: {},
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
 });

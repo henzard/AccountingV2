@@ -516,6 +516,39 @@ describe('SyncOrchestrator — per-table merge RPC routing', () => {
         isSynced: false,
       },
     },
+    {
+      tableName: 'slip_queue',
+      rpcName: 'merge_slip_queue',
+      localRow: {
+        id: 'sq-1',
+        householdId: 'hh-1',
+        createdBy: 'user-1',
+        imageUris: '[]',
+        status: 'processing',
+        errorMessage: null,
+        merchant: null,
+        slipDate: null,
+        totalCents: null,
+        rawResponseJson: null,
+        imagesDeletedAt: null,
+        openaiCostCents: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
+    {
+      tableName: 'user_consent',
+      rpcName: 'merge_user_consent',
+      localRow: {
+        id: 'user-1',
+        userId: 'user-1',
+        slipScanConsentAt: '2026-04-13T10:00:00Z',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        isSynced: false,
+      },
+    },
   ];
 
   it.each(tables)(

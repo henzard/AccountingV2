@@ -9,7 +9,8 @@ import { AuditLogger } from '../../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../../domain/envelopes/CreateEnvelopeUseCase';
 import { BudgetPeriodEngine } from '../../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../../stores/appStore';
-import { colours, spacing } from '../../../theme/tokens';
+import { spacing } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Income'>;
@@ -24,6 +25,7 @@ function toCents(str: string): number {
 }
 
 export function IncomeStep(): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
@@ -67,14 +69,14 @@ export function IncomeStep(): React.JSX.Element {
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text variant="headlineMedium" style={styles.title}>
+        <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
           What's your monthly income?
         </Text>
-        <Text variant="bodyMedium" style={styles.subtitle}>
+        <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
           This helps us plan your budget envelopes.
         </Text>
 
@@ -83,7 +85,7 @@ export function IncomeStep(): React.JSX.Element {
           value={amountStr}
           onChangeText={setAmountStr}
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           keyboardType="decimal-pad"
           disabled={loading}
           placeholder="0.00"
@@ -111,11 +113,11 @@ export function IncomeStep(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   container: { flexGrow: 1, padding: spacing.xl, justifyContent: 'center', gap: spacing.base },
-  title: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold' },
-  subtitle: { color: colours.onSurfaceVariant, marginBottom: spacing.base },
-  input: { backgroundColor: colours.surface },
+  title: { fontFamily: 'PlusJakartaSans_700Bold' },
+  subtitle: { marginBottom: spacing.base },
+  input: {},
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
 });

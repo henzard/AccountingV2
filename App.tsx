@@ -25,10 +25,16 @@ import { useEmergencyFundReconcileStore } from './src/presentation/stores/emerge
 import { initCrashlytics } from './src/infrastructure/monitoring/crashlytics';
 import crashlytics from '@react-native-firebase/crashlytics';
 import { subscribeNetworkStore } from './src/presentation/stores/networkStore';
+import { DrizzleSlipQueueRepository } from './src/data/repositories/DrizzleSlipQueueRepository';
+import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImageLocalStore';
+import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
 
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
 const syncOrchestrator = new SyncOrchestrator(db, supabase);
+const slipQueueRepo = new DrizzleSlipQueueRepository(db);
+const slipLocalStore = new SlipImageLocalStore();
+const cleanupSlips = new CleanupExpiredSlipsUseCase(slipQueueRepo, slipLocalStore);
 
 async function initSession(
   userId: string,
@@ -114,6 +120,21 @@ export default function App(): React.JSX.Element {
     bindCelebrationStore();
     // Subscribe NetworkObserver → networkStore (drives OfflineBanner).
     const unsubscribeNetwork = subscribeNetworkStore();
+
+    // Cleanup expired slip images (fire-and-forget — non-fatal).
+    void cleanupSlips.execute().catch(() => {});
+
+    // Auto-flip processing slips older than 1 hour to failed (stale on restart).
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    void slipQueueRepo
+      .listProcessingOlderThan(oneHourAgo)
+      .then((stale) =>
+        Promise.allSettled(
+          stale.map((slip) => slipQueueRepo.update(slip.id, { status: 'failed' })),
+        ),
+      )
+      .catch(() => {});
+
     return unsubscribeNetwork;
   }, [bindCelebrationStore]);
 

@@ -1,5 +1,6 @@
 module.exports = {
   preset: 'jest-expo',
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/supabase/'],
   setupFiles: ['<rootDir>/jest-setup-globals.js'],
   setupFilesAfterEnv: ['@testing-library/jest-native/extend-expect'],
   transformIgnorePatterns: [
@@ -19,6 +20,8 @@ module.exports = {
     '^@expo/vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
     '^@expo/vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons/index.js',
     '^@react-native-firebase/crashlytics$': '<rootDir>/__mocks__/@react-native-firebase/crashlytics.js',
+    // Stub useAppTheme — avoids configureFonts (react-native-paper) in test env
+    '^.*/theme/useAppTheme$': '<rootDir>/__mocks__/useAppTheme.js',
   },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
@@ -27,5 +30,5 @@ module.exports = {
     '!src/presentation/navigation/**',
     '!src/presentation/theme/**',
   ],
-  coverageThreshold: { global: { lines: 60, branches: 45 } },
+  coverageThreshold: { global: { lines: 65, branches: 50 } },
 };

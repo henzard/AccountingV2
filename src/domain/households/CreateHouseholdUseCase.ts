@@ -5,7 +5,9 @@ import type * as schema from '../../data/local/schema';
 import { households, householdMembers } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
 import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import { DrizzleHouseholdRepository } from '../../data/repositories/DrizzleHouseholdRepository';
 import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import type { IHouseholdRepository } from '../ports/IHouseholdRepository';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
@@ -19,14 +21,17 @@ interface CreateHouseholdInput {
 
 export class CreateHouseholdUseCase {
   private readonly enqueuer: ISyncEnqueuer;
+  private readonly repo: IHouseholdRepository;
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateHouseholdInput,
     enqueuer?: ISyncEnqueuer,
+    repo?: IHouseholdRepository,
   ) {
     this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
+    this.repo = repo ?? new DrizzleHouseholdRepository(db);
   }
 
   async execute(): Promise<Result<HouseholdSummary>> {
@@ -44,7 +49,7 @@ export class CreateHouseholdUseCase {
     const now = new Date().toISOString();
     const householdId = randomUUID();
 
-    const newHousehold: InferInsertModel<typeof households> = {
+    const newHousehold = {
       id: householdId,
       name,
       paydayDay: this.input.paydayDay,
@@ -52,8 +57,8 @@ export class CreateHouseholdUseCase {
       createdAt: now,
       updatedAt: now,
       isSynced: false,
-    };
-    await this.db.insert(households).values(newHousehold);
+    } satisfies InferInsertModel<typeof households>;
+    await this.repo.insert(newHousehold);
 
     const memberId = randomUUID();
     const memberRow: InferInsertModel<typeof householdMembers> = {

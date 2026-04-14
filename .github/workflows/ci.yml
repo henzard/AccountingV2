@@ -30,3 +30,25 @@ jobs:
 
       - name: Jest
         run: npx jest --coverage
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 'v1.x'
+
+      - name: Run Deno tests
+        run: deno test --allow-net --allow-env --allow-read supabase/functions/
+
+  e2e-android:
+    if: github.ref == 'refs/heads/master'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: actions/setup-java@v4
+        with: { java-version: '17', distribution: 'temurin' }
+      - run: npm ci
+      - run: npm install -g detox-cli
+      - run: detox build --configuration android.emu.release
+      - run: detox test --configuration android.emu.release

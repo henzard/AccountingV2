@@ -15,7 +15,7 @@ declare const device: any;
 declare const element: any;
 declare const by: any;
 
-describe.skip('syncRoundTrip — BLOCKED: detox not installed', () => {
+describe('syncRoundTrip — BLOCKED: detox not installed', () => {
   beforeAll(async () => {
     await device.launchApp({ newInstance: true });
   });

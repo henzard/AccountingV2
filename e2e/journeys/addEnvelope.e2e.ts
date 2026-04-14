@@ -15,7 +15,7 @@ declare const device: any;
 declare const element: any;
 declare const by: any;
 
-describe.skip('Add Envelope journey (Detox — BLOCKED: not installed)', () => {
+describe('Add Envelope journey (Detox — BLOCKED: not installed)', () => {
   beforeAll(async () => {
     await device.launchApp({ newInstance: true });
   });
