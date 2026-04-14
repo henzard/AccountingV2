@@ -4,7 +4,7 @@ import { Button } from 'react-native-paper';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { MultiShotCoachmark } from './components/MultiShotCoachmark';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+import { useAppNavigation } from '../../navigation/useAppNavigation';
 import { useNetworkStore } from '../../stores/networkStore';
 
 const MAX_FRAMES = 5;
@@ -23,7 +23,7 @@ export function SlipCaptureScreen({
   householdId,
   createdBy,
 }: SlipCaptureScreenProps): React.JSX.Element {
-  const navigation = useNavigation<any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const navigation = useAppNavigation();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<InstanceType<typeof CameraView>>(null);
   const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
@@ -187,7 +187,7 @@ export function SlipCaptureScreen({
         })}
       </ScrollView>
 
-      {/* Shutter + Done */}
+      {/* Shutter + Add page + Done */}
       <View style={styles.controls}>
         <TouchableOpacity
           style={[styles.shutter, shutterDisabled && styles.shutterDisabled]}
@@ -195,6 +195,16 @@ export function SlipCaptureScreen({
           disabled={shutterDisabled}
           testID="shutter-button"
         />
+        {frames.length > 0 && !shutterDisabled && (
+          <TouchableOpacity
+            style={styles.addPageButton}
+            onPress={takePicture}
+            disabled={shutterDisabled}
+            testID="add-page-button"
+          >
+            <Text style={styles.addPageText}>+ Page</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={[styles.doneButton, frames.length === 0 && styles.doneDisabled]}
           onPress={handleDone}
@@ -283,14 +293,23 @@ const styles = StyleSheet.create({
   },
   doneDisabled: { backgroundColor: '#555' },
   doneText: { color: '#fff', fontWeight: 'bold' },
+  addPageButton: {
+    backgroundColor: '#1565C0',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  addPageText: { color: '#fff', fontWeight: 'bold' },
   offlineBanner: {
     position: 'absolute',
-    top: 0,
+    top: 44, // below the daily counter row; avoids z-index overlap
     left: 0,
     right: 0,
     backgroundColor: '#c62828',
     padding: 8,
     alignItems: 'center',
+    zIndex: 5,
   },
   offlineText: { color: '#fff', fontWeight: 'bold' },
   logManuallyButton: { marginTop: 6, borderColor: '#fff' },

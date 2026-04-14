@@ -17,14 +17,27 @@ function formatCents(cents: number): string {
   return `R${(cents / 100).toFixed(2)}`;
 }
 
+function getConfidenceBorderColor(
+  item: SlipExtractionItem,
+  selectedEnvelope: EnvelopeOption | null,
+): string {
+  if (!selectedEnvelope) return colours.error;
+  if (item.confidence < 0.7) return colours.warning;
+  return colours.outlineVariant;
+}
+
 export function LineItemRow({
   item,
   index,
   selectedEnvelope,
   onSelectEnvelope,
 }: LineItemRowProps): React.JSX.Element {
+  const borderColor = getConfidenceBorderColor(item, selectedEnvelope);
   return (
-    <View style={styles.container} testID={`line-item-${index}`}>
+    <View
+      style={[styles.container, { borderLeftColor: borderColor, borderLeftWidth: 3 }]}
+      testID={`line-item-${index}`}
+    >
       <View style={styles.descRow}>
         <Text variant="bodyMedium" style={styles.desc} numberOfLines={2}>
           {item.description}

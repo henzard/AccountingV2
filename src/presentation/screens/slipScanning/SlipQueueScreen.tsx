@@ -124,7 +124,18 @@ export function SlipQueueScreen({ repo, householdId }: SlipQueueScreenProps): Re
           navigation.navigate('SlipProcessing', { slipId: item.id });
           break;
         case 'failed':
-          navigation.navigate('SlipCapture', { householdId, slipId: item.id });
+          // If extraction already succeeded (raw_response_json present), route to confirm
+          // so the user can review and save without re-scanning.
+          if (item.rawResponseJson) {
+            try {
+              const extraction = JSON.parse(item.rawResponseJson);
+              navigation.navigate('SlipConfirm', { slipId: item.id, extraction });
+            } catch {
+              navigation.navigate('SlipCapture', { householdId, slipId: item.id });
+            }
+          } else {
+            navigation.navigate('SlipCapture', { householdId, slipId: item.id });
+          }
           break;
         case 'completed':
           navigation.navigate('SlipConfirm', { slipId: item.id });
