@@ -54,6 +54,8 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   plugins: [
     'expo-sqlite',
     'expo-secure-store',
+    'expo-camera',
+    '@react-native-community/datetimepicker',
     '@react-native-firebase/app',
     '@react-native-firebase/crashlytics',
     '@react-native-firebase/messaging',
