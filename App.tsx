@@ -42,6 +42,15 @@ import { DrizzleSlipQueueRepository } from './src/data/repositories/DrizzleSlipQ
 import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImageLocalStore';
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
 
+// ─── Enable Crashlytics collection at module load ─────────────────────────────
+// Must happen as early as possible so native crash handlers are armed before
+// any boot-phase code runs. The per-user ID is set later via initCrashlytics()
+// after auth.getSession() resolves.
+crashlytics()
+  .setCrashlyticsCollectionEnabled(!__DEV__)
+  .catch((err) => console.warn('[crashlytics] enable failed', err));
+// ─────────────────────────────────────────────────────────────────────────────
+
 const audit = new AuditLogger(db);
 const restoreService = new RestoreService(db, supabase);
 const syncOrchestrator = new SyncOrchestrator(db, supabase);
