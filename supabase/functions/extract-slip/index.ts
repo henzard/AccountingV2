@@ -105,13 +105,15 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     return new Response('Consent invalid', { status: 412 });
   }
 
-  // 4. Slip ownership check
+  // 4. Slip ownership check — verify both creator and household to prevent
+  // cross-household abuse (a user belonging to multiple households could
+  // otherwise reference a slip from h1 while billing rate-limits to h2).
   const { data: slipRow } = await adminSupabase
     .from('slip_queue')
-    .select('id, status, raw_response_json, created_by')
+    .select('id, status, raw_response_json, created_by, household_id')
     .eq('id', slip_id)
     .maybeSingle();
-  if (!slipRow || slipRow.created_by !== callerId)
+  if (!slipRow || slipRow.created_by !== callerId || slipRow.household_id !== household_id)
     return new Response('Forbidden', { status: 403 });
 
   // 5. Idempotency

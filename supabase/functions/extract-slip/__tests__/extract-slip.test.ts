@@ -476,6 +476,75 @@ Deno.test('returns 422 when items.length > 100', async () => {
   assertEquals(resp.status, 422);
 });
 
+Deno.test(
+  'returns 403 when slip belongs to a different household (cross-household attack)',
+  async () => {
+    // User u1 is a member of h2 but submits slip_id whose household_id is h1.
+    // The slip ownership check must reject this even though created_by matches.
+    const deps = makeBaseDeps({
+      createAdminClient: () =>
+        ({
+          from: (table: string) => {
+            if (table === 'user_households') {
+              // membership check passes for h2
+              return {
+                select: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                    }),
+                  }),
+                }),
+              };
+            }
+            if (table === 'user_consent') {
+              return {
+                select: () => ({
+                  eq: () => ({
+                    maybeSingle: () =>
+                      Promise.resolve({
+                        data: { slip_scan_consent_at: '2026-04-01T00:00:00Z' },
+                        error: null,
+                      }),
+                  }),
+                }),
+              };
+            }
+            if (table === 'slip_queue') {
+              // slip belongs to h1, but the request body claims h2
+              return {
+                select: () => ({
+                  eq: () => ({
+                    maybeSingle: () =>
+                      Promise.resolve({
+                        data: {
+                          id: 'slip1',
+                          status: 'processing',
+                          raw_response_json: null,
+                          created_by: 'u1',
+                          household_id: 'h1', // slip is in h1
+                        },
+                        error: null,
+                      }),
+                  }),
+                }),
+                update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+              };
+            }
+            return { select: () => ({}), update: () => ({ eq: () => Promise.resolve({}) }) };
+          },
+        }) as any,
+    });
+    // Request body claims household h2, but the slip lives in h1
+    const req = makeRequest(
+      { slip_id: 'slip1', household_id: 'h2', images_base64: ['aaa'] },
+      'Bearer tok',
+    );
+    const resp = await handle(req, deps);
+    assertEquals(resp.status, 403);
+  },
+);
+
 Deno.test('returns 403 when slip created_by differs from caller', async () => {
   const deps = makeBaseDeps({
     createAdminClient: () =>
