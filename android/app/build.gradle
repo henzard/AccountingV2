@@ -190,3 +190,4 @@ dependencies {
 
 apply plugin: 'com.google.gms.google-services'
 apply plugin: 'com.google.firebase.crashlytics'
+apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
