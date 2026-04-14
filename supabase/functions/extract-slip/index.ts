@@ -56,6 +56,10 @@ export type HandleDeps = {
 };
 
 export async function handle(req: Request, deps: HandleDeps): Promise<Response> {
+  if (!deps.env.OPENAI_API_KEY) {
+    return new Response('Server misconfigured', { status: 500 });
+  }
+
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
   // 1. Auth
@@ -96,6 +100,10 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     .eq('user_id', callerId)
     .maybeSingle();
   if (!consent?.slip_scan_consent_at) return new Response('Consent required', { status: 412 });
+  const consentDate = Date.parse(consent.slip_scan_consent_at);
+  if (isNaN(consentDate) || consentDate > Date.now()) {
+    return new Response('Consent invalid', { status: 412 });
+  }
 
   // 4. Slip ownership check
   const { data: slipRow } = await adminSupabase
@@ -115,6 +123,9 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   }
 
   // 6. Per-household rate limit
+  // NOTE: Known v1 TOCTOU — concurrent requests can both pass this check before
+  // either increments the count. A proper fix requires pg_advisory_lock or a
+  // row-level sequence and is deferred to a future release.
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { count: householdCount } = await adminSupabase
     .from('slip_queue')
@@ -164,23 +175,31 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   ];
 
   // 11. Call OpenAI with one retry on 5xx
-  const callOpenAI = () =>
-    deps.openAIFetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${deps.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages,
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: 'slip', schema: SLIP_SCHEMA, strict: true },
+  const callOpenAI = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      return await deps.openAIFetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${deps.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
         },
-        max_tokens: 4000,
-      }),
-    });
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages,
+          response_format: {
+            type: 'json_schema',
+            json_schema: { name: 'slip', schema: SLIP_SCHEMA, strict: true },
+          },
+          max_tokens: 4000,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
 
   let openaiResp = await callOpenAI();
   if (openaiResp.status >= 500) openaiResp = await callOpenAI();
@@ -190,6 +209,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       .update({
         status: 'failed',
         error_message: 'OpenAI unreachable',
+        updated_at: new Date().toISOString(),
       })
       .eq('id', slip_id);
     return new Response('OpenAI unreachable', { status: 503 });
@@ -215,6 +235,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       .update({
         status: 'failed',
         error_message: 'Empty OpenAI response',
+        updated_at: new Date().toISOString(),
       })
       .eq('id', slip_id);
     return new Response('Empty OpenAI response', { status: 503 });
@@ -227,6 +248,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       .update({
         status: 'failed',
         error_message: 'OpenAI returned invalid JSON',
+        updated_at: new Date().toISOString(),
       })
       .eq('id', slip_id);
     return new Response('Invalid OpenAI response', { status: 503 });
@@ -239,6 +261,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       .update({
         status: 'failed',
         error_message: 'Unreasonable extraction',
+        updated_at: new Date().toISOString(),
       })
       .eq('id', slip_id);
     return new Response('Unreasonable extraction', { status: 422 });
@@ -263,6 +286,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
       total_cents: parsed.total_cents,
       raw_response_json: rawResponse,
       openai_cost_cents: costCents,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', slip_id);
 

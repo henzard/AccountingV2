@@ -247,6 +247,8 @@ CREATE TRIGGER tr_slip_queue_set_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.set_slip_queue_updated_at();
 
 -- 12. Enable pg_net for HTTP DELETE and pg_cron for scheduling
+-- NOTE: pg_cron must be enabled in the Supabase Dashboard > Database > Extensions
+-- before this migration runs. CREATE EXTENSION alone is insufficient on managed Supabase.
 CREATE EXTENSION IF NOT EXISTS pg_net;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
