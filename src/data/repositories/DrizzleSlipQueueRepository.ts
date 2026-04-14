@@ -3,6 +3,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import * as schema from '../local/schema';
 import { slipQueue } from '../local/schema';
 import type { ISlipQueueRepository, SlipQueueRow } from '../../domain/ports/ISlipQueueRepository';
+import { PendingSyncEnqueuerAdapter } from './PendingSyncEnqueuerAdapter';
+import type { ISyncEnqueuer } from '../../domain/ports/ISyncEnqueuer';
 
 type Db = ExpoSQLiteDatabase<typeof schema>;
 
@@ -26,7 +28,14 @@ function rowToDomain(r: typeof slipQueue.$inferSelect): SlipQueueRow {
 }
 
 export class DrizzleSlipQueueRepository implements ISlipQueueRepository {
-  constructor(private readonly db: Db) {}
+  private readonly enqueuer: ISyncEnqueuer;
+
+  constructor(
+    private readonly db: Db,
+    enqueuer?: ISyncEnqueuer,
+  ) {
+    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
+  }
 
   async create(row: Parameters<ISlipQueueRepository['create']>[0]): Promise<void> {
     await this.db.insert(slipQueue).values({
@@ -39,6 +48,7 @@ export class DrizzleSlipQueueRepository implements ISlipQueueRepository {
       updatedAt: row.updatedAt,
       isSynced: false,
     });
+    await this.enqueuer.enqueue('slip_queue', row.id, 'INSERT');
   }
 
   async get(id: string): Promise<SlipQueueRow | null> {
@@ -58,6 +68,7 @@ export class DrizzleSlipQueueRepository implements ISlipQueueRepository {
     if (patch.openaiCostCents !== undefined) set.openaiCostCents = patch.openaiCostCents;
     if (patch.imageUris !== undefined) set.imageUris = JSON.stringify(patch.imageUris);
     await this.db.update(slipQueue).set(set).where(eq(slipQueue.id, id));
+    await this.enqueuer.enqueue('slip_queue', id, 'UPDATE');
   }
 
   async listByHousehold(

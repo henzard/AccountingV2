@@ -1,4 +1,15 @@
+// Mock PendingSyncEnqueuerAdapter before importing the repo, to avoid pulling
+// in PendingSyncEnqueuer → expo-crypto (out-of-scope in Jest test environment).
+jest.mock('../PendingSyncEnqueuerAdapter', () => ({
+  PendingSyncEnqueuerAdapter: jest.fn().mockImplementation(() => ({
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 import { DrizzleSlipQueueRepository } from '../DrizzleSlipQueueRepository';
+
+// Provide a no-op enqueuer to bypass the default adapter when needed.
+const noopEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 describe('DrizzleSlipQueueRepository', () => {
   it('creates a row and reads it back', async () => {
@@ -30,7 +41,7 @@ describe('DrizzleSlipQueueRepository', () => {
       select: jest.fn().mockReturnValue(selectChain),
     } as any;
 
-    const repo = new DrizzleSlipQueueRepository(db);
+    const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
     await repo.create({
       id: 's1',
       householdId: 'h1',
