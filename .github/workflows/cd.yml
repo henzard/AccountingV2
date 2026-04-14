@@ -58,6 +58,11 @@ jobs:
           KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
           KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
           KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          # EXPO_PUBLIC_* values are bundled into the client by design (protected by RLS).
+          # Without these, app.config.ts extra.supabaseUrl/supabaseAnonKey are undefined
+          # and supabaseClient.ts throws at module eval → app crashes on launch.
+          EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
 
       - name: Upload JS source maps to Crashlytics
         working-directory: android
