@@ -34,6 +34,6 @@ describe('CaptureSlipUseCase', () => {
       frameLocalUris: [],
     });
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('INVALID_FRAME_COUNT');
+    if (!result.success) expect(result.error.code).toBe('SLIP_INVALID_FRAME_COUNT');
   });
 });

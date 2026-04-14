@@ -11,7 +11,9 @@ export type SlipScanErrorCode =
   | 'SLIP_WIFI_REQUIRED'
   | 'SLIP_INVALID_FRAME_COUNT'
   | 'SLIP_DB_ERROR'
-  | 'SLIP_PARTIAL_SAVE_FAILED';
+  | 'SLIP_PARTIAL_SAVE_FAILED'
+  | 'SLIP_CLEANUP_FAILED'
+  | 'SLIP_STORAGE_UPLOAD_FAILED';
 
 export type SlipScanError = {
   code: SlipScanErrorCode;
