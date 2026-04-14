@@ -45,6 +45,7 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
         status: 'processing',
         raw_response_json: null,
         created_by: 'u1',
+        household_id: 'h1',
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const chainedEq: any = {
@@ -337,6 +338,7 @@ function makeAdminWithRateCount(householdCount: number, userCount: number) {
         status: 'processing',
         raw_response_json: null,
         created_by: 'u1',
+        household_id: 'h1',
       };
       let callCount = 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -586,6 +588,7 @@ Deno.test('returns 403 when slip created_by differs from caller', async () => {
                         status: 'processing',
                         raw_response_json: null,
                         created_by: 'other-user',
+                        household_id: 'h1',
                       },
                       error: null,
                     }),
