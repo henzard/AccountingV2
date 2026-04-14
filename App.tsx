@@ -1,3 +1,16 @@
+// ─── Early-boot crash capture ─────────────────────────────────────────────────
+// MUST be the first executable line — before any import that could throw.
+// installEarlyCrashHandler() is synchronous; the actual import below runs
+// module evaluation which is itself inside the try-catch in index.ts (see note
+// at bottom of file). We also wire handlers here so any subsequent import
+// errors or render crashes are captured.
+import {
+  installEarlyCrashHandler,
+  captureBoot,
+} from './src/infrastructure/monitoring/earlyCrashLog';
+installEarlyCrashHandler();
+// ─────────────────────────────────────────────────────────────────────────────
+
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
@@ -146,7 +159,12 @@ export default function App(): React.JSX.Element {
         console.warn('[crashlytics] init failed', err),
       );
       if (session) {
-        await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
+        try {
+          await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
+        } catch (err) {
+          captureBoot('initSession (cold start)', err);
+          throw err;
+        }
         // Re-bind after household is resolved so checker uses the new householdId.
         bindCelebrationStore();
       }
@@ -171,6 +189,8 @@ export default function App(): React.JSX.Element {
   }, [setSession, setHouseholdId, setPaydayDay, setAvailableHouseholds, bindCelebrationStore]);
 
   if (fontError || dbError) {
+    // Record font/DB init errors — these surface before Crashlytics is ready.
+    captureBoot('App render — font/db init', fontError ?? dbError);
     return (
       <View style={styles.center}>
         <Text>Error: {(fontError ?? dbError)?.message}</Text>

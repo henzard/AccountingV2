@@ -4,6 +4,7 @@ import { colours } from '../../theme/tokens';
 import type { SettingsStackParamList } from '../../navigation/types';
 import { SettingsScreen } from './SettingsScreen';
 import { NotificationPreferencesScreen } from './NotificationPreferencesScreen';
+import { CrashLogViewer } from './CrashLogViewer';
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
 
@@ -26,6 +27,7 @@ export function SettingsStackNavigator(): React.JSX.Element {
         component={NotificationPreferencesScreen}
         options={{ title: 'Notifications' }}
       />
+      <Stack.Screen name="CrashLog" component={CrashLogViewer} options={{ title: 'Crash log' }} />
     </Stack.Navigator>
   );
 }

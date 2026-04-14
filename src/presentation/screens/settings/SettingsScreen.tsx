@@ -105,6 +105,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           right={(props) => <List.Icon {...props} icon="chevron-right" />}
           onPress={() => navigation.navigate('NotificationPreferences')}
         />
+        {__DEV__ && (
+          <>
+            <Divider />
+            <List.Item
+              title="Crash log"
+              description="Early-boot JS errors captured before Crashlytics"
+              left={(props) => <List.Icon {...props} icon="bug-outline" />}
+              right={(props) => <List.Icon {...props} icon="chevron-right" />}
+              onPress={() => navigation.navigate('CrashLog')}
+              testID="crash-log-item"
+            />
+          </>
+        )}
       </Surface>
 
       {/* Slip scanning */}

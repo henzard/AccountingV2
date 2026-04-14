@@ -56,6 +56,7 @@ export type SnowballStackParamList = {
 export type SettingsStackParamList = {
   SettingsHome: undefined;
   NotificationPreferences: undefined;
+  CrashLog: undefined;
 };
 
 export type MainTabParamList = {
