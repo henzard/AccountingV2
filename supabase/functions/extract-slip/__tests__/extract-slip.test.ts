@@ -301,3 +301,315 @@ Deno.test('returns 200 on happy path', async () => {
   assertEquals(body.merchant, 'Pick n Pay');
   assertEquals(body.items.length, 1);
 });
+
+// ── Additional test cases from PR #8 review ──────────────────────────────────
+
+function makeAdminWithRateCount(householdCount: number, userCount: number) {
+  return (table: string) => {
+    if (table === 'user_households') {
+      return {
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+            }),
+          }),
+        }),
+      };
+    }
+    if (table === 'user_consent') {
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: () =>
+              Promise.resolve({
+                data: { slip_scan_consent_at: '2026-04-01T00:00:00Z' },
+                error: null,
+              }),
+          }),
+        }),
+      };
+    }
+    if (table === 'slip_queue') {
+      const slipRow = {
+        id: 'slip1',
+        status: 'processing',
+        raw_response_json: null,
+        created_by: 'u1',
+      };
+      let callCount = 0;
+      const chainedEq = {
+        eq: (): typeof chainedEq => {
+          callCount++;
+          return chainedEq;
+        },
+        maybeSingle: () => Promise.resolve({ data: slipRow, error: null }),
+        gte: () => {
+          // First call = household, second = user
+          const count = callCount <= 1 ? householdCount : userCount;
+          return Promise.resolve({ data: null, count, error: null });
+        },
+      };
+      return {
+        select: () => ({ eq: () => chainedEq, head: true }),
+        update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+      };
+    }
+    return {
+      select: () => ({
+        eq: () => ({ gte: () => Promise.resolve({ data: [], count: 0, error: null }) }),
+      }),
+      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+    };
+  };
+}
+
+Deno.test('returns 429 when household rate limit reached (>= 50)', async () => {
+  const deps = makeBaseDeps({
+    createAdminClient: () => ({ from: makeAdminWithRateCount(50, 0) }) as any,
+  });
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 429);
+});
+
+Deno.test('returns 429 when user rate limit reached (>= 25)', async () => {
+  const deps = makeBaseDeps({
+    createAdminClient: () => ({ from: makeAdminWithRateCount(0, 25) }) as any,
+  });
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 429);
+});
+
+Deno.test(
+  'returns 503 when OpenAI returns empty content (null choices[0].message.content)',
+  async () => {
+    const deps = makeBaseDeps({
+      openAIFetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: null } }],
+              usage: { prompt_tokens: 10, completion_tokens: 0 },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ) as any,
+    });
+    const req = makeRequest(
+      { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+      'Bearer tok',
+    );
+    const resp = await handle(req, deps);
+    assertEquals(resp.status, 503);
+  },
+);
+
+Deno.test('returns 503 when OpenAI returns invalid JSON in content', async () => {
+  const deps = makeBaseDeps({
+    openAIFetch: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'not-json{{' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 0 },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ) as any,
+  });
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 503);
+});
+
+Deno.test('returns 422 when items.length > 100', async () => {
+  const items = Array.from({ length: 101 }, (_, i) => ({
+    description: `Item ${i}`,
+    amount_cents: 100,
+    quantity: 1,
+    suggested_envelope_id: null,
+    confidence: 0.8,
+  }));
+  const deps = makeBaseDeps({
+    openAIFetch: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    merchant: 'X',
+                    slip_date: null,
+                    total_cents: null,
+                    items,
+                  }),
+                },
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 10 },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ) as any,
+  });
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 422);
+});
+
+Deno.test('returns 403 when slip created_by differs from caller', async () => {
+  const deps = makeBaseDeps({
+    createAdminClient: () =>
+      ({
+        from: (table: string) => {
+          if (table === 'user_households') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'user_consent') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: () =>
+                    Promise.resolve({
+                      data: { slip_scan_consent_at: '2026-04-01T00:00:00Z' },
+                      error: null,
+                    }),
+                }),
+              }),
+            };
+          }
+          if (table === 'slip_queue') {
+            // created_by is a different user
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: () =>
+                    Promise.resolve({
+                      data: {
+                        id: 'slip1',
+                        status: 'processing',
+                        raw_response_json: null,
+                        created_by: 'other-user',
+                      },
+                      error: null,
+                    }),
+                }),
+              }),
+              update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+            };
+          }
+          return { select: () => ({}), update: () => ({ eq: () => Promise.resolve({}) }) };
+        },
+      }) as any,
+  });
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 403);
+});
+
+Deno.test('returns 200 with items: [] when slip is unreadable', async () => {
+  const deps = makeBaseDeps({
+    openAIFetch: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    merchant: null,
+                    slip_date: null,
+                    total_cents: null,
+                    items: [],
+                  }),
+                },
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ) as any,
+  });
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 200);
+  const body = await resp.json();
+  assertEquals(body.items.length, 0);
+  assertEquals(body.merchant, null);
+});
+
+Deno.test(
+  'prompt-injection: unknown suggested_envelope_id is nulled and confidence clamped to 0.3',
+  async () => {
+    const deps = makeBaseDeps({
+      openAIFetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      merchant: 'Test',
+                      slip_date: null,
+                      total_cents: 1000,
+                      items: [
+                        {
+                          description: 'Item',
+                          amount_cents: 1000,
+                          quantity: 1,
+                          suggested_envelope_id: 'injected-unknown-id',
+                          confidence: 0.9,
+                        },
+                      ],
+                    }),
+                  },
+                },
+              ],
+              usage: { prompt_tokens: 10, completion_tokens: 10 },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ) as any,
+    });
+    const req = makeRequest(
+      { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+      'Bearer tok',
+    );
+    const resp = await handle(req, deps);
+    assertEquals(resp.status, 200);
+    const body = await resp.json();
+    assertEquals(body.items[0].suggested_envelope_id, null);
+    assertEquals(body.items[0].confidence <= 0.3, true);
+  },
+);
