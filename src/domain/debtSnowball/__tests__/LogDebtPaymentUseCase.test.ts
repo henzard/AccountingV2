@@ -15,6 +15,17 @@ const mockSelect = jest.fn().mockReturnValue({
 const mockDb = { update: mockUpdate, insert: mockInsert, select: mockSelect } as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
+// Mock IDebtRepository with the new incrementTotalPaid method
+const mockIncrementTotalPaid = jest.fn().mockResolvedValue(undefined);
+const mockRepoUpdate = jest.fn().mockResolvedValue(undefined);
+const mockRepo = {
+  findById: jest.fn(),
+  findByHousehold: jest.fn(),
+  insert: jest.fn(),
+  update: mockRepoUpdate,
+  incrementTotalPaid: mockIncrementTotalPaid,
+} as any;
+
 const currentDebt: DebtEntity = {
   id: 'd1',
   householdId: 'h1',
@@ -48,12 +59,18 @@ describe('LogDebtPaymentUseCase', () => {
   });
 
   it('decrements outstanding balance and increments totalPaidCents', async () => {
-    const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
-      householdId: 'h1',
-      debtId: 'd1',
-      paymentAmountCents: 5000,
-      currentDebt,
-    });
+    const uc = new LogDebtPaymentUseCase(
+      mockDb,
+      mockAudit,
+      {
+        householdId: 'h1',
+        debtId: 'd1',
+        paymentAmountCents: 5000,
+        currentDebt,
+      },
+      undefined,
+      mockRepo,
+    );
     const result = await uc.execute();
     expect(result.success).toBe(true);
     if (result.success) {
@@ -64,12 +81,18 @@ describe('LogDebtPaymentUseCase', () => {
   });
 
   it('marks debt as isPaidOff when payment covers full balance', async () => {
-    const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
-      householdId: 'h1',
-      debtId: 'd1',
-      paymentAmountCents: 100000,
-      currentDebt,
-    });
+    const uc = new LogDebtPaymentUseCase(
+      mockDb,
+      mockAudit,
+      {
+        householdId: 'h1',
+        debtId: 'd1',
+        paymentAmountCents: 100000,
+        currentDebt,
+      },
+      undefined,
+      mockRepo,
+    );
     const result = await uc.execute();
     expect(result.success).toBe(true);
     if (result.success) {
@@ -79,12 +102,18 @@ describe('LogDebtPaymentUseCase', () => {
   });
 
   it('clamps balance to 0 when payment exceeds outstanding', async () => {
-    const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
-      householdId: 'h1',
-      debtId: 'd1',
-      paymentAmountCents: 200000,
-      currentDebt,
-    });
+    const uc = new LogDebtPaymentUseCase(
+      mockDb,
+      mockAudit,
+      {
+        householdId: 'h1',
+        debtId: 'd1',
+        paymentAmountCents: 200000,
+        currentDebt,
+      },
+      undefined,
+      mockRepo,
+    );
     const result = await uc.execute();
     expect(result.success).toBe(true);
     if (result.success) {
@@ -94,13 +123,58 @@ describe('LogDebtPaymentUseCase', () => {
   });
 
   it('logs audit with payment details', async () => {
-    const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
-      householdId: 'h1',
-      debtId: 'd1',
-      paymentAmountCents: 5000,
-      currentDebt,
-    });
+    const uc = new LogDebtPaymentUseCase(
+      mockDb,
+      mockAudit,
+      {
+        householdId: 'h1',
+        debtId: 'd1',
+        paymentAmountCents: 5000,
+        currentDebt,
+      },
+      undefined,
+      mockRepo,
+    );
     await uc.execute();
     expect(mockAudit.log).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls incrementTotalPaid with the actual applied amount instead of snapshot add', async () => {
+    const uc = new LogDebtPaymentUseCase(
+      mockDb,
+      mockAudit,
+      {
+        householdId: 'h1',
+        debtId: 'd1',
+        paymentAmountCents: 5000,
+        currentDebt,
+      },
+      undefined,
+      mockRepo,
+    );
+    await uc.execute();
+    expect(mockIncrementTotalPaid).toHaveBeenCalledWith('d1', 'h1', 5000);
+    // update() must NOT include totalPaidCents (atomicity delegated to SQL)
+    expect(mockRepoUpdate).toHaveBeenCalledWith(
+      expect.not.objectContaining({ totalPaidCents: expect.anything() }),
+    );
+  });
+
+  it('clamps actualApplied to outstanding balance when payment exceeds it (incrementTotalPaid)', async () => {
+    const uc = new LogDebtPaymentUseCase(
+      mockDb,
+      mockAudit,
+      {
+        householdId: 'h1',
+        debtId: 'd1',
+        paymentAmountCents: 200000,
+        currentDebt, // outstandingBalanceCents = 100000
+      },
+      undefined,
+      mockRepo,
+    );
+    await uc.execute();
+    // Only the actual outstanding amount should be incremented, not the full 200000
+    expect(mockIncrementTotalPaid).toHaveBeenCalledWith('d1', 'h1', 100000);
   });
 });

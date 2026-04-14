@@ -47,12 +47,13 @@ export class LogDebtPaymentUseCase {
     const newBalance = this.input.currentDebt.outstandingBalanceCents - actualApplied;
     const isPaidOff = newBalance === 0;
 
-    const newTotalPaid = this.input.currentDebt.totalPaidCents + actualApplied;
+    // Atomically increment total_paid_cents via a SQL expression to avoid
+    // lost-update races when concurrent payments read the same snapshot value.
+    await this.repo.incrementTotalPaid(this.input.debtId, this.input.householdId, actualApplied);
     await this.repo.update({
       id: this.input.debtId,
       householdId: this.input.householdId,
       outstandingBalanceCents: newBalance,
-      totalPaidCents: newTotalPaid,
       isPaidOff,
       updatedAt: now,
       isSynced: false,

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../local/schema';
 import { debts } from '../local/schema';
@@ -32,6 +32,13 @@ export class DrizzleDebtRepository implements IDebtRepository {
     await this.db
       .update(debts)
       .set(rest)
+      .where(and(eq(debts.id, id), eq(debts.householdId, householdId)));
+  }
+
+  async incrementTotalPaid(id: string, householdId: string, cents: number): Promise<void> {
+    await this.db
+      .update(debts)
+      .set({ totalPaidCents: sql`${debts.totalPaidCents} + ${cents}` })
       .where(and(eq(debts.id, id), eq(debts.householdId, householdId)));
   }
 
