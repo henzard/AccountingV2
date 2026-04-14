@@ -50,9 +50,15 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.keystore
 
+      - name: Compute versionName
+        id: vname
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "name=1.1.${{ github.run_number }}+${SHORT_SHA}" >> $GITHUB_OUTPUT
+
       - name: Build release AAB
         working-directory: android
-        run: ./gradlew bundleRelease -PversionCode=${{ github.run_number }} --no-daemon
+        run: ./gradlew bundleRelease -PversionCode=${{ github.run_number }} -PversionName=${{ steps.vname.outputs.name }} --no-daemon
         env:
           KEYSTORE_PATH: release.keystore
           KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
