@@ -347,8 +347,10 @@ function makeAdminWithRateCount(householdCount: number, userCount: number) {
         },
         maybeSingle: () => Promise.resolve({ data: slipRow, error: null }),
         gte: () => {
-          // First call = household, second = user
-          const count = callCount <= 1 ? householdCount : userCount;
+          // Household query has 1 chained .eq (callCount=0 after), user query has
+          // 2 (.eq('household_id').eq('created_by'), callCount=1 after). The first
+          // outer `.select().eq(...)` doesn't increment callCount (see line 356).
+          const count = callCount === 0 ? householdCount : userCount;
           return Promise.resolve({ data: null, count, error: null });
         },
       };
