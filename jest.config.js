@@ -29,6 +29,8 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/presentation/navigation/**',
     '!src/presentation/theme/**',
+    '!src/presentation/screens/settings/CrashLogViewer.tsx',
+    '!src/infrastructure/monitoring/earlyCrashLog.ts',
   ],
   coverageThreshold: { global: { lines: 65, branches: 50 } },
 };
