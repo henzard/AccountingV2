@@ -8,9 +8,6 @@ import {
   installEarlyCrashHandler,
   captureBoot,
 } from './src/infrastructure/monitoring/earlyCrashLog';
-installEarlyCrashHandler();
-// ─────────────────────────────────────────────────────────────────────────────
-
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
@@ -41,22 +38,45 @@ import { subscribeNetworkStore } from './src/presentation/stores/networkStore';
 import { DrizzleSlipQueueRepository } from './src/data/repositories/DrizzleSlipQueueRepository';
 import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImageLocalStore';
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
+import { BootRecoveryGate } from './src/presentation/boot/BootRecoveryGate';
+import { BootErrorBoundary } from './src/presentation/boot/BootErrorBoundary';
+
+// Install global crash handler as early as possible (after imports — module
+// evaluation order still puts this before any App code runs).
+installEarlyCrashHandler();
 
 // ─── Enable Crashlytics collection at module load ─────────────────────────────
-// Must happen as early as possible so native crash handlers are armed before
-// any boot-phase code runs. The per-user ID is set later via initCrashlytics()
-// after auth.getSession() resolves.
-crashlytics()
-  .setCrashlyticsCollectionEnabled(!__DEV__)
-  .catch((err) => console.warn('[crashlytics] enable failed', err));
+// Wrapped in try/catch because the native module may not be registered yet on
+// some boot paths; we must never let this kill the app before the error
+// boundaries mount.
+try {
+  crashlytics()
+    .setCrashlyticsCollectionEnabled(!__DEV__)
+    .catch((err) => {
+      captureBoot('crashlytics.setEnabled (async)', err);
+    });
+} catch (err) {
+  captureBoot('crashlytics.setEnabled (sync)', err);
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
-const audit = new AuditLogger(db);
-const restoreService = new RestoreService(db, supabase);
-const syncOrchestrator = new SyncOrchestrator(db, supabase);
-const slipQueueRepo = new DrizzleSlipQueueRepository(db);
-const slipLocalStore = new SlipImageLocalStore();
-const cleanupSlips = new CleanupExpiredSlipsUseCase(slipQueueRepo, slipLocalStore);
+let audit: AuditLogger;
+let restoreService: RestoreService;
+let syncOrchestrator: SyncOrchestrator;
+let slipQueueRepo: DrizzleSlipQueueRepository;
+let slipLocalStore: SlipImageLocalStore;
+let cleanupSlips: CleanupExpiredSlipsUseCase;
+try {
+  audit = new AuditLogger(db);
+  restoreService = new RestoreService(db, supabase);
+  syncOrchestrator = new SyncOrchestrator(db, supabase);
+  slipQueueRepo = new DrizzleSlipQueueRepository(db);
+  slipLocalStore = new SlipImageLocalStore();
+  cleanupSlips = new CleanupExpiredSlipsUseCase(slipQueueRepo, slipLocalStore);
+} catch (err) {
+  captureBoot('App.tsx module-scope singletons', err);
+  throw err;
+}
 
 async function initSession(
   userId: string,
@@ -214,7 +234,11 @@ export default function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
       <PaperProvider theme={appTheme}>
-        <RootNavigator />
+        <BootRecoveryGate>
+          <BootErrorBoundary>
+            <RootNavigator />
+          </BootErrorBoundary>
+        </BootRecoveryGate>
       </PaperProvider>
     </SafeAreaProvider>
   );
