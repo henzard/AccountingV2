@@ -1,19 +1,35 @@
-import React from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, Alert, Switch } from 'react-native';
 import { List, Surface, Divider, Button } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { supabase } from '../../../data/remote/supabaseClient';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
 
+const WIFI_ONLY_KEY = '@settings:slip_wifi_only';
+
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const session = useAppStore((s) => s.session);
   const email = session?.user?.email ?? 'Unknown';
   const householdId = useAppStore((s) => s.householdId);
   const availableHouseholds = useAppStore((s) => s.availableHouseholds);
   const currentHousehold = availableHouseholds.find((h) => h.id === householdId);
+
+  const [wifiOnly, setWifiOnly] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(WIFI_ONLY_KEY).then((v) => setWifiOnly(v === 'true'));
+  }, []);
+
+  const handleWifiOnlyToggle = async (value: boolean): Promise<void> => {
+    setWifiOnly(value);
+    await AsyncStorage.setItem(WIFI_ONLY_KEY, String(value));
+  };
 
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -31,10 +47,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   };
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <List.Section>
         <List.Subheader style={styles.subheader}>Household</List.Subheader>
-        <Surface style={styles.section} elevation={0}>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
           <List.Item
             title={currentHousehold?.name ?? 'My Household'}
             description="Active household"
@@ -75,7 +91,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           )}
         </Surface>
       </List.Section>
-      <Surface style={styles.section} elevation={0}>
+      <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
         <List.Item
           title={email}
           description="Signed in account"
@@ -91,13 +107,55 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
         />
       </Surface>
 
+      {/* Slip scanning */}
+      <List.Section>
+        <List.Subheader style={styles.subheader}>Slip scanning</List.Subheader>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
+          <List.Item
+            title="Slip history"
+            description="View scanned slips"
+            left={(props) => <List.Icon {...props} icon="history" />}
+            right={(props) => <List.Icon {...props} icon="chevron-right" />}
+            onPress={() =>
+              (navigation as unknown as { navigate: (s: string) => void }).navigate('SlipScanning')
+            }
+            testID="slip-history-item"
+          />
+          <Divider />
+          <List.Item
+            title="Privacy — Slip scanning consent"
+            description="Manage your consent"
+            left={(props) => <List.Icon {...props} icon="shield-account-outline" />}
+            right={(props) => <List.Icon {...props} icon="chevron-right" />}
+            onPress={() =>
+              (navigation as unknown as { navigate: (s: string) => void }).navigate('SlipConsent')
+            }
+            testID="slip-consent-item"
+          />
+          <Divider />
+          <List.Item
+            title="Upload on Wi-Fi only"
+            description="Slip images upload only when connected to Wi-Fi"
+            left={(props) => <List.Icon {...props} icon="wifi" />}
+            right={() => (
+              <Switch
+                value={wifiOnly}
+                onValueChange={handleWifiOnlyToggle}
+                testID="wifi-only-switch"
+              />
+            )}
+            testID="wifi-only-item"
+          />
+        </Surface>
+      </List.Section>
+
       <View style={styles.signOutSection}>
         <Button
           mode="outlined"
           icon="logout"
           onPress={confirmSignOut}
-          textColor={colours.error}
-          style={styles.signOutButton}
+          textColor={colors.error}
+          style={[styles.signOutButton, { borderColor: colors.error }]}
           testID="sign-out-button"
         >
           Sign out
@@ -108,12 +166,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   section: {
     marginTop: spacing.base,
     marginHorizontal: spacing.base,
     borderRadius: 8,
-    backgroundColor: colours.surface,
   },
   subheader: {
     marginHorizontal: spacing.base,
@@ -122,7 +179,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginHorizontal: spacing.base,
   },
-  signOutButton: {
-    borderColor: colours.error,
-  },
+  signOutButton: {},
 });

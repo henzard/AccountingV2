@@ -9,6 +9,12 @@ import React from 'react';
 import { Alert } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
+// ─── AsyncStorage mock ────────────────────────────────────────────────────────
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: jest.fn().mockResolvedValue(null),
+  setItem: jest.fn().mockResolvedValue(undefined),
+}));
+
 // ─── Navigation mocks ──────────────────────────────────────────────────────────
 const mockNavigate = jest.fn();
 const mockRootNavigate = jest.fn();

@@ -196,3 +196,85 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
     expect(updateCall).toHaveProperty('target');
   });
 });
+
+describe('RestoreService.restoreHousehold — slip_queue + user_consent in dispatch', () => {
+  const baseHhRow = {
+    id: 'hh-1',
+    name: 'Test Household',
+    payday_day: 1,
+    user_level: 1,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+
+  it('includes slip_queue in the restoreTable dispatch', async () => {
+    const fetchedTables: string[] = [];
+    const supabase = {
+      from: (table: string) => ({
+        select: () => ({
+          eq: (col: string, _val: unknown) => {
+            if (table === 'households' && col === 'id') {
+              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
+            }
+            if (table === 'household_members' && col === 'household_id') {
+              return Promise.resolve({ data: [], error: null });
+            }
+            fetchedTables.push(table);
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    } as any;
+
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
+          onConflictDoNothing: jest.fn().mockResolvedValue({}),
+        }),
+      }),
+    } as any;
+
+    const svc = new RestoreService(db, supabase);
+    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
+
+    expect(fetchedTables).toContain('slip_queue');
+  });
+
+  it('includes user_consent in the restore dispatch (fetched by user_id)', async () => {
+    const fetchedQueries: Array<{ table: string; col: string }> = [];
+    const supabase = {
+      from: (table: string) => ({
+        select: () => ({
+          eq: (col: string, _val: unknown) => {
+            if (table === 'households' && col === 'id') {
+              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
+            }
+            if (table === 'household_members' && col === 'household_id') {
+              return Promise.resolve({ data: [], error: null });
+            }
+            fetchedQueries.push({ table, col });
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    } as any;
+
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
+          onConflictDoNothing: jest.fn().mockResolvedValue({}),
+        }),
+      }),
+    } as any;
+
+    const svc = new RestoreService(db, supabase);
+    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
+
+    // user_consent must be fetched by user_id (not household_id)
+    const consentQuery = fetchedQueries.find((q) => q.table === 'user_consent');
+    expect(consentQuery).toBeDefined();
+    expect(consentQuery?.col).toBe('user_id');
+  });
+});

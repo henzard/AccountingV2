@@ -17,6 +17,7 @@ import { NotificationPreferencesRepository } from '../../infrastructure/notifica
 import { LocalNotificationScheduler } from '../../infrastructure/notifications/LocalNotificationScheduler';
 import { isOnboardingComplete } from '../../infrastructure/storage/onboardingFlag';
 import type { RootStackParamList } from './types';
+import { SlipScanningScreen } from './SlipScanningScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const prefsRepo = new NotificationPreferencesRepository();
@@ -134,6 +135,11 @@ export function RootNavigator(): React.JSX.Element {
           name="JoinHousehold"
           component={JoinHouseholdScreen}
           options={{ title: 'Join a Household' }}
+        />
+        <Stack.Screen
+          name="SlipScanning"
+          component={SlipScanningScreen}
+          options={{ headerShown: false, presentation: 'modal' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -1,10 +1,11 @@
 import { randomUUID } from 'expo-crypto';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
-import { meterReadings } from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
 import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import { DrizzleMeterReadingRepository } from '../../data/repositories/DrizzleMeterReadingRepository';
 import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import type { IMeterReadingRepository } from '../ports/IMeterReadingRepository';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { MeterReadingEntity, MeterType } from './MeterReadingEntity';
@@ -21,14 +22,17 @@ export interface LogMeterReadingInput {
 
 export class LogMeterReadingUseCase {
   private readonly enqueuer: ISyncEnqueuer;
+  private readonly repo: IMeterReadingRepository;
 
   constructor(
-    private readonly db: ExpoSQLiteDatabase<typeof schema>,
+    db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: LogMeterReadingInput,
     enqueuer?: ISyncEnqueuer,
+    repo?: IMeterReadingRepository,
   ) {
     this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
+    this.repo = repo ?? new DrizzleMeterReadingRepository(db);
   }
 
   async execute(): Promise<Result<MeterReadingEntity>> {
@@ -56,7 +60,7 @@ export class LogMeterReadingUseCase {
       isSynced: false,
     };
 
-    await this.db.insert(meterReadings).values(reading);
+    await this.repo.insert(reading);
 
     await this.audit.log({
       householdId: this.input.householdId,

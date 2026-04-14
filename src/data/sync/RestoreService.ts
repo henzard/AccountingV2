@@ -13,6 +13,7 @@ import {
   babySteps,
   auditEvents,
   slipQueue,
+  userConsent,
 } from '../local/schema';
 import { toLocalRow } from './rowConverters';
 import { SeedBabyStepsUseCase } from '../../domain/babySteps/SeedBabyStepsUseCase';
@@ -57,7 +58,7 @@ export class RestoreService {
   async restoreHousehold(
     householdId: string,
     role: string,
-    _userId: string,
+    userId: string,
   ): Promise<RestoredHousehold | null> {
     // Fetch household row
     const { data: hh, error: hhError } = await this.supabase
@@ -109,6 +110,7 @@ export class RestoreService {
     await this.restoreTable('baby_steps', babySteps, householdId);
     await this.restoreTable('audit_events', auditEvents, householdId);
     await this.restoreTable('slip_queue', slipQueue, householdId);
+    await this.restoreUserConsent(userId);
 
     // Backfill any missing baby_steps rows (idempotent — INSERT OR IGNORE)
     const seeder = new SeedBabyStepsUseCase(this.db);
@@ -120,6 +122,30 @@ export class RestoreService {
       paydayDay: hh.payday_day as number,
       role,
     };
+  }
+
+  private async restoreUserConsent(userId: string): Promise<void> {
+    const { data, error } = await this.supabase
+      .from('user_consent')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (error || !data) return;
+
+    for (const row of data) {
+      const localRow = toLocalRow(row as Record<string, unknown>);
+      await this.db
+        .insert(userConsent)
+        .values(localRow as typeof userConsent.$inferInsert)
+        .onConflictDoUpdate({
+          target: userConsent.userId,
+          set: {
+            slipScanConsentAt: sql.raw('excluded.slip_scan_consent_at'),
+            updatedAt: sql.raw('excluded.updated_at'),
+            isSynced: true,
+          },
+        });
+    }
   }
 
   private async restoreTable(

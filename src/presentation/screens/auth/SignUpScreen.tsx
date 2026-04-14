@@ -11,12 +11,14 @@ import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../../data/remote/supabaseClient';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
 
 export function SignUpScreen(): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
 
   const [email, setEmail] = useState('');
@@ -65,11 +67,14 @@ export function SignUpScreen(): React.JSX.Element {
 
   if (submitted === 'check-email') {
     return (
-      <View style={[styles.flex, styles.centerContent]} testID="signup-check-email">
-        <Text variant="headlineSmall" style={styles.title}>
+      <View
+        style={[styles.flex, styles.centerContent, { backgroundColor: colors.surface }]}
+        testID="signup-check-email"
+      >
+        <Text variant="headlineSmall" style={[styles.title, { color: colors.primary }]}>
           Check your email
         </Text>
-        <Text variant="bodyLarge" style={styles.successText}>
+        <Text variant="bodyLarge" style={[styles.successText, { color: colors.onSurfaceVariant }]}>
           We've sent a confirmation link to {email}. Tap it, then sign in.
         </Text>
         <Button
@@ -87,9 +92,12 @@ export function SignUpScreen(): React.JSX.Element {
 
   if (submitted === 'pending-session') {
     return (
-      <View style={[styles.flex, styles.centerContent]} testID="signup-success">
-        <ActivityIndicator size="large" color={colours.primary} />
-        <Text variant="bodyLarge" style={styles.successText}>
+      <View
+        style={[styles.flex, styles.centerContent, { backgroundColor: colors.surface }]}
+        testID="signup-success"
+      >
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text variant="bodyLarge" style={[styles.successText, { color: colors.onSurfaceVariant }]}>
           Setting up your account…
         </Text>
       </View>
@@ -98,15 +106,15 @@ export function SignUpScreen(): React.JSX.Element {
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text variant="displaySmall" style={styles.title}>
+          <Text variant="displaySmall" style={[styles.title, { color: colors.primary }]}>
             Create account
           </Text>
-          <Text variant="bodyLarge" style={styles.subtitle}>
+          <Text variant="bodyLarge" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
             Start managing your household budget
           </Text>
         </View>
@@ -121,7 +129,7 @@ export function SignUpScreen(): React.JSX.Element {
             autoComplete="email"
             textContentType="emailAddress"
             mode="outlined"
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Email address"
             accessibilityRole="none"
@@ -136,7 +144,7 @@ export function SignUpScreen(): React.JSX.Element {
             autoComplete="password-new"
             textContentType="newPassword"
             mode="outlined"
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Password, at least 8 characters"
             accessibilityRole="none"
@@ -151,7 +159,7 @@ export function SignUpScreen(): React.JSX.Element {
             autoComplete="password-new"
             textContentType="newPassword"
             mode="outlined"
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Confirm password"
             accessibilityRole="none"
@@ -198,7 +206,6 @@ export function SignUpScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-    backgroundColor: colours.surface,
   },
   centerContent: {
     alignItems: 'center',
@@ -206,7 +213,6 @@ const styles = StyleSheet.create({
     gap: spacing.base,
   },
   successText: {
-    color: colours.onSurfaceVariant,
     textAlign: 'center',
   },
   container: {
@@ -219,20 +225,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxxl,
   },
   title: {
-    color: colours.primary,
     textAlign: 'center',
   },
   subtitle: {
-    color: colours.onSurfaceVariant,
     textAlign: 'center',
     marginTop: spacing.sm,
   },
   form: {
     gap: spacing.base,
   },
-  input: {
-    backgroundColor: colours.surface,
-  },
+  input: {},
   button: {
     marginTop: spacing.sm,
   },

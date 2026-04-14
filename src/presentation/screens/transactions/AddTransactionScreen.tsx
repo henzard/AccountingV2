@@ -1,15 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Modal,
-  FlatList,
-  TouchableOpacity,
-} from 'react-native';
-import { Text, TextInput, Button, Snackbar, TouchableRipple, Surface } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { Text, TextInput, Button, Snackbar, TouchableRipple } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { and, eq, ne } from 'drizzle-orm';
 import { format } from 'date-fns';
@@ -22,18 +13,11 @@ import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
 import { colours, spacing, radius } from '../../theme/tokens';
 import type { AddTransactionScreenProps } from '../../navigation/types';
-import type { EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
+import { EnvelopePickerSheet } from '../../screens/slipScanning/components/EnvelopePickerSheet';
+import type { EnvelopeOption } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
-
-interface EnvelopeOption {
-  id: string;
-  name: string;
-  allocatedCents: number;
-  spentCents: number;
-  envelopeType: EnvelopeType;
-}
 
 function toCents(randStr: string): number {
   const n = parseFloat(randStr.replace(',', '.'));
@@ -248,75 +232,14 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         </Button>
       </ScrollView>
 
-      {/* Envelope picker modal */}
-      <Modal
+      {/* Envelope picker — extracted to shared component */}
+      <EnvelopePickerSheet
         visible={showPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowPicker(false)}
-        accessibilityViewIsModal
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          onPress={() => setShowPicker(false)}
-          activeOpacity={1}
-          accessibilityLabel="Close envelope picker"
-          accessibilityRole="button"
-        >
-          <Surface style={styles.modalSheet} elevation={4}>
-            <View style={styles.modalHandle} />
-            <Text variant="titleMedium" style={styles.modalTitle}>
-              Select Envelope
-            </Text>
-            <FlatList
-              data={envelopes}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => {
-                const balance = item.allocatedCents - item.spentCents;
-                return (
-                  <TouchableRipple
-                    onPress={() => {
-                      setSelectedEnvelope(item);
-                      setShowPicker(false);
-                    }}
-                    style={styles.modalItem}
-                    testID={`envelope-option-${item.id}`}
-                  >
-                    <View style={styles.modalItemInner}>
-                      <Text
-                        variant="bodyLarge"
-                        style={
-                          selectedEnvelope?.id === item.id
-                            ? styles.modalItemSelected
-                            : styles.modalItemText
-                        }
-                      >
-                        {item.name}
-                      </Text>
-                      <Text
-                        variant="bodySmall"
-                        style={{
-                          color: balance < 0 ? colours.error : colours.onSurfaceVariant,
-                        }}
-                        testID={`envelope-balance-${item.id}`}
-                      >
-                        {formatBalance(item)} left
-                      </Text>
-                    </View>
-                  </TouchableRipple>
-                );
-              }}
-              ListEmptyComponent={
-                <View style={styles.center}>
-                  <Text variant="bodyMedium" style={{ color: colours.onSurfaceVariant }}>
-                    No envelopes for this period. Add envelopes first.
-                  </Text>
-                </View>
-              }
-            />
-          </Surface>
-        </TouchableOpacity>
-      </Modal>
+        envelopes={envelopes}
+        selectedId={selectedEnvelope?.id}
+        onSelect={(env) => setSelectedEnvelope(env)}
+        onClose={() => setShowPicker(false)}
+      />
 
       <Snackbar
         visible={error !== null}
@@ -360,32 +283,5 @@ const styles = StyleSheet.create({
   dateValue: { color: colours.onSurface },
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
-  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: colours.scrim },
-  modalSheet: {
-    backgroundColor: colours.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingBottom: spacing.xl,
-    maxHeight: '60%',
-  },
-  modalHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: colours.outlineVariant,
-    borderRadius: radius.full,
-    alignSelf: 'center',
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  modalTitle: {
-    color: colours.onSurface,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    paddingHorizontal: spacing.base,
-    marginBottom: spacing.sm,
-  },
-  modalItem: { paddingHorizontal: spacing.base, paddingVertical: spacing.md },
-  modalItemInner: { gap: 2 },
-  modalItemText: { color: colours.onSurface },
-  modalItemSelected: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold' },
   center: { padding: spacing.base },
 });

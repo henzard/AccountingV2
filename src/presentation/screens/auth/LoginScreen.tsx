@@ -8,7 +8,8 @@ import {
   AccessibilityInfo,
 } from 'react-native';
 import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { SupabaseAuthService } from '../../../data/remote/SupabaseAuthService';
 import { useAppStore } from '../../stores/appStore';
@@ -20,6 +21,7 @@ import type { AuthStackParamList } from '../../navigation/types';
 const authService = new SupabaseAuthService(supabase);
 
 export const LoginScreen: React.FC<LoginScreenProps> = () => {
+  const { colors } = useAppTheme();
   const setSession = useAppStore((s) => s.setSession);
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList, 'Login'>>();
 
@@ -50,15 +52,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text variant="displayMedium" style={styles.title}>
+          <Text variant="displayMedium" style={[styles.title, { color: colors.primary }]}>
             AccountingV2
           </Text>
-          <Text variant="bodyLarge" style={styles.subtitle}>
+          <Text variant="bodyLarge" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
             Sign in to your household account
           </Text>
         </View>
@@ -73,7 +75,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             autoComplete="email"
             textContentType="emailAddress"
             mode="outlined"
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Email address"
             accessibilityRole="none"
@@ -88,7 +90,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             autoComplete="password"
             textContentType="password"
             mode="outlined"
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Password"
             accessibilityRole="none"
@@ -146,7 +148,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-    backgroundColor: colours.surface,
   },
   container: {
     flexGrow: 1,
@@ -158,20 +159,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxxl,
   },
   title: {
-    color: colours.primary,
     textAlign: 'center',
   },
   subtitle: {
-    color: colours.onSurfaceVariant,
     textAlign: 'center',
     marginTop: spacing.sm,
   },
   form: {
     gap: spacing.base,
   },
-  input: {
-    backgroundColor: colours.surface,
-  },
+  input: {},
   button: {
     marginTop: spacing.sm,
   },

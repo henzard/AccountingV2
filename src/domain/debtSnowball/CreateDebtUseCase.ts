@@ -5,7 +5,9 @@ import type * as schema from '../../data/local/schema';
 import { debts } from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
 import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
+import { DrizzleDebtRepository } from '../../data/repositories/DrizzleDebtRepository';
 import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import type { IDebtRepository } from '../ports/IDebtRepository';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { DebtEntity, DebtType } from './DebtEntity';
@@ -21,14 +23,17 @@ export interface CreateDebtInput {
 
 export class CreateDebtUseCase {
   private readonly enqueuer: ISyncEnqueuer;
+  private readonly repo: IDebtRepository;
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateDebtInput,
     enqueuer?: ISyncEnqueuer,
+    repo?: IDebtRepository,
   ) {
     this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
+    this.repo = repo ?? new DrizzleDebtRepository(db);
   }
 
   async execute(): Promise<Result<DebtEntity>> {
@@ -74,7 +79,7 @@ export class CreateDebtUseCase {
       isSynced: false,
     };
 
-    await this.db.insert(debts).values(debt);
+    await this.repo.insert(debt);
 
     await this.audit.log({
       householdId: this.input.householdId,

@@ -75,6 +75,7 @@ export type RootStackParamList = {
   CreateHousehold: undefined;
   ShareInvite: { householdId: string; householdName: string };
   JoinHousehold: undefined;
+  SlipScanning: undefined;
 };
 
 // --- Screen props ---

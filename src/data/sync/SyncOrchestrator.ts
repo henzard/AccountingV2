@@ -13,6 +13,7 @@ import {
   babySteps,
   auditEvents,
   slipQueue,
+  userConsent,
 } from '../local/schema';
 import { toSupabaseRow } from './rowConverters';
 import { ReconcileEmergencyFundTypeUseCase } from '../../domain/babySteps/ReconcileEmergencyFundTypeUseCase';
@@ -27,7 +28,8 @@ type SyncTable =
   | typeof householdMembers
   | typeof babySteps
   | typeof auditEvents
-  | typeof slipQueue;
+  | typeof slipQueue
+  | typeof userConsent;
 
 const TABLE_MAP: Record<string, SyncTable> = {
   envelopes,
@@ -39,6 +41,7 @@ const TABLE_MAP: Record<string, SyncTable> = {
   baby_steps: babySteps,
   audit_events: auditEvents,
   slip_queue: slipQueue,
+  user_consent: userConsent,
 };
 
 const TABLE_RPC_MAP: Record<string, string> = {
@@ -51,6 +54,7 @@ const TABLE_RPC_MAP: Record<string, string> = {
   household_members: 'merge_household_member',
   audit_events: 'merge_audit_event',
   slip_queue: 'merge_slip_queue',
+  user_consent: 'merge_user_consent',
 };
 
 const DLQ_MAX_RETRIES = 10;

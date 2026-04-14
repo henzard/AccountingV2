@@ -19,11 +19,13 @@ import { EmptyState } from '../../components/shared/EmptyState';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 const engine = new BudgetPeriodEngine();
 
 export const BudgetScreen: React.FC = () => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
 
@@ -55,13 +57,13 @@ export const BudgetScreen: React.FC = () => {
   if (loading && envelopes.length === 0) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={colours.primary} />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
       {/* Duplicate-EMF banner (shown only when flag is set) */}
       <DuplicateEmfBanner />
 
@@ -80,16 +82,19 @@ export const BudgetScreen: React.FC = () => {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <EnvelopeCard envelope={item} />}
           renderSectionHeader={({ section: { title } }) => (
-            <View style={styles.sectionHeader}>
-              <Text variant="labelSmall" style={styles.sectionTitle}>
+            <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
+              <Text
+                variant="labelSmall"
+                style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}
+              >
                 {title.toUpperCase()}
               </Text>
-              <Divider style={styles.divider} />
+              <Divider style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
             </View>
           )}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl refreshing={loading} onRefresh={reload} colors={[colours.primary]} />
+            <RefreshControl refreshing={loading} onRefresh={reload} colors={[colors.primary]} />
           }
           stickySectionHeadersEnabled={false}
         />
@@ -99,21 +104,17 @@ export const BudgetScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background },
+  flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   list: { paddingBottom: spacing.xxl },
   sectionHeader: {
     paddingHorizontal: spacing.base,
     paddingTop: spacing.base,
     paddingBottom: spacing.xs,
-    backgroundColor: colours.background,
   },
   sectionTitle: {
-    color: colours.onSurfaceVariant,
     letterSpacing: 1.2,
     marginBottom: spacing.xs,
   },
-  divider: {
-    backgroundColor: colours.outlineVariant,
-  },
+  divider: {},
 });
