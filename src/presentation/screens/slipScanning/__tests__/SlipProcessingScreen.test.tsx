@@ -87,7 +87,10 @@ describe('SlipProcessingScreen', () => {
         }}
       />,
     );
-    expect(getByTestId('error-message').props.children).toBe('OpenAI down');
+    // Now shows human-readable copy instead of raw error message
+    expect(getByTestId('error-message').props.children).toBe(
+      'Slip service is temporarily unreachable. Try again, or log manually.',
+    );
     expect(getByTestId('retry-button')).toBeTruthy();
   });
 

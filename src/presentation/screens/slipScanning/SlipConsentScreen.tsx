@@ -10,6 +10,8 @@ export type SlipConsentScreenProps = {
 };
 
 export function SlipConsentScreen({ recordConsent }: SlipConsentScreenProps): React.JSX.Element {
+  // Uses any-typed navigation because this screen sits in a nested stack
+  // and needs to navigate to inner stack routes (SlipCapture).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const navigation = useNavigation<any>();
   const session = useAppStore((s) => s.session);

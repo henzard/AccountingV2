@@ -30,6 +30,7 @@ export type SlipScanningStackNavigatorProps = {
   recordConsent: (userId: string) => Promise<{ success: boolean }>;
   repo: Parameters<typeof SlipQueueScreen>[0]['repo'];
   startScan: Parameters<typeof SlipProcessingScreen>[0]['startScan'];
+  cancelSlip: Parameters<typeof SlipProcessingScreen>[0]['cancelSlip'];
   progress: ProgressState;
   confirmSlip: Parameters<typeof SlipConfirmScreen>[0]['confirmSlip'];
   envelopes: EnvelopeOption[];
@@ -41,6 +42,7 @@ export function SlipScanningStackNavigator({
   recordConsent,
   repo,
   startScan,
+  cancelSlip,
   progress,
   confirmSlip,
   envelopes,
@@ -57,7 +59,9 @@ export function SlipScanningStackNavigator({
         {() => <SlipCaptureScreen householdId={householdId} createdBy={createdBy} />}
       </Stack.Screen>
       <Stack.Screen name="SlipProcessing" options={{ title: 'Processing', gestureEnabled: false }}>
-        {() => <SlipProcessingScreen startScan={startScan} progress={progress} />}
+        {() => (
+          <SlipProcessingScreen startScan={startScan} progress={progress} cancelSlip={cancelSlip} />
+        )}
       </Stack.Screen>
       <Stack.Screen name="SlipConfirm" options={{ title: 'Confirm transactions' }}>
         {() => <SlipConfirmScreen confirmSlip={confirmSlip} envelopes={envelopes} />}
