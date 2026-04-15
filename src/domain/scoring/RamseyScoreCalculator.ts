@@ -1,13 +1,13 @@
-export interface RamseyScoreInput {
+export interface HabitScoreInput {
   loggingDaysCount: number; // days with at least one transaction logged
   totalDaysInPeriod: number; // calendar days in the current budget period
   envelopesOnBudget: number; // envelopes where spentCents <= allocatedCents
   totalEnvelopes: number;
-  meterReadingsLoggedThisPeriod: boolean; // at least one reading logged this period
-  babyStepIsActive: boolean; // household has at least one Baby Step configured
+  meterReadingsLoggedThisPeriod: boolean;
+  babyStepIsActive: boolean;
 }
 
-export interface RamseyScoreResult {
+export interface HabitScoreResult {
   score: number; // 0–100
   loggingPoints: number; // 0–30
   disciplinePoints: number; // 0–30
@@ -15,8 +15,8 @@ export interface RamseyScoreResult {
   babyStepPoints: number; // 0–20
 }
 
-export class RamseyScoreCalculator {
-  calculate(input: RamseyScoreInput): RamseyScoreResult {
+export class HabitScoreCalculator {
+  calculate(input: HabitScoreInput): HabitScoreResult {
     const loggingPoints =
       input.totalDaysInPeriod > 0
         ? Math.min(30, Math.round((input.loggingDaysCount / input.totalDaysInPeriod) * 30))
@@ -35,3 +35,9 @@ export class RamseyScoreCalculator {
     return { score, loggingPoints, disciplinePoints, metersPoints, babyStepPoints };
   }
 }
+
+// Back-compat aliases — remove once all callers are migrated.
+export type RamseyScoreInput = HabitScoreInput;
+export type RamseyScoreResult = HabitScoreResult;
+/** @deprecated Use HabitScoreCalculator */
+export const RamseyScoreCalculator = HabitScoreCalculator;

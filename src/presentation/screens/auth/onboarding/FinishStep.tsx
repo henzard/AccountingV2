@@ -36,7 +36,7 @@ export function FinishStep(): React.JSX.Element {
       </Text>
       <Text variant="bodyLarge" style={[styles.body, { color: colors.onSurface }]}>
         You've set up your income, spending envelopes, and payday. Start logging transactions to
-        grow your Ramsey Score.
+        grow your Habit Score.
       </Text>
       <Button
         mode="contained"

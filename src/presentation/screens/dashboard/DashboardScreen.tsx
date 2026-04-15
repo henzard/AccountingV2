@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
-import { RamseyScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
+import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { BabyStepsCard } from './BabyStepsCard';
 import { Text, FAB, Surface } from 'react-native-paper';
@@ -24,7 +24,7 @@ import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
 import { db } from '../../../data/local/db';
 
 const engine = new BudgetPeriodEngine();
-const scoreCalculator = new RamseyScoreCalculator();
+const scoreCalculator = new HabitScoreCalculator();
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();

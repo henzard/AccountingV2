@@ -16,7 +16,7 @@ export function ScoreIntroStep(): React.JSX.Element {
   return (
     <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
       <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
-        Your Ramsey Score
+        Your Habit Score
       </Text>
       <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
         Every day you track your spending, your score improves.
@@ -27,7 +27,7 @@ export function ScoreIntroStep(): React.JSX.Element {
           How it works
         </Text>
         <Text variant="bodyMedium" style={[styles.cardBody, { color: colors.onSurfaceVariant }]}>
-          Your Ramsey Score is calculated based on three factors:{'\n\n'}
+          Your Habit Score is calculated based on three factors:{'\n\n'}
           {'1. '}
           <Text style={[styles.bold, { color: colors.onSurface }]}>Daily logging</Text> — log
           transactions consistently to earn points.{'\n\n'}

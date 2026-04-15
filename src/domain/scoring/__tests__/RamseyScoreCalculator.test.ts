@@ -1,7 +1,7 @@
-import { RamseyScoreCalculator } from '../RamseyScoreCalculator';
+import { HabitScoreCalculator } from '../RamseyScoreCalculator';
 
-describe('RamseyScoreCalculator', () => {
-  const calc = new RamseyScoreCalculator();
+describe('HabitScoreCalculator', () => {
+  const calc = new HabitScoreCalculator();
 
   it('returns 100 for perfect inputs', () => {
     const result = calc.calculate({
