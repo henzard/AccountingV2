@@ -657,6 +657,19 @@ Deno.test(
 Deno.test('returns 429 household_limit when check_and_reserve_slip_slot disallows', async () => {
   const baseDeps = makeBaseDeps();
 
+  const slipQueueRow429 = {
+    id: 'slip1',
+    status: 'pending',
+    raw_response_json: null,
+    created_by: 'u1',
+    household_id: 'h1',
+  };
+  // deno-lint-ignore no-explicit-any
+  const chainedEq429: any = {
+    eq: () => chainedEq429,
+    maybeSingle: () => Promise.resolve({ data: slipQueueRow429, error: null }),
+  };
+
   const deps: HandleDeps = {
     ...baseDeps,
     createAdminClient: () => {
@@ -665,25 +678,8 @@ Deno.test('returns 429 household_limit when check_and_reserve_slip_slot disallow
         ...base,
         from: (table: string) => {
           if (table === 'slip_queue') {
-            // Override to return a pending slip (not completed/processing)
             return {
-              select: () => ({
-                eq: () => ({
-                  eq: () => ({
-                    maybeSingle: () =>
-                      Promise.resolve({
-                        data: {
-                          id: 'slip1',
-                          status: 'pending',
-                          raw_response_json: null,
-                          created_by: 'u1',
-                          household_id: 'h1',
-                        },
-                        error: null,
-                      }),
-                  }),
-                }),
-              }),
+              select: () => ({ eq: () => chainedEq429 }),
               update: () => ({ eq: () => Promise.resolve({ error: null }) }),
             };
           }
@@ -710,6 +706,19 @@ Deno.test('returns 429 household_limit when check_and_reserve_slip_slot disallow
 Deno.test('returns 409 when slip is already processing', async () => {
   const baseDeps = makeBaseDeps();
 
+  const slipQueueRow409 = {
+    id: 'slip1',
+    status: 'processing',
+    raw_response_json: null,
+    created_by: 'u1',
+    household_id: 'h1',
+  };
+  // deno-lint-ignore no-explicit-any
+  const chainedEq409: any = {
+    eq: () => chainedEq409,
+    maybeSingle: () => Promise.resolve({ data: slipQueueRow409, error: null }),
+  };
+
   const deps: HandleDeps = {
     ...baseDeps,
     createAdminClient: () => {
@@ -719,23 +728,7 @@ Deno.test('returns 409 when slip is already processing', async () => {
         from: (table: string) => {
           if (table === 'slip_queue') {
             return {
-              select: () => ({
-                eq: () => ({
-                  eq: () => ({
-                    maybeSingle: () =>
-                      Promise.resolve({
-                        data: {
-                          id: 'slip1',
-                          status: 'processing', // ← already in-flight
-                          raw_response_json: null,
-                          created_by: 'u1',
-                          household_id: 'h1',
-                        },
-                        error: null,
-                      }),
-                  }),
-                }),
-              }),
+              select: () => ({ eq: () => chainedEq409 }),
               update: () => ({ eq: () => Promise.resolve({ error: null }) }),
             };
           }

@@ -127,7 +127,15 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     return new Response('Slip already processing', { status: 409 });
   }
 
-  // 6. Atomic rate-limit check + reserve slot.
+  // 6. Payload size cap (5MB) — checked before reserving the slot so a
+  //    rejected-too-large request never transitions the slip to processing.
+  const totalBytes = images_base64.reduce(
+    (acc: number, b64: string) => acc + (b64.length * 3) / 4,
+    0,
+  );
+  if (totalBytes > 5 * 1024 * 1024) return new Response('Payload too large', { status: 413 });
+
+  // 7. Atomic rate-limit check + reserve slot.
   //    pg_advisory_xact_lock inside the RPC serializes concurrent household requests,
   //    eliminating the TOCTOU window in the previous two-step SELECT COUNT pattern.
   const { data: rateCheck, error: rateError } = await adminSupabase.rpc(
@@ -144,13 +152,6 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     const msg = check.reason === 'user_limit' ? 'User rate limit' : 'Household rate limit';
     return new Response(msg, { status: 429 });
   }
-
-  // 7. Payload size cap (5MB)
-  const totalBytes = images_base64.reduce(
-    (acc: number, b64: string) => acc + (b64.length * 3) / 4,
-    0,
-  );
-  if (totalBytes > 5 * 1024 * 1024) return new Response('Payload too large', { status: 413 });
 
   // 8. Fetch envelopes
   const { data: envelopes } = await adminSupabase

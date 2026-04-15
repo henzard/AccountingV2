@@ -65,7 +65,14 @@ DECLARE
   v_cutoff        text;
   v_household_cnt int;
   v_user_cnt      int;
+  v_caller_id     text;
 BEGIN
+  -- Verify the RPC caller matches the claimed user_id.
+  v_caller_id := auth.uid()::text;
+  IF v_caller_id IS NULL OR v_caller_id <> p_user_id THEN
+    RETURN jsonb_build_object('allowed', false, 'reason', 'unauthorized');
+  END IF;
+
   -- Serialize all concurrent calls for this household.
   PERFORM pg_advisory_xact_lock(hashtext(p_household_id));
 
@@ -96,6 +103,10 @@ BEGIN
       updated_at = NOW()::text
   WHERE id     = p_slip_id
     AND status = 'pending';
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('allowed', false, 'reason', 'slot_not_reserved');
+  END IF;
 
   RETURN jsonb_build_object('allowed', true);
 END;

@@ -67,8 +67,6 @@ function runMigrationsOnce(): Promise<void> {
         }
       }
 
-      if (applied.size === migrationEntries.length) return;
-
       for (const [name, sql] of migrationEntries) {
         if (applied.has(name)) continue;
         const checksum = djb2Hex(sql);
