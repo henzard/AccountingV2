@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
@@ -39,7 +39,8 @@ export function RootNavigator(): React.JSX.Element {
   const paydayDay = useAppStore((s) => s.paydayDay);
   const { setPreferences, setPermissionsGranted } = useNotificationStore();
 
-  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
+  const onboardingCompleted = useAppStore((s) => s.onboardingCompleted);
+  const setOnboardingCompleted = useAppStore((s) => s.setOnboardingCompleted);
 
   // Resolve onboarding flag whenever session + household are known
   useEffect(() => {
@@ -55,7 +56,7 @@ export function RootNavigator(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [session, householdId]);
+  }, [session, householdId, setOnboardingCompleted]);
 
   const isAuthenticated = Boolean(session);
   const hasHousehold = Boolean(householdId);

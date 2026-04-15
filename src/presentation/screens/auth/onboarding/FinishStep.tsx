@@ -1,21 +1,16 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Button } from 'react-native-paper';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { markOnboardingComplete } from '../../../../infrastructure/storage/onboardingFlag';
 import { useAppStore } from '../../../stores/appStore';
 import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
-import type { RootStackParamList } from '../../../navigation/types';
-
-type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export function FinishStep(): React.JSX.Element {
   const { colors } = useAppTheme();
-  const navigation = useNavigation<Nav>();
   const session = useAppStore((s) => s.session);
   const householdId = useAppStore((s) => s.householdId);
+  const setOnboardingCompleted = useAppStore((s) => s.setOnboardingCompleted);
   const [loading, setLoading] = useState(false);
 
   const handleDone = async (): Promise<void> => {
@@ -25,13 +20,13 @@ export function FinishStep(): React.JSX.Element {
       if (userId && householdId) {
         await markOnboardingComplete(userId, householdId);
       }
+      // Flip the store flag so RootNavigator swaps OnboardingNavigator for
+      // MainTabNavigator. navigation.reset is not usable here — 'Main' is not
+      // registered in the current Stack until onboardingCompleted becomes true.
+      setOnboardingCompleted(true);
     } finally {
       setLoading(false);
     }
-    // Navigate to Main — RootNavigator will re-render and show MainTabNavigator
-    // because onboardingCompleted will be true on next check.
-    // We use reset so the onboarding stack is removed.
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
   };
 
   return (
