@@ -11,7 +11,8 @@ import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTra
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddTransactionScreenProps } from '../../navigation/types';
 import { EnvelopePickerSheet } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 import type { EnvelopeOption } from '../../screens/slipScanning/components/EnvelopePickerSheet';
@@ -32,6 +33,7 @@ function formatBalance(env: EnvelopeOption): string {
 }
 
 export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
   const enqueue = useToastStore((s) => s.enqueue);
@@ -120,27 +122,30 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
 
   const balanceColor = (env: EnvelopeOption): string => {
     const balance = env.allocatedCents - env.spentCents;
-    return balance < 0 ? colours.error : colours.onSurfaceVariant;
+    return balance < 0 ? colors.error : colors.onSurfaceVariant;
   };
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text variant="labelLarge" style={styles.label}>
+        <Text variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>
           Envelope
         </Text>
         <TouchableRipple
           onPress={() => setShowPicker(true)}
-          style={styles.pickerButton}
+          style={[styles.pickerButton, { borderColor: colors.outline }]}
           testID="envelope-picker-trigger"
         >
           <View style={styles.pickerInner}>
             <Text
               variant="bodyLarge"
-              style={selectedEnvelope ? styles.pickerValue : styles.pickerPlaceholder}
+              style={[
+                { flex: 1 },
+                selectedEnvelope ? { color: colors.onSurface } : { color: colors.onSurfaceVariant },
+              ]}
             >
               {selectedEnvelope ? selectedEnvelope.name : 'Select envelope…'}
             </Text>
@@ -155,7 +160,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
                 {formatBalance(selectedEnvelope)} left
               </Text>
             )}
-            <Text style={styles.pickerChevron}>›</Text>
+            <Text style={[styles.pickerChevron, { color: colors.onSurfaceVariant }]}>›</Text>
           </View>
         </TouchableRipple>
 
@@ -164,7 +169,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={amountStr}
           onChangeText={setAmountStr}
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           keyboardType="decimal-pad"
           disabled={loading}
           placeholder="0.00"
@@ -176,7 +181,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={payee}
           onChangeText={setPayee}
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Checkers"
         />
@@ -186,7 +191,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={description}
           onChangeText={setDescription}
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Weekly groceries"
         />
@@ -194,14 +199,17 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         {/* Date picker row */}
         <TouchableRipple
           onPress={() => setShowDatePicker(true)}
-          style={styles.dateButton}
+          style={[styles.dateButton, { borderColor: colors.outline }]}
           testID="date-picker-trigger"
         >
           <View style={styles.pickerInner}>
-            <Text variant="bodyMedium" style={styles.dateLabel}>
+            <Text
+              variant="bodyMedium"
+              style={[styles.dateLabel, { color: colors.onSurfaceVariant }]}
+            >
               Date
             </Text>
-            <Text variant="bodyMedium" style={styles.dateValue}>
+            <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
               {format(transactionDate, 'd MMM yyyy')}
             </Text>
           </View>
@@ -255,13 +263,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.surface },
+  flex: { flex: 1 },
   container: { padding: spacing.base, gap: spacing.sm },
-  label: { color: colours.onSurface, marginTop: spacing.xs },
-  input: { backgroundColor: colours.surface },
+  label: { marginTop: spacing.xs },
+  input: {},
   pickerButton: {
     borderWidth: 1,
-    borderColor: colours.outline,
     borderRadius: radius.sm,
     marginBottom: spacing.xs,
   },
@@ -270,17 +277,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.base,
   },
-  pickerValue: { flex: 1, color: colours.onSurface },
-  pickerPlaceholder: { flex: 1, color: colours.onSurfaceVariant },
-  pickerChevron: { color: colours.onSurfaceVariant, fontSize: 20 },
+  pickerChevron: { fontSize: 20 },
   dateButton: {
     borderWidth: 1,
-    borderColor: colours.outline,
     borderRadius: radius.sm,
     marginBottom: spacing.xs,
   },
-  dateLabel: { flex: 1, color: colours.onSurfaceVariant },
-  dateValue: { color: colours.onSurface },
+  dateLabel: { flex: 1 },
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
   center: { padding: spacing.base },

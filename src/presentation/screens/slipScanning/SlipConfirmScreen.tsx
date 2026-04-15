@@ -4,7 +4,8 @@ import { Text, Button, Chip } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { LineItemRow } from './components/LineItemRow';
 import { EnvelopePickerSheet } from './components/EnvelopePickerSheet';
 import type { SlipExtraction, SlipExtractionItem } from '../../../domain/slipScanning/types';
@@ -29,6 +30,7 @@ export function SlipConfirmScreen({
   envelopes,
   confirmSlip,
 }: SlipConfirmScreenProps): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useNavigation<{ goBack: () => void; navigate: (s: string) => void }>();
   const route = useRoute<{
     key: string;
@@ -132,25 +134,25 @@ export function SlipConfirmScreen({
     () => (
       <View>
         {/* Header */}
-        <View style={styles.header}>
-          <Text variant="titleLarge" style={styles.merchant}>
+        <View style={[styles.header, { borderBottomColor: colors.outlineVariant }]}>
+          <Text variant="titleLarge" style={{ color: colors.onSurface, marginBottom: 4 }}>
             {extraction.merchant ?? 'Unknown merchant'}
           </Text>
           {extraction.totalCents !== null && (
-            <Text variant="bodyLarge" style={styles.total}>
+            <Text variant="bodyLarge" style={{ color: colors.onSurface, marginBottom: 4 }}>
               Total: R{(extraction.totalCents / 100).toFixed(2)}
             </Text>
           )}
           <TouchableOpacity onPress={() => setShowDatePicker(true)} testID="date-picker-trigger">
-            <Text variant="bodyMedium" style={styles.date}>
+            <Text variant="bodyMedium" style={{ color: colors.primary }}>
               {format(transactionDate, 'd MMM yyyy')}
             </Text>
           </TouchableOpacity>
         </View>
 
         {/* Bulk assign */}
-        <View style={styles.bulkRow}>
-          <Text variant="bodySmall" style={styles.bulkLabel}>
+        <View style={[styles.bulkRow, { backgroundColor: colors.surfaceVariant }]}>
+          <Text variant="bodySmall" style={{ flex: 1, color: colors.onSurfaceVariant }}>
             Assign all unassigned to:
           </Text>
           <Button mode="text" onPress={() => setShowBulkPicker(true)} testID="bulk-assign-button">
@@ -159,7 +161,7 @@ export function SlipConfirmScreen({
         </View>
       </View>
     ),
-    [extraction, transactionDate, bulkEnvelope],
+    [extraction, transactionDate, bulkEnvelope, colors],
   );
 
   const ListFooter = useMemo(
@@ -179,11 +181,14 @@ export function SlipConfirmScreen({
   );
 
   return (
-    <View style={styles.container} testID="slip-confirm-screen">
+    <View
+      style={[styles.container, { backgroundColor: colors.surface }]}
+      testID="slip-confirm-screen"
+    >
       {/* Sticky unassigned chip — Android: elevation+position absolute */}
       {unassignedCount > 0 && (
         <Chip
-          style={styles.unassignedChip}
+          style={[styles.unassignedChip, { backgroundColor: colors.errorContainer }]}
           testID="unassigned-chip"
           onPress={handleUnassignedChipPress}
           elevation={4}
@@ -249,10 +254,9 @@ export function SlipConfirmScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colours.surface },
+  container: { flex: 1 },
   unassignedChip: {
     margin: spacing.sm,
-    backgroundColor: colours.errorContainer,
     alignSelf: 'flex-start',
     // Android z-index fix
     elevation: 4,
@@ -262,18 +266,12 @@ const styles = StyleSheet.create({
   header: {
     padding: spacing.base,
     borderBottomWidth: 1,
-    borderBottomColor: colours.outlineVariant,
   },
-  merchant: { color: colours.onSurface, marginBottom: 4 },
-  total: { color: colours.onSurface, marginBottom: 4 },
-  date: { color: colours.primary },
   bulkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
-    backgroundColor: colours.surfaceVariant,
   },
-  bulkLabel: { flex: 1, color: colours.onSurfaceVariant },
   saveButton: { margin: spacing.base },
 });
