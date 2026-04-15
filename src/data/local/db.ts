@@ -66,7 +66,7 @@ function runMigrationsOnce(): Promise<void> {
       // Verify integrity of previously-applied migrations.
       for (const [name, sql] of migrationEntries) {
         const storedChecksum = applied.get(name);
-        if (!storedChecksum) continue;
+        if (storedChecksum === undefined) continue;
         if (storedChecksum === LEGACY_CHECKSUM) continue;
         const expected = djb2Hex(sql);
         if (storedChecksum !== expected) {
