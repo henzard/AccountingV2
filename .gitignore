@@ -49,3 +49,4 @@ coverage/
 
 # git worktrees
 .worktrees/
+deno.lock
