@@ -47,7 +47,8 @@ export class AcceptInviteUseCase {
       return createFailure({ code: 'INVITE_NOT_FOUND', message: 'Invite code not found' });
     }
 
-    if (new Date(invite.expires_at) < new Date()) {
+    const expiry = new Date(invite.expires_at as string);
+    if (isNaN(expiry.getTime()) || expiry < new Date()) {
       return createFailure({ code: 'INVITE_EXPIRED', message: 'This invite code has expired' });
     }
 

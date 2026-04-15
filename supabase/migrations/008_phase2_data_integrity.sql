@@ -7,23 +7,23 @@ ALTER TABLE public.invitations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS inv_select ON public.invitations;
 CREATE POLICY inv_select ON public.invitations
   FOR SELECT TO authenticated
-  USING (invited_by_user_id = auth.uid());
+  USING (created_by = auth.uid()::text);
 
 DROP POLICY IF EXISTS inv_insert ON public.invitations;
 CREATE POLICY inv_insert ON public.invitations
   FOR INSERT TO authenticated
-  WITH CHECK (invited_by_user_id = auth.uid());
+  WITH CHECK (created_by = auth.uid()::text);
 
 DROP POLICY IF EXISTS inv_update ON public.invitations;
 CREATE POLICY inv_update ON public.invitations
   FOR UPDATE TO authenticated
-  USING (invited_by_user_id = auth.uid() OR used_by IS NULL)
-  WITH CHECK (true);
+  USING (created_by = auth.uid()::text)
+  WITH CHECK (created_by = auth.uid()::text);
 
 -- ─── RPC: look up a valid invite by code (SECURITY DEFINER bypasses RLS) ───
 CREATE OR REPLACE FUNCTION public.lookup_invite_by_code(invite_code text)
 RETURNS TABLE (
-  id          text,
+  id          uuid,
   household_id text,
   expires_at  text,
   used_by     text
