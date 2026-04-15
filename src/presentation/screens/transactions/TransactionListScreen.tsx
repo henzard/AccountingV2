@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, SectionList, Alert } from 'react-native';
-import { Text, FAB, ActivityIndicator, Surface, IconButton, Divider } from 'react-native-paper';
+import { FAB, ActivityIndicator, Surface, IconButton, Divider } from 'react-native-paper';
 import { ListRow } from '../../components/shared/ListRow';
 import { useFocusEffect } from '@react-navigation/native';
 import { eq } from 'drizzle-orm';
@@ -126,7 +126,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
                 <View style={styles.rowTrailing}>
                   <CurrencyText
                     amountCents={item.amountCents}
-                    style={[styles.amount, { color: colors.error }]}
+                    style={{ ...styles.amount, color: colors.error }}
                   />
                   <IconButton
                     icon="delete-outline"

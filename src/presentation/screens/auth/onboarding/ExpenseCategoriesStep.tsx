@@ -4,7 +4,6 @@ import { Chip, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { spacing } from '../../../theme/tokens';
-import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
@@ -24,7 +23,6 @@ const DEFAULT_CATEGORIES = [
 ];
 
 export function ExpenseCategoriesStep(): React.JSX.Element {
-  const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
 
   const [selected, setSelected] = useState<Set<string>>(
