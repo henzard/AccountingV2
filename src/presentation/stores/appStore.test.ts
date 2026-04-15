@@ -29,6 +29,7 @@ describe('appStore — household slice', () => {
       householdId: 'hh-001',
       availableHouseholds: [{ id: 'hh-001', name: 'Home', paydayDay: 25, userLevel: 1 }],
       pendingSyncCount: 5,
+      onboardingCompleted: true,
     });
     useAppStore.getState().reset();
     const state = useAppStore.getState();
@@ -37,5 +38,37 @@ describe('appStore — household slice', () => {
     expect(state.availableHouseholds).toHaveLength(0);
     expect(state.pendingSyncCount).toBe(0);
     expect(state.paydayDay).toBe(25);
+    expect(state.onboardingCompleted).toBeNull();
+  });
+
+  it('setOnboardingCompleted updates the flag', () => {
+    useAppStore.getState().setOnboardingCompleted(true);
+    expect(useAppStore.getState().onboardingCompleted).toBe(true);
+    useAppStore.getState().setOnboardingCompleted(false);
+    expect(useAppStore.getState().onboardingCompleted).toBe(false);
+    useAppStore.getState().setOnboardingCompleted(null);
+    expect(useAppStore.getState().onboardingCompleted).toBeNull();
+  });
+
+  it('setUserLevel, setCurrentPeriod, setSyncStatus, setLastSyncAt, setPendingSyncCount, setAvailableHouseholds all update state', () => {
+    const s = useAppStore.getState();
+    s.setUserLevel(2);
+    s.setCurrentPeriod({
+      startDate: new Date('2026-01-01'),
+      endDate: new Date('2026-01-31'),
+      label: 'Jan',
+    });
+    s.setSyncStatus('syncing');
+    s.setLastSyncAt('2026-01-15T00:00:00Z');
+    s.setPendingSyncCount(7);
+    s.setAvailableHouseholds([{ id: 'h', name: 'A', paydayDay: 1, userLevel: 1 }]);
+    s.setSession(null);
+    const state = useAppStore.getState();
+    expect(state.userLevel).toBe(2);
+    expect(state.currentPeriod?.label).toBe('Jan');
+    expect(state.syncStatus).toBe('syncing');
+    expect(state.lastSyncAt).toBe('2026-01-15T00:00:00Z');
+    expect(state.pendingSyncCount).toBe(7);
+    expect(state.availableHouseholds).toHaveLength(1);
   });
 });
