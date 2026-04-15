@@ -60,6 +60,8 @@ const TABLE_RPC_MAP: Record<string, string> = {
 const DLQ_MAX_RETRIES = 10;
 const DLQ_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+let isSyncRunning = false;
+
 type PendingItem = typeof pendingSync.$inferSelect;
 
 export class SyncOrchestrator {
@@ -71,101 +73,107 @@ export class SyncOrchestrator {
   async syncPending(
     householdId?: string,
   ): Promise<{ synced: number; failed: number; emfFlipped: number }> {
-    // Only fetch items whose backoff window has elapsed.
-    // lastAttemptedAt stores the *next-allowed retry time* (not the last attempt time).
-    // Items with no lastAttemptedAt are first-time attempts — always eligible.
-    const nowIso = new Date().toISOString();
-    const pending = await this.db
-      .select()
-      .from(pendingSync)
-      .where(
-        and(
-          isNull(pendingSync.deadLetteredAt),
-          or(isNull(pendingSync.lastAttemptedAt), lte(pendingSync.lastAttemptedAt, nowIso)),
-        ),
-      )
-      .orderBy(asc(pendingSync.createdAt))
-      .limit(100);
+    if (isSyncRunning) return { synced: 0, failed: 0, emfFlipped: 0 };
+    isSyncRunning = true;
+    try {
+      // Only fetch items whose backoff window has elapsed.
+      // lastAttemptedAt stores the *next-allowed retry time* (not the last attempt time).
+      // Items with no lastAttemptedAt are first-time attempts — always eligible.
+      const nowIso = new Date().toISOString();
+      const pending = await this.db
+        .select()
+        .from(pendingSync)
+        .where(
+          and(
+            isNull(pendingSync.deadLetteredAt),
+            or(isNull(pendingSync.lastAttemptedAt), lte(pendingSync.lastAttemptedAt, nowIso)),
+          ),
+        )
+        .orderBy(asc(pendingSync.createdAt))
+        .limit(100);
 
-    // C7: N+1 fix — group by table, batch-fetch all rows per table with inArray.
-    // This replaces one SELECT per item (N queries) with one SELECT per table (at most 9).
-    const byTable = new Map<string, PendingItem[]>();
-    for (const item of pending) {
-      const bucket = byTable.get(item.tableName) ?? [];
-      bucket.push(item);
-      byTable.set(item.tableName, bucket);
-    }
-
-    // Pre-fetch rows for upsert items grouped by table.
-    const rowCache = new Map<string, Record<string, Record<string, unknown>>>();
-    await Promise.allSettled(
-      Array.from(byTable.entries()).map(async ([tableName, items]) => {
-        const upsertIds = items.filter((i) => i.operation !== 'DELETE').map((i) => i.recordId);
-        if (upsertIds.length === 0) return;
-
-        const table = TABLE_MAP[tableName];
-        if (!table) return;
-
-        const rows = await this.db
-          .select()
-          .from(table)
-          .where(inArray((table as typeof envelopes).id, upsertIds));
-
-        const tableCache: Record<string, Record<string, unknown>> = {};
-        for (const row of rows) {
-          const r = row as Record<string, unknown>;
-          tableCache[r['id'] as string] = r;
-        }
-        rowCache.set(tableName, tableCache);
-      }),
-    );
-
-    let synced = 0;
-    let failed = 0;
-
-    for (const item of pending) {
-      try {
-        await this.processItem(item, rowCache.get(item.tableName));
-        await this.db.delete(pendingSync).where(eq(pendingSync.id, item.id));
-        synced++;
-      } catch (err) {
-        logger.error('sync item failed', err, { itemId: item.id, table: item.tableName });
-        const now = new Date().toISOString();
-        const newRetryCount = item.retryCount + 1;
-
-        const shouldDLQ =
-          newRetryCount >= DLQ_MAX_RETRIES ||
-          Date.now() - new Date(item.createdAt).getTime() >= DLQ_MAX_AGE_MS;
-
-        if (shouldDLQ) {
-          await this.db
-            .update(pendingSync)
-            .set({ retryCount: newRetryCount, lastAttemptedAt: now, deadLetteredAt: now })
-            .where(eq(pendingSync.id, item.id));
-        } else {
-          const backoffMs = Math.min(60_000, 1000 * 2 ** item.retryCount);
-          const nextAttempt = new Date(Date.now() + backoffMs).toISOString();
-          await this.db
-            .update(pendingSync)
-            .set({ retryCount: newRetryCount, lastAttemptedAt: nextAttempt })
-            .where(eq(pendingSync.id, item.id));
-        }
-        failed++;
+      // C7: N+1 fix — group by table, batch-fetch all rows per table with inArray.
+      // This replaces one SELECT per item (N queries) with one SELECT per table (at most 9).
+      const byTable = new Map<string, PendingItem[]>();
+      for (const item of pending) {
+        const bucket = byTable.get(item.tableName) ?? [];
+        bucket.push(item);
+        byTable.set(item.tableName, bucket);
       }
-    }
 
-    // Spec §ReconcileEmergencyFundTypeUseCase trigger:
-    // Fire ONLY when result is { failed: 0 } (full clean sync).
-    let emfFlipped = 0;
-    if (failed === 0 && householdId) {
-      const fixer = new ReconcileEmergencyFundTypeUseCase(this.db);
-      const fixResult = await fixer.execute(householdId).catch(() => null);
-      if (fixResult?.success) {
-        emfFlipped = fixResult.data.flipped;
+      // Pre-fetch rows for upsert items grouped by table.
+      const rowCache = new Map<string, Record<string, Record<string, unknown>>>();
+      await Promise.allSettled(
+        Array.from(byTable.entries()).map(async ([tableName, items]) => {
+          const upsertIds = items.filter((i) => i.operation !== 'DELETE').map((i) => i.recordId);
+          if (upsertIds.length === 0) return;
+
+          const table = TABLE_MAP[tableName];
+          if (!table) return;
+
+          const rows = await this.db
+            .select()
+            .from(table)
+            .where(inArray((table as typeof envelopes).id, upsertIds));
+
+          const tableCache: Record<string, Record<string, unknown>> = {};
+          for (const row of rows) {
+            const r = row as Record<string, unknown>;
+            tableCache[r['id'] as string] = r;
+          }
+          rowCache.set(tableName, tableCache);
+        }),
+      );
+
+      let synced = 0;
+      let failed = 0;
+
+      for (const item of pending) {
+        try {
+          await this.processItem(item, rowCache.get(item.tableName));
+          await this.db.delete(pendingSync).where(eq(pendingSync.id, item.id));
+          synced++;
+        } catch (err) {
+          logger.error('sync item failed', err, { itemId: item.id, table: item.tableName });
+          const now = new Date().toISOString();
+          const newRetryCount = item.retryCount + 1;
+
+          const shouldDLQ =
+            newRetryCount >= DLQ_MAX_RETRIES ||
+            Date.now() - new Date(item.createdAt).getTime() >= DLQ_MAX_AGE_MS;
+
+          if (shouldDLQ) {
+            await this.db
+              .update(pendingSync)
+              .set({ retryCount: newRetryCount, lastAttemptedAt: now, deadLetteredAt: now })
+              .where(eq(pendingSync.id, item.id));
+          } else {
+            const backoffMs = Math.min(60_000, 1000 * 2 ** item.retryCount);
+            const nextAttempt = new Date(Date.now() + backoffMs).toISOString();
+            await this.db
+              .update(pendingSync)
+              .set({ retryCount: newRetryCount, lastAttemptedAt: nextAttempt })
+              .where(eq(pendingSync.id, item.id));
+          }
+          failed++;
+        }
       }
-    }
 
-    return { synced, failed, emfFlipped };
+      // Spec §ReconcileEmergencyFundTypeUseCase trigger:
+      // Fire ONLY when result is { failed: 0 } (full clean sync).
+      let emfFlipped = 0;
+      if (failed === 0 && householdId) {
+        const fixer = new ReconcileEmergencyFundTypeUseCase(this.db);
+        const fixResult = await fixer.execute(householdId).catch(() => null);
+        if (fixResult?.success) {
+          emfFlipped = fixResult.data.flipped;
+        }
+      }
+
+      return { synced, failed, emfFlipped };
+    } finally {
+      isSyncRunning = false;
+    }
   }
 
   private async processItem(
