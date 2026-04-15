@@ -238,6 +238,16 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         >
           Record Transaction
         </Button>
+
+        <Button
+          mode="outlined"
+          onPress={() => navigation.navigate('SlipScanning' as never)}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+          testID="scan-slip-button"
+        >
+          Scan slip
+        </Button>
       </ScrollView>
 
       {/* Envelope picker — extracted to shared component */}

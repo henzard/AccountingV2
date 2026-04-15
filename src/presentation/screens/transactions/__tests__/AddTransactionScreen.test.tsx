@@ -255,6 +255,14 @@ describe('AddTransactionScreen', () => {
     expect(ne as jest.Mock).toHaveBeenCalledWith(expect.anything(), 'income');
   });
 
+  it('Scan slip button navigates to SlipScanning', () => {
+    setupDbChain([]);
+    const navProps = makeNavProps();
+    const { getByTestId } = render(<AddTransactionScreen {...navProps} />);
+    fireEvent.press(getByTestId('scan-slip-button'));
+    expect(navProps.navigation.navigate).toHaveBeenCalledWith('SlipScanning');
+  });
+
   it('shows validation error and does NOT call CreateTransactionUseCase when amount is R0', async () => {
     setupDbChain([
       {
