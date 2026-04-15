@@ -42,7 +42,7 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
     if (table === 'slip_queue') {
       const slipRow = {
         id: 'slip1',
-        status: 'processing',
+        status: 'pending',
         raw_response_json: null,
         created_by: 'u1',
         household_id: 'h1',
@@ -83,7 +83,11 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
     },
   };
 
-  const adminSupabase = { from: adminFrom };
+  const adminSupabase = {
+    from: adminFrom,
+    rpc: (_name: string, _args: unknown) =>
+      Promise.resolve({ data: { allowed: true }, error: null }),
+  };
 
   const openAIFetch = () =>
     Promise.resolve(
@@ -307,74 +311,22 @@ Deno.test('returns 200 on happy path', async () => {
 
 // ── Additional test cases from PR #8 review ──────────────────────────────────
 
-function makeAdminWithRateCount(householdCount: number, userCount: number) {
-  return (table: string) => {
-    if (table === 'user_households') {
-      return {
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
-            }),
-          }),
-        }),
-      };
-    }
-    if (table === 'user_consent') {
-      return {
-        select: () => ({
-          eq: () => ({
-            maybeSingle: () =>
-              Promise.resolve({
-                data: { slip_scan_consent_at: '2026-04-01T00:00:00Z' },
-                error: null,
-              }),
-          }),
-        }),
-      };
-    }
-    if (table === 'slip_queue') {
-      const slipRow = {
-        id: 'slip1',
-        status: 'processing',
-        raw_response_json: null,
-        created_by: 'u1',
-        household_id: 'h1',
-      };
-      let callCount = 0;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const chainedEq: any = {
-        eq: () => {
-          callCount++;
-          return chainedEq;
-        },
-        maybeSingle: () => Promise.resolve({ data: slipRow, error: null }),
-        gte: () => {
-          // Household query has 1 chained .eq (callCount=0 after), user query has
-          // 2 (.eq('household_id').eq('created_by'), callCount=1 after). The first
-          // outer `.select().eq(...)` doesn't increment callCount (see line 356).
-          const count = callCount === 0 ? householdCount : userCount;
-          return Promise.resolve({ data: null, count, error: null });
-        },
-      };
-      return {
-        select: () => ({ eq: () => chainedEq, head: true }),
-        update: () => ({ eq: () => Promise.resolve({ error: null }) }),
-      };
-    }
-    return {
-      select: () => ({
-        eq: () => ({ gte: () => Promise.resolve({ data: [], count: 0, error: null }) }),
-      }),
-      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
-    };
-  };
-}
-
 Deno.test('returns 429 when household rate limit reached (>= 50)', async () => {
-  const deps = makeBaseDeps({
-    createAdminClient: () => ({ from: makeAdminWithRateCount(50, 0) }) as any,
-  });
+  const baseDeps = makeBaseDeps();
+  const deps: HandleDeps = {
+    ...baseDeps,
+    createAdminClient: () => {
+      const base = baseDeps.createAdminClient();
+      return {
+        ...base,
+        rpc: (_name: string, _args: unknown) =>
+          Promise.resolve({
+            data: { allowed: false, reason: 'household_limit' },
+            error: null,
+          }),
+      };
+    },
+  };
   const req = makeRequest(
     { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
     'Bearer tok',
@@ -384,9 +336,21 @@ Deno.test('returns 429 when household rate limit reached (>= 50)', async () => {
 });
 
 Deno.test('returns 429 when user rate limit reached (>= 25)', async () => {
-  const deps = makeBaseDeps({
-    createAdminClient: () => ({ from: makeAdminWithRateCount(0, 25) }) as any,
-  });
+  const baseDeps = makeBaseDeps();
+  const deps: HandleDeps = {
+    ...baseDeps,
+    createAdminClient: () => {
+      const base = baseDeps.createAdminClient();
+      return {
+        ...base,
+        rpc: (_name: string, _args: unknown) =>
+          Promise.resolve({
+            data: { allowed: false, reason: 'user_limit' },
+            error: null,
+          }),
+      };
+    },
+  };
   const req = makeRequest(
     { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
     'Bearer tok',
@@ -690,3 +654,56 @@ Deno.test(
     assertEquals(body.items[0].confidence <= 0.3, true);
   },
 );
+
+Deno.test('returns 429 household_limit when check_and_reserve_slip_slot disallows', async () => {
+  const baseDeps = makeBaseDeps();
+
+  const deps: HandleDeps = {
+    ...baseDeps,
+    createAdminClient: () => {
+      const base = baseDeps.createAdminClient();
+      return {
+        ...base,
+        from: (table: string) => {
+          if (table === 'slip_queue') {
+            // Override to return a pending slip (not completed/processing)
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    maybeSingle: () =>
+                      Promise.resolve({
+                        data: {
+                          id: 'slip1',
+                          status: 'pending',
+                          raw_response_json: null,
+                          created_by: 'u1',
+                          household_id: 'h1',
+                        },
+                        error: null,
+                      }),
+                  }),
+                }),
+              }),
+              update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+            };
+          }
+          return base.from(table);
+        },
+        rpc: (_name: string, _args: unknown) =>
+          Promise.resolve({
+            data: { allowed: false, reason: 'household_limit' },
+            error: null,
+          }),
+      };
+    },
+  };
+
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['abc'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 429);
+  assertEquals(await resp.text(), 'Household rate limit');
+});

@@ -46,3 +46,59 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.lookup_invite_by_code(text) TO authenticated;
+
+-- ─── Atomic rate-limit check + slip reservation ────────────────────────────
+-- Holds a per-household advisory lock for the full transaction lifetime so
+-- concurrent requests for the same household are serialized. The lock is
+-- released automatically when the transaction ends (Supabase autocommit per RPC).
+CREATE OR REPLACE FUNCTION public.check_and_reserve_slip_slot(
+  p_household_id text,
+  p_user_id      text,
+  p_slip_id      text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cutoff        text;
+  v_household_cnt int;
+  v_user_cnt      int;
+BEGIN
+  -- Serialize all concurrent calls for this household.
+  PERFORM pg_advisory_xact_lock(hashtext(p_household_id));
+
+  v_cutoff := (NOW() - INTERVAL '24 hours')::text;
+
+  SELECT COUNT(*) INTO v_household_cnt
+  FROM public.slip_queue
+  WHERE household_id = p_household_id
+    AND created_at  >= v_cutoff;
+
+  IF v_household_cnt >= 50 THEN
+    RETURN jsonb_build_object('allowed', false, 'reason', 'household_limit');
+  END IF;
+
+  SELECT COUNT(*) INTO v_user_cnt
+  FROM public.slip_queue
+  WHERE household_id = p_household_id
+    AND created_by  = p_user_id
+    AND created_at  >= v_cutoff;
+
+  IF v_user_cnt >= 25 THEN
+    RETURN jsonb_build_object('allowed', false, 'reason', 'user_limit');
+  END IF;
+
+  -- Reserve the slot: transition slip from pending → processing atomically.
+  UPDATE public.slip_queue
+  SET status     = 'processing',
+      updated_at = NOW()::text
+  WHERE id     = p_slip_id
+    AND status = 'pending';
+
+  RETURN jsonb_build_object('allowed', true);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.check_and_reserve_slip_slot(text, text, text) TO authenticated;
