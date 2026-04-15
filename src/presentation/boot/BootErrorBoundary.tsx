@@ -2,7 +2,7 @@ import React from 'react';
 import { View, ScrollView, StyleSheet, Share } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { captureBoot } from '../../infrastructure/monitoring/earlyCrashLog';
-import { colours } from '../theme/tokens';
+import { colours, spacing } from '../theme/tokens';
 
 interface State {
   error: Error | null;
@@ -74,18 +74,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colours.surface,
-    paddingTop: 48,
+    paddingTop: spacing.xxl,
   },
   content: {
-    padding: 16,
+    padding: spacing.base,
   },
   title: {
-    color: '#b00020',
-    marginBottom: 16,
+    color: colours.error,
+    marginBottom: spacing.base,
   },
   label: {
-    marginTop: 12,
-    marginBottom: 4,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
   },
   body: {
     fontFamily: 'monospace',
@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    gap: 12,
-    padding: 16,
+    gap: spacing.md,
+    padding: spacing.base,
   },
 });

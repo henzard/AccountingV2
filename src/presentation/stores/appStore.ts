@@ -5,6 +5,8 @@ import type { HouseholdSummary } from '../../domain/households/EnsureHouseholdUs
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'success';
 
+const DEFAULT_PAYDAY_DAY = 25;
+
 interface AppState {
   session: Session | null;
   userLevel: 1 | 2 | 3;
@@ -42,7 +44,7 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   lastSyncAt: null,
   pendingSyncCount: 0,
   householdId: null,
-  paydayDay: 25,
+  paydayDay: DEFAULT_PAYDAY_DAY,
   availableHouseholds: [],
   onboardingCompleted: null,
   setSession: (session): void => set({ session }),
@@ -53,7 +55,7 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   setPendingSyncCount: (pendingSyncCount): void => set({ pendingSyncCount }),
   setHouseholdId: (householdId): void => set({ householdId }),
   setPaydayDay: (paydayDay): void => set({ paydayDay }),
-  clearHousehold: (): void => set({ householdId: null, paydayDay: 25 }),
+  clearHousehold: (): void => set({ householdId: null, paydayDay: DEFAULT_PAYDAY_DAY }),
   setAvailableHouseholds: (availableHouseholds): void => set({ availableHouseholds }),
   setOnboardingCompleted: (onboardingCompleted): void => set({ onboardingCompleted }),
   reset: (): void =>
@@ -61,7 +63,7 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
       session: null,
       householdId: null,
       availableHouseholds: [],
-      paydayDay: 25,
+      paydayDay: DEFAULT_PAYDAY_DAY,
       syncStatus: 'idle',
       pendingSyncCount: 0,
       onboardingCompleted: null,

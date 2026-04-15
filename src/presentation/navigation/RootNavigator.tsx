@@ -42,9 +42,11 @@ export function RootNavigator(): React.JSX.Element {
   const onboardingCompleted = useAppStore((s) => s.onboardingCompleted);
   const setOnboardingCompleted = useAppStore((s) => s.setOnboardingCompleted);
 
-  // Resolve onboarding flag whenever session + household are known
+  // Resolve onboarding flag whenever session + household are known. Depend on
+  // user id (not session object) so Supabase TOKEN_REFRESHED events don't
+  // transiently reset the flag to null.
+  const userId = session?.user?.id ?? null;
   useEffect(() => {
-    const userId = session?.user?.id;
     if (!userId || !householdId) {
       setOnboardingCompleted(null);
       return;
@@ -56,7 +58,7 @@ export function RootNavigator(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [session, householdId, setOnboardingCompleted]);
+  }, [userId, householdId, setOnboardingCompleted]);
 
   const isAuthenticated = Boolean(session);
   const hasHousehold = Boolean(householdId);

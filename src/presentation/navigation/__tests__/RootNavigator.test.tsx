@@ -143,123 +143,66 @@ jest.mock('../../stores/notificationStore', () => ({
   })),
 }));
 
-// ─── appStore mock — controlled per test ─────────────────────────────────────
-let mockSession: object | null = null;
-let mockHouseholdId: string | null = null;
-
-jest.mock('../../stores/appStore', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require('react');
-  const listeners = new Set<() => void>();
-  let snap: object = {};
-  const rebuildSnap = (): void => {
-    snap = {
-      session: mockSession,
-      householdId: mockHouseholdId,
-      paydayDay: 25,
-      onboardingCompleted:
-        (snap as { onboardingCompleted?: boolean | null }).onboardingCompleted ?? null,
-      setOnboardingCompleted: (v: boolean | null): void => {
-        snap = { ...snap, onboardingCompleted: v };
-        listeners.forEach((l) => l());
-      },
-    };
-  };
-  rebuildSnap();
-  const subscribe = (cb: () => void): (() => void) => {
-    listeners.add(cb);
-    return () => listeners.delete(cb);
-  };
-  const useAppStore = (selector: (s: object) => unknown): unknown => {
-    const s = React.useSyncExternalStore(
-      subscribe,
-      () => snap,
-      () => snap,
-    );
-    return selector(s);
-  };
-  (useAppStore as unknown as { __resetState: () => void }).__resetState = (): void => {
-    snap = {};
-    rebuildSnap();
-    listeners.forEach((l) => l());
-  };
-  (useAppStore as unknown as { __applyMocks: () => void }).__applyMocks = (): void => {
-    rebuildSnap();
-    listeners.forEach((l) => l());
-  };
-  return { useAppStore };
-});
+// No appStore mock — use the real zustand store and set state per test.
 
 import { isOnboardingComplete } from '../../../infrastructure/storage/onboardingFlag';
 import { RootNavigator } from '../RootNavigator';
+import { useAppStore } from '../../stores/appStore';
 
 const mockIsOnboardingComplete = isOnboardingComplete as jest.Mock;
 
-function applyStoreMocks(): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { useAppStore } = require('../../stores/appStore');
-  (useAppStore as unknown as { __applyMocks: () => void }).__applyMocks();
-}
-
-function renderNav(): ReturnType<typeof render> {
-  applyStoreMocks();
-  return render(<RootNavigator />);
+function setStore(session: object | null, householdId: string | null): void {
+  useAppStore.setState({
+     
+    session: session as any,
+    householdId,
+    onboardingCompleted: null,
+  });
 }
 
 describe('RootNavigator routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSession = null;
-    mockHouseholdId = null;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { useAppStore } = require('../../stores/appStore');
-    (useAppStore as unknown as { __resetState: () => void }).__resetState();
+    useAppStore.getState().reset();
   });
 
   it('renders AuthNavigator when user is not logged in', () => {
-    mockSession = null;
-    mockHouseholdId = null;
+    setStore(null, null);
     mockIsOnboardingComplete.mockResolvedValue(false);
 
-    const { getByTestId } = renderNav();
+    const { getByTestId } = render(<RootNavigator />);
     expect(getByTestId('auth-nav')).toBeTruthy();
   });
 
   it('renders CreateHouseholdNavigator when user exists but no householdId', () => {
-    mockSession = { user: { id: 'user-1' } };
-    mockHouseholdId = null;
+    setStore({ user: { id: 'user-1' } }, null);
     mockIsOnboardingComplete.mockResolvedValue(false);
 
-    const { getByTestId } = renderNav();
+    const { getByTestId } = render(<RootNavigator />);
     expect(getByTestId('create-household-nav')).toBeTruthy();
   });
 
   it('renders MainTabNavigator when user and household exist and onboarding is complete', async () => {
-    mockSession = { user: { id: 'user-1' } };
-    mockHouseholdId = 'h1';
+    setStore({ user: { id: 'user-1' } }, 'h1');
     mockIsOnboardingComplete.mockResolvedValue(true);
 
-    const { findByTestId } = renderNav();
-    // Wait for onboarding flag async resolution
+    const { findByTestId } = render(<RootNavigator />);
     expect(await findByTestId('main-tab-nav')).toBeTruthy();
   });
 
   it('renders OnboardingNavigator when user and household exist but onboarding not complete', async () => {
-    mockSession = { user: { id: 'user-1' } };
-    mockHouseholdId = 'h1';
+    setStore({ user: { id: 'user-1' } }, 'h1');
     mockIsOnboardingComplete.mockResolvedValue(false);
 
-    const { findByTestId } = renderNav();
+    const { findByTestId } = render(<RootNavigator />);
     expect(await findByTestId('onboarding-nav')).toBeTruthy();
   });
 
-  it('renders LoadingSplash (not Main or Onboarding) while onboarding flag is pending', () => {
-    mockSession = { user: { id: 'user-1' } };
-    mockHouseholdId = 'h1';
-    // Never resolves — simulates slow AsyncStorage read
+  it('renders LoadingSplash while onboarding flag is pending', () => {
+    setStore({ user: { id: 'user-1' } }, 'h1');
     mockIsOnboardingComplete.mockReturnValue(new Promise(() => {}));
 
-    const { getByTestId, queryByTestId } = renderNav();
+    const { getByTestId, queryByTestId } = render(<RootNavigator />);
     expect(getByTestId('loading-splash')).toBeTruthy();
     expect(queryByTestId('main-tab-nav')).toBeNull();
     expect(queryByTestId('onboarding-nav')).toBeNull();

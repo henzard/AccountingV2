@@ -7,47 +7,56 @@ import * as schema from './schema';
 const expo = SQLite.openDatabaseSync('accountingv2-v3.db');
 export const db = drizzle(expo, { schema });
 
-interface MigrationsModule {
-  migrations: Record<string, string>;
+// drizzle-orm/expo-sqlite/migrator crashes the JS thread (null statement
+// pointer in sqlite3_clear_bindings) on current expo-sqlite. Run migrations
+// manually via execAsync (sqlite3_exec — no prepared statements).
+const MIGRATIONS_TABLE = '__app_migrations';
+const STATEMENT_BREAKPOINT_RE = /--> statement-breakpoint/g;
+const migrationEntries = Object.entries(
+  (migrations as { migrations: Record<string, string> }).migrations,
+);
+
+let migrationsPromise: Promise<void> | null = null;
+function runMigrationsOnce(): Promise<void> {
+  if (!migrationsPromise) {
+    migrationsPromise = (async (): Promise<void> => {
+      await expo.execAsync(
+        `CREATE TABLE IF NOT EXISTS \`${MIGRATIONS_TABLE}\` (\`name\` TEXT PRIMARY KEY NOT NULL, \`applied_at\` TEXT NOT NULL)`,
+      );
+      const applied = new Set(
+        (
+          (await expo.getAllAsync<{ name: string }>(`SELECT name FROM \`${MIGRATIONS_TABLE}\``)) ??
+          []
+        ).map((r) => r.name),
+      );
+      if (applied.size === migrationEntries.length) return;
+      for (const [name, sql] of migrationEntries) {
+        if (applied.has(name)) continue;
+        await expo.execAsync(sql.replace(STATEMENT_BREAKPOINT_RE, ''));
+        await expo.runAsync(
+          `INSERT INTO \`${MIGRATIONS_TABLE}\` (name, applied_at) VALUES (?, ?)`,
+          [name, new Date().toISOString()],
+        );
+      }
+    })();
+  }
+  return migrationsPromise;
 }
 
-/**
- * Manual migration runner — avoids drizzle-orm/expo-sqlite/migrator which
- * crashes the JS thread with a null statement pointer in
- * sqlite3_clear_bindings on newer expo-sqlite. Runs each migration's SQL via
- * SQLiteDatabase.execAsync (sqlite3_exec under the hood — no prepared
- * statements involved).
- */
 export function useDatabaseMigrations(): { success: boolean; error?: Error } {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<Error | undefined>();
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        await expo.execAsync(
-          'CREATE TABLE IF NOT EXISTS `__app_migrations` (`name` TEXT PRIMARY KEY NOT NULL, `applied_at` TEXT NOT NULL)',
-        );
-        const applied = new Set<string>(
-          (
-            (await expo.getAllAsync<{ name: string }>('SELECT name FROM `__app_migrations`')) ?? []
-          ).map((r) => r.name),
-        );
-        const all = (migrations as MigrationsModule).migrations;
-        for (const [name, sql] of Object.entries(all)) {
-          if (applied.has(name)) continue;
-          await expo.execAsync(sql.replace(/--> statement-breakpoint/g, ''));
-          await expo.runAsync('INSERT INTO `__app_migrations` (name, applied_at) VALUES (?, ?)', [
-            name,
-            new Date().toISOString(),
-          ]);
-        }
+    runMigrationsOnce().then(
+      () => {
         if (!cancelled) setSuccess(true);
-      } catch (err) {
+      },
+      (err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err : new Error(String(err)));
-      }
-    })();
+      },
+    );
     return () => {
       cancelled = true;
     };

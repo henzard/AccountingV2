@@ -23,7 +23,6 @@ import { useAppStore } from './src/presentation/stores/appStore';
 import { db } from './src/data/local/db';
 import { AuditLogger } from './src/data/audit/AuditLogger';
 import { EnsureHouseholdUseCase } from './src/domain/households/EnsureHouseholdUseCase';
-import type { HouseholdSummary } from './src/domain/households/EnsureHouseholdUseCase';
 import { RestoreService } from './src/data/sync/RestoreService';
 import type { RestoredHousehold } from './src/data/sync/RestoreService';
 import { SyncOrchestrator } from './src/data/sync/SyncOrchestrator';
@@ -78,22 +77,18 @@ try {
   throw err;
 }
 
-async function initSession(
-  userId: string,
-  setHouseholdId: (id: string) => void,
-  setPaydayDay: (day: number) => void,
-  setAvailableHouseholds: (h: HouseholdSummary[]) => void,
-): Promise<void> {
+async function initSession(userId: string): Promise<void> {
   // C5: Run EnsureHousehold (local DB) + restore (remote) in parallel.
   // Restore is network-dependent — it must not block local household resolution.
   const restorePromise = restoreService.restore(userId).catch((): RestoredHousehold[] => []);
   const uc = new EnsureHouseholdUseCase(db, audit, userId);
   const [restoredHouseholds, result] = await Promise.all([restorePromise, uc.execute()]);
 
+  const store = useAppStore.getState();
   if (result.success) {
-    setHouseholdId(result.data.id);
-    setPaydayDay(result.data.paydayDay);
-    setAvailableHouseholds([
+    store.setHouseholdId(result.data.id);
+    store.setPaydayDay(result.data.paydayDay);
+    store.setAvailableHouseholds([
       result.data,
       ...restoredHouseholds
         .filter((h) => h.id !== result.data.id)
@@ -128,9 +123,6 @@ export default function App(): React.JSX.Element {
   const { fontsLoaded, fontError } = useFonts();
   const { success: dbReady, error: dbError } = useDatabaseMigrations();
   const setSession = useAppStore((s) => s.setSession);
-  const setHouseholdId = useAppStore((s) => s.setHouseholdId);
-  const setPaydayDay = useAppStore((s) => s.setPaydayDay);
-  const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const [sessionRestored, setSessionRestored] = useState(false);
 
   // Init celebrationStore checker — reads celebrated_at from local DB.
@@ -189,12 +181,11 @@ export default function App(): React.JSX.Element {
       );
       if (session) {
         try {
-          await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
+          await initSession(session.user.id);
         } catch (err) {
           captureBoot('initSession (cold start)', err);
           throw err;
         }
-        // Re-bind after household is resolved so checker uses the new householdId.
         bindCelebrationStore();
       }
       setSessionRestored(true);
@@ -203,8 +194,7 @@ export default function App(): React.JSX.Element {
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session ?? null);
       if (session) {
-        await initSession(session.user.id, setHouseholdId, setPaydayDay, setAvailableHouseholds);
-        // Re-bind after household change (e.g. sign-out → sign-in as different household).
+        await initSession(session.user.id);
         bindCelebrationStore();
       } else {
         useAppStore.getState().reset();
@@ -215,7 +205,7 @@ export default function App(): React.JSX.Element {
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [setSession, setHouseholdId, setPaydayDay, setAvailableHouseholds, bindCelebrationStore]);
+  }, [setSession, bindCelebrationStore]);
 
   if (fontError || dbError) {
     // Record font/DB init errors — these surface before Crashlytics is ready.

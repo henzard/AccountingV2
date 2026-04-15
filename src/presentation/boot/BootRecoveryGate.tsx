@@ -6,7 +6,7 @@ import {
   clearLastCrash,
   type CrashRecord,
 } from '../../infrastructure/monitoring/earlyCrashLog';
-import { colours } from '../theme/tokens';
+import { colours, spacing } from '../theme/tokens';
 
 interface Props {
   children: React.ReactNode;
@@ -43,7 +43,7 @@ export function BootRecoveryGate({ children }: Props): React.JSX.Element {
   }
 
   if (!crash) {
-    return <>{children}</>;
+    return children as React.JSX.Element;
   }
 
   const handleClear = async (): Promise<void> => {
@@ -105,22 +105,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colours.surface,
-    paddingTop: 48,
+    paddingTop: spacing.xxl,
   },
   content: {
-    padding: 16,
+    padding: spacing.base,
   },
   title: {
-    color: '#b00020',
-    marginBottom: 4,
+    color: colours.error,
+    marginBottom: spacing.xs,
   },
   meta: {
     opacity: 0.6,
-    marginBottom: 16,
+    marginBottom: spacing.base,
   },
   label: {
-    marginTop: 12,
-    marginBottom: 4,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
   },
   body: {
     fontFamily: 'monospace',
@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    gap: 12,
-    padding: 16,
+    gap: spacing.md,
+    padding: spacing.base,
   },
 });
