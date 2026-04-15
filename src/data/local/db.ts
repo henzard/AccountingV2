@@ -9,6 +9,7 @@ export const db = drizzle(expo, { schema });
 
 const MIGRATIONS_TABLE = '__app_migrations';
 const STATEMENT_BREAKPOINT_RE = /--> statement-breakpoint/g;
+const LEGACY_CHECKSUM = 'legacy';
 const migrationEntries = Object.entries(
   (migrations as { migrations: Record<string, string> }).migrations,
 );
@@ -32,16 +33,17 @@ function runMigrationsOnce(): Promise<void> {
         `CREATE TABLE IF NOT EXISTS \`${MIGRATIONS_TABLE}\` (` +
           '`name` TEXT PRIMARY KEY NOT NULL, ' +
           '`applied_at` TEXT NOT NULL, ' +
-          "`checksum` TEXT NOT NULL DEFAULT 'legacy'" +
+          `\`checksum\` TEXT NOT NULL DEFAULT '${LEGACY_CHECKSUM}'` +
           ')',
       );
       // Idempotently add checksum column to tables created before this version.
       await expo
         .execAsync(
-          `ALTER TABLE \`${MIGRATIONS_TABLE}\` ADD COLUMN \`checksum\` TEXT NOT NULL DEFAULT 'legacy'`,
+          `ALTER TABLE \`${MIGRATIONS_TABLE}\` ADD COLUMN \`checksum\` TEXT NOT NULL DEFAULT '${LEGACY_CHECKSUM}'`,
         )
-        .catch(() => {
-          // Column already exists — ignore.
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.includes('duplicate column name')) throw err;
         });
 
       const rows =
@@ -54,7 +56,7 @@ function runMigrationsOnce(): Promise<void> {
       for (const [name, sql] of migrationEntries) {
         const storedChecksum = applied.get(name);
         if (!storedChecksum) continue;
-        if (storedChecksum === 'legacy') continue;
+        if (storedChecksum === LEGACY_CHECKSUM) continue;
         const expected = djb2Hex(sql);
         if (storedChecksum !== expected) {
           throw new Error(
