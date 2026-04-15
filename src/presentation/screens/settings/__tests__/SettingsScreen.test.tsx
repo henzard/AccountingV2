@@ -73,8 +73,34 @@ jest.mock('react-native-paper', () => {
   const Surface = ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
     React.createElement('View', p, children);
   const Divider = () => React.createElement('View', {});
-  return { Text, Button, List, Surface, Divider };
+  const SegmentedButtons = ({
+    onValueChange,
+    buttons,
+  }: {
+    value?: string;
+    onValueChange?: (v: string) => void;
+    buttons?: Array<{ value: string; label?: string; testID?: string }>;
+  }) =>
+    React.createElement(
+      'View',
+      {},
+      (buttons ?? []).map((b) =>
+        React.createElement(
+          'TouchableOpacity',
+          { key: b.value, testID: b.testID, onPress: () => onValueChange?.(b.value) },
+          React.createElement('Text', {}, b.label),
+        ),
+      ),
+    );
+  return { Text, Button, List, Surface, Divider, SegmentedButtons };
 });
+
+// ─── themeStore mock ──────────────────────────────────────────────────────────
+jest.mock('../../../stores/themeStore', () => ({
+  useThemeStore: jest.fn((selector: (s: object) => unknown) =>
+    selector({ preference: 'system', setPreference: jest.fn() }),
+  ),
+}));
 
 // ─── supabase mock ────────────────────────────────────────────────────────────
 jest.mock('../../../../data/remote/supabaseClient', () => ({
