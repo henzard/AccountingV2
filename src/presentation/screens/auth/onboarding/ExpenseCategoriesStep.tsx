@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { Text, Chip, Button, HelperText } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { Chip, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'ExpenseCategories'>;
 
@@ -53,14 +54,12 @@ export function ExpenseCategoriesStep(): React.JSX.Element {
   };
 
   return (
-    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
-      <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
-        What do you spend money on?
-      </Text>
-      <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
-        Select categories to create your spending envelopes. You can adjust amounts later.
-      </Text>
-
+    <OnboardingStepLayout
+      title="What do you spend money on?"
+      subtitle="Select categories to create your spending envelopes. You can adjust amounts later."
+      avoidKeyboard={false}
+      onCta={handleNext}
+    >
       <View style={styles.chipWrap}>
         {DEFAULT_CATEGORIES.map((cat) => (
           <Chip
@@ -74,34 +73,16 @@ export function ExpenseCategoriesStep(): React.JSX.Element {
           </Chip>
         ))}
       </View>
-
       {error !== null && (
         <HelperText type="error" visible>
           {error}
         </HelperText>
       )}
-
-      <Button
-        mode="contained"
-        onPress={handleNext}
-        style={styles.button}
-        contentStyle={styles.buttonContent}
-      >
-        Next
-      </Button>
-    </ScrollView>
+    </OnboardingStepLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: spacing.xl },
-  title: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    marginBottom: spacing.sm,
-  },
-  subtitle: { marginBottom: spacing.lg },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { marginBottom: spacing.xs },
-  button: { marginTop: spacing.xl },
-  buttonContent: { paddingVertical: spacing.xs },
 });
