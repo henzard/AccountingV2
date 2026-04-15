@@ -37,4 +37,12 @@ describe('ListRow', () => {
     const { getByTestId } = render(<ListRow title="T" testID="my-row" />);
     expect(getByTestId('my-row')).toBeTruthy();
   });
+
+  it('renders without TouchableRipple when onPress is omitted', () => {
+    const { getByTestId, UNSAFE_queryByType } = render(<ListRow title="T" testID="row" />);
+    expect(getByTestId('row')).toBeTruthy();
+    // Should be a static View, not TouchableRipple
+    const { TouchableRipple } = require('react-native-paper');
+    expect(UNSAFE_queryByType(TouchableRipple)).toBeNull();
+  });
 });

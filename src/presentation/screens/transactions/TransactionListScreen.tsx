@@ -15,6 +15,7 @@ import { EmptyState } from '../../components/shared/EmptyState';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
+import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { format, parseISO } from 'date-fns';
@@ -41,22 +42,23 @@ function groupByDate(txs: TransactionEntity[]): Section[] {
 
 export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
-  const householdId = useAppStore((s) => s.householdId)!;
+  const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
-  const { transactions, loading, reload } = useTransactions(householdId, periodStart);
+  const hid = householdId ?? '';
+  const { transactions, loading, reload } = useTransactions(hid, periodStart);
   const [envelopeNames, setEnvelopeNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     db.select({ id: envelopesTable.id, name: envelopesTable.name })
       .from(envelopesTable)
-      .where(eq(envelopesTable.householdId, householdId))
+      .where(eq(envelopesTable.householdId, hid))
       .then((rows) => {
         setEnvelopeNames(new Map(rows.map((r) => [r.id, r.name])));
       });
-  }, [householdId]);
+  }, [hid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -85,6 +87,13 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
     },
     [reload],
   );
+
+  const renderSeparator = useCallback(
+    () => <Divider style={{ backgroundColor: colors.outlineVariant }} />,
+    [colors.outlineVariant],
+  );
+
+  if (!householdId) return <LoadingSplash />;
 
   const sections = groupByDate(transactions);
 
@@ -133,9 +142,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
               testID={`tx-row-${item.id}`}
             />
           )}
-          ItemSeparatorComponent={() => (
-            <Divider style={{ backgroundColor: colors.outlineVariant }} />
-          )}
+          ItemSeparatorComponent={renderSeparator}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled
         />

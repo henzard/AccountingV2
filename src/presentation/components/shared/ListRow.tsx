@@ -34,7 +34,7 @@ export function ListRow({
         {subtitle !== undefined && (
           <Text
             variant="bodySmall"
-            style={{ color: colors.onSurfaceVariant, marginTop: 2 }}
+            style={[styles.subtitle, { color: colors.onSurfaceVariant }]}
             testID={testID ? `${testID}-subtitle` : undefined}
           >
             {subtitle}
@@ -65,4 +65,5 @@ const styles = StyleSheet.create({
   },
   left: { flex: 1, marginRight: spacing.base },
   title: { fontFamily: 'PlusJakartaSans_600SemiBold' },
+  subtitle: { marginTop: 2 },
 });
