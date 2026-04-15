@@ -82,22 +82,13 @@ function runMigrationsOnce(): Promise<void> {
         if (applied.has(name)) continue;
         const checksum = djb2Hex(sql);
         const cleanSql = sql.replace(STATEMENT_BREAKPOINT_RE, '');
-        await expo.execAsync('BEGIN');
-        try {
-          await expo.execAsync(cleanSql);
-          await expo.runAsync(
+        await expo.withExclusiveTransactionAsync(async (tx) => {
+          await tx.execAsync(cleanSql);
+          await tx.runAsync(
             `INSERT INTO \`${MIGRATIONS_TABLE}\` (name, applied_at, checksum) VALUES (?, ?, ?)`,
             [name, new Date().toISOString(), checksum],
           );
-          await expo.execAsync('COMMIT');
-        } catch (e) {
-          try {
-            await expo.execAsync('ROLLBACK');
-          } catch {
-            /* ignore */
-          }
-          throw e;
-        }
+        });
       }
     })();
   }
