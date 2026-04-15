@@ -52,6 +52,17 @@ function runMigrationsOnce(): Promise<void> {
         )) ?? [];
       const applied = new Map(rows.map((r) => [r.name, r.checksum]));
 
+      // Detect orphaned migrations — applied names not in the current migration list.
+      const currentNames = new Set(migrationEntries.map(([name]) => name));
+      for (const name of applied.keys()) {
+        if (!currentNames.has(name)) {
+          throw new Error(
+            `Unknown applied migration "${name}" found in ${MIGRATIONS_TABLE}. ` +
+              'Applied migrations must not be renamed or removed.',
+          );
+        }
+      }
+
       // Verify integrity of previously-applied migrations.
       for (const [name, sql] of migrationEntries) {
         const storedChecksum = applied.get(name);

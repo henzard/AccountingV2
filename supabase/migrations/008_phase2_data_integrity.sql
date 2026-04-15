@@ -101,8 +101,10 @@ BEGIN
   UPDATE public.slip_queue
   SET status     = 'processing',
       updated_at = NOW()::text
-  WHERE id     = p_slip_id
-    AND status = 'pending';
+  WHERE id           = p_slip_id
+    AND status       = 'pending'
+    AND household_id = p_household_id
+    AND created_by   = p_user_id;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('allowed', false, 'reason', 'slot_not_reserved');
