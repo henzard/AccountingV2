@@ -42,6 +42,7 @@ import { BootErrorBoundary } from './src/presentation/boot/BootErrorBoundary';
 import {
   hydrateThemeFromLocal,
   hydrateThemeFromRemote,
+  resetThemeStore,
 } from './src/presentation/stores/themeStore';
 
 // Install global crash handler as early as possible (after imports — module
@@ -212,6 +213,7 @@ export default function App(): React.JSX.Element {
         bindCelebrationStore();
       } else {
         useAppStore.getState().reset();
+        resetThemeStore();
         crashlytics()
           .setUserId('')
           .catch(() => {});

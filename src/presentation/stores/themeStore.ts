@@ -48,3 +48,8 @@ export async function hydrateThemeFromRemote(userId: string): Promise<void> {
     void AsyncStorage.setItem(STORAGE_KEY, remote).catch(() => {});
   }
 }
+
+export function resetThemeStore(): void {
+  useThemeStore.setState({ preference: 'system' });
+  void AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+}

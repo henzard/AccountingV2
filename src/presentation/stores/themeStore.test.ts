@@ -28,6 +28,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   default: {
     getItem: jest.fn().mockResolvedValue(null),
     setItem: jest.fn().mockResolvedValue(undefined),
+    removeItem: jest.fn().mockResolvedValue(undefined),
   },
 }));
 jest.mock('../../infrastructure/storage/userPreferences', () => ({
@@ -39,7 +40,7 @@ import {
   loadThemePreference,
   saveThemePreference,
 } from '../../infrastructure/storage/userPreferences';
-import { hydrateThemeFromLocal, hydrateThemeFromRemote } from './themeStore';
+import { hydrateThemeFromLocal, hydrateThemeFromRemote, resetThemeStore } from './themeStore';
 
 const mockGetItem = AsyncStorage.getItem as jest.Mock;
 const mockSetItem = AsyncStorage.setItem as jest.Mock;
@@ -100,5 +101,13 @@ describe('themeStore hydration', () => {
     useThemeStore.getState().setPreference('dark', 'user-1');
     await new Promise((r) => setImmediate(r));
     expect(mockSaveRemote).toHaveBeenCalledWith('user-1', 'dark');
+  });
+
+  it('resetThemeStore resets preference to system and clears AsyncStorage', async () => {
+    useThemeStore.setState({ preference: 'dark' });
+    resetThemeStore();
+    expect(useThemeStore.getState().preference).toBe('system');
+    await new Promise((r) => setImmediate(r));
+    expect(AsyncStorage.removeItem as jest.Mock).toHaveBeenCalledWith('@theme:preference');
   });
 });
