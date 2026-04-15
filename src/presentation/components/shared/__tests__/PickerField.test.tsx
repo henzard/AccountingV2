@@ -31,6 +31,13 @@ describe('PickerField', () => {
     expect(getByText('R120 left')).toBeTruthy();
   });
 
+  it('shows chevron when showChevron is true', () => {
+    const { getByText } = render(
+      <PickerField placeholder="Pick one" showChevron onPress={jest.fn()} />,
+    );
+    expect(getByText('›')).toBeTruthy();
+  });
+
   it('shows inline label when label prop is provided', () => {
     const { getByText } = render(
       <PickerField label="Date" value="8 Apr 2026" onPress={jest.fn()} />,

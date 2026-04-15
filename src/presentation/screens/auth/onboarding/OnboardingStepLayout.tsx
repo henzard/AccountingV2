@@ -46,7 +46,7 @@ export function OnboardingStepLayout({
         mode="contained"
         onPress={onCta}
         loading={ctaLoading}
-        disabled={ctaDisabled}
+        disabled={Boolean(ctaDisabled || ctaLoading)}
         style={styles.button}
         contentStyle={styles.buttonContent}
       >
