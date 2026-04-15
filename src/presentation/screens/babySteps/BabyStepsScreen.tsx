@@ -15,6 +15,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
 import { Text, Surface, Chip } from 'react-native-paper';
+import { SectionHeader } from '../../components/shared/SectionHeader';
 import { useFocusEffect } from '@react-navigation/native';
 import { format, parseISO } from 'date-fns';
 import { CurrentStepHero } from './components/CurrentStepHero';
@@ -103,12 +104,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
       {/* ── Tier 1: Completed chips ────────────────────────────────── */}
       {completedSteps.length > 0 && (
         <View style={styles.section}>
-          <Text
-            variant="labelSmall"
-            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-          >
-            COMPLETED
-          </Text>
+          <SectionHeader title="COMPLETED" />
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -124,12 +120,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
       {/* ── Tier 2: Current step hero ──────────────────────────────── */}
       {currentStep ? (
         <View style={styles.section}>
-          <Text
-            variant="labelSmall"
-            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-          >
-            CURRENT STEP
-          </Text>
+          <SectionHeader title="CURRENT STEP" />
           <CurrentStepHero
             status={currentStep}
             onToggleManual={handleToggleManual}
@@ -160,12 +151,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
           importantForAccessibility="no-hide-descendants"
           testID="future-steps-section"
         >
-          <Text
-            variant="labelSmall"
-            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-          >
-            COMING UP
-          </Text>
+          <SectionHeader title="Coming Up" />
           {futureSteps.map((s) => (
             <FutureStepCard key={s.stepNumber} status={s} />
           ))}
@@ -300,10 +286,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: spacing.base, paddingBottom: spacing.xl, gap: spacing.base },
   section: { gap: spacing.sm },
-  sectionLabel: {
-    letterSpacing: 1.2,
-    marginBottom: spacing.xs,
-  },
   chipsRow: {
     paddingVertical: spacing.xs,
   },

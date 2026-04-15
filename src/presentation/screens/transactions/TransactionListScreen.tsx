@@ -11,6 +11,7 @@ import { useTransactions } from '../../hooks/useTransactions';
 import { CurrencyText } from '../../components/shared/CurrencyText';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
+import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
 import { spacing, radius } from '../../theme/tokens';
@@ -107,14 +108,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           sections={sections}
           keyExtractor={(item) => item.id}
           renderSectionHeader={({ section }) => (
-            <View style={[styles.sectionHeader, { backgroundColor: colors.surfaceVariant }]}>
-              <Text
-                variant="labelMedium"
-                style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}
-              >
-                {section.title}
-              </Text>
-            </View>
+            <SectionHeader title={section.title} filled />
           )}
           renderItem={({ item }) => (
             <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={1}>
@@ -165,11 +159,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: {},
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  sectionHeader: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.xs,
-  },
-  sectionTitle: { letterSpacing: 0.8 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
