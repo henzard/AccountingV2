@@ -173,7 +173,11 @@ export const darkTheme = {
   },
 };
 
+import { useThemeStore } from '../stores/themeStore';
+
 export function useAppTheme(): typeof lightTheme | typeof darkTheme {
-  const scheme = useColorScheme();
-  return scheme === 'dark' ? darkTheme : lightTheme;
+  const osScheme = useColorScheme();
+  const preference = useThemeStore((s) => s.preference);
+  const effective = preference === 'system' ? osScheme : preference;
+  return effective === 'dark' ? darkTheme : lightTheme;
 }

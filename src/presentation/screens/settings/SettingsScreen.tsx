@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Alert, Switch } from 'react-native';
-import { List, Surface, Divider, Button } from 'react-native-paper';
+import { List, Surface, Divider, Button, SegmentedButtons } from 'react-native-paper';
+import { useThemeStore } from '../../stores/themeStore';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,6 +20,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const householdId = useAppStore((s) => s.householdId);
   const availableHouseholds = useAppStore((s) => s.availableHouseholds);
   const currentHousehold = availableHouseholds.find((h) => h.id === householdId);
+
+  const themePref = useThemeStore((s) => s.preference);
+  const setThemePref = useThemeStore((s) => s.setPreference);
+  const userId = session?.user?.id;
 
   const [wifiOnly, setWifiOnly] = useState(false);
 
@@ -162,6 +167,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
         </Surface>
       </List.Section>
 
+      <List.Section>
+        <List.Subheader style={styles.subheader}>Appearance</List.Subheader>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
+          <View style={styles.appearanceRow}>
+            <SegmentedButtons
+              value={themePref}
+              onValueChange={(v): void => setThemePref(v as 'system' | 'light' | 'dark', userId)}
+              buttons={[
+                { value: 'system', label: 'System', testID: 'appearance-system' },
+                { value: 'light', label: 'Light', testID: 'appearance-light' },
+                { value: 'dark', label: 'Dark', testID: 'appearance-dark' },
+              ]}
+            />
+          </View>
+        </Surface>
+      </List.Section>
+
       <View style={styles.signOutSection}>
         <Button
           mode="outlined"
@@ -193,4 +215,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.base,
   },
   signOutButton: {},
+  appearanceRow: {
+    padding: spacing.base,
+  },
 });

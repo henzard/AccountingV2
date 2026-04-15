@@ -25,6 +25,7 @@ import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
 import { spacing, radius } from '../../theme/tokens';
+import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DashboardStackParamList } from '../../navigation/types';
@@ -35,14 +36,17 @@ const engine = new BudgetPeriodEngine();
 
 export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
-  const householdId = useAppStore((s) => s.householdId)!;
+  const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
   const periodStart = useMemo(() => {
     const period = engine.getCurrentPeriod(paydayDay);
     return format(period.startDate, 'yyyy-MM-dd');
   }, [paydayDay]);
 
-  const { statuses, loading, reconcile, toggleManualStep } = useBabySteps(householdId, periodStart);
+  const { statuses, loading, reconcile, toggleManualStep } = useBabySteps(
+    householdId ?? '',
+    periodStart,
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -77,6 +81,8 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
     },
     [navigation],
   );
+
+  if (!householdId) return <LoadingSplash />;
 
   if (loading && statuses.length === 0) {
     return (

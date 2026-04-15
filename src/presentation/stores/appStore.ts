@@ -18,6 +18,7 @@ interface AppState {
   paydayDay: number;
   availableHouseholds: HouseholdSummary[];
   onboardingCompleted: boolean | null;
+  monthlyIncomeCents: number | null;
 }
 
 interface AppActions {
@@ -32,6 +33,7 @@ interface AppActions {
   clearHousehold: () => void;
   setAvailableHouseholds: (households: HouseholdSummary[]) => void;
   setOnboardingCompleted: (done: boolean | null) => void;
+  setMonthlyIncomeCents: (cents: number | null) => void;
   /** Reset auth-derived state on sign-out. Does NOT call supabase.auth.signOut(). */
   reset: () => void;
 }
@@ -47,6 +49,7 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   paydayDay: DEFAULT_PAYDAY_DAY,
   availableHouseholds: [],
   onboardingCompleted: null,
+  monthlyIncomeCents: null,
   setSession: (session): void => set({ session }),
   setUserLevel: (userLevel): void => set({ userLevel }),
   setCurrentPeriod: (currentPeriod): void => set({ currentPeriod }),
@@ -58,6 +61,7 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   clearHousehold: (): void => set({ householdId: null, paydayDay: DEFAULT_PAYDAY_DAY }),
   setAvailableHouseholds: (availableHouseholds): void => set({ availableHouseholds }),
   setOnboardingCompleted: (onboardingCompleted): void => set({ onboardingCompleted }),
+  setMonthlyIncomeCents: (monthlyIncomeCents): void => set({ monthlyIncomeCents }),
   reset: (): void =>
     set({
       session: null,
@@ -67,5 +71,6 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
       syncStatus: 'idle',
       pendingSyncCount: 0,
       onboardingCompleted: null,
+      monthlyIncomeCents: null,
     }),
 }));

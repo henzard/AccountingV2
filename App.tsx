@@ -39,10 +39,19 @@ import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImage
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
 import { BootRecoveryGate } from './src/presentation/boot/BootRecoveryGate';
 import { BootErrorBoundary } from './src/presentation/boot/BootErrorBoundary';
+import {
+  hydrateThemeFromLocal,
+  hydrateThemeFromRemote,
+  resetThemeStore,
+} from './src/presentation/stores/themeStore';
 
 // Install global crash handler as early as possible (after imports — module
 // evaluation order still puts this before any App code runs).
 installEarlyCrashHandler();
+
+// Hydrate theme from local storage before first render (async but fast).
+// The themeStore starts in 'system' so worst-case users see OS theme for one frame.
+void hydrateThemeFromLocal();
 
 // ─── Enable Crashlytics collection at module load ─────────────────────────────
 // Wrapped in try/catch because the native module may not be registered yet on
@@ -176,6 +185,9 @@ export default function App(): React.JSX.Element {
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session ?? null;
       setSession(session);
+      if (session?.user?.id) {
+        void hydrateThemeFromRemote(session.user.id);
+      }
       initCrashlytics(session?.user?.id ?? null).catch((err) =>
         console.warn('[crashlytics] init failed', err),
       );
@@ -193,11 +205,15 @@ export default function App(): React.JSX.Element {
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session ?? null);
+      if (session?.user?.id) {
+        void hydrateThemeFromRemote(session.user.id);
+      }
       if (session) {
         await initSession(session.user.id);
         bindCelebrationStore();
       } else {
         useAppStore.getState().reset();
+        resetThemeStore();
         crashlytics()
           .setUserId('')
           .catch(() => {});

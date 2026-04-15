@@ -7,6 +7,7 @@ export type OnboardingStackParamList = {
   Welcome: undefined;
   Income: undefined;
   ExpenseCategories: undefined;
+  AllocateEnvelopes: { categories: string[] };
   Payday: undefined;
   MeterSetup: undefined;
   ScoreIntro: undefined;
@@ -33,6 +34,7 @@ export type DashboardStackParamList = {
       }
     | undefined;
   BabySteps: undefined;
+  AddTransaction: undefined;
 };
 
 export type TransactionsStackParamList = {

@@ -720,4 +720,41 @@ describe('SyncOrchestrator — DLQ after max retries', () => {
     expect(setArg.deadLetteredAt).toBeTruthy();
     expect(setArg.retryCount).toBe(10);
   });
+
+  it('returns 0s without hitting DB when a sync is already in progress (concurrency latch)', async () => {
+    // Simulate a long-running first sync
+    let resolveFirstSync!: () => void;
+    const firstSyncBlocker = new Promise<void>((res) => {
+      resolveFirstSync = res;
+    });
+
+    const selectMock = jest.fn().mockReturnValueOnce({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: () => firstSyncBlocker.then(() => []),
+          }),
+        }),
+      }),
+    });
+
+    const db = { select: selectMock } as any;
+    const supabase = {} as any;
+    const orch = new SyncOrchestrator(db, supabase);
+
+    // Start first sync (blocking)
+    const first = orch.syncPending();
+    // Yield one microtask tick so the async fn runs up to the first await
+    await Promise.resolve();
+
+    // Second call must return 0s WITHOUT calling db.select again (latch short-circuits)
+    const second = await orch.syncPending();
+    expect(second).toEqual({ synced: 0, failed: 0, emfFlipped: 0 });
+    // The latch means select was only called once (for the first sync)
+    expect(selectMock).toHaveBeenCalledTimes(1);
+
+    // Clean up
+    resolveFirstSync();
+    await first;
+  });
 });

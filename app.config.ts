@@ -33,7 +33,6 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
-  userInterfaceStyle: 'light',
   newArchEnabled: false,
   splash: {
     image: './assets/splash-icon.png',

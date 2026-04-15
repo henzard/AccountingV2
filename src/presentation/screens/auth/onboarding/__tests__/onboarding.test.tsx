@@ -125,15 +125,24 @@ jest.mock('react-native-paper', () => {
 // ─── appStore mock ────────────────────────────────────────────────────────────
 const mockSetPaydayDay = jest.fn();
 const mockSetOnboardingCompleted = jest.fn();
+const mockSetMonthlyIncomeCents = jest.fn();
 jest.mock('../../../../stores/appStore', () => ({
-  useAppStore: jest.fn((selector: (s: object) => unknown) =>
-    selector({
-      householdId: 'hh-test',
-      paydayDay: 25,
-      session: { user: { id: 'user-1' } },
-      setPaydayDay: mockSetPaydayDay,
-      setOnboardingCompleted: mockSetOnboardingCompleted,
-    }),
+  useAppStore: Object.assign(
+    jest.fn((selector: (s: object) => unknown) =>
+      selector({
+        householdId: 'hh-test',
+        paydayDay: 25,
+        session: { user: { id: 'user-1' } },
+        setPaydayDay: mockSetPaydayDay,
+        setOnboardingCompleted: mockSetOnboardingCompleted,
+        setMonthlyIncomeCents: mockSetMonthlyIncomeCents,
+      }),
+    ),
+    {
+      getState: (): object => ({
+        setMonthlyIncomeCents: mockSetMonthlyIncomeCents,
+      }),
+    },
   ),
 }));
 
@@ -211,24 +220,13 @@ describe('IncomeStep', () => {
     });
   });
 
-  it('calls CreateEnvelopeUseCase with income type and navigates on success', async () => {
+  it('stores monthly income in appStore and advances to ExpenseCategories', async () => {
     const { getByText, getByTestId } = render(<IncomeStep />);
     fireEvent.changeText(getByTestId('Monthly income (R)'), '5000');
     fireEvent.press(getByText('Next'));
     await waitFor(() => {
-      expect(mockExecute).toHaveBeenCalled();
+      expect(mockSetMonthlyIncomeCents).toHaveBeenCalledWith(500000);
       expect(mockNavigate).toHaveBeenCalledWith('ExpenseCategories');
-    });
-  });
-
-  it('does NOT navigate and shows error text when useCase throws', async () => {
-    mockExecute.mockRejectedValue(new Error('DB write failed'));
-    const { getByText, getByTestId, queryByTestId } = render(<IncomeStep />);
-    fireEvent.changeText(getByTestId('Monthly income (R)'), '5000');
-    fireEvent.press(getByText('Next'));
-    await waitFor(() => {
-      expect(mockNavigate).not.toHaveBeenCalled();
-      expect(queryByTestId('helper-error')).toBeTruthy();
     });
   });
 });

@@ -3,7 +3,7 @@ import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { RamseyScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { BabyStepsCard } from './BabyStepsCard';
-import { Text, FAB, Surface } from 'react-native-paper';
+import { Text, FAB, Surface, Button } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
@@ -13,6 +13,7 @@ import { CurrencyText } from '../../components/shared/CurrencyText';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
+import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -28,14 +29,15 @@ const scoreCalculator = new RamseyScoreCalculator();
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
-  const householdId = useAppStore((s) => s.householdId)!;
+  const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
 
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
-  const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
-  const { statuses: babyStepStatuses } = useBabySteps(householdId, periodStart);
+  const hid = householdId ?? '';
+  const { envelopes, loading, reload } = useEnvelopes(hid, periodStart);
+  const { statuses: babyStepStatuses } = useBabySteps(hid, periodStart);
   const [babyStepIsActive, setBabyStepIsActive] = useState(false);
   const [loggingDaysCount, setLoggingDaysCount] = useState(0);
 
@@ -43,18 +45,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     useCallback((): (() => void) => {
       let cancelled = false;
       void reload();
-      resolveBabyStepIsActive(db, householdId).then((isActive) => {
+      resolveBabyStepIsActive(db, hid).then((isActive) => {
         if (!cancelled) setBabyStepIsActive(isActive);
       });
       const periodEnd = format(period.endDate, 'yyyy-MM-dd');
-      resolveLoggingDays(db, householdId, periodStart, periodEnd).then((days) => {
+      resolveLoggingDays(db, hid, periodStart, periodEnd).then((days) => {
         if (!cancelled) setLoggingDaysCount(days);
       });
       return () => {
         cancelled = true;
       };
-    }, [reload, householdId, period.endDate, periodStart]),
+    }, [reload, hid, period.endDate, periodStart]),
   );
+
+  if (!householdId) return <LoadingSplash />;
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
   const totalSpent = envelopes.reduce((s, e) => s + e.spentCents, 0);
@@ -69,10 +73,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     meterReadingsLoggedThisPeriod: false,
     babyStepIsActive,
   });
-
-  const handleAddEnvelope = (): void => {
-    navigation.navigate('AddEditEnvelope', {});
-  };
 
   const handleEditEnvelope = (envelope: EnvelopeEntity): void => {
     navigation.navigate('AddEditEnvelope', { envelopeId: envelope.id });
@@ -149,11 +149,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       {loading ? (
         <LoadingSkeletonList count={4} testID="dashboard-loading" />
       ) : envelopes.length === 0 ? (
-        <EmptyState
-          title="No envelopes yet"
-          body="Tap + to create your first envelope"
-          testID="dashboard-empty-state"
-        />
+        <>
+          <EmptyState
+            title="No envelopes yet"
+            body="Add your first envelope to get started"
+            testID="dashboard-empty-state"
+          />
+          <Button mode="text" onPress={() => navigation.navigate('AddEditEnvelope', {})}>
+            + New envelope
+          </Button>
+        </>
       ) : (
         <FlatList
           data={envelopes}
@@ -170,16 +175,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 
       <FAB
         icon="plus"
+        label="Add transaction"
         style={[styles.fab, { backgroundColor: colors.primary }]}
-        onPress={handleAddEnvelope}
+        onPress={() => navigation.navigate('AddTransaction')}
         color={colors.onPrimary}
-      />
-      <FAB
-        icon="camera-outline"
-        style={[styles.fabCamera, { backgroundColor: colors.secondary }]}
-        onPress={() => navigation.navigate('SlipScanning' as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
-        color={colors.onPrimary}
-        testID="camera-fab"
+        testID="add-transaction-fab"
       />
     </View>
   );
@@ -210,8 +210,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   summaryValue: {
-    fontSize: 14,
+    fontSize: 24,
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontVariant: ['tabular-nums'],
   },
   summaryDivider: {
     width: 1,
@@ -224,11 +225,6 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: spacing.base,
-    bottom: spacing.xl,
-  },
-  fabCamera: {
-    position: 'absolute',
-    right: spacing.base + 64 + spacing.sm,
     bottom: spacing.xl,
   },
 });

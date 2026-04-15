@@ -71,4 +71,15 @@ describe('appStore — household slice', () => {
     expect(state.pendingSyncCount).toBe(7);
     expect(state.availableHouseholds).toHaveLength(1);
   });
+
+  it('setMonthlyIncomeCents updates value', () => {
+    useAppStore.getState().setMonthlyIncomeCents(5000000);
+    expect(useAppStore.getState().monthlyIncomeCents).toBe(5000000);
+  });
+
+  it('reset clears monthlyIncomeCents', () => {
+    useAppStore.setState({ monthlyIncomeCents: 5000000 });
+    useAppStore.getState().reset();
+    expect(useAppStore.getState().monthlyIncomeCents).toBeNull();
+  });
 });
