@@ -3,20 +3,12 @@ import { StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-na
 import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { format } from 'date-fns';
-import { db } from '../../../../data/local/db';
-import { AuditLogger } from '../../../../data/audit/AuditLogger';
-import { CreateEnvelopeUseCase } from '../../../../domain/envelopes/CreateEnvelopeUseCase';
-import { BudgetPeriodEngine } from '../../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../../stores/appStore';
 import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Income'>;
-
-const audit = new AuditLogger(db);
-const engine = new BudgetPeriodEngine();
 
 function toCents(str: string): number {
   const n = parseFloat(str.replace(',', '.'));
@@ -27,11 +19,8 @@ function toCents(str: string): number {
 export function IncomeStep(): React.JSX.Element {
   const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
-  const householdId = useAppStore((s) => s.householdId)!;
-  const paydayDay = useAppStore((s) => s.paydayDay);
 
   const [amountStr, setAmountStr] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleNext = async (): Promise<void> => {
@@ -41,30 +30,8 @@ export function IncomeStep(): React.JSX.Element {
       setError('Please enter a valid monthly income amount');
       return;
     }
-
-    setLoading(true);
-    try {
-      const period = engine.getCurrentPeriod(paydayDay);
-      const periodStart = format(period.startDate, 'yyyy-MM-dd');
-
-      const uc = new CreateEnvelopeUseCase(db, audit, {
-        householdId,
-        name: 'Monthly Income',
-        allocatedCents: cents,
-        envelopeType: 'income',
-        periodStart,
-      });
-      const result = await uc.execute();
-      if (!result.success) {
-        setError(result.error.message);
-        return;
-      }
-      navigation.navigate('ExpenseCategories');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.');
-    } finally {
-      setLoading(false);
-    }
+    useAppStore.getState().setMonthlyIncomeCents(cents);
+    navigation.navigate('ExpenseCategories');
   };
 
   return (
@@ -87,7 +54,6 @@ export function IncomeStep(): React.JSX.Element {
           mode="outlined"
           style={[styles.input, { backgroundColor: colors.surface }]}
           keyboardType="decimal-pad"
-          disabled={loading}
           placeholder="0.00"
           left={<TextInput.Affix text="R" />}
         />
@@ -100,8 +66,6 @@ export function IncomeStep(): React.JSX.Element {
         <Button
           mode="contained"
           onPress={handleNext}
-          loading={loading}
-          disabled={loading}
           style={styles.button}
           contentStyle={styles.buttonContent}
         >
