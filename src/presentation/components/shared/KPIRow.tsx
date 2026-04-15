@@ -26,7 +26,7 @@ export function KPIRow({ items, testID }: KPIRowProps): React.JSX.Element {
       testID={testID}
     >
       {items.map((item, index) => (
-        <React.Fragment key={item.label}>
+        <React.Fragment key={`${item.label}-${index}`}>
           {index > 0 && (
             <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
           )}

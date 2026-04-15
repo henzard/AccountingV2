@@ -44,7 +44,9 @@ let _unsubscribe: (() => void) | null = null;
 export function subscribeNetworkChanges(): () => void {
   if (_unsubscribe) return _unsubscribe;
   const rawUnsub = NetInfo.addEventListener((state) => {
-    const online = Boolean(state.isConnected && state.isInternetReachable);
+    // Treat null isInternetReachable as optimistic (reachable) to avoid
+    // false-offline flicker during app start when the value is not yet known.
+    const online = state.isConnected === true && state.isInternetReachable !== false;
     useSyncStore.getState().setIsOnline(online);
   });
   _unsubscribe = () => {

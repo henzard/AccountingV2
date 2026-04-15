@@ -31,7 +31,12 @@ describe('syncStore', () => {
   });
 
   it('reset restores initial values', () => {
-    useSyncStore.setState({ isOnline: false, pendingSyncCount: 5, syncStatus: 'error' });
+    useSyncStore.setState({
+      isOnline: false,
+      pendingSyncCount: 5,
+      syncStatus: 'error',
+      lastSyncAt: '2026-04-15T12:00:00Z',
+    });
     useSyncStore.getState().reset();
     const s = useSyncStore.getState();
     expect(s.isOnline).toBe(true);

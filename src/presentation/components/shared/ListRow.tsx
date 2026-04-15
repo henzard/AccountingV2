@@ -47,7 +47,12 @@ export function ListRow({
 
   if (onPress !== undefined) {
     return (
-      <TouchableRipple onPress={onPress} testID={testID}>
+      <TouchableRipple
+        onPress={onPress}
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={title}
+      >
         {content}
       </TouchableRipple>
     );

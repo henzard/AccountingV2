@@ -24,4 +24,10 @@ describe('KPIRow', () => {
   it('renders without crashing when items list is empty', () => {
     expect(() => render(<KPIRow items={[]} />)).not.toThrow();
   });
+
+  it('renders the label for a negative errorWhenNegative item', () => {
+    const negativeItems = [{ label: 'Remaining', valueCents: -5000, errorWhenNegative: true }];
+    const { getByText } = render(<KPIRow items={negativeItems} />);
+    expect(getByText('REMAINING')).toBeTruthy();
+  });
 });
