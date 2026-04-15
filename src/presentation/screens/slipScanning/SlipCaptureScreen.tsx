@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { MultiShotCoachmark } from './components/MultiShotCoachmark';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppNavigation } from '../../navigation/useAppNavigation';
-import { useNetworkStore } from '../../stores/networkStore';
+import { useSyncStore } from '../../stores/syncStore';
 
 const MAX_FRAMES = 5;
 const DAILY_LIMIT = 25;
@@ -31,7 +31,7 @@ export function SlipCaptureScreen({
   const [showCoachmark, setShowCoachmark] = useState(false);
   const [dailyCount, setDailyCount] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
-  const isOnline = useNetworkStore((s) => s.isOnline);
+  const isOnline = useSyncStore((s) => s.isOnline);
 
   useEffect(() => {
     AsyncStorage.getItem(COACHMARK_KEY).then((val) => {

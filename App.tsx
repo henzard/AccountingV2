@@ -33,7 +33,7 @@ import { useCelebrationStore } from './src/presentation/stores/celebrationStore'
 import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
 import { initCrashlytics } from './src/infrastructure/monitoring/crashlytics';
 import crashlytics from '@react-native-firebase/crashlytics';
-import { subscribeNetworkStore } from './src/presentation/stores/networkStore';
+import { subscribeNetworkChanges, useSyncStore } from './src/presentation/stores/syncStore';
 import { DrizzleSlipQueueRepository } from './src/data/repositories/DrizzleSlipQueueRepository';
 import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImageLocalStore';
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
@@ -162,7 +162,7 @@ export default function App(): React.JSX.Element {
     // Bind once on mount (covers cold-start with existing session).
     bindCelebrationStore();
     // Subscribe NetworkObserver → networkStore (drives OfflineBanner).
-    const unsubscribeNetwork = subscribeNetworkStore();
+    const unsubscribeNetwork = subscribeNetworkChanges();
 
     // Cleanup expired slip images (fire-and-forget — non-fatal).
     void cleanupSlips.execute().catch(() => {});
@@ -213,6 +213,7 @@ export default function App(): React.JSX.Element {
         bindCelebrationStore();
       } else {
         useAppStore.getState().reset();
+        useSyncStore.getState().reset();
         resetThemeStore();
         crashlytics()
           .setUserId('')
