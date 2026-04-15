@@ -35,7 +35,6 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   icon: './assets/icon.png',
   userInterfaceStyle: 'light',
   newArchEnabled: false,
-  jsEngine: 'jsc',
   splash: {
     image: './assets/splash-icon.png',
     resizeMode: 'contain',
