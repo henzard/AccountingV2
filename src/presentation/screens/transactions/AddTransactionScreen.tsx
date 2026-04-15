@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { Text, TextInput, Button, Snackbar, TouchableRipple } from 'react-native-paper';
+import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { and, eq, ne } from 'drizzle-orm';
 import { format } from 'date-fns';
@@ -11,11 +11,12 @@ import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTra
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
-import { spacing, radius } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddTransactionScreenProps } from '../../navigation/types';
 import { EnvelopePickerSheet } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 import type { EnvelopeOption } from '../../screens/slipScanning/components/EnvelopePickerSheet';
+import { PickerField } from '../../components/shared/PickerField';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
@@ -134,35 +135,15 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         <Text variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>
           Envelope
         </Text>
-        <TouchableRipple
+        <PickerField
+          placeholder="Select envelope…"
+          value={selectedEnvelope?.name}
+          trailing={selectedEnvelope ? `${formatBalance(selectedEnvelope)} left` : undefined}
+          trailingColor={selectedEnvelope ? balanceColor(selectedEnvelope) : undefined}
+          showChevron
           onPress={() => setShowPicker(true)}
-          style={[styles.pickerButton, { borderColor: colors.outline }]}
           testID="envelope-picker-trigger"
-        >
-          <View style={styles.pickerInner}>
-            <Text
-              variant="bodyLarge"
-              style={[
-                { flex: 1 },
-                selectedEnvelope ? { color: colors.onSurface } : { color: colors.onSurfaceVariant },
-              ]}
-            >
-              {selectedEnvelope ? selectedEnvelope.name : 'Select envelope…'}
-            </Text>
-            {selectedEnvelope && (
-              <Text
-                variant="bodySmall"
-                style={{
-                  color: balanceColor(selectedEnvelope),
-                  marginRight: spacing.sm,
-                }}
-              >
-                {formatBalance(selectedEnvelope)} left
-              </Text>
-            )}
-            <Text style={[styles.pickerChevron, { color: colors.onSurfaceVariant }]}>›</Text>
-          </View>
-        </TouchableRipple>
+        />
 
         <TextInput
           label="Amount (R)"
@@ -197,23 +178,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         />
 
         {/* Date picker row */}
-        <TouchableRipple
+        <PickerField
+          label="Date"
+          value={format(transactionDate, 'd MMM yyyy')}
           onPress={() => setShowDatePicker(true)}
-          style={[styles.dateButton, { borderColor: colors.outline }]}
           testID="date-picker-trigger"
-        >
-          <View style={styles.pickerInner}>
-            <Text
-              variant="bodyMedium"
-              style={[styles.dateLabel, { color: colors.onSurfaceVariant }]}
-            >
-              Date
-            </Text>
-            <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
-              {format(transactionDate, 'd MMM yyyy')}
-            </Text>
-          </View>
-        </TouchableRipple>
+        />
 
         {showDatePicker && (
           <DateTimePicker
@@ -277,23 +247,6 @@ const styles = StyleSheet.create({
   container: { padding: spacing.base, gap: spacing.sm },
   label: { marginTop: spacing.xs },
   input: {},
-  pickerButton: {
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    marginBottom: spacing.xs,
-  },
-  pickerInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.base,
-  },
-  pickerChevron: { fontSize: 20 },
-  dateButton: {
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    marginBottom: spacing.xs,
-  },
-  dateLabel: { flex: 1 },
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
   center: { padding: spacing.base },
