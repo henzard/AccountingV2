@@ -147,26 +147,73 @@ jest.mock('../../stores/notificationStore', () => ({
 let mockSession: object | null = null;
 let mockHouseholdId: string | null = null;
 
-jest.mock('../../stores/appStore', () => ({
-  useAppStore: jest.fn((selector: (s: object) => unknown) =>
-    selector({
+jest.mock('../../stores/appStore', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  const listeners = new Set<() => void>();
+  let snap: object = {};
+  const rebuildSnap = (): void => {
+    snap = {
       session: mockSession,
       householdId: mockHouseholdId,
       paydayDay: 25,
-    }),
-  ),
-}));
+      onboardingCompleted:
+        (snap as { onboardingCompleted?: boolean | null }).onboardingCompleted ?? null,
+      setOnboardingCompleted: (v: boolean | null): void => {
+        snap = { ...snap, onboardingCompleted: v };
+        listeners.forEach((l) => l());
+      },
+    };
+  };
+  rebuildSnap();
+  const subscribe = (cb: () => void): (() => void) => {
+    listeners.add(cb);
+    return () => listeners.delete(cb);
+  };
+  const useAppStore = (selector: (s: object) => unknown): unknown => {
+    const s = React.useSyncExternalStore(
+      subscribe,
+      () => snap,
+      () => snap,
+    );
+    return selector(s);
+  };
+  (useAppStore as unknown as { __resetState: () => void }).__resetState = (): void => {
+    snap = {};
+    rebuildSnap();
+    listeners.forEach((l) => l());
+  };
+  (useAppStore as unknown as { __applyMocks: () => void }).__applyMocks = (): void => {
+    rebuildSnap();
+    listeners.forEach((l) => l());
+  };
+  return { useAppStore };
+});
 
 import { isOnboardingComplete } from '../../../infrastructure/storage/onboardingFlag';
 import { RootNavigator } from '../RootNavigator';
 
 const mockIsOnboardingComplete = isOnboardingComplete as jest.Mock;
 
+function applyStoreMocks(): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { useAppStore } = require('../../stores/appStore');
+  (useAppStore as unknown as { __applyMocks: () => void }).__applyMocks();
+}
+
+function renderNav(): ReturnType<typeof render> {
+  applyStoreMocks();
+  return render(<RootNavigator />);
+}
+
 describe('RootNavigator routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSession = null;
     mockHouseholdId = null;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { useAppStore } = require('../../stores/appStore');
+    (useAppStore as unknown as { __resetState: () => void }).__resetState();
   });
 
   it('renders AuthNavigator when user is not logged in', () => {
@@ -174,7 +221,7 @@ describe('RootNavigator routing', () => {
     mockHouseholdId = null;
     mockIsOnboardingComplete.mockResolvedValue(false);
 
-    const { getByTestId } = render(<RootNavigator />);
+    const { getByTestId } = renderNav();
     expect(getByTestId('auth-nav')).toBeTruthy();
   });
 
@@ -183,7 +230,7 @@ describe('RootNavigator routing', () => {
     mockHouseholdId = null;
     mockIsOnboardingComplete.mockResolvedValue(false);
 
-    const { getByTestId } = render(<RootNavigator />);
+    const { getByTestId } = renderNav();
     expect(getByTestId('create-household-nav')).toBeTruthy();
   });
 
@@ -192,7 +239,7 @@ describe('RootNavigator routing', () => {
     mockHouseholdId = 'h1';
     mockIsOnboardingComplete.mockResolvedValue(true);
 
-    const { findByTestId } = render(<RootNavigator />);
+    const { findByTestId } = renderNav();
     // Wait for onboarding flag async resolution
     expect(await findByTestId('main-tab-nav')).toBeTruthy();
   });
@@ -202,7 +249,7 @@ describe('RootNavigator routing', () => {
     mockHouseholdId = 'h1';
     mockIsOnboardingComplete.mockResolvedValue(false);
 
-    const { findByTestId } = render(<RootNavigator />);
+    const { findByTestId } = renderNav();
     expect(await findByTestId('onboarding-nav')).toBeTruthy();
   });
 
@@ -212,7 +259,7 @@ describe('RootNavigator routing', () => {
     // Never resolves — simulates slow AsyncStorage read
     mockIsOnboardingComplete.mockReturnValue(new Promise(() => {}));
 
-    const { getByTestId, queryByTestId } = render(<RootNavigator />);
+    const { getByTestId, queryByTestId } = renderNav();
     expect(getByTestId('loading-splash')).toBeTruthy();
     expect(queryByTestId('main-tab-nav')).toBeNull();
     expect(queryByTestId('onboarding-nav')).toBeNull();

@@ -124,6 +124,7 @@ jest.mock('react-native-paper', () => {
 
 // ─── appStore mock ────────────────────────────────────────────────────────────
 const mockSetPaydayDay = jest.fn();
+const mockSetOnboardingCompleted = jest.fn();
 jest.mock('../../../../stores/appStore', () => ({
   useAppStore: jest.fn((selector: (s: object) => unknown) =>
     selector({
@@ -131,6 +132,7 @@ jest.mock('../../../../stores/appStore', () => ({
       paydayDay: 25,
       session: { user: { id: 'user-1' } },
       setPaydayDay: mockSetPaydayDay,
+      setOnboardingCompleted: mockSetOnboardingCompleted,
     }),
   ),
 }));
@@ -285,15 +287,13 @@ describe('FinishStep', () => {
     expect(getByText('Go to Dashboard')).toBeTruthy();
   });
 
-  it('marks onboarding complete and navigates on CTA press', async () => {
+  it('marks onboarding complete and flips the store flag on CTA press', async () => {
+    mockSetOnboardingCompleted.mockClear();
     const { getByText } = render(<FinishStep />);
     fireEvent.press(getByText('Go to Dashboard'));
     await waitFor(() => {
       expect(markOnboardingComplete).toHaveBeenCalledWith('user-1', 'hh-test');
-      expect(mockReset).toHaveBeenCalledWith({
-        index: 0,
-        routes: [{ name: 'Main' }],
-      });
+      expect(mockSetOnboardingCompleted).toHaveBeenCalledWith(true);
     });
   });
 });
