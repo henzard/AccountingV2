@@ -91,7 +91,10 @@ android {
     defaultConfig {
         applicationId 'com.henza.accountingv2'
         minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        // Pin to 35 (Android 15). SDK 36 enables 16 KB native page alignment;
+        // expo-sqlite's prebuilt .so is not 16-KB aligned and SIGSEGVs in the
+        // JS thread on the first sqlite3 JSI call.
+        targetSdkVersion 35
         def vcProp = findProperty('versionCode'); versionCode vcProp != null ? vcProp.toInteger() : 1
         def vnProp = findProperty('versionName')
         versionName vnProp != null ? vnProp.toString() : "1.1.0-dev"
