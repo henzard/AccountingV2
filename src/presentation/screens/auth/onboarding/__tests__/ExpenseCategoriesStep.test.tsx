@@ -3,8 +3,8 @@
  *
  * Tests:
  *   - Default chips render (Groceries, Transport, Rent, Utilities pre-selected).
- *   - Selecting chips and saving calls CreateEnvelopeUseCase per selected category
- *     with envelopeType: 'spending' (or 'savings' for the Savings chip).
+ *   - Next navigates to AllocateEnvelopes with selected categories as params.
+ *   - Shows error when no categories are selected.
  */
 
 import React from 'react';
@@ -64,49 +64,15 @@ jest.mock('react-native-paper', () => {
   return { Text, Button, Chip, HelperText };
 });
 
-// ─── appStore mock ────────────────────────────────────────────────────────────
-jest.mock('../../../../stores/appStore', () => ({
-  useAppStore: jest.fn((selector: (s: object) => unknown) =>
-    selector({ householdId: 'hh-test', paydayDay: 25 }),
-  ),
-}));
-
-// ─── CreateEnvelopeUseCase mock ───────────────────────────────────────────────
-jest.mock('../../../../../domain/envelopes/CreateEnvelopeUseCase', () => ({
-  CreateEnvelopeUseCase: jest.fn(),
-}));
-
-// ─── BudgetPeriodEngine mock ──────────────────────────────────────────────────
-jest.mock('../../../../../domain/shared/BudgetPeriodEngine', () => ({
-  BudgetPeriodEngine: jest.fn().mockImplementation(() => ({
-    getCurrentPeriod: jest.fn(() => ({
-      startDate: new Date('2026-04-01'),
-      endDate: new Date('2026-04-30'),
-    })),
-  })),
-}));
-
-// ─── DB / AuditLogger mocks ───────────────────────────────────────────────────
-jest.mock('../../../../../data/local/db', () => ({ db: {} }));
-jest.mock('../../../../../data/audit/AuditLogger', () => ({
-  AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
-}));
-
 import { ExpenseCategoriesStep } from '../ExpenseCategoriesStep';
-import { CreateEnvelopeUseCase } from '../../../../../domain/envelopes/CreateEnvelopeUseCase';
-
-const MockCreateEnvelopeUseCase = CreateEnvelopeUseCase as jest.Mock;
 
 describe('ExpenseCategoriesStep', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    const mockExecute = jest.fn().mockResolvedValue({ success: true, data: { id: 'env-new' } });
-    MockCreateEnvelopeUseCase.mockImplementation(() => ({ execute: mockExecute }));
   });
 
   it('renders default category chips', () => {
     const { getByTestId } = render(<ExpenseCategoriesStep />);
-    // Default categories are pre-selected by default state
     expect(getByTestId('category-Groceries')).toBeTruthy();
     expect(getByTestId('category-Transport')).toBeTruthy();
     expect(getByTestId('category-Rent')).toBeTruthy();
@@ -115,49 +81,37 @@ describe('ExpenseCategoriesStep', () => {
     expect(getByTestId('category-Entertainment')).toBeTruthy();
   });
 
-  it('calls CreateEnvelopeUseCase for each selected category with spending type', async () => {
+  it('navigates to AllocateEnvelopes with selected categories', async () => {
     const { getByText, getByTestId } = render(<ExpenseCategoriesStep />);
 
     // Default selection: Groceries, Transport, Rent, Utilities
-    // Deselect Transport to simplify assertion
+    // Deselect Transport, add Entertainment
     fireEvent.press(getByTestId('category-Transport'));
-    // Add Entertainment
     fireEvent.press(getByTestId('category-Entertainment'));
 
     fireEvent.press(getByText('Next'));
 
     await waitFor(() => {
-      // Should be called for: Groceries, Rent, Utilities, Entertainment (4 calls)
-      expect(MockCreateEnvelopeUseCase).toHaveBeenCalledTimes(4);
-      // All non-Savings categories should use 'spending' type
-      const calls = MockCreateEnvelopeUseCase.mock.calls;
-      const envelopeTypes = calls.map(
-        (c: unknown[]) => (c[2] as { envelopeType: string }).envelopeType,
-      );
-      expect(envelopeTypes.every((t: string) => t === 'spending')).toBe(true);
-      expect(mockNavigate).toHaveBeenCalledWith('Payday');
+      expect(mockNavigate).toHaveBeenCalledWith('AllocateEnvelopes', {
+        categories: expect.arrayContaining(['Groceries', 'Rent', 'Utilities', 'Entertainment']),
+      });
     });
   });
 
-  it('uses savings type for the Savings category', async () => {
-    const { getByText, getByTestId } = render(<ExpenseCategoriesStep />);
+  it('shows error when no categories are selected', async () => {
+    const { getByText, getByTestId, queryByTestId } = render(<ExpenseCategoriesStep />);
 
-    // Deselect everything except Savings
+    // Deselect all defaults
     fireEvent.press(getByTestId('category-Groceries'));
     fireEvent.press(getByTestId('category-Transport'));
     fireEvent.press(getByTestId('category-Rent'));
     fireEvent.press(getByTestId('category-Utilities'));
-    // Add Savings
-    fireEvent.press(getByTestId('category-Savings'));
 
     fireEvent.press(getByText('Next'));
 
     await waitFor(() => {
-      const savingsCall = MockCreateEnvelopeUseCase.mock.calls.find(
-        (c: unknown[]) => (c[2] as { name: string }).name === 'Savings',
-      );
-      expect(savingsCall).toBeDefined();
-      expect((savingsCall![2] as { envelopeType: string }).envelopeType).toBe('savings');
+      expect(queryByTestId('helper-error')).toBeTruthy();
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
   });
 });
