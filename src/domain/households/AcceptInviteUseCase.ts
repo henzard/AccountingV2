@@ -16,6 +16,13 @@ interface AcceptInviteInput {
   userId: string;
 }
 
+interface InviteRow {
+  id: string;
+  household_id: string;
+  expires_at: string;
+  used_by: string | null;
+}
+
 export class AcceptInviteUseCase {
   private readonly enqueuer: ISyncEnqueuer;
 
@@ -30,18 +37,17 @@ export class AcceptInviteUseCase {
   }
 
   async execute(): Promise<Result<HouseholdSummary>> {
-    // 1. Fetch the invitation
-    const { data: invite, error: inviteError } = await this.supabase
-      .from('invitations')
-      .select('id, household_id, expires_at, used_by')
-      .eq('code', this.input.code.toUpperCase())
-      .single();
+    // 1. Fetch the invitation via SECURITY DEFINER RPC (bypasses RLS so acceptors
+    //    never need SELECT on the invitations table directly).
+    const { data: invite, error: inviteError } = await (this.supabase
+      .rpc('lookup_invite_by_code', { invite_code: this.input.code.toUpperCase() })
+      .single() as unknown as Promise<{ data: InviteRow | null; error: unknown }>);
 
     if (inviteError || !invite) {
       return createFailure({ code: 'INVITE_NOT_FOUND', message: 'Invite code not found' });
     }
 
-    if (new Date(invite.expires_at as string) < new Date()) {
+    if (new Date(invite.expires_at) < new Date()) {
       return createFailure({ code: 'INVITE_EXPIRED', message: 'This invite code has expired' });
     }
 
@@ -52,7 +58,7 @@ export class AcceptInviteUseCase {
       });
     }
 
-    const householdId = invite.household_id as string;
+    const householdId = invite.household_id;
 
     // 2. Add user to household_members in Supabase
     const memberId = randomUUID();
@@ -72,7 +78,7 @@ export class AcceptInviteUseCase {
 
     // 3. Mark invitation as used via SECURITY DEFINER RPC (validates caller owns the claim)
     const { error: markUsedError } = await this.supabase.rpc('claim_invite', {
-      invite_id: invite.id as string,
+      invite_id: invite.id,
     });
 
     if (markUsedError) {
