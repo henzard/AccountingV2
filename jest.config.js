@@ -11,6 +11,11 @@ module.exports = {
     '^@data/(.*)$': '<rootDir>/src/data/$1',
     '^@presentation/(.*)$': '<rootDir>/src/presentation/$1',
     '^@infrastructure/(.*)$': '<rootDir>/src/infrastructure/$1',
+    // Native SQLite + ORM stubs — avoid native module load in unit tests.
+    '^expo-sqlite$': '<rootDir>/__mocks__/expo-sqlite.js',
+    '^drizzle-orm/expo-sqlite$': '<rootDir>/__mocks__/drizzle-orm-expo-sqlite.js',
+    // Bundled SQL migration files cannot be parsed by Jest — stub them out.
+    '^.*/migrations/migrations$': '<rootDir>/__mocks__/migrations-stub.js',
     '^expo/src/winter$': '<rootDir>/__mocks__/expo-winter.js',
     '^expo/src/winter/(.*)$': '<rootDir>/__mocks__/expo-winter.js',
     // react-native-vector-icons is remapped to @expo/vector-icons by jest-expo preset.
