@@ -96,14 +96,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   score: {
-    fontSize: 20,
+    fontSize: 24,
     fontFamily: 'PlusJakartaSans_700Bold',
-    lineHeight: 23,
+    lineHeight: 27,
   },
   label: {
-    fontSize: 8,
+    fontSize: 10,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
 });

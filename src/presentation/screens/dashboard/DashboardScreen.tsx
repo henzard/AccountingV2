@@ -206,8 +206,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   summaryValue: {
-    fontSize: 14,
+    fontSize: 24,
     fontFamily: 'PlusJakartaSans_700Bold',
+    fontVariant: ['tabular-nums'],
   },
   summaryDivider: {
     width: 1,
