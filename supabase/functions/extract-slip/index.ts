@@ -136,6 +136,9 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   );
   if (rateError) return new Response('Rate limit check failed', { status: 500 });
 
+  if (!rateCheck || typeof (rateCheck as { allowed?: unknown }).allowed !== 'boolean') {
+    return new Response('Rate limit check failed', { status: 500 });
+  }
   const check = rateCheck as { allowed: boolean; reason?: string };
   if (!check.allowed) {
     const msg = check.reason === 'user_limit' ? 'User rate limit' : 'Household rate limit';

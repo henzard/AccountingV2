@@ -51,7 +51,6 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
       const chainedEq: any = {
         eq: () => chainedEq,
         maybeSingle: () => Promise.resolve({ data: slipRow, error: null }),
-        gte: () => Promise.resolve({ data: null, count: 0, error: null }),
       };
       return {
         select: () => ({ eq: () => chainedEq }),
@@ -706,4 +705,51 @@ Deno.test('returns 429 household_limit when check_and_reserve_slip_slot disallow
   const resp = await handle(req, deps);
   assertEquals(resp.status, 429);
   assertEquals(await resp.text(), 'Household rate limit');
+});
+
+Deno.test('returns 409 when slip is already processing', async () => {
+  const baseDeps = makeBaseDeps();
+
+  const deps: HandleDeps = {
+    ...baseDeps,
+    createAdminClient: () => {
+      const base = baseDeps.createAdminClient();
+      return {
+        ...base,
+        from: (table: string) => {
+          if (table === 'slip_queue') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    maybeSingle: () =>
+                      Promise.resolve({
+                        data: {
+                          id: 'slip1',
+                          status: 'processing', // ← already in-flight
+                          raw_response_json: null,
+                          created_by: 'u1',
+                          household_id: 'h1',
+                        },
+                        error: null,
+                      }),
+                  }),
+                }),
+              }),
+              update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+            };
+          }
+          return base.from(table);
+        },
+      };
+    },
+  };
+
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['abc'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 409);
+  assertEquals(await resp.text(), 'Slip already processing');
 });

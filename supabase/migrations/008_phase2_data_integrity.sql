@@ -69,7 +69,7 @@ BEGIN
   -- Serialize all concurrent calls for this household.
   PERFORM pg_advisory_xact_lock(hashtext(p_household_id));
 
-  v_cutoff := (NOW() - INTERVAL '24 hours')::text;
+  v_cutoff := to_char(NOW() AT TIME ZONE 'UTC' - INTERVAL '24 hours', 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
 
   SELECT COUNT(*) INTO v_household_cnt
   FROM public.slip_queue
