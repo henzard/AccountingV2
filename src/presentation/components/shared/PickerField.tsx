@@ -76,9 +76,7 @@ export function PickerField({
                 {trailing}
               </Text>
             )}
-            {showChevron && (
-              <Text style={{ color: colors.onSurfaceVariant }}>›</Text>
-            )}
+            {showChevron && <Text style={{ color: colors.onSurfaceVariant }}>›</Text>}
           </>
         )}
       </View>

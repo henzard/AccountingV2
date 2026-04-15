@@ -57,9 +57,7 @@ export function OnboardingStepLayout({
 
   if (!avoidKeyboard) {
     return (
-      <View style={[styles.flex, { backgroundColor: colors.background }]}>
-        {scrollContent}
-      </View>
+      <View style={[styles.flex, { backgroundColor: colors.background }]}>{scrollContent}</View>
     );
   }
 

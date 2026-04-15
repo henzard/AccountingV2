@@ -4,9 +4,7 @@ import { PickerField } from '../PickerField';
 
 describe('PickerField', () => {
   it('shows value when provided', () => {
-    const { getByText } = render(
-      <PickerField value="Groceries" onPress={jest.fn()} />,
-    );
+    const { getByText } = render(<PickerField value="Groceries" onPress={jest.fn()} />);
     expect(getByText('Groceries')).toBeTruthy();
   });
 

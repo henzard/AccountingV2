@@ -24,9 +24,7 @@ describe('OnboardingStepLayout', () => {
   });
 
   it('renders default CTA label "Next"', () => {
-    const { getByText } = render(
-      <OnboardingStepLayout title="T" subtitle="S" onCta={jest.fn()} />,
-    );
+    const { getByText } = render(<OnboardingStepLayout title="T" subtitle="S" onCta={jest.fn()} />);
     expect(getByText('Next')).toBeTruthy();
   });
 
@@ -39,9 +37,7 @@ describe('OnboardingStepLayout', () => {
 
   it('calls onCta when CTA is pressed', () => {
     const onCta = jest.fn();
-    const { getByText } = render(
-      <OnboardingStepLayout title="T" subtitle="S" onCta={onCta} />,
-    );
+    const { getByText } = render(<OnboardingStepLayout title="T" subtitle="S" onCta={onCta} />);
     fireEvent.press(getByText('Next'));
     expect(onCta).toHaveBeenCalledTimes(1);
   });

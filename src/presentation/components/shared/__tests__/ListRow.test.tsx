@@ -20,9 +20,7 @@ describe('ListRow', () => {
   });
 
   it('renders trailing content', () => {
-    const { getByText } = render(
-      <ListRow title="T" trailing={<Text>R120</Text>} />,
-    );
+    const { getByText } = render(<ListRow title="T" trailing={<Text>R120</Text>} />);
     expect(getByText('R120')).toBeTruthy();
   });
 

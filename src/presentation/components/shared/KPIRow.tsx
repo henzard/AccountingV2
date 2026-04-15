@@ -31,10 +31,7 @@ export function KPIRow({ items, testID }: KPIRowProps): React.JSX.Element {
             <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
           )}
           <View style={styles.item}>
-            <Text
-              variant="labelSmall"
-              style={[styles.label, { color: colors.onPrimaryContainer }]}
-            >
+            <Text variant="labelSmall" style={[styles.label, { color: colors.onPrimaryContainer }]}>
               {item.label.toUpperCase()}
             </Text>
             <CurrencyText

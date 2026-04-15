@@ -117,9 +117,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
-          renderSectionHeader={({ section }) => (
-            <SectionHeader title={section.title} filled />
-          )}
+          renderSectionHeader={({ section }) => <SectionHeader title={section.title} filled />}
           renderItem={({ item }) => (
             <ListRow
               title={item.payee ?? 'Unknown'}
