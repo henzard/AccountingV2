@@ -8,13 +8,6 @@ const makeSupabase = ({
   insertError = null as unknown,
 } = {}) => ({
   from: jest.fn().mockImplementation((table: string) => {
-    if (table === 'invitations') {
-      return {
-        select: () => ({
-          eq: () => ({ single: () => Promise.resolve({ data: inviteData, error: inviteError }) }),
-        }),
-      };
-    }
     if (table === 'household_members') {
       return {
         insert: () => Promise.resolve({ error: insertError }),
@@ -22,7 +15,12 @@ const makeSupabase = ({
     }
     return {};
   }),
-  rpc: jest.fn().mockResolvedValue({ error: null }),
+  rpc: jest.fn().mockImplementation((name: string) => {
+    if (name === 'lookup_invite_by_code') {
+      return { single: () => Promise.resolve({ data: inviteData, error: inviteError }) };
+    }
+    return Promise.resolve({ error: null });
+  }),
 });
 
 describe('AcceptInviteUseCase', () => {
@@ -89,13 +87,6 @@ describe('AcceptInviteUseCase — success path', () => {
 
     const supabase = {
       from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'invitations') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({ data: mockInvite, error: null }),
-          };
-        }
         if (table === 'household_members') {
           return {
             insert: jest.fn().mockResolvedValue({ error: null }),
@@ -103,7 +94,12 @@ describe('AcceptInviteUseCase — success path', () => {
         }
         return {};
       }),
-      rpc: jest.fn().mockResolvedValue({ error: null }),
+      rpc: jest.fn().mockImplementation((name: string) => {
+        if (name === 'lookup_invite_by_code') {
+          return { single: jest.fn().mockResolvedValue({ data: mockInvite, error: null }) };
+        }
+        return Promise.resolve({ error: null });
+      }),
     };
 
     const dbInsertMock = jest.fn().mockReturnValue({
@@ -139,5 +135,106 @@ describe('AcceptInviteUseCase — success path', () => {
     expect(result.success).toBe(true);
     expect(dbInsertMock).toHaveBeenCalled();
     expect(restoreService.restoreHousehold).toHaveBeenCalledWith('h1', 'member', 'user-b');
+  });
+});
+
+describe('AcceptInviteUseCase — uses lookup_invite_by_code RPC', () => {
+  it('calls supabase.rpc("lookup_invite_by_code") not a direct table SELECT', async () => {
+    const mockInvite = {
+      id: 'inv1',
+      household_id: 'h1',
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      used_by: null,
+    };
+
+    const rpcSingleMock = jest.fn().mockResolvedValue({ data: mockInvite, error: null });
+    const rpcClaimMock = jest.fn().mockResolvedValue({ error: null });
+
+    const supabase = {
+      rpc: jest.fn().mockImplementation((name: string) => {
+        if (name === 'lookup_invite_by_code') return { single: rpcSingleMock };
+        if (name === 'claim_invite') return rpcClaimMock();
+        return { error: null };
+      }),
+      from: jest.fn().mockReturnValue({
+        insert: jest.fn().mockResolvedValue({ data: null, error: null }),
+      }),
+    };
+
+    const db = {
+      insert: jest.fn().mockReturnValue({
+        values: jest.fn().mockResolvedValue(undefined),
+      }),
+    };
+
+    const restoreService = {
+      restoreHousehold: jest.fn().mockResolvedValue({
+        id: 'h1',
+        name: 'My House',
+        paydayDay: 25,
+      }),
+    };
+
+    const enqueuer = { enqueue: jest.fn() };
+
+    const useCase = new AcceptInviteUseCase(
+      supabase as any,
+      db as any,
+      restoreService as any,
+      { code: 'ABC123', userId: 'user-b' },
+      enqueuer as any,
+    );
+
+    const result = await useCase.execute();
+
+    expect(result.success).toBe(true);
+    expect(supabase.rpc).toHaveBeenCalledWith('lookup_invite_by_code', { invite_code: 'ABC123' });
+    // Must NOT call supabase.from('invitations') for SELECT
+    const fromCalls: string[] = (supabase.from as jest.Mock).mock.calls.map((c: [string]) => c[0]);
+    expect(fromCalls).not.toContain('invitations');
+  });
+
+  it('returns INVITE_NOT_FOUND when RPC returns null data', async () => {
+    const supabase = {
+      rpc: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: null, error: { message: 'not found' } }),
+      }),
+      from: jest.fn(),
+    };
+
+    const useCase = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
+      code: 'BAD',
+      userId: 'u1',
+    });
+
+    const result = await useCase.execute();
+    expect(result.success).toBe(false);
+    expect((result as any).error.code).toBe('INVITE_NOT_FOUND');
+  });
+
+  it('returns INVITE_EXPIRED when expires_at is in the past', async () => {
+    const supabase = {
+      rpc: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({
+          data: {
+            id: 'i1',
+            household_id: 'h1',
+            expires_at: new Date(Date.now() - 1000).toISOString(),
+            used_by: null,
+          },
+          error: null,
+        }),
+      }),
+      from: jest.fn(),
+    };
+
+    const useCase = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
+      code: 'EXP',
+      userId: 'u1',
+    });
+
+    const result = await useCase.execute();
+    expect(result.success).toBe(false);
+    expect((result as any).error.code).toBe('INVITE_EXPIRED');
   });
 });

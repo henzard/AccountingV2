@@ -116,43 +116,44 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   if (!slipRow || slipRow.created_by !== callerId || slipRow.household_id !== household_id)
     return new Response('Forbidden', { status: 403 });
 
-  // 5. Idempotency
+  // 5. Idempotency + status guard
   if (slipRow.status === 'completed' && slipRow.raw_response_json) {
     return new Response(slipRow.raw_response_json, {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   }
+  if (slipRow.status === 'processing') {
+    return new Response('Slip already processing', { status: 409 });
+  }
 
-  // 6. Per-household rate limit
-  // NOTE: Known v1 TOCTOU — concurrent requests can both pass this check before
-  // either increments the count. A proper fix requires pg_advisory_lock or a
-  // row-level sequence and is deferred to a future release.
-  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count: householdCount } = await adminSupabase
-    .from('slip_queue')
-    .select('*', { count: 'exact', head: true })
-    .eq('household_id', household_id)
-    .gte('created_at', dayAgo);
-  if ((householdCount ?? 0) >= 50) return new Response('Household rate limit', { status: 429 });
-
-  // 7. Per-user rate limit
-  const { count: userCount } = await adminSupabase
-    .from('slip_queue')
-    .select('*', { count: 'exact', head: true })
-    .eq('household_id', household_id)
-    .eq('created_by', callerId)
-    .gte('created_at', dayAgo);
-  if ((userCount ?? 0) >= 25) return new Response('User rate limit', { status: 429 });
-
-  // 8. Payload size cap (5MB)
+  // 6. Payload size cap (5MB) — checked before reserving the slot so a
+  //    rejected-too-large request never transitions the slip to processing.
   const totalBytes = images_base64.reduce(
     (acc: number, b64: string) => acc + (b64.length * 3) / 4,
     0,
   );
   if (totalBytes > 5 * 1024 * 1024) return new Response('Payload too large', { status: 413 });
 
-  // 9. Fetch envelopes
+  // 7. Atomic rate-limit check + reserve slot.
+  //    pg_advisory_xact_lock inside the RPC serializes concurrent household requests,
+  //    eliminating the TOCTOU window in the previous two-step SELECT COUNT pattern.
+  const { data: rateCheck, error: rateError } = await adminSupabase.rpc(
+    'check_and_reserve_slip_slot',
+    { p_household_id: household_id, p_user_id: callerId, p_slip_id: slip_id },
+  );
+  if (rateError) return new Response('Rate limit check failed', { status: 500 });
+
+  if (!rateCheck || typeof (rateCheck as { allowed?: unknown }).allowed !== 'boolean') {
+    return new Response('Rate limit check failed', { status: 500 });
+  }
+  const check = rateCheck as { allowed: boolean; reason?: string };
+  if (!check.allowed) {
+    const msg = check.reason === 'user_limit' ? 'User rate limit' : 'Household rate limit';
+    return new Response(msg, { status: 429 });
+  }
+
+  // 8. Fetch envelopes
   const { data: envelopes } = await adminSupabase
     .from('envelopes')
     .select('id, name')
@@ -162,7 +163,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   const envelopesJson = JSON.stringify(envelopes ?? []);
   const envelopeIdSet = new Set((envelopes ?? []).map((e: { id: string }) => e.id));
 
-  // 10. Build OpenAI request
+  // 9. Build OpenAI request
   const messages = [
     {
       role: 'user',
@@ -176,7 +177,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     },
   ];
 
-  // 11. Call OpenAI with one retry on 5xx
+  // 10. Call OpenAI with one retry on 5xx
   const callOpenAI = async () => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -256,7 +257,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     return new Response('Invalid OpenAI response', { status: 503 });
   }
 
-  // 12. Validate
+  // 11. Validate
   if (Array.isArray(parsed.items) && parsed.items.length > 100) {
     await adminSupabase
       .from('slip_queue')
@@ -276,7 +277,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     }
   }
 
-  // 13. Cost + persist
+  // 12. Cost + persist
   const costCents = calculateOpenAIcost(openaiJson.usage as OpenAIUsage);
   const rawResponse = JSON.stringify(parsed);
   await adminSupabase
@@ -292,7 +293,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     })
     .eq('id', slip_id);
 
-  // 14. Return
+  // 13. Return
   return new Response(
     JSON.stringify({ ...parsed, raw_response: rawResponse, openai_cost_cents: costCents }),
     {

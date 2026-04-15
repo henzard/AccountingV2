@@ -52,7 +52,7 @@ describe('ScoreIntroStep', () => {
 
   it('renders the explainer title', () => {
     const { getByText } = render(<ScoreIntroStep />);
-    expect(getByText('Your Ramsey Score')).toBeTruthy();
+    expect(getByText('Your Habit Score')).toBeTruthy();
   });
 
   it('renders explainer body content', () => {

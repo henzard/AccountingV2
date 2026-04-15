@@ -46,7 +46,7 @@ export function RamseyScoreBadge({ score }: RamseyScoreBadgeProps): React.JSX.El
       style={styles.container}
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: clamped }}
-      accessibilityLabel={`Ramsey score: ${score} — ${label}`}
+      accessibilityLabel={`Habit score: ${score} — ${label}`}
     >
       <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
         {/* Track arc */}
