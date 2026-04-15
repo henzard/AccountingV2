@@ -95,9 +95,10 @@ jest.mock('../../../hooks/useBabySteps', () => ({
 }));
 
 // ─── appStore mock ────────────────────────────────────────────────────────────
+let mockBabyStepsHouseholdId: string | null = 'hh-test';
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((selector: (s: object) => unknown) =>
-    selector({ householdId: 'hh-test', paydayDay: 25 }),
+    selector({ householdId: mockBabyStepsHouseholdId, paydayDay: 25 }),
   ),
 }));
 
@@ -157,6 +158,13 @@ describe('BabyStepsScreen', () => {
     mockLoading = false;
     mockStatuses = [];
     mockReconcile.mockClear();
+    mockBabyStepsHouseholdId = 'hh-test';
+  });
+
+  it('shows loading splash when householdId is null', () => {
+    mockBabyStepsHouseholdId = null;
+    const { getByTestId } = render(<BabyStepsScreen {...makeNavProps()} />);
+    expect(getByTestId('loading-splash')).toBeTruthy();
   });
 
   // ─── Three tiers ─────────────────────────────────────────────────────────

@@ -33,9 +33,10 @@ jest.mock('../../../../domain/scoring/resolveLoggingDays', () => ({
 }));
 
 // ─── Store mock ───────────────────────────────────────────────────────────────
+let mockHouseholdId: string | null = 'hh-1';
 jest.mock('../../../stores/appStore', () => ({
-  useAppStore: jest.fn((sel: (s: { householdId: string; paydayDay: number }) => unknown) =>
-    sel({ householdId: 'hh-1', paydayDay: 25 }),
+  useAppStore: jest.fn((sel: (s: { householdId: string | null; paydayDay: number }) => unknown) =>
+    sel({ householdId: mockHouseholdId, paydayDay: 25 }),
   ),
 }));
 
@@ -61,6 +62,18 @@ jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 import { DashboardScreen } from '../DashboardScreen';
 
 describe('DashboardScreen', () => {
+  afterEach(() => {
+    mockHouseholdId = 'hh-1';
+  });
+
+  it('shows loading splash when householdId is null', () => {
+    mockHouseholdId = null;
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('loading-splash')).toBeTruthy();
+  });
+
   it('renders without crashing and shows Add Transaction FAB', () => {
     const { getByTestId } = render(
       <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,

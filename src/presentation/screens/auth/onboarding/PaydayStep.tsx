@@ -8,6 +8,7 @@ import { UpdateHouseholdPaydayDayUseCase } from '../../../../domain/households/U
 import { useAppStore } from '../../../stores/appStore';
 import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
+import { LoadingSplash } from '../../../components/shared/LoadingSplash';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Payday'>;
@@ -15,13 +16,15 @@ type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Payday'>;
 export function PaydayStep(): React.JSX.Element {
   const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
-  const householdId = useAppStore((s) => s.householdId)!;
+  const householdId = useAppStore((s) => s.householdId);
   const currentPaydayDay = useAppStore((s) => s.paydayDay);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
 
   const [dayStr, setDayStr] = useState(String(currentPaydayDay));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (!householdId) return <LoadingSplash />;
 
   const handleNext = async (): Promise<void> => {
     setError(null);

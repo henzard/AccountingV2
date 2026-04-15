@@ -13,6 +13,7 @@ import { CurrencyText } from '../../components/shared/CurrencyText';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
+import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -28,14 +29,15 @@ const scoreCalculator = new RamseyScoreCalculator();
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
-  const householdId = useAppStore((s) => s.householdId)!;
+  const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
 
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
-  const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
-  const { statuses: babyStepStatuses } = useBabySteps(householdId, periodStart);
+  const hid = householdId ?? '';
+  const { envelopes, loading, reload } = useEnvelopes(hid, periodStart);
+  const { statuses: babyStepStatuses } = useBabySteps(hid, periodStart);
   const [babyStepIsActive, setBabyStepIsActive] = useState(false);
   const [loggingDaysCount, setLoggingDaysCount] = useState(0);
 
@@ -43,18 +45,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     useCallback((): (() => void) => {
       let cancelled = false;
       void reload();
-      resolveBabyStepIsActive(db, householdId).then((isActive) => {
+      resolveBabyStepIsActive(db, hid).then((isActive) => {
         if (!cancelled) setBabyStepIsActive(isActive);
       });
       const periodEnd = format(period.endDate, 'yyyy-MM-dd');
-      resolveLoggingDays(db, householdId, periodStart, periodEnd).then((days) => {
+      resolveLoggingDays(db, hid, periodStart, periodEnd).then((days) => {
         if (!cancelled) setLoggingDaysCount(days);
       });
       return () => {
         cancelled = true;
       };
-    }, [reload, householdId, period.endDate, periodStart]),
+    }, [reload, hid, period.endDate, periodStart]),
   );
+
+  if (!householdId) return <LoadingSplash />;
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
   const totalSpent = envelopes.reduce((s, e) => s + e.spentCents, 0);
