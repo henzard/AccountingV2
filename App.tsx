@@ -161,7 +161,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     // Bind once on mount (covers cold-start with existing session).
     bindCelebrationStore();
-    // Subscribe NetworkObserver → networkStore (drives OfflineBanner).
+    // Subscribe NetworkObserver → syncStore (drives OfflineBanner).
     const unsubscribeNetwork = subscribeNetworkChanges();
 
     // Cleanup expired slip images (fire-and-forget — non-fatal).

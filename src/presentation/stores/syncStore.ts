@@ -43,9 +43,13 @@ let _unsubscribe: (() => void) | null = null;
  */
 export function subscribeNetworkChanges(): () => void {
   if (_unsubscribe) return _unsubscribe;
-  _unsubscribe = NetInfo.addEventListener((state) => {
+  const rawUnsub = NetInfo.addEventListener((state) => {
     const online = Boolean(state.isConnected && state.isInternetReachable);
     useSyncStore.getState().setIsOnline(online);
   });
+  _unsubscribe = () => {
+    rawUnsub();
+    _unsubscribe = null;
+  };
   return _unsubscribe;
 }
