@@ -142,15 +142,24 @@ Known issue — there are two household-membership tables being reconciled. Trac
 **"Household is locked" when I try to edit.**
 Sign out and back in. Session state got stuck.
 
+**App only shows in light mode — no way to switch to dark.**
+Known gap. The theme is currently locked to light at the app level (`app.config.ts` forces `userInterfaceStyle: 'light'`), and there is no Appearance setting in Settings yet. Dark mode is also only partially implemented internally — the **Add transaction** and **Slip capture** screens don't use the theme system, so even if dark mode were enabled today, those two screens would render with hardcoded colours and look broken. Both are on the near-term roadmap.
+
+**Some screens (Add transaction, Slip capture) look inconsistent with the rest of the app.**
+Those screens currently use raw colour values instead of the shared theme tokens. Visible today as minor styling drift; invisible until dark mode ships, then becomes contrast-breaking. Tracked as a visual-consistency fix.
+
 ---
 
 ## What's next (roadmap visible to users)
 
 Near-term (shipping now):
 
-- Dashboard "Add transaction" FAB
-- Real allocation wizard during onboarding
+- Dashboard "Add transaction" FAB (primary daily action gets a home)
+- Real allocation wizard during onboarding (no more R0.01 placeholders)
 - Household-sync reliability fixes (Phase A hardening)
+- **Appearance setting in Settings** — system / light / dark toggle
+- **Dark-mode completion** — Add transaction + Slip capture screens moved onto the theme tokens so colours invert correctly
+- Dashboard visual polish — larger KPI numbers, cleaner FAB, bigger Ramsey Score badge
 
 Later:
 

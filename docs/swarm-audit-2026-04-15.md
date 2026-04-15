@@ -4,13 +4,15 @@ Five specialist agents ran in parallel; this is the queen-consensus synthesis.
 
 ## Grades (by specialist)
 
-| Lens                  | Grade | Headline                                                                                         |
-| --------------------- | ----- | ------------------------------------------------------------------------------------------------ |
-| Architecture          | C+    | Server-side sync is excellent; domain layer leaks Drizzle/Expo — hexagonal structure is nominal. |
-| Security              | B+    | RLS universal, RPCs membership-guarded, but SQLite unencrypted and one TOCTOU on OpenAI spend.   |
-| Domain (Ramsey model) | A-    | Baby Steps canonical, snowball genuine, zero-based advisory-not-enforced.                        |
-| BMad compliance       | C+    | Planning phase completed in BMad; execution forked to superpowers plans.                         |
-| Usability             | 6/10  | Warm onboarding → dashboard cliff where R0.01 envelopes + no "Add transaction" FAB.              |
+| Lens                  | Grade  | Headline                                                                                            |
+| --------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| Architecture          | C+     | Server-side sync is excellent; domain layer leaks Drizzle/Expo — hexagonal structure is nominal.    |
+| Security              | B+     | RLS universal, RPCs membership-guarded, but SQLite unencrypted and one TOCTOU on OpenAI spend.      |
+| Domain (Ramsey model) | A-     | Baby Steps canonical, snowball genuine, zero-based advisory-not-enforced.                           |
+| BMad compliance       | C+     | Planning phase completed in BMad; execution forked to superpowers plans.                            |
+| Usability             | 6/10   | Warm onboarding → dashboard cliff where R0.01 envelopes + no "Add transaction" FAB.                 |
+| Visual design         | C+     | Token system is rare-quality; screens undermine it — primary KPIs at 14pt, stacked FABs, hex leaks. |
+| Visual consistency    | 64/100 | Typography 72 · Spacing 78 · Colour 58 · Component reuse 48.                                        |
 
 **Aggregate: B-.** Production-viable backbone with a painful first-user experience and two high-severity risks.
 
@@ -37,6 +39,9 @@ Five specialist agents ran in parallel; this is the queen-consensus synthesis.
 - **SQLite unencrypted at rest.** `accountingv2-v3.db` stores household payees, merchants, amounts, and the full audit log in plaintext. On a rooted device / ADB backup, it's readable.
 - **OpenAI rate-limit TOCTOU.** Concurrent requests can bypass the 50/day household cap (`supabase/functions/extract-slip/index.ts:128-146` — the comment acknowledges this).
 - **Invitation enumeration.** Any authenticated user can `SELECT` all unused, unexpired invitations from `invitations` table (`supabase/migrations/005:111-117`) — reveals household IDs and invitation volume.
+- **Dark theme is broken and not user-controllable.** The theme system reads `useColorScheme()` from the OS (`useAppTheme.ts:177`) _but_ `app.config.ts:36` hard-codes `userInterfaceStyle: 'light'`, forcing the OS to report light to the app regardless of the user's system setting. Even if that were flipped, dark mode is half-baked: `AddTransactionScreen.tsx:14,258-286` imports the raw `colours` token (not `useAppTheme()`), and the entire `slipScanning/` stack uses hardcoded hex (`#000`, `#fff`, `#4CAF50`, `#1565C0`) — both go unreadable on a dark surface. There is **no in-app setting** to switch themes; Settings has no appearance row.
+- **Visual design regressions from the token system.** A coherent MD3 palette + 8-step spacing scale + Fraunces/Jakarta pairing (`tokens.ts:1-116`) is undermined at the screen level: Dashboard KPIs render at 14pt while page titles go to 28pt so the hero data is the quietest thing on screen (`DashboardScreen.tsx:212`); two stacked FABs compete for attention in clashing colours (`DashboardScreen.tsx:171-183`); Ramsey Score label rendered at 8pt (`RamseyScoreBadge.tsx:104` — below legibility floor); transaction list rows are elevated cards instead of flat rows, producing a "pile of business cards" effect at scale (`TransactionListScreen.tsx:120`).
+- **Five reusable components missing** — `StatCard`/`KPIBlock`, `FormScreen`/`OnboardingStepLayout`, `ListRow`, `PickerField`, `SectionHeader`. The 7 onboarding steps, transaction list vs settings list, and three ad-hoc section headers together represent ~500 LOC of duplicated JSX+styles that would collapse into a shared primitive.
 - **BMad fork.** Analysis + Planning completed in BMad (PRD 773 lines, architecture 1212 lines). Implementation tracked in `docs/superpowers/plans/` with no traceability back to BMad epic/story IDs. `_bmad-output/implementation-artifacts/` is empty.
 
 ---
@@ -58,6 +63,14 @@ Priority-ordered. Each item: **rationale / effort / owner.**
 3. **Add a concurrency guard to `SyncOrchestrator.syncPending()`.**
    - Module-level `isRunning` latch, or SQLite advisory lock. Eliminates retry-count double-increment and duplicate audit events.
    - **S / backend**
+
+4. **Fix dark-theme + add in-app theme control.**
+   - Remove `userInterfaceStyle: 'light'` from `app.config.ts:36` so `useColorScheme()` actually sees system preference. Swap raw-hex sites (`AddTransactionScreen.tsx:14,258-286`, all of `slipScanning/*`) to `useAppTheme()`. Add an `Appearance` row in Settings with `system / light / dark` options persisted to AsyncStorage, wired into a Zustand slice that `useAppTheme` consumes ahead of the OS scheme. Without this, "dark mode" silently half-works, is invisible to the user, and cannot be diagnosed or turned off.
+   - **M / frontend**
+
+5. **Land the three critical visual fixes.**
+   - Promote Dashboard KPIs to `headlineSmall` with tabular-nums (`DashboardScreen.tsx:212-215`); collapse stacked FABs into one primary + header camera icon (`DashboardScreen.tsx:171-183`); enlarge Ramsey Score badge — score → 24pt bold, label → 10pt (`RamseyScoreBadge.tsx:104`).
+   - **S / frontend**
 
 ### P1 — Reduce risk before wider rollout
 
@@ -85,6 +98,10 @@ Priority-ordered. Each item: **rationale / effort / owner.**
 11. **Promote Play Store track from draft to internal with real testers.** Currently no external signal because the listing is incomplete. **S / product + devops.**
 12. **Run `bmad-create-epics-and-stories` to back-fill traceability** between the PRD and the superpowers plans. Cheap, recovers a long-term navigability problem. **S / product.**
 
+13. **Extract the five missing UI primitives** — `StatCard`, `OnboardingStepLayout`, `ListRow`, `PickerField`, `SectionHeader`. Unifies visual language, drops ~500 duplicated LOC, and makes the next design pass cheap. **M / frontend.**
+
+14. **Flatten the transaction list** — replace `Surface elevation={1}` per-row with flat rows + 1px `outlineVariant` divider (`TransactionListScreen.tsx:120`). Reserve elevation for summary cards only. **S / frontend.**
+
 ### Things to NOT do
 
 - **Don't rewrite the migration runner to use `drizzle-orm/expo-sqlite/migrator`.** It crashes the JS thread on current expo-sqlite — the manual runner is load-bearing. Harden in place.
@@ -95,7 +112,7 @@ Priority-ordered. Each item: **rationale / effort / owner.**
 
 ## Usability rating: 6/10
 
-Would be **8/10** if P0-#1 is shipped. The bones are genuinely good — typography, Paper components, onboarding copy ("One question at a time. Takes about 12 minutes."), baby-steps tri-tier layout with `accessibilityElementsHidden` on future steps. The cliff is entirely at the transition from `FinishStep` ("Your budget is ready.") to the first Dashboard render.
+Would be **8/10** if P0-#1 + P0-#4 + P0-#5 ship. The bones are genuinely good — typography system, Paper components, onboarding copy ("One question at a time. Takes about 12 minutes."), baby-steps tri-tier layout with `accessibilityElementsHidden` on future steps. The cliff is entirely at the transition from `FinishStep` ("Your budget is ready.") to the first Dashboard render, plus a broken theme story that users cannot control.
 
 **Estimated first-run drop-off risk: ~40% within 60s of landing on Dashboard**, based on:
 
