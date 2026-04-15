@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, SectionList, Alert } from 'react-native';
-import { Text, FAB, ActivityIndicator, Surface, IconButton } from 'react-native-paper';
+import { Text, FAB, ActivityIndicator, Surface, IconButton, Divider } from 'react-native-paper';
+import { ListRow } from '../../components/shared/ListRow';
 import { useFocusEffect } from '@react-navigation/native';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -14,7 +15,7 @@ import { EmptyState } from '../../components/shared/EmptyState';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
-import { spacing, radius } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { format, parseISO } from 'date-fns';
 import type { TransactionListScreenProps } from '../../navigation/types';
@@ -111,34 +112,29 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
             <SectionHeader title={section.title} filled />
           )}
           renderItem={({ item }) => (
-            <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={1}>
-              <View style={styles.rowLeft}>
-                <Text
-                  variant="bodyLarge"
-                  style={[styles.payee, { color: colors.onSurface }]}
-                  numberOfLines={1}
-                >
-                  {item.payee ?? 'Unknown'}
-                </Text>
-                <Text
-                  variant="bodySmall"
-                  style={[styles.envelopeName, { color: colors.onSurfaceVariant }]}
-                >
-                  {envelopeNames.get(item.envelopeId) ?? '—'}
-                </Text>
-              </View>
-              <CurrencyText
-                amountCents={item.amountCents}
-                style={{ ...styles.amount, color: colors.error }}
-              />
-              <IconButton
-                icon="delete-outline"
-                iconColor={colors.error}
-                size={20}
-                onPress={() => handleDelete(item)}
-                testID={`delete-tx-${item.id}`}
-              />
-            </Surface>
+            <ListRow
+              title={item.payee ?? 'Unknown'}
+              subtitle={envelopeNames.get(item.envelopeId) ?? '—'}
+              trailing={
+                <View style={styles.rowTrailing}>
+                  <CurrencyText
+                    amountCents={item.amountCents}
+                    style={[styles.amount, { color: colors.error }]}
+                  />
+                  <IconButton
+                    icon="delete-outline"
+                    iconColor={colors.error}
+                    size={20}
+                    onPress={() => handleDelete(item)}
+                    testID={`delete-tx-${item.id}`}
+                  />
+                </View>
+              }
+              testID={`tx-row-${item.id}`}
+            />
+          )}
+          ItemSeparatorComponent={() => (
+            <Divider style={{ backgroundColor: colors.outlineVariant }} />
           )}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled
@@ -159,17 +155,10 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: {},
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  row: {
+  rowTrailing: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: spacing.base,
-    marginVertical: spacing.xs / 2,
-    borderRadius: radius.md,
-    padding: spacing.base,
   },
-  rowLeft: { flex: 1, marginRight: spacing.base },
-  payee: { fontFamily: 'PlusJakartaSans_600SemiBold' },
-  envelopeName: { marginTop: 2 },
   amount: { fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold' },
   list: { paddingBottom: 100 },
   fab: {
