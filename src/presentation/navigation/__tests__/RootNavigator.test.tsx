@@ -153,7 +153,6 @@ const mockIsOnboardingComplete = isOnboardingComplete as jest.Mock;
 
 function setStore(session: object | null, householdId: string | null): void {
   useAppStore.setState({
-     
     session: session as any,
     householdId,
     onboardingCompleted: null,
