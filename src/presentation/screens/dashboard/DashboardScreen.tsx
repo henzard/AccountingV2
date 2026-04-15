@@ -3,19 +3,19 @@ import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { BabyStepsCard } from './BabyStepsCard';
-import { Text, FAB, Surface, Button } from 'react-native-paper';
+import { FAB, Surface, Button } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useBabySteps } from '../../hooks/useBabySteps';
 import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
-import { CurrencyText } from '../../components/shared/CurrencyText';
+import { KPIRow } from '../../components/shared/KPIRow';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
-import { spacing, radius } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { format } from 'date-fns';
 import type { DashboardScreenProps } from '../../navigation/types';
@@ -90,52 +90,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       </Surface>
 
       {envelopes.length > 0 && (
-        <Surface
-          style={[styles.summary, { backgroundColor: colors.primaryContainer }]}
-          elevation={1}
-        >
-          <View style={styles.summaryItem}>
-            <Text
-              variant="labelSmall"
-              style={[styles.summaryLabel, { color: colors.onPrimaryContainer }]}
-            >
-              ALLOCATED
-            </Text>
-            <CurrencyText
-              amountCents={totalAllocated}
-              style={{ ...styles.summaryValue, color: colors.onPrimaryContainer }}
-            />
-          </View>
-          <View style={[styles.summaryDivider, { backgroundColor: colors.outlineVariant }]} />
-          <View style={styles.summaryItem}>
-            <Text
-              variant="labelSmall"
-              style={[styles.summaryLabel, { color: colors.onPrimaryContainer }]}
-            >
-              SPENT
-            </Text>
-            <CurrencyText
-              amountCents={totalSpent}
-              style={{ ...styles.summaryValue, color: colors.onPrimaryContainer }}
-            />
-          </View>
-          <View style={[styles.summaryDivider, { backgroundColor: colors.outlineVariant }]} />
-          <View style={styles.summaryItem}>
-            <Text
-              variant="labelSmall"
-              style={[styles.summaryLabel, { color: colors.onPrimaryContainer }]}
-            >
-              REMAINING
-            </Text>
-            <CurrencyText
-              amountCents={totalRemaining}
-              style={{
-                ...styles.summaryValue,
-                color: totalRemaining < 0 ? colors.error : colors.onPrimaryContainer,
-              }}
-            />
-          </View>
-        </Surface>
+        <KPIRow
+          items={[
+            { label: 'Allocated', valueCents: totalAllocated },
+            { label: 'Spent', valueCents: totalSpent },
+            { label: 'Remaining', valueCents: totalRemaining, errorWhenNegative: true },
+          ]}
+          testID="dashboard-kpi-row"
+        />
       )}
 
       {/* Baby Steps card — shown when statuses are loaded */}
@@ -194,30 +156,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerLeft: { flex: 1 },
-  summary: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.base,
-    marginTop: spacing.base,
-    borderRadius: radius.lg,
-    padding: spacing.base,
-  },
-  summaryItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  summaryLabel: {
-    letterSpacing: 0.8,
-    marginBottom: spacing.xs,
-  },
-  summaryValue: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    fontVariant: ['tabular-nums'],
-  },
-  summaryDivider: {
-    width: 1,
-    marginVertical: spacing.xs,
-  },
   list: {
     padding: spacing.base,
     paddingBottom: 100,
