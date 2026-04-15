@@ -3,7 +3,7 @@ import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { RamseyScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { BabyStepsCard } from './BabyStepsCard';
-import { Text, FAB, Surface } from 'react-native-paper';
+import { Text, FAB, Surface, Button } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
@@ -69,10 +69,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     meterReadingsLoggedThisPeriod: false,
     babyStepIsActive,
   });
-
-  const handleAddEnvelope = (): void => {
-    navigation.navigate('AddEditEnvelope', {});
-  };
 
   const handleEditEnvelope = (envelope: EnvelopeEntity): void => {
     navigation.navigate('AddEditEnvelope', { envelopeId: envelope.id });
@@ -149,11 +145,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       {loading ? (
         <LoadingSkeletonList count={4} testID="dashboard-loading" />
       ) : envelopes.length === 0 ? (
-        <EmptyState
-          title="No envelopes yet"
-          body="Tap + to create your first envelope"
-          testID="dashboard-empty-state"
-        />
+        <>
+          <EmptyState
+            title="No envelopes yet"
+            body="Add your first envelope to get started"
+            testID="dashboard-empty-state"
+          />
+          <Button mode="text" onPress={() => navigation.navigate('AddEditEnvelope', {})}>
+            + New envelope
+          </Button>
+        </>
       ) : (
         <FlatList
           data={envelopes}
@@ -170,16 +171,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 
       <FAB
         icon="plus"
+        label="Add transaction"
         style={[styles.fab, { backgroundColor: colors.primary }]}
-        onPress={handleAddEnvelope}
+        onPress={() => navigation.navigate('AddTransaction')}
         color={colors.onPrimary}
-      />
-      <FAB
-        icon="camera-outline"
-        style={[styles.fabCamera, { backgroundColor: colors.secondary }]}
-        onPress={() => navigation.navigate('SlipScanning' as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
-        color={colors.onPrimary}
-        testID="camera-fab"
+        testID="add-transaction-fab"
       />
     </View>
   );
@@ -224,11 +220,6 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: spacing.base,
-    bottom: spacing.xl,
-  },
-  fabCamera: {
-    position: 'absolute',
-    right: spacing.base + 64 + spacing.sm,
     bottom: spacing.xl,
   },
 });

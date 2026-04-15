@@ -34,6 +34,7 @@ export type DashboardStackParamList = {
       }
     | undefined;
   BabySteps: undefined;
+  AddTransaction: undefined;
 };
 
 export type TransactionsStackParamList = {

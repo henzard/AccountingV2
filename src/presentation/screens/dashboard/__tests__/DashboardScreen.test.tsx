@@ -48,6 +48,8 @@ jest.mock('react-native-paper', () => {
       React.createElement('Text', null, children),
     FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
       React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
+    Button: ({ onPress, children }: { onPress?: () => void; children?: React.ReactNode }) =>
+      React.createElement('Pressable', { onPress }, children),
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
@@ -59,18 +61,18 @@ jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 import { DashboardScreen } from '../DashboardScreen';
 
 describe('DashboardScreen', () => {
-  it('renders without crashing and shows FAB', () => {
+  it('renders without crashing and shows Add Transaction FAB', () => {
     const { getByTestId } = render(
       <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
     );
-    expect(getByTestId('fab')).toBeTruthy();
+    expect(getByTestId('add-transaction-fab')).toBeTruthy();
   });
 
-  it('pressing FAB navigates to AddEditEnvelope', () => {
+  it('pressing Add Transaction FAB navigates to AddTransaction', () => {
     const { getByTestId } = render(
       <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
     );
-    fireEvent.press(getByTestId('fab'));
-    expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', expect.any(Object));
+    fireEvent.press(getByTestId('add-transaction-fab'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddTransaction');
   });
 });
