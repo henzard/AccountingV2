@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text } from 'react-native';
+import { TouchableRipple } from 'react-native-paper';
 import { render, fireEvent } from '@testing-library/react-native';
 import { ListRow } from '../ListRow';
 
@@ -40,7 +41,6 @@ describe('ListRow', () => {
     const { getByTestId, UNSAFE_queryByType } = render(<ListRow title="T" testID="row" />);
     expect(getByTestId('row')).toBeTruthy();
     // Should be a static View, not TouchableRipple
-    const { TouchableRipple } = require('react-native-paper');
     expect(UNSAFE_queryByType(TouchableRipple)).toBeNull();
   });
 });
