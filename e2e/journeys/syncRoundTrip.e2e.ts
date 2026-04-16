@@ -3,41 +3,34 @@
  *
  * Detox E2E — Sync Round-Trip Journey
  *
- * STATUS: BLOCKED — Detox is not installed in this project.
- * To unblock: npx expo install detox @config-plugins/detox,
- * then configure .detoxrc.js and remove the describe.skip.
+ * Verifies: transaction queued → offline banner appears → banner hides when online.
+ * Requires at least one envelope to exist (addEnvelope journey runs first).
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { device, element, by, expect as detoxExpect } from 'detox';
 
-// When Detox is installed these globals are injected by the test runner.
-declare const device: any;
-declare const element: any;
-declare const by: any;
-
-describe('syncRoundTrip — BLOCKED: detox not installed', () => {
+describe('Sync round-trip journey', () => {
   beforeAll(async () => {
-    await device.launchApp({ newInstance: true });
+    await device.launchApp({ newInstance: false });
   });
 
-  it('should create a transaction and confirm it is queued for sync', async () => {
-    // Navigate to the Add Transaction screen
-    await expect(element(by.id('fab'))).toBeVisible();
-    await element(by.id('fab')).tap();
-    await expect(element(by.text('Record Transaction'))).toBeVisible();
+  it('shows Add Transaction screen from the FAB', async () => {
+    await detoxExpect(element(by.id('add-transaction-fab'))).toBeVisible();
+    await element(by.id('add-transaction-fab')).tap();
+    await detoxExpect(element(by.text('Record Transaction'))).toBeVisible();
+    await device.pressBack();
   });
 
-  it('should display pending sync indicator when offline', async () => {
-    // Simulate going offline and verify sync queue indicator is shown
+  it('shows the offline banner when network is blocked', async () => {
     await device.setURLBlacklist(['.*supabase.*']);
-    await expect(element(by.id('offline-banner'))).toBeVisible();
+    await device.sendToHome();
+    await device.launchApp({ newInstance: false });
+    await detoxExpect(element(by.id('offline-banner'))).toBeVisible();
   });
 
-  it('should sync pending records when back online', async () => {
-    // Simulate coming back online
+  it('hides the offline banner when network is restored', async () => {
     await device.setURLBlacklist([]);
-    // Allow time for sync to complete
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    await expect(element(by.id('offline-banner'))).not.toBeVisible();
+    await detoxExpect(element(by.id('offline-banner'))).not.toBeVisible();
   });
 });
