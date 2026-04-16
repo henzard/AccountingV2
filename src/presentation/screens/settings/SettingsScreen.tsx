@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Alert, Switch } from 'react-native';
+import { View, ScrollView, StyleSheet, Alert, Switch } from 'react-native';
 import { List, Surface, Divider, Button, SegmentedButtons } from 'react-native-paper';
 import { useThemeStore } from '../../stores/themeStore';
 import { useNavigation } from '@react-navigation/native';
@@ -52,7 +52,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   };
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+    <ScrollView
+      style={[styles.flex, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.content}
+    >
       <List.Section>
         <List.Subheader style={styles.subheader}>Household</List.Subheader>
         <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
@@ -196,12 +199,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           Sign out
         </Button>
       </View>
-    </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  content: { paddingBottom: spacing.xxl },
   section: {
     marginTop: spacing.base,
     marginHorizontal: spacing.base,
