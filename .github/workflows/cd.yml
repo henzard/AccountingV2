@@ -70,18 +70,35 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
 
+      - name: Check Firebase secrets
+        id: firebase_check
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          if [ -n "$SA_JSON" ]; then
+            echo "has_sa=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_sa=false" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$SA_JSON" ] && [ -n "$PROJECT_ID" ]; then
+            echo "has_both=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_both=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Authenticate to Google Cloud
-        if: secrets.FIREBASE_SERVICE_ACCOUNT_JSON != ''
+        if: steps.firebase_check.outputs.has_sa == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
 
       - name: Set up gcloud CLI
-        if: secrets.FIREBASE_SERVICE_ACCOUNT_JSON != ''
+        if: steps.firebase_check.outputs.has_sa == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Build release APK for Firebase Test Lab
-        if: secrets.FIREBASE_SERVICE_ACCOUNT_JSON != ''
+        if: steps.firebase_check.outputs.has_sa == 'true'
         working-directory: android
         run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PversionName=${{ steps.vname.outputs.name }} --no-daemon
         env:
@@ -93,7 +110,7 @@ jobs:
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
 
       - name: Firebase Test Lab — Robo smoke test
-        if: secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' && secrets.FIREBASE_PROJECT_ID != ''
+        if: steps.firebase_check.outputs.has_both == 'true'
         run: |
           gcloud firebase test android run \
             --type robo \
@@ -103,7 +120,7 @@ jobs:
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
 
       - name: Upload JS source maps to Crashlytics
-        if: secrets.FIREBASE_SERVICE_ACCOUNT_JSON != ''
+        if: steps.firebase_check.outputs.has_sa == 'true'
         working-directory: android
         run: |
           ./gradlew uploadCrashlyticsSymbolFileRelease
