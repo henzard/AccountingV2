@@ -75,6 +75,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             autoComplete="email"
             textContentType="emailAddress"
             mode="outlined"
+            testID="login-email"
             style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Email address"
@@ -90,6 +91,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             autoComplete="password"
             textContentType="password"
             mode="outlined"
+            testID="login-password"
             style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Password"
@@ -132,6 +134,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
       </ScrollView>
 
       <Snackbar
+        testID="snackbar"
         visible={error !== null}
         onDismiss={() => setError(null)}
         duration={4000}

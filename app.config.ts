@@ -51,6 +51,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     allowBackup: false,
   },
   plugins: [
+    '@config-plugins/detox', // must precede build-property-consuming plugins
     'expo-sqlite',
     'expo-secure-store',
     'expo-camera',

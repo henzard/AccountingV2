@@ -3,34 +3,27 @@
  *
  * Detox E2E — Add Envelope Journey
  *
- * STATUS: BLOCKED — Detox is not installed in this project.
- * To unblock: npx expo install detox @config-plugins/detox,
- * then configure .detoxrc.js and remove the describe.skip.
+ * Prerequisite: user is signed in and on the Dashboard screen.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { device, element, by, expect as detoxExpect } from 'detox';
 
-// When Detox is installed these globals are injected by the test runner.
-declare const device: any;
-declare const element: any;
-declare const by: any;
-
-describe('Add Envelope journey (Detox — BLOCKED: not installed)', () => {
+describe('Add Envelope journey', () => {
   beforeAll(async () => {
-    await device.launchApp({ newInstance: true });
+    await device.launchApp({ newInstance: false });
   });
 
-  it('should open AddEditEnvelope screen via FAB', async () => {
-    await expect(element(by.id('fab'))).toBeVisible();
-    await element(by.id('fab')).tap();
-    await expect(element(by.text('Add Envelope'))).toBeVisible();
+  it('opens AddEditEnvelope screen via empty-state button', async () => {
+    await detoxExpect(element(by.id('dashboard-empty-state'))).toBeVisible();
+    await element(by.id('new-envelope-button')).tap();
+    await detoxExpect(element(by.id('envelope-name'))).toBeVisible();
   });
 
-  it('should save a new income envelope and return to Dashboard', async () => {
+  it('saves a new income envelope and returns to Dashboard', async () => {
     await element(by.id('envelope-name')).typeText('Salary');
     await element(by.text('Income')).tap();
     await element(by.id('envelope-amount')).typeText('15000');
     await element(by.id('envelope-save')).tap();
-    await expect(element(by.id('fab'))).toBeVisible();
+    await detoxExpect(element(by.id('add-transaction-fab'))).toBeVisible();
   });
 });

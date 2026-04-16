@@ -87,9 +87,9 @@ describe('SignUpScreen', () => {
 
   it('shows error when passwords do not match', async () => {
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'test@example.com');
-    fireEvent.changeText(getByTestId('Password'), 'password123');
-    fireEvent.changeText(getByTestId('Confirm password'), 'different');
+    fireEvent.changeText(getByTestId('signup-email'), 'test@example.com');
+    fireEvent.changeText(getByTestId('signup-password'), 'password123');
+    fireEvent.changeText(getByTestId('signup-confirm-password'), 'different');
     fireEvent.press(getByText('Create Account'));
     await waitFor(() => {
       expect(queryByTestId('signup-error')).toBeTruthy();
@@ -102,9 +102,9 @@ describe('SignUpScreen', () => {
       error: null,
     });
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'user@example.com');
-    fireEvent.changeText(getByTestId('Password'), 'securepass1');
-    fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
+    fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('signup-password'), 'securepass1');
+    fireEvent.changeText(getByTestId('signup-confirm-password'), 'securepass1');
     fireEvent.press(getByText('Create Account'));
     await waitFor(() => {
       expect(mockSignUp).toHaveBeenCalledWith({
@@ -124,9 +124,9 @@ describe('SignUpScreen', () => {
       error: null,
     });
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'user@example.com');
-    fireEvent.changeText(getByTestId('Password'), 'securepass1');
-    fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
+    fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('signup-password'), 'securepass1');
+    fireEvent.changeText(getByTestId('signup-confirm-password'), 'securepass1');
     fireEvent.press(getByText('Create Account'));
     await waitFor(() => {
       expect(queryByTestId('signup-check-email')).toBeTruthy();
@@ -140,9 +140,9 @@ describe('SignUpScreen', () => {
   it('shows supabase error message on failure', async () => {
     mockSignUp.mockResolvedValue({ error: { message: 'Email already registered' } });
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'user@example.com');
-    fireEvent.changeText(getByTestId('Password'), 'securepass1');
-    fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
+    fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('signup-password'), 'securepass1');
+    fireEvent.changeText(getByTestId('signup-confirm-password'), 'securepass1');
     fireEvent.press(getByText('Create Account'));
     await waitFor(() => {
       expect(queryByTestId('signup-error')).toBeTruthy();

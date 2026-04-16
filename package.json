@@ -64,6 +64,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@config-plugins/detox": "^11.0.0",
     "@testing-library/jest-native": "^5.4.3",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^30.0.0",
