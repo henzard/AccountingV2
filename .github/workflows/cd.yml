@@ -111,7 +111,6 @@ jobs:
 
       - name: Firebase Test Lab — Robo smoke test
         if: steps.firebase_check.outputs.has_both == 'true'
-        continue-on-error: true  # TODO: grant roles/cloudtestingadmin to firebase-adminsdk SA in GCP IAM Console to harden this into a real gate
         run: |
           gcloud firebase test android run \
             --type robo \
