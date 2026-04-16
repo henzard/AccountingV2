@@ -10,7 +10,7 @@ module.exports = {
       type: 'android.apk',
       binaryPath: 'android/app/build/outputs/apk/debug/app-debug.apk',
       testBinaryPath: 'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk',
-      build: 'cd android && ./gradlew assembleDebug assembleAndroidTest --no-daemon',
+      build: 'cd android && ./gradlew :app:assembleDebug :app:assembleAndroidTest --no-daemon',
     },
   },
   devices: {
