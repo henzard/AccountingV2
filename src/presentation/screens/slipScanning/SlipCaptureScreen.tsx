@@ -6,6 +6,7 @@ import { MultiShotCoachmark } from './components/MultiShotCoachmark';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppNavigation } from '../../navigation/useAppNavigation';
 import { useSyncStore } from '../../stores/syncStore';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 const MAX_FRAMES = 5;
 const DAILY_LIMIT = 25;
@@ -23,6 +24,7 @@ export function SlipCaptureScreen({
   householdId,
   createdBy,
 }: SlipCaptureScreenProps): React.JSX.Element {
+  const { colors } = useAppTheme();
   const navigation = useAppNavigation();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<InstanceType<typeof CameraView>>(null);
@@ -122,19 +124,19 @@ export function SlipCaptureScreen({
         <Text style={styles.permissionText}>Camera permission is required to scan slips.</Text>
         {permission.canAskAgain ? (
           <TouchableOpacity
-            style={styles.permissionButton}
+            style={[styles.permissionButton, { backgroundColor: colors.primary }]}
             onPress={requestPermission}
             testID="request-permission"
           >
-            <Text>Grant Permission</Text>
+            <Text style={{ color: colors.onPrimary }}>Grant Permission</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={styles.permissionButton}
+            style={[styles.permissionButton, { backgroundColor: colors.primary }]}
             onPress={() => Linking.openSettings()}
             testID="open-settings"
           >
-            <Text>Open Settings</Text>
+            <Text style={{ color: colors.onPrimary }}>Open Settings</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -156,7 +158,11 @@ export function SlipCaptureScreen({
       <CameraView ref={cameraRef} style={styles.camera} />
 
       {/* Thumbnail strip */}
-      <ScrollView horizontal style={styles.thumbnailStrip} testID="thumbnail-strip">
+      <ScrollView
+        horizontal
+        style={[styles.thumbnailStrip, { backgroundColor: colors.surfaceVariant }]}
+        testID="thumbnail-strip"
+      >
         {frames.map((uri, idx) => {
           const isPending = pendingDelete === idx;
           return (
@@ -168,10 +174,10 @@ export function SlipCaptureScreen({
               {isPending ? (
                 <TouchableOpacity
                   onPress={undoDelete}
-                  style={styles.undoButton}
+                  style={[styles.undoButton, { backgroundColor: colors.warning }]}
                   testID={`undo-delete-${idx}`}
                 >
-                  <Text style={styles.undoText}>Undo</Text>
+                  <Text style={styles.overlayButtonText}>Undo</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
@@ -179,7 +185,7 @@ export function SlipCaptureScreen({
                   style={styles.deleteButton}
                   testID={`delete-frame-${idx}`}
                 >
-                  <Text style={styles.deleteText}>✕</Text>
+                  <Text style={styles.overlayButtonText}>✕</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -190,28 +196,36 @@ export function SlipCaptureScreen({
       {/* Shutter + Add page + Done */}
       <View style={styles.controls}>
         <TouchableOpacity
-          style={[styles.shutter, shutterDisabled && styles.shutterDisabled]}
+          style={[
+            styles.shutter,
+            { backgroundColor: shutterDisabled ? colors.onSurfaceDisabled : colors.onPrimary },
+          ]}
           onPress={takePicture}
           disabled={shutterDisabled}
           testID="shutter-button"
         />
         {frames.length > 0 && !shutterDisabled && (
           <TouchableOpacity
-            style={styles.addPageButton}
+            style={[styles.addPageButton, { backgroundColor: colors.secondary }]}
             onPress={takePicture}
             disabled={shutterDisabled}
             testID="add-page-button"
           >
-            <Text style={styles.addPageText}>+ Page</Text>
+            <Text style={[styles.controlButtonText, { color: colors.onSecondary }]}>+ Page</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity
-          style={[styles.doneButton, frames.length === 0 && styles.doneDisabled]}
+          style={[
+            styles.doneButton,
+            { backgroundColor: frames.length === 0 ? colors.onSurfaceDisabled : colors.primary },
+          ]}
           onPress={handleDone}
           disabled={frames.length === 0}
           testID="done-button"
         >
-          <Text style={styles.doneText}>Done ({frames.length})</Text>
+          <Text style={[styles.controlButtonText, { color: colors.onPrimary }]}>
+            Done ({frames.length})
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -220,8 +234,15 @@ export function SlipCaptureScreen({
 
       {/* Offline banner */}
       {!isOnline && (
-        <View style={styles.offlineBanner} testID="offline-banner">
-          <Text style={styles.offlineText}>You are offline — scanning unavailable</Text>
+        <View
+          style={[styles.offlineBanner, { backgroundColor: colors.error }]}
+          testID="offline-banner"
+          accessibilityLabel="You are offline — scanning unavailable"
+          accessibilityLiveRegion="polite"
+        >
+          <Text style={[styles.offlineText, { color: colors.onError }]}>
+            You are offline — scanning unavailable
+          </Text>
           <Button
             mode="outlined"
             onPress={() =>
@@ -230,8 +251,8 @@ export function SlipCaptureScreen({
               )
             }
             testID="log-manually-button"
-            textColor="#fff"
-            style={styles.logManuallyButton}
+            textColor={colors.onError}
+            style={[styles.logManuallyButton, { borderColor: colors.onError }]}
           >
             Log manually
           </Button>
@@ -242,19 +263,20 @@ export function SlipCaptureScreen({
 }
 
 const styles = StyleSheet.create({
+  // Camera viewport is intentionally black (#000) — do not theme
   container: { flex: 1, backgroundColor: '#000' },
-  permissionText: { color: '#fff', textAlign: 'center', marginBottom: 16, padding: 24 },
+  permissionText: { textAlign: 'center', marginBottom: 16, padding: 24, color: '#fff' },
   permissionButton: {
     alignSelf: 'center',
-    backgroundColor: '#4CAF50',
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
   },
   counterRow: { padding: 8, alignItems: 'center' },
+  // Counter text on black camera background — white is intentional
   counterText: { color: '#fff', fontSize: 14 },
   camera: { flex: 1 },
-  thumbnailStrip: { height: 80, backgroundColor: '#111' },
+  thumbnailStrip: { height: 80 },
   thumbnailWrapper: { margin: 4, position: 'relative' },
   thumbnail: { width: 64, height: 72, borderRadius: 4 },
   thumbnailFaded: { opacity: 0.4 },
@@ -262,55 +284,48 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 2,
     right: 2,
+    // Semi-transparent black overlay on camera thumbnail — intentional
     backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 8,
     padding: 2,
   },
-  deleteText: { color: '#fff', fontSize: 10 },
   undoButton: {
     position: 'absolute',
     top: 2,
     right: 2,
-    backgroundColor: 'rgba(255,165,0,0.8)',
     borderRadius: 8,
     padding: 2,
   },
-  undoText: { color: '#fff', fontSize: 10 },
+  // White text on dark overlays (deleteButton/undoButton) is correct and intentional
+  overlayButtonText: { color: '#fff', fontSize: 10 },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16 },
   shutter: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#fff',
     marginRight: 24,
   },
-  shutterDisabled: { backgroundColor: '#555' },
   doneButton: {
-    backgroundColor: '#4CAF50',
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
   },
-  doneDisabled: { backgroundColor: '#555' },
-  doneText: { color: '#fff', fontWeight: 'bold' },
+  controlButtonText: { fontWeight: 'bold' },
   addPageButton: {
-    backgroundColor: '#1565C0',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 8,
     marginRight: 12,
   },
-  addPageText: { color: '#fff', fontWeight: 'bold' },
   offlineBanner: {
     position: 'absolute',
     top: 44, // below the daily counter row; avoids z-index overlap
     left: 0,
     right: 0,
-    backgroundColor: '#c62828',
     padding: 8,
     alignItems: 'center',
     zIndex: 5,
   },
-  offlineText: { color: '#fff', fontWeight: 'bold' },
-  logManuallyButton: { marginTop: 6, borderColor: '#fff' },
+  offlineText: { fontWeight: 'bold' },
+  logManuallyButton: { marginTop: 6 },
 });

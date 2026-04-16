@@ -29,6 +29,8 @@ export function OfflineBanner(): React.JSX.Element | null {
     <View
       style={[styles.banner, { backgroundColor: colors.warningContainer }]}
       testID="offline-banner"
+      accessibilityLabel="You are offline. Changes will sync when you're back online."
+      accessibilityLiveRegion="polite"
     >
       <Text variant="labelSmall" style={[styles.text, { color: colors.warning }]}>
         Offline — changes will sync when you're back online.

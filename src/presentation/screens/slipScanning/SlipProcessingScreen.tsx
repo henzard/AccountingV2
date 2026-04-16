@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useRef } from 'react';
 import { View, StyleSheet, BackHandler, Alert } from 'react-native';
 import { Text, Button, ActivityIndicator } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { ProgressState } from '../../../application/SlipScanFlow';
 import type { SlipScanErrorCode } from '../../../domain/slipScanning/errors';
 
@@ -73,6 +74,7 @@ export function SlipProcessingScreen({
     params: { householdId: string; createdBy: string; frameLocalUris: string[] };
   }>();
 
+  const { colors } = useAppTheme();
   const { householdId, createdBy, frameLocalUris } = route.params;
 
   const mounted = useRef(true);
@@ -148,7 +150,10 @@ export function SlipProcessingScreen({
   }, [navigation]);
 
   return (
-    <View style={styles.container} testID="processing-screen">
+    <View
+      style={[styles.container, { backgroundColor: colors.surface }]}
+      testID="processing-screen"
+    >
       <ActivityIndicator
         animating={!isFailed}
         size="large"
@@ -159,12 +164,20 @@ export function SlipProcessingScreen({
         {progressLabel(progress)}
       </Text>
       {!isFailed && (
-        <Text variant="bodySmall" style={styles.subLabel} testID="processing-sub-label">
+        <Text
+          variant="bodySmall"
+          style={[styles.subLabel, { color: colors.onSurfaceVariant }]}
+          testID="processing-sub-label"
+        >
           This usually takes 5\u201315 seconds
         </Text>
       )}
       {isFailed && humanMessage && (
-        <Text variant="bodyMedium" style={styles.error} testID="error-message">
+        <Text
+          variant="bodyMedium"
+          style={[styles.error, { color: colors.error }]}
+          testID="error-message"
+        >
           {humanMessage}
         </Text>
       )}
@@ -198,11 +211,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
-    backgroundColor: '#fff',
   },
   spinner: { marginBottom: 24 },
   label: { marginBottom: 8, textAlign: 'center' },
-  subLabel: { marginBottom: 16, textAlign: 'center', color: '#888' },
-  error: { marginBottom: 16, color: '#c62828', textAlign: 'center' },
+  subLabel: { marginBottom: 16, textAlign: 'center' },
+  error: { marginBottom: 16, textAlign: 'center' },
   logManuallyButton: { marginTop: 8 },
 });
