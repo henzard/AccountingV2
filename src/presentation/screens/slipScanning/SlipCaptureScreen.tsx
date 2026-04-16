@@ -198,7 +198,7 @@ export function SlipCaptureScreen({
         <TouchableOpacity
           style={[
             styles.shutter,
-            { backgroundColor: shutterDisabled ? colors.onSurfaceDisabled : colors.onPrimary },
+            { backgroundColor: shutterDisabled ? colors.surfaceDisabled : colors.onPrimary },
           ]}
           onPress={takePicture}
           disabled={shutterDisabled}
@@ -217,13 +217,18 @@ export function SlipCaptureScreen({
         <TouchableOpacity
           style={[
             styles.doneButton,
-            { backgroundColor: frames.length === 0 ? colors.onSurfaceDisabled : colors.primary },
+            { backgroundColor: frames.length === 0 ? colors.surfaceDisabled : colors.primary },
           ]}
           onPress={handleDone}
           disabled={frames.length === 0}
           testID="done-button"
         >
-          <Text style={[styles.controlButtonText, { color: colors.onPrimary }]}>
+          <Text
+            style={[
+              styles.controlButtonText,
+              { color: frames.length === 0 ? colors.onSurfaceDisabled : colors.onPrimary },
+            ]}
+          >
             Done ({frames.length})
           </Text>
         </TouchableOpacity>
