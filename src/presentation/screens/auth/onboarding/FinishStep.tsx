@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { markOnboardingComplete } from '../../../../infrastructure/storage/onboardingFlag';
 import { useAppStore } from '../../../stores/appStore';
@@ -30,7 +30,10 @@ export function FinishStep(): React.JSX.Element {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <ScrollView
+      style={[styles.flex, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.container}
+    >
       <Text variant="displaySmall" style={[styles.title, { color: colors.primary }]}>
         Your budget is ready.
       </Text>
@@ -48,13 +51,14 @@ export function FinishStep(): React.JSX.Element {
       >
         Go to Dashboard
       </Button>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   container: {
-    flex: 1,
+    flexGrow: 1,
     padding: spacing.xl,
     justifyContent: 'center',
   },

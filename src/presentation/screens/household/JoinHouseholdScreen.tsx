@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
 import { db } from '../../../data/local/db';
 import { supabase } from '../../../data/remote/supabaseClient';
@@ -61,7 +61,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
       style={[styles.flex, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text variant="bodyMedium" style={[styles.description, { color: colors.onSurfaceVariant }]}>
           Enter the 6-character code shared by your household member.
         </Text>
@@ -88,7 +88,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
         >
           Join Household
         </Button>
-      </View>
+      </ScrollView>
 
       <Snackbar
         visible={error !== null}

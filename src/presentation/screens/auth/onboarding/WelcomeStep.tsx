@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -14,7 +14,10 @@ export function WelcomeStep(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <ScrollView
+      style={[styles.flex, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.container}
+    >
       <Text variant="displaySmall" style={[styles.title, { color: colors.primary }]}>
         Welcome.
       </Text>
@@ -29,13 +32,14 @@ export function WelcomeStep(): React.JSX.Element {
       >
         Let's begin
       </Button>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   container: {
-    flex: 1,
+    flexGrow: 1,
     padding: spacing.xl,
     justifyContent: 'center',
   },
