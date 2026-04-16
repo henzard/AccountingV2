@@ -6,7 +6,7 @@ import { MultiShotCoachmark } from './components/MultiShotCoachmark';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppNavigation } from '../../navigation/useAppNavigation';
 import { useSyncStore } from '../../stores/syncStore';
-import { radius } from '../../theme/tokens';
+import { fontSize, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 const MAX_FRAMES = 5;
@@ -303,7 +303,8 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   // White text on dark overlays (deleteButton/undoButton) is correct and intentional
-  overlayButtonText: { color: '#fff', fontSize: 10 },
+  // White text on dark overlays is intentional; fontSize.xs for compact overlay buttons
+  overlayButtonText: { color: '#fff', fontSize: fontSize.xs },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16 },
   shutter: {
     width: 64,

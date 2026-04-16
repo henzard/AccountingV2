@@ -25,7 +25,7 @@ import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
-import { spacing, radius } from '../../theme/tokens';
+import { fontSize, spacing, radius } from '../../theme/tokens';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -219,7 +219,7 @@ const chipStyles = StyleSheet.create({
     height: 20,
   },
   manualChipText: {
-    fontSize: 10,
+    fontSize: fontSize.xs,
   },
 });
 
