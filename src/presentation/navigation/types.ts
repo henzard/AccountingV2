@@ -35,6 +35,7 @@ export type DashboardStackParamList = {
     | undefined;
   BabySteps: undefined;
   AddTransaction: undefined;
+  SinkingFunds: undefined;
 };
 
 export type TransactionsStackParamList = {
