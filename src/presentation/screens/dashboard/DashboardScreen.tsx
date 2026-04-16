@@ -117,7 +117,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
             body="Add your first envelope to get started"
             testID="dashboard-empty-state"
           />
-          <Button mode="text" onPress={() => navigation.navigate('AddEditEnvelope', {})}>
+          <Button
+            mode="text"
+            onPress={() => navigation.navigate('AddEditEnvelope', {})}
+            testID="new-envelope-button"
+          >
             + New envelope
           </Button>
         </>

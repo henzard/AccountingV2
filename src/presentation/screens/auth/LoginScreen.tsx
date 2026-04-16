@@ -134,6 +134,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
       </ScrollView>
 
       <Snackbar
+        testID="snackbar"
         visible={error !== null}
         onDismiss={() => setError(null)}
         duration={4000}

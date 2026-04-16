@@ -15,7 +15,7 @@ describe('Add Envelope journey', () => {
 
   it('opens AddEditEnvelope screen via empty-state button', async () => {
     await detoxExpect(element(by.id('dashboard-empty-state'))).toBeVisible();
-    await element(by.text('+ New envelope')).tap();
+    await element(by.id('new-envelope-button')).tap();
     await detoxExpect(element(by.id('envelope-name'))).toBeVisible();
   });
 

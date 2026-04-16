@@ -4,7 +4,7 @@
  * Detox E2E — Login Journey
  */
 
-import { device, element, by, expect as detoxExpect } from 'detox';
+import { device, element, by, expect as detoxExpect, waitFor } from 'detox';
 
 describe('Login journey', () => {
   beforeAll(async () => {
@@ -26,6 +26,8 @@ describe('Login journey', () => {
     await element(by.id('login-email')).typeText('bad@example.com');
     await element(by.id('login-password')).typeText('wrongpassword');
     await element(by.id('login-submit')).tap();
-    await detoxExpect(element(by.id('snackbar'))).toBeVisible();
+    await waitFor(element(by.id('snackbar')))
+      .toBeVisible()
+      .withTimeout(5000);
   });
 });
