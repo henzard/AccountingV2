@@ -9,7 +9,7 @@ import { SnowballStackNavigator } from './SnowballStackNavigator';
 import { SettingsStackNavigator } from '../screens/settings/SettingsStackNavigator';
 import { ToastHost } from '../components/shared/ToastHost';
 import { OfflineBanner } from '../components/shared/OfflineBanner';
-import { colours } from '../theme/tokens';
+import { useAppTheme } from '../theme/useAppTheme';
 import type { MainTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -27,15 +27,16 @@ function TabIcon({
 }
 
 export function MainTabNavigator(): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
     <View style={styles.flex}>
       <OfflineBanner />
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: colours.primary,
-          tabBarInactiveTintColor: colours.onSurfaceVariant,
-          tabBarStyle: { backgroundColor: colours.surface, borderTopColor: colours.outlineVariant },
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.onSurfaceVariant,
+          tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant },
           tabBarShowLabel: true,
           tabBarLabelStyle: { fontSize: 11 },
         }}

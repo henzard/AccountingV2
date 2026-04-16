@@ -6,7 +6,8 @@ import {
   clearLastCrash,
   type CrashRecord,
 } from '../../infrastructure/monitoring/earlyCrashLog';
-import { colours, spacing } from '../theme/tokens';
+import { useAppTheme } from '../theme/useAppTheme';
+import { spacing } from '../theme/tokens';
 
 interface Props {
   children: React.ReactNode;
@@ -20,6 +21,7 @@ interface Props {
 export function BootRecoveryGate({ children }: Props): React.JSX.Element {
   const [checked, setChecked] = useState(false);
   const [crash, setCrash] = useState<CrashRecord | null>(null);
+  const { colors } = useAppTheme();
 
   useEffect(() => {
     let mounted = true;
@@ -39,7 +41,7 @@ export function BootRecoveryGate({ children }: Props): React.JSX.Element {
   }, []);
 
   if (!checked) {
-    return <View style={styles.loading} />;
+    return <View style={[styles.loading, { backgroundColor: colors.surface }]} />;
   }
 
   if (!crash) {
@@ -58,9 +60,9 @@ export function BootRecoveryGate({ children }: Props): React.JSX.Element {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.surface }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text variant="titleLarge" style={styles.title}>
+        <Text variant="titleLarge" style={[styles.title, { color: colors.error }]}>
           Previous boot crashed
         </Text>
         <Text variant="bodySmall" style={styles.meta}>
@@ -100,18 +102,15 @@ export function BootRecoveryGate({ children }: Props): React.JSX.Element {
 const styles = StyleSheet.create({
   loading: {
     flex: 1,
-    backgroundColor: colours.surface,
   },
   container: {
     flex: 1,
-    backgroundColor: colours.surface,
     paddingTop: spacing.xxl,
   },
   content: {
     padding: spacing.base,
   },
   title: {
-    color: colours.error,
     marginBottom: spacing.xs,
   },
   meta: {

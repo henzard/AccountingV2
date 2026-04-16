@@ -1,8 +1,10 @@
 import React from 'react';
-import { View, ScrollView, StyleSheet, Share } from 'react-native';
+import { View, ScrollView, StyleSheet, Share, Appearance } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { captureBoot } from '../../infrastructure/monitoring/earlyCrashLog';
-import { colours, spacing } from '../theme/tokens';
+import { spacing } from '../theme/tokens';
+import { lightTheme, darkTheme } from '../theme/useAppTheme';
+import { useThemeStore } from '../stores/themeStore';
 
 interface State {
   error: Error | null;
@@ -36,15 +38,23 @@ export class BootErrorBoundary extends React.Component<Props, State> {
     });
   };
 
+  private getThemeColors(): typeof lightTheme.colors | typeof darkTheme.colors {
+    const preference = useThemeStore.getState().preference;
+    const osScheme = Appearance.getColorScheme();
+    const effective = preference === 'system' ? osScheme : preference;
+    return effective === 'dark' ? darkTheme.colors : lightTheme.colors;
+  }
+
   render(): React.ReactNode {
     if (!this.state.error) {
       return this.props.children;
     }
     const err = this.state.error;
+    const colors = this.getThemeColors();
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.surface }]}>
         <ScrollView contentContainerStyle={styles.content}>
-          <Text variant="titleLarge" style={styles.title}>
+          <Text variant="titleLarge" style={[styles.title, { color: colors.error }]}>
             App crashed while rendering
           </Text>
           <Text variant="labelLarge" style={styles.label}>
@@ -73,14 +83,12 @@ export class BootErrorBoundary extends React.Component<Props, State> {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colours.surface,
     paddingTop: spacing.xxl,
   },
   content: {
     padding: spacing.base,
   },
   title: {
-    color: colours.error,
     marginBottom: spacing.base,
   },
   label: {

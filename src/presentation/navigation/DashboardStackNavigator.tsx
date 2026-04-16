@@ -5,12 +5,13 @@ import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
 import { AddEditEnvelopeScreen } from '../screens/envelopes/AddEditEnvelopeScreen';
 import { BabyStepsScreen } from '../screens/babySteps/BabyStepsScreen';
 import { CelebrationModalHost } from '../screens/babySteps/CelebrationModalHost';
-import { colours } from '../theme/tokens';
+import { useAppTheme } from '../theme/useAppTheme';
 import type { DashboardStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<DashboardStackParamList>();
 
 export function DashboardStackNavigator(): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
     <View style={styles.flex}>
       <Stack.Navigator>
@@ -24,8 +25,8 @@ export function DashboardStackNavigator(): React.JSX.Element {
           component={AddEditEnvelopeScreen}
           options={{
             title: 'Envelope',
-            headerStyle: { backgroundColor: colours.surface },
-            headerTintColor: colours.primary,
+            headerStyle: { backgroundColor: colors.surface },
+            headerTintColor: colors.primary,
             headerShadowVisible: false,
           }}
         />
@@ -34,8 +35,8 @@ export function DashboardStackNavigator(): React.JSX.Element {
           component={BabyStepsScreen}
           options={{
             title: 'Baby Steps',
-            headerStyle: { backgroundColor: colours.surface },
-            headerTintColor: colours.primary,
+            headerStyle: { backgroundColor: colors.surface },
+            headerTintColor: colors.primary,
             headerShadowVisible: false,
           }}
         />

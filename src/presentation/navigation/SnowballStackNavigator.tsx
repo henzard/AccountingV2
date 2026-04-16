@@ -1,6 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { colours } from '../theme/tokens';
+import { useAppTheme } from '../theme/useAppTheme';
 import type { SnowballStackParamList } from './types';
 import { SnowballDashboardScreen } from '../screens/debtSnowball/SnowballDashboardScreen';
 import { AddDebtScreen } from '../screens/debtSnowball/AddDebtScreen';
@@ -10,11 +10,12 @@ import { LogPaymentScreen } from '../screens/debtSnowball/LogPaymentScreen';
 const Stack = createNativeStackNavigator<SnowballStackParamList>();
 
 export function SnowballStackNavigator(): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: colours.surface },
-        headerTintColor: colours.primary,
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.primary,
         headerTitleStyle: { fontFamily: 'PlusJakartaSans_700Bold' },
       }}
     >
