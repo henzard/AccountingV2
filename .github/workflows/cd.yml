@@ -70,6 +70,34 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build release APK for Firebase Test Lab
+        working-directory: android
+        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PversionName=${{ steps.vname.outputs.name }} --no-daemon
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
+
+      - name: Firebase Test Lab — Robo smoke test
+        run: |
+          gcloud firebase test android run \
+            --type robo \
+            --app android/app/build/outputs/apk/release/app-release.apk \
+            --device model=Pixel6,version=34,locale=en,orientation=portrait \
+            --timeout 90s \
+            --project ${{ secrets.FIREBASE_PROJECT_ID }}
+
       - name: Upload JS source maps to Crashlytics
         working-directory: android
         run: |
