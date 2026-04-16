@@ -143,6 +143,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           value={name}
           onChangeText={setName}
           mode="outlined"
+          testID="envelope-name"
           style={styles.input}
           disabled={loading}
           placeholder="e.g. Groceries"
@@ -153,6 +154,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           value={amountStr}
           onChangeText={setAmountStr}
           mode="outlined"
+          testID="envelope-amount"
           style={styles.input}
           keyboardType="decimal-pad"
           disabled={loading}
@@ -182,6 +184,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           disabled={loading}
           style={styles.button}
           contentStyle={styles.buttonContent}
+          testID="envelope-save"
         >
           {existing ? 'Save Changes' : 'Add Envelope'}
         </Button>

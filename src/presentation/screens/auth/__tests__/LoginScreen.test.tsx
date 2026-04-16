@@ -90,8 +90,8 @@ describe('LoginScreen', () => {
 
   it('renders email and password fields', () => {
     const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
-    expect(getByTestId('Email')).toBeTruthy();
-    expect(getByTestId('Password')).toBeTruthy();
+    expect(getByTestId('login-email')).toBeTruthy();
+    expect(getByTestId('login-password')).toBeTruthy();
   });
 
   it('shows validation error without network call when email is empty', async () => {
@@ -99,7 +99,7 @@ describe('LoginScreen', () => {
       <LoginScreen route={{} as never} navigation={{} as never} />,
     );
     // Leave email blank, just enter password
-    fireEvent.changeText(getByTestId('Password'), 'password123');
+    fireEvent.changeText(getByTestId('login-password'), 'password123');
     fireEvent.press(getByTestId('login-submit'));
     await waitFor(() => {
       expect(queryByTestId('snackbar')).toBeTruthy();
@@ -110,7 +110,7 @@ describe('LoginScreen', () => {
 
   it('password field is present and accepts input', () => {
     const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
-    const passwordField = getByTestId('Password');
+    const passwordField = getByTestId('login-password');
     fireEvent.changeText(passwordField, 'mypassword');
     expect(passwordField.props.value).toBe('mypassword');
   });

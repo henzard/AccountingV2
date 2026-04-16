@@ -129,6 +129,7 @@ export function SignUpScreen(): React.JSX.Element {
             autoComplete="email"
             textContentType="emailAddress"
             mode="outlined"
+            testID="signup-email"
             style={[styles.input, { backgroundColor: colors.surface }]}
             disabled={loading}
             accessibilityLabel="Email address"

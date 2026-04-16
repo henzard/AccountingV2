@@ -87,7 +87,7 @@ describe('SignUpScreen', () => {
 
   it('shows error when passwords do not match', async () => {
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'test@example.com');
+    fireEvent.changeText(getByTestId('signup-email'), 'test@example.com');
     fireEvent.changeText(getByTestId('Password'), 'password123');
     fireEvent.changeText(getByTestId('Confirm password'), 'different');
     fireEvent.press(getByText('Create Account'));
@@ -102,7 +102,7 @@ describe('SignUpScreen', () => {
       error: null,
     });
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
     fireEvent.changeText(getByTestId('Password'), 'securepass1');
     fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
     fireEvent.press(getByText('Create Account'));
@@ -124,7 +124,7 @@ describe('SignUpScreen', () => {
       error: null,
     });
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
     fireEvent.changeText(getByTestId('Password'), 'securepass1');
     fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
     fireEvent.press(getByText('Create Account'));
@@ -140,7 +140,7 @@ describe('SignUpScreen', () => {
   it('shows supabase error message on failure', async () => {
     mockSignUp.mockResolvedValue({ error: { message: 'Email already registered' } });
     const { getByTestId, getByText, queryByTestId } = render(<SignUpScreen />);
-    fireEvent.changeText(getByTestId('Email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
     fireEvent.changeText(getByTestId('Password'), 'securepass1');
     fireEvent.changeText(getByTestId('Confirm password'), 'securepass1');
     fireEvent.press(getByText('Create Account'));
