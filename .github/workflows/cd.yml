@@ -71,14 +71,17 @@ jobs:
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
 
       - name: Authenticate to Google Cloud
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
 
       - name: Set up gcloud CLI
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' }}
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Build release APK for Firebase Test Lab
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' }}
         working-directory: android
         run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PversionName=${{ steps.vname.outputs.name }} --no-daemon
         env:
@@ -90,6 +93,7 @@ jobs:
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
 
       - name: Firebase Test Lab — Robo smoke test
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' && secrets.FIREBASE_PROJECT_ID != '' }}
         run: |
           gcloud firebase test android run \
             --type robo \
@@ -99,6 +103,7 @@ jobs:
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
 
       - name: Upload JS source maps to Crashlytics
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' }}
         working-directory: android
         run: |
           ./gradlew uploadCrashlyticsSymbolFileRelease
