@@ -4,7 +4,8 @@ export type EnvelopeType =
   | 'emergency_fund'
   | 'baby_step'
   | 'utility'
-  | 'income';
+  | 'income'
+  | 'sinking_fund';
 
 export interface EnvelopeEntity {
   id: string;
@@ -16,6 +17,8 @@ export interface EnvelopeEntity {
   isSavingsLocked: boolean;
   isArchived: boolean;
   periodStart: string; // ISO date YYYY-MM-DD
+  targetAmountCents: number | null;
+  targetDate: string | null; // ISO date YYYY-MM-DD
   createdAt: string;
   updatedAt: string;
 }

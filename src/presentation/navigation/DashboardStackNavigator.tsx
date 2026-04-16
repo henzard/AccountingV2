@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
 import { AddEditEnvelopeScreen } from '../screens/envelopes/AddEditEnvelopeScreen';
 import { BabyStepsScreen } from '../screens/babySteps/BabyStepsScreen';
+import { SinkingFundsScreen } from '../screens/sinkingFunds/SinkingFundsScreen';
 import { CelebrationModalHost } from '../screens/babySteps/CelebrationModalHost';
 import { useAppTheme } from '../theme/useAppTheme';
 import type { DashboardStackParamList } from './types';
@@ -36,6 +37,11 @@ export function DashboardStackNavigator(): React.JSX.Element {
           name="BabySteps"
           component={BabyStepsScreen}
           options={{ title: 'Baby Steps' }}
+        />
+        <Stack.Screen
+          name="SinkingFunds"
+          component={SinkingFundsScreen}
+          options={{ title: 'Sinking Funds' }}
         />
       </Stack.Navigator>
 

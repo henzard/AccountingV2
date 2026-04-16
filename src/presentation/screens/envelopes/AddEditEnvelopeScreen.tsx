@@ -45,6 +45,8 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
   const [name, setName] = useState('');
   const [amountStr, setAmountStr] = useState('');
   const [envelopeType, setEnvelopeType] = useState<EnvelopeType>('spending');
+  const [targetAmountStr, setTargetAmountStr] = useState('');
+  const [targetDateStr, setTargetDateStr] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +72,14 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
             setName(row.name);
             setAmountStr(toRandString(row.allocatedCents));
             setEnvelopeType(row.envelopeType as EnvelopeType);
+            if (row.envelopeType === 'sinking_fund') {
+              if (row.targetAmountCents != null) {
+                setTargetAmountStr(toRandString(row.targetAmountCents));
+              }
+              if (row.targetDate != null) {
+                setTargetDateStr(row.targetDate);
+              }
+            }
           }
         });
     }
@@ -83,9 +93,21 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
       const period = engine.getCurrentPeriod(paydayDay);
       const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
+      const targetAmountCents =
+        envelopeType === 'sinking_fund' && targetAmountStr
+          ? Math.round(parseFloat(targetAmountStr.replace(',', '.')) * 100)
+          : null;
+      const targetDate =
+        envelopeType === 'sinking_fund' && targetDateStr.trim() ? targetDateStr.trim() : null;
+
       let result;
       if (existing) {
-        const uc = new UpdateEnvelopeUseCase(db, audit, existing, { name, allocatedCents });
+        const uc = new UpdateEnvelopeUseCase(db, audit, existing, {
+          name,
+          allocatedCents,
+          targetAmountCents,
+          targetDate,
+        });
         result = await uc.execute();
       } else {
         const uc = new CreateEnvelopeUseCase(db, audit, {
@@ -94,6 +116,8 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           allocatedCents,
           envelopeType,
           periodStart,
+          targetAmountCents,
+          targetDate,
         });
         result = await uc.execute();
       }
@@ -107,7 +131,18 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [name, amountStr, envelopeType, existing, householdId, paydayDay, navigation, enqueue]);
+  }, [
+    name,
+    amountStr,
+    envelopeType,
+    targetAmountStr,
+    targetDateStr,
+    existing,
+    householdId,
+    paydayDay,
+    navigation,
+    enqueue,
+  ]);
 
   const handleArchive = useCallback((): void => {
     if (!existing) return;
@@ -178,6 +213,31 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           ]}
           style={styles.segmented}
         />
+
+        {envelopeType === 'sinking_fund' && (
+          <>
+            <TextInput
+              label="Target amount (R)"
+              value={targetAmountStr}
+              onChangeText={setTargetAmountStr}
+              keyboardType="decimal-pad"
+              mode="outlined"
+              testID="target-amount-input"
+              style={[styles.input, { backgroundColor: colors.surface }]}
+              disabled={loading}
+            />
+            <TextInput
+              label="Target date (YYYY-MM-DD)"
+              value={targetDateStr}
+              onChangeText={setTargetDateStr}
+              placeholder="2027-12-01"
+              mode="outlined"
+              testID="target-date-input"
+              style={[styles.input, { backgroundColor: colors.surface }]}
+              disabled={loading}
+            />
+          </>
+        )}
 
         <Button
           mode="contained"

@@ -14,6 +14,8 @@ interface UpdateInput {
   allocatedCents: number;
   /** Optional: if provided, income envelopes reject any non-zero value */
   spentCents?: number;
+  targetAmountCents?: number | null;
+  targetDate?: string | null;
 }
 
 export class UpdateEnvelopeUseCase {
@@ -53,6 +55,12 @@ export class UpdateEnvelopeUseCase {
       ...this.current,
       name: trimmedName,
       allocatedCents: this.input.allocatedCents,
+      targetAmountCents:
+        this.input.targetAmountCents !== undefined
+          ? this.input.targetAmountCents
+          : this.current.targetAmountCents,
+      targetDate:
+        this.input.targetDate !== undefined ? this.input.targetDate : this.current.targetDate,
       updatedAt: now,
     };
 
@@ -61,6 +69,8 @@ export class UpdateEnvelopeUseCase {
       .set({
         name: updated.name,
         allocatedCents: updated.allocatedCents,
+        targetAmountCents: updated.targetAmountCents,
+        targetDate: updated.targetDate,
         updatedAt: now,
         isSynced: false,
       })
@@ -90,6 +100,8 @@ export class UpdateEnvelopeUseCase {
       isSavingsLocked: updated.isSavingsLocked,
       isArchived: updated.isArchived,
       periodStart: updated.periodStart,
+      targetAmountCents: updated.targetAmountCents,
+      targetDate: updated.targetDate,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };
