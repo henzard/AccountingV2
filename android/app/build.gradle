@@ -100,6 +100,8 @@ android {
         versionName vnProp != null ? vnProp.toString() : "1.1.0-dev"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+        testInstrumentationRunner "com.wix.detox.DetoxJUnitRunner"
+        testInstrumentationRunnerArguments clearPackageData: 'true'
     }
     signingConfigs {
         debug {
@@ -189,6 +191,8 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    androidTestImplementation(project(':detox'))
 }
 
 apply plugin: 'com.google.gms.google-services'
