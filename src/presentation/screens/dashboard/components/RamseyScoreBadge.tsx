@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
 import Svg, { Circle } from 'react-native-svg';
+import { fontSize } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 
 interface RamseyScoreBadgeProps {
@@ -96,12 +97,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   score: {
-    fontSize: 24,
+    fontSize: fontSize.xl,
     fontFamily: 'PlusJakartaSans_700Bold',
     lineHeight: 27,
   },
   label: {
-    fontSize: 10,
+    fontSize: fontSize.xs,
     fontFamily: 'PlusJakartaSans_600SemiBold',
     letterSpacing: 0.5,
     textTransform: 'uppercase',

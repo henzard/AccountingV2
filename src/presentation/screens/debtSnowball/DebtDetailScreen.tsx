@@ -12,6 +12,7 @@ import {
   getPayoffProgressPercent,
 } from '../../../domain/debtSnowball/DebtEntity';
 import { DebtPayoffBar } from './components/DebtPayoffBar';
+import { formatCurrency } from '../../utils/currency';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
@@ -69,10 +70,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
               OUTSTANDING
             </Text>
             <Text variant="titleMedium" style={[styles.statValue, { color: colors.onSurface }]}>
-              R
-              {(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', {
-                minimumFractionDigits: 2,
-              })}
+              {formatCurrency(debt.outstandingBalanceCents)}
             </Text>
           </View>
           <View style={styles.stat}>
@@ -83,7 +81,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
               PAID TO DATE
             </Text>
             <Text variant="titleMedium" style={[styles.statValue, { color: colors.success }]}>
-              R{(debt.totalPaidCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+              {formatCurrency(debt.totalPaidCents)}
             </Text>
           </View>
         </View>
@@ -92,9 +90,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 
         <View style={styles.detailsRow}>
           <Text variant="bodySmall" style={[styles.detail, { color: colors.onSurfaceVariant }]}>
-            Min payment: R
-            {(debt.minimumPaymentCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
-            /month
+            {`Min payment: ${formatCurrency(debt.minimumPaymentCents)}/month`}
           </Text>
           <Text variant="bodySmall" style={[styles.detail, { color: colors.onSurfaceVariant }]}>
             Rate: {debt.interestRatePercent}% p.a.

@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Surface, Text } from 'react-native-paper';
 import { CurrencyText } from './CurrencyText';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { spacing, radius } from '../../theme/tokens';
+import { fontSize, spacing, radius } from '../../theme/tokens';
 
 export interface KPIItem {
   label: string;
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   item: { flex: 1, alignItems: 'center' },
   label: { letterSpacing: 0.8, marginBottom: spacing.xs },
   value: {
-    fontSize: 24,
+    fontSize: fontSize.xl,
     fontFamily: 'PlusJakartaSans_700Bold',
     fontVariant: ['tabular-nums'],
   },

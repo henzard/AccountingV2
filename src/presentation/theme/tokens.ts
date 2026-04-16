@@ -114,3 +114,14 @@ export const elevation = {
   medium: 3,
   high: 6,
 } as const;
+
+/** Numeric font size scale. Prefer MD3 variant props on Paper <Text>; use these
+ *  only for RN <Text>, SVG text, or style props passed to non-Paper components. */
+export const fontSize = {
+  xs: 10,
+  sm: 12,
+  md: 14,
+  base: 15,
+  lg: 16,
+  xl: 24,
+} as const;
