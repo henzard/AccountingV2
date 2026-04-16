@@ -9,13 +9,13 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { View, StyleSheet, SectionList, RefreshControl, ActivityIndicator } from 'react-native';
-import { Text, Divider } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { format } from 'date-fns';
 import { BudgetBalanceBanner } from './components/BudgetBalanceBanner';
 import { DuplicateEmfBanner } from './components/DuplicateEmfBanner';
 import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
 import { EmptyState } from '../../components/shared/EmptyState';
+import { SectionHeader } from '../../components/shared/SectionHeader';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
@@ -82,15 +82,7 @@ export const BudgetScreen: React.FC = () => {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <EnvelopeCard envelope={item} />}
           renderSectionHeader={({ section: { title } }) => (
-            <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
-              <Text
-                variant="labelSmall"
-                style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}
-              >
-                {title.toUpperCase()}
-              </Text>
-              <Divider style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
-            </View>
+            <SectionHeader title={title} showDivider />
           )}
           contentContainerStyle={styles.list}
           refreshControl={
@@ -107,14 +99,4 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   list: { paddingBottom: spacing.xxl },
-  sectionHeader: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
-    paddingBottom: spacing.xs,
-  },
-  sectionTitle: {
-    letterSpacing: 1.2,
-    marginBottom: spacing.xs,
-  },
-  divider: {},
 });

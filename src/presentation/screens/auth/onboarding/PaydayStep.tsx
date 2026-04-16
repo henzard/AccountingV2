@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Text, TextInput, Button, HelperText } from 'react-native-paper';
+import { TextInput, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { db } from '../../../../data/local/db';
 import { UpdateHouseholdPaydayDayUseCase } from '../../../../domain/households/UpdateHouseholdPaydayDayUseCase';
 import { useAppStore } from '../../../stores/appStore';
-import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import { LoadingSplash } from '../../../components/shared/LoadingSplash';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Payday'>;
 
@@ -33,7 +32,6 @@ export function PaydayStep(): React.JSX.Element {
       setError('Enter a day between 1 and 28');
       return;
     }
-
     setLoading(true);
     try {
       const uc = new UpdateHouseholdPaydayDayUseCase(db, householdId, day);
@@ -52,55 +50,28 @@ export function PaydayStep(): React.JSX.Element {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.flex, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <OnboardingStepLayout
+      title="When do you get paid?"
+      subtitle="Your payday resets your budget period each month."
+      onCta={handleNext}
+      ctaLoading={loading}
+      ctaDisabled={loading}
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
-          When do you get paid?
-        </Text>
-        <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
-          Your payday resets your budget period each month.
-        </Text>
-
-        <TextInput
-          label="Day of month (1–28)"
-          value={dayStr}
-          onChangeText={setDayStr}
-          mode="outlined"
-          style={[styles.input, { backgroundColor: colors.surface }]}
-          keyboardType="numeric"
-          disabled={loading}
-          placeholder="25"
-        />
-        {error !== null && (
-          <HelperText type="error" visible>
-            {error}
-          </HelperText>
-        )}
-
-        <Button
-          mode="contained"
-          onPress={handleNext}
-          loading={loading}
-          disabled={loading}
-          style={styles.button}
-          contentStyle={styles.buttonContent}
-        >
-          Next
-        </Button>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <TextInput
+        label="Day of month (1–28)"
+        value={dayStr}
+        onChangeText={setDayStr}
+        mode="outlined"
+        style={{ backgroundColor: colors.surface }}
+        keyboardType="numeric"
+        disabled={loading}
+        placeholder="25"
+      />
+      {error !== null && (
+        <HelperText type="error" visible>
+          {error}
+        </HelperText>
+      )}
+    </OnboardingStepLayout>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { flexGrow: 1, padding: spacing.xl, justifyContent: 'center', gap: spacing.base },
-  title: { fontFamily: 'PlusJakartaSans_700Bold' },
-  subtitle: { marginBottom: spacing.base },
-  input: {},
-  button: { marginTop: spacing.lg },
-  buttonContent: { paddingVertical: spacing.xs },
-});

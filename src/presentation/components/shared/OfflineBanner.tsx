@@ -6,7 +6,7 @@
 import React, { useEffect } from 'react';
 import { LayoutAnimation, Platform, UIManager, View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
-import { useNetworkStore } from '../../stores/networkStore';
+import { useSyncStore } from '../../stores/syncStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 
@@ -17,7 +17,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 export function OfflineBanner(): React.JSX.Element | null {
   const { colors } = useAppTheme();
-  const isOnline = useNetworkStore((s) => s.isOnline);
+  const isOnline = useSyncStore((s) => s.isOnline);
 
   useEffect(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);

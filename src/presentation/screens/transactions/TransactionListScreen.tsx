@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, SectionList, Alert } from 'react-native';
-import { Text, FAB, ActivityIndicator, Surface, IconButton } from 'react-native-paper';
+import { FAB, ActivityIndicator, Surface, IconButton, Divider } from 'react-native-paper';
+import { ListRow } from '../../components/shared/ListRow';
 import { useFocusEffect } from '@react-navigation/native';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -11,9 +12,11 @@ import { useTransactions } from '../../hooks/useTransactions';
 import { CurrencyText } from '../../components/shared/CurrencyText';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
+import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
-import { spacing, radius } from '../../theme/tokens';
+import { LoadingSplash } from '../../components/shared/LoadingSplash';
+import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { format, parseISO } from 'date-fns';
 import type { TransactionListScreenProps } from '../../navigation/types';
@@ -39,22 +42,23 @@ function groupByDate(txs: TransactionEntity[]): Section[] {
 
 export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
-  const householdId = useAppStore((s) => s.householdId)!;
+  const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
-  const { transactions, loading, reload } = useTransactions(householdId, periodStart);
+  const hid = householdId ?? '';
+  const { transactions, loading, reload } = useTransactions(hid, periodStart);
   const [envelopeNames, setEnvelopeNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     db.select({ id: envelopesTable.id, name: envelopesTable.name })
       .from(envelopesTable)
-      .where(eq(envelopesTable.householdId, householdId))
+      .where(eq(envelopesTable.householdId, hid))
       .then((rows) => {
         setEnvelopeNames(new Map(rows.map((r) => [r.id, r.name])));
       });
-  }, [householdId]);
+  }, [hid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -84,6 +88,13 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
     [reload],
   );
 
+  const renderSeparator = useCallback(
+    () => <Divider style={{ backgroundColor: colors.outlineVariant }} />,
+    [colors.outlineVariant],
+  );
+
+  if (!householdId) return <LoadingSplash />;
+
   const sections = groupByDate(transactions);
 
   return (
@@ -106,46 +117,30 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
-          renderSectionHeader={({ section }) => (
-            <View style={[styles.sectionHeader, { backgroundColor: colors.surfaceVariant }]}>
-              <Text
-                variant="labelMedium"
-                style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}
-              >
-                {section.title}
-              </Text>
-            </View>
-          )}
+          renderSectionHeader={({ section }) => <SectionHeader title={section.title} filled />}
           renderItem={({ item }) => (
-            <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={1}>
-              <View style={styles.rowLeft}>
-                <Text
-                  variant="bodyLarge"
-                  style={[styles.payee, { color: colors.onSurface }]}
-                  numberOfLines={1}
-                >
-                  {item.payee ?? 'Unknown'}
-                </Text>
-                <Text
-                  variant="bodySmall"
-                  style={[styles.envelopeName, { color: colors.onSurfaceVariant }]}
-                >
-                  {envelopeNames.get(item.envelopeId) ?? '—'}
-                </Text>
-              </View>
-              <CurrencyText
-                amountCents={item.amountCents}
-                style={{ ...styles.amount, color: colors.error }}
-              />
-              <IconButton
-                icon="delete-outline"
-                iconColor={colors.error}
-                size={20}
-                onPress={() => handleDelete(item)}
-                testID={`delete-tx-${item.id}`}
-              />
-            </Surface>
+            <ListRow
+              title={item.payee ?? 'Unknown'}
+              subtitle={envelopeNames.get(item.envelopeId) ?? '—'}
+              trailing={
+                <View style={styles.rowTrailing}>
+                  <CurrencyText
+                    amountCents={item.amountCents}
+                    style={{ ...styles.amount, color: colors.error }}
+                  />
+                  <IconButton
+                    icon="delete-outline"
+                    iconColor={colors.error}
+                    size={20}
+                    onPress={() => handleDelete(item)}
+                    testID={`delete-tx-${item.id}`}
+                  />
+                </View>
+              }
+              testID={`tx-row-${item.id}`}
+            />
           )}
+          ItemSeparatorComponent={renderSeparator}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled
         />
@@ -165,22 +160,10 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: {},
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  sectionHeader: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.xs,
-  },
-  sectionTitle: { letterSpacing: 0.8 },
-  row: {
+  rowTrailing: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: spacing.base,
-    marginVertical: spacing.xs / 2,
-    borderRadius: radius.md,
-    padding: spacing.base,
   },
-  rowLeft: { flex: 1, marginRight: spacing.base },
-  payee: { fontFamily: 'PlusJakartaSans_600SemiBold' },
-  envelopeName: { marginTop: 2 },
   amount: { fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold' },
   list: { paddingBottom: 100 },
   fab: {

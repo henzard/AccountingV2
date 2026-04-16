@@ -16,8 +16,8 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 let mockIsOnline = true;
-jest.mock('../../../stores/networkStore', () => ({
-  useNetworkStore: (sel: (s: { isOnline: boolean }) => unknown) => sel({ isOnline: mockIsOnline }),
+jest.mock('../../../stores/syncStore', () => ({
+  useSyncStore: (sel: (s: { isOnline: boolean }) => unknown) => sel({ isOnline: mockIsOnline }),
 }));
 
 import { SlipCaptureScreen } from '../SlipCaptureScreen';

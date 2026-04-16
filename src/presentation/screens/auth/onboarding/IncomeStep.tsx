@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Text, TextInput, Button, HelperText } from 'react-native-paper';
+import { TextInput, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAppStore } from '../../../stores/appStore';
-import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Income'>;
 
@@ -35,53 +34,26 @@ export function IncomeStep(): React.JSX.Element {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.flex, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <OnboardingStepLayout
+      title="What's your monthly income?"
+      subtitle="This helps us plan your budget envelopes."
+      onCta={handleNext}
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
-          What's your monthly income?
-        </Text>
-        <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
-          This helps us plan your budget envelopes.
-        </Text>
-
-        <TextInput
-          label="Monthly income (R)"
-          value={amountStr}
-          onChangeText={setAmountStr}
-          mode="outlined"
-          style={[styles.input, { backgroundColor: colors.surface }]}
-          keyboardType="decimal-pad"
-          placeholder="0.00"
-          left={<TextInput.Affix text="R" />}
-        />
-        {error !== null && (
-          <HelperText type="error" visible>
-            {error}
-          </HelperText>
-        )}
-
-        <Button
-          mode="contained"
-          onPress={handleNext}
-          style={styles.button}
-          contentStyle={styles.buttonContent}
-        >
-          Next
-        </Button>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <TextInput
+        label="Monthly income (R)"
+        value={amountStr}
+        onChangeText={setAmountStr}
+        mode="outlined"
+        style={{ backgroundColor: colors.surface }}
+        keyboardType="decimal-pad"
+        placeholder="0.00"
+        left={<TextInput.Affix text="R" />}
+      />
+      {error !== null && (
+        <HelperText type="error" visible>
+          {error}
+        </HelperText>
+      )}
+    </OnboardingStepLayout>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { flexGrow: 1, padding: spacing.xl, justifyContent: 'center', gap: spacing.base },
-  title: { fontFamily: 'PlusJakartaSans_700Bold' },
-  subtitle: { marginBottom: spacing.base },
-  input: {},
-  button: { marginTop: spacing.lg },
-  buttonContent: { paddingVertical: spacing.xs },
-});
