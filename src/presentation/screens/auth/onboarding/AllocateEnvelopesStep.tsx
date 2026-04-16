@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -96,69 +96,75 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
   };
 
   return (
-    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
-      <Text variant="headlineMedium" style={[styles.title, { color: colors.onSurface }]}>
-        Split your income
-      </Text>
-      <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
-        Every Rand gets a job. We&apos;ve split your R{fromCents(incomeCents)} equally — nudge each
-        envelope until &quot;To assign&quot; is R0.
-      </Text>
-
-      <View
-        style={[
-          styles.toAssign,
-          {
-            backgroundColor:
-              toAssignCents === 0
-                ? colors.successContainer
-                : toAssignCents < 0
-                  ? colors.errorContainer
-                  : colors.primaryContainer,
-          },
-        ]}
-      >
-        <Text variant="labelMedium" style={{ color: colors.onSurface }}>
-          TO ASSIGN
+    <KeyboardAvoidingView
+      style={[styles.flex, { backgroundColor: colors.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <Text variant="headlineMedium" style={[styles.title, { color: colors.onSurface }]}>
+          Split your income
         </Text>
-        <Text variant="titleLarge" testID="to-assign" style={{ color: colors.onSurface }}>
-          {'R' + fromCents(toAssignCents)}
+        <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
+          Every Rand gets a job. We&apos;ve split your R{fromCents(incomeCents)} equally — nudge
+          each envelope until &quot;To assign&quot; is R0.
         </Text>
-      </View>
 
-      {categories.map((c) => (
-        <View key={c} style={styles.row}>
-          <Text variant="titleMedium" style={[styles.rowLabel, { color: colors.onSurface }]}>
-            {c}
+        <View
+          style={[
+            styles.toAssign,
+            {
+              backgroundColor:
+                toAssignCents === 0
+                  ? colors.successContainer
+                  : toAssignCents < 0
+                    ? colors.errorContainer
+                    : colors.primaryContainer,
+            },
+          ]}
+        >
+          <Text variant="labelMedium" style={{ color: colors.onSurface }}>
+            TO ASSIGN
           </Text>
-          <TextInput
-            mode="outlined"
-            value={allocStr[c]}
-            onChangeText={(v): void => setAllocStr((prev) => ({ ...prev, [c]: v }))}
-            keyboardType="decimal-pad"
-            left={<TextInput.Affix text="R" />}
-            testID={`alloc-input-${c}`}
-            style={styles.rowInput}
-          />
+          <Text variant="titleLarge" testID="to-assign" style={{ color: colors.onSurface }}>
+            {'R' + fromCents(toAssignCents)}
+          </Text>
         </View>
-      ))}
 
-      {error && <HelperText type="error">{error}</HelperText>}
+        {categories.map((c) => (
+          <View key={c} style={styles.row}>
+            <Text variant="titleMedium" style={[styles.rowLabel, { color: colors.onSurface }]}>
+              {c}
+            </Text>
+            <TextInput
+              mode="outlined"
+              value={allocStr[c]}
+              onChangeText={(v): void => setAllocStr((prev) => ({ ...prev, [c]: v }))}
+              keyboardType="decimal-pad"
+              left={<TextInput.Affix text="R" />}
+              testID={`alloc-input-${c}`}
+              style={styles.rowInput}
+            />
+          </View>
+        ))}
 
-      <Button
-        mode="contained"
-        onPress={handleNext}
-        loading={loading}
-        disabled={loading}
-        style={styles.cta}
-      >
-        Next
-      </Button>
-    </ScrollView>
+        {error && <HelperText type="error">{error}</HelperText>}
+
+        <Button
+          mode="contained"
+          onPress={handleNext}
+          loading={loading}
+          disabled={loading}
+          style={styles.cta}
+        >
+          Next
+        </Button>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   container: { padding: spacing.xl, paddingBottom: spacing.xxl },
   title: { fontFamily: 'Fraunces_700Bold', marginBottom: spacing.xs },
   subtitle: { marginBottom: spacing.lg },

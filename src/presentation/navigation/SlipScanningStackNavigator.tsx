@@ -48,7 +48,7 @@ export function SlipScanningStackNavigator({
   envelopes,
 }: SlipScanningStackNavigatorProps): React.JSX.Element {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: true }}>
+    <Stack.Navigator screenOptions={{ headerShown: true, headerShadowVisible: false }}>
       <Stack.Screen name="SlipQueue" options={{ title: 'Slip history' }}>
         {() => <SlipQueueScreen repo={repo} householdId={householdId} />}
       </Stack.Screen>

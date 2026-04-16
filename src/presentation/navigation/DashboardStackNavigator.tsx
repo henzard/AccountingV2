@@ -14,7 +14,14 @@ export function DashboardStackNavigator(): React.JSX.Element {
   const { colors } = useAppTheme();
   return (
     <View style={styles.flex}>
-      <Stack.Navigator>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.primary,
+          headerTitleStyle: { fontFamily: 'PlusJakartaSans_700Bold' },
+          headerShadowVisible: false,
+        }}
+      >
         <Stack.Screen
           name="DashboardHome"
           component={DashboardScreen}
@@ -23,22 +30,12 @@ export function DashboardStackNavigator(): React.JSX.Element {
         <Stack.Screen
           name="AddEditEnvelope"
           component={AddEditEnvelopeScreen}
-          options={{
-            title: 'Envelope',
-            headerStyle: { backgroundColor: colors.surface },
-            headerTintColor: colors.primary,
-            headerShadowVisible: false,
-          }}
+          options={{ title: 'Envelope' }}
         />
         <Stack.Screen
           name="BabySteps"
           component={BabyStepsScreen}
-          options={{
-            title: 'Baby Steps',
-            headerStyle: { backgroundColor: colors.surface },
-            headerTintColor: colors.primary,
-            headerShadowVisible: false,
-          }}
+          options={{ title: 'Baby Steps' }}
         />
       </Stack.Navigator>
 

@@ -55,6 +55,8 @@ export function ExpenseCategoriesStep(): React.JSX.Element {
     <OnboardingStepLayout
       title="What do you spend money on?"
       subtitle="Select categories to create your spending envelopes. You can adjust amounts later."
+      step={3}
+      totalSteps={8}
       avoidKeyboard={false}
       onCta={handleNext}
     >
