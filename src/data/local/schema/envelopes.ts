@@ -13,6 +13,8 @@ export const envelopes = sqliteTable(
     isSavingsLocked: integer('is_savings_locked', { mode: 'boolean' }).notNull().default(false),
     isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
     periodStart: text('period_start').notNull(), // ISO date of budget period start
+    targetAmountCents: integer('target_amount_cents'),
+    targetDate: text('target_date'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
     isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),

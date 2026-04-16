@@ -58,6 +58,8 @@ export class CreateEnvelopeUseCase {
       isSavingsLocked,
       isArchived: false,
       periodStart: this.input.periodStart,
+      targetAmountCents: null,
+      targetDate: null,
       createdAt: now,
       updatedAt: now,
     };

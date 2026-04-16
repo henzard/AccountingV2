@@ -29,6 +29,8 @@ const existing: EnvelopeEntity = {
   isSavingsLocked: false,
   isArchived: false,
   periodStart: '2026-03-25',
+  targetAmountCents: null,
+  targetDate: null,
   createdAt: '2026-03-25T00:00:00.000Z',
   updatedAt: '2026-03-25T00:00:00.000Z',
 };

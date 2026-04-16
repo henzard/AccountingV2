@@ -52,6 +52,8 @@ export class ReconcileBabyStepsUseCase {
         isSavingsLocked: row.isSavingsLocked,
         isArchived: row.isArchived,
         periodStart: row.periodStart,
+        targetAmountCents: row.targetAmountCents ?? null,
+        targetDate: row.targetDate ?? null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       }));
