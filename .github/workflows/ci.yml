@@ -40,21 +40,36 @@ jobs:
         run: deno test --allow-net --allow-env --allow-read supabase/functions/
 
   e2e-android:
-    # Detox config is currently scaffolded (specs use describe.skip); the build/test
-    # steps require a real emulator + a proper detoxrc.build script. Keeping the
-    # job defined so the scaffold lives in CI, but non-blocking until real E2E
-    # infrastructure is set up. Re-enable by removing continue-on-error once the
-    # .detoxrc.js apps.*.build script is wired.
     if: github.ref == 'refs/heads/master'
     runs-on: macos-latest
-    continue-on-error: true
+    needs: check
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with:
+          node-version: '20'
+          cache: 'npm'
+
       - uses: actions/setup-java@v4
-        with: { java-version: '17', distribution: 'temurin' }
-      - run: npm ci
-      - run: npm install -g detox-cli
-      - run: detox build --configuration android.emu.release
-      - run: detox test --configuration android.emu.release
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Install Detox CLI
+        run: npm install -g detox-cli
+
+      - name: Build debug APK
+        run: detox build --configuration android.emu.debug
+
+      - name: Run Detox tests on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          avd-name: Pixel_6_API_34
+          script: detox test --configuration android.emu.debug --headless --loglevel warn
