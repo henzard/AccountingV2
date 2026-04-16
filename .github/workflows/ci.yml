@@ -72,4 +72,10 @@ jobs:
           target: google_apis
           arch: x86_64
           avd-name: Pixel_6_API_34
-          script: detox test --configuration android.emu.debug --headless --loglevel warn
+          disable-animations: true
+          emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            adb wait-for-device
+            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+            adb shell input keyevent 82
+            detox test --configuration android.emu.debug --headless --loglevel warn

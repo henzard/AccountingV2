@@ -120,11 +120,14 @@ jobs:
             --timeout 90s \
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
 
-      - name: Upload JS source maps to Crashlytics
-        if: steps.firebase_check.outputs.has_sa == 'true'
+      - name: Upload Crashlytics mapping file
+        # uploadCrashlyticsSymbolFileRelease only exists when NDK/native code is present.
+        # uploadCrashlyticsMappingFileRelease only exists when minification is enabled.
+        # Neither applies to this project, so skip entirely for now.
+        # Re-enable if NDK or R8 minification is added in a future phase.
+        if: false
         working-directory: android
         run: |
-          ./gradlew uploadCrashlyticsSymbolFileRelease
           ./gradlew uploadCrashlyticsMappingFileRelease
 
       - name: Upload to Play Store — Internal Testing
