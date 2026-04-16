@@ -77,6 +77,11 @@ jobs:
 
       - name: Build debug APK
         run: detox build --configuration android.emu.debug
+        env:
+          # EXPO_PUBLIC_* are bundled into the JS bundle at build time.
+          # Without these, supabaseClient.ts throws at module eval → app crashes on launch.
+          EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
 
       - name: Run Detox tests on emulator
         uses: reactivecircus/android-emulator-runner@v2
