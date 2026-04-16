@@ -16,7 +16,7 @@ import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
-import { spacing } from '../../theme/tokens';
+import { fontSize, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { format, parseISO } from 'date-fns';
 import type { TransactionListScreenProps } from '../../navigation/types';
@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  amount: { fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold' },
+  amount: { fontSize: fontSize.md, fontFamily: 'PlusJakartaSans_700Bold' },
   list: { paddingBottom: 100 },
   fab: {
     position: 'absolute',

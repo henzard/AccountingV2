@@ -14,6 +14,7 @@ import { DebtPayoffBar } from './components/DebtPayoffBar';
 import { PayoffProjectionCard } from './components/PayoffProjectionCard';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
+import { formatCurrency } from '../../utils/currency';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
@@ -40,7 +41,7 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
     const progress = getPayoffProgressPercent(item);
     const label = item.isPaidOff
       ? 'PAID OFF'
-      : `R${(item.outstandingBalanceCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })} remaining`;
+      : `${formatCurrency(item.outstandingBalanceCents)} remaining`;
 
     return (
       <TouchableRipple
@@ -91,7 +92,7 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
           eyebrow="Debt Snowball"
           title={
             totalPaidCents > 0
-              ? `R${(totalPaidCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })} paid off to date`
+              ? `${formatCurrency(totalPaidCents)} paid off to date`
               : 'Your debt payoff plan'
           }
         />

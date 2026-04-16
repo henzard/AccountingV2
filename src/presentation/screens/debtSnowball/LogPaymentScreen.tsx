@@ -8,6 +8,7 @@ import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { LogDebtPaymentUseCase } from '../../../domain/debtSnowball/LogDebtPaymentUseCase';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
+import { formatCurrency } from '../../utils/currency';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
@@ -65,10 +66,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       {debt && (
         <Text variant="bodyMedium" style={[styles.hint, { color: colors.onSurfaceVariant }]}>
-          Outstanding: R
-          {(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', {
-            minimumFractionDigits: 2,
-          })}
+          {`Outstanding: ${formatCurrency(debt.outstandingBalanceCents)}`}
         </Text>
       )}
       <TextInput

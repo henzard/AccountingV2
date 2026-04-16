@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Text, TouchableRipple, Surface } from 'react-native-paper';
 import { EnvelopeFillBar } from '../shared/EnvelopeFillBar';
 import { CurrencyText } from '../shared/CurrencyText';
-import { spacing, radius } from '../../theme/tokens';
+import { fontSize, spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import {
   getRemainingCents,
@@ -83,11 +83,11 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   remaining: {
-    fontSize: 15,
+    fontSize: fontSize.base,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
   meta: {
-    fontSize: 12,
+    fontSize: fontSize.sm,
     marginBottom: spacing.sm,
   },
   bar: {

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
 import { format, differenceInMonths } from 'date-fns';
+import { formatCurrency } from '../../../utils/currency';
 import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { SnowballPlan } from '../../../../domain/debtSnowball/SnowballPayoffProjector';
@@ -48,7 +49,7 @@ export function PayoffProjectionCard({
         <View style={styles.stat}>
           <Text style={styles.statLabel}>TOTAL DEBT</Text>
           <Text style={[styles.statValue, { color: colors.onPrimary }]}>
-            R{(totalDebtCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+            {formatCurrency(totalDebtCents)}
           </Text>
         </View>
         <View style={styles.stat}>
