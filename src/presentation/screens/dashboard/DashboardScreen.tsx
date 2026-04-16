@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { RamseyScoreBadge } from './components/RamseyScoreBadge';
 import { BabyStepsCard } from './BabyStepsCard';
-import { FAB, Surface, Button } from 'react-native-paper';
+import { FAB, Surface, Button, Text } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
@@ -15,7 +15,7 @@ import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
-import { spacing } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { format } from 'date-fns';
 import type { DashboardScreenProps } from '../../navigation/types';
@@ -108,6 +108,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
         />
       )}
 
+      <TouchableOpacity
+        style={[styles.sinkingFundsRow, { backgroundColor: colors.secondaryContainer }]}
+        onPress={() => navigation.navigate('SinkingFunds')}
+        testID="sinking-funds-entry"
+      >
+        <Text variant="labelLarge" style={{ color: colors.onSecondaryContainer }}>
+          Sinking Funds
+        </Text>
+        <Text style={{ color: colors.onSecondaryContainer }}>›</Text>
+      </TouchableOpacity>
+
       {loading ? (
         <LoadingSkeletonList count={4} testID="dashboard-loading" />
       ) : envelopes.length === 0 ? (
@@ -169,5 +180,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: spacing.base,
     bottom: spacing.xl,
+  },
+  sinkingFundsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginHorizontal: spacing.base,
+    marginBottom: spacing.sm,
+    padding: spacing.base,
+    borderRadius: radius.lg,
   },
 });

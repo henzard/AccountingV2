@@ -16,6 +16,8 @@ interface CreateEnvelopeInput {
   allocatedCents: number;
   envelopeType: EnvelopeType;
   periodStart: string;
+  targetAmountCents?: number | null;
+  targetDate?: string | null;
 }
 
 export class CreateEnvelopeUseCase {
@@ -58,8 +60,8 @@ export class CreateEnvelopeUseCase {
       isSavingsLocked,
       isArchived: false,
       periodStart: this.input.periodStart,
-      targetAmountCents: null,
-      targetDate: null,
+      targetAmountCents: this.input.targetAmountCents ?? null,
+      targetDate: this.input.targetDate ?? null,
       createdAt: now,
       updatedAt: now,
     };
