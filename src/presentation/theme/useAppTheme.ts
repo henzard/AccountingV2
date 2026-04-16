@@ -22,6 +22,12 @@ const fontConfig = {
     fontWeight: '700' as const,
     letterSpacing: -0.5,
   },
+  displaySmall: {
+    fontFamily: 'Fraunces_700Bold',
+    fontSize: 30,
+    fontWeight: '700' as const,
+    letterSpacing: -0.25,
+  },
   headlineLarge: {
     fontFamily: 'Fraunces_700Bold',
     fontSize: 28,
@@ -31,6 +37,12 @@ const fontConfig = {
   headlineMedium: {
     fontFamily: 'Fraunces_700Bold',
     fontSize: 22,
+    fontWeight: '700' as const,
+    letterSpacing: 0,
+  },
+  headlineSmall: {
+    fontFamily: 'Fraunces_700Bold',
+    fontSize: 20,
     fontWeight: '700' as const,
     letterSpacing: 0,
   },
@@ -46,6 +58,12 @@ const fontConfig = {
     fontWeight: '600' as const,
     letterSpacing: 0.15,
   },
+  titleSmall: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: 14,
+    fontWeight: '500' as const,
+    letterSpacing: 0.1,
+  },
   bodyLarge: {
     fontFamily: 'PlusJakartaSans_400Regular',
     fontSize: 16,
@@ -57,6 +75,12 @@ const fontConfig = {
     fontSize: 14,
     fontWeight: '400' as const,
     letterSpacing: 0.25,
+  },
+  bodySmall: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: 12,
+    fontWeight: '400' as const,
+    letterSpacing: 0.4,
   },
   labelLarge: {
     fontFamily: 'PlusJakartaSans_600SemiBold',

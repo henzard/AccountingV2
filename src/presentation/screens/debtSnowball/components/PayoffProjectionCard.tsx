@@ -29,7 +29,9 @@ export function PayoffProjectionCard({
       <Text style={styles.eyebrow}>DEBT-FREE DATE</Text>
       {plan.debtFreeDate ? (
         <>
-          <Text style={styles.date}>{format(plan.debtFreeDate, 'MMM yyyy')}</Text>
+          <Text style={[styles.date, { color: colors.onPrimary }]}>
+            {format(plan.debtFreeDate, 'MMM yyyy')}
+          </Text>
           {monthsRemaining !== null && (
             <Text style={styles.months}>
               {monthsRemaining} month{monthsRemaining !== 1 ? 's' : ''} away
@@ -45,13 +47,13 @@ export function PayoffProjectionCard({
       <View style={styles.row}>
         <View style={styles.stat}>
           <Text style={styles.statLabel}>TOTAL DEBT</Text>
-          <Text style={styles.statValue}>
+          <Text style={[styles.statValue, { color: colors.onPrimary }]}>
             R{(totalDebtCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
           </Text>
         </View>
         <View style={styles.stat}>
           <Text style={styles.statLabel}>DEBTS TO CLEAR</Text>
-          <Text style={styles.statValue}>{debtsToPayoff}</Text>
+          <Text style={[styles.statValue, { color: colors.onPrimary }]}>{debtsToPayoff}</Text>
         </View>
       </View>
     </View>
@@ -72,7 +74,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   date: {
-    color: '#FFFFFF',
     fontSize: 36,
     fontFamily: 'PlusJakartaSans_700Bold',
     lineHeight: 42,
@@ -102,7 +103,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   statValue: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontFamily: 'PlusJakartaSans_700Bold',
     marginTop: spacing.xs / 2,
