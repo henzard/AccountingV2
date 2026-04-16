@@ -36,6 +36,12 @@ export function LineItemRow({
   }
 
   const borderColor = getConfidenceBorderColor(item, selectedEnvelope);
+  const confidenceLabel = !selectedEnvelope
+    ? 'no envelope assigned'
+    : item.confidence < 0.7
+      ? 'low confidence'
+      : 'confident';
+
   return (
     <View
       style={[
@@ -47,6 +53,7 @@ export function LineItemRow({
         },
       ]}
       testID={`line-item-${index}`}
+      accessibilityLabel={`Line item ${index + 1}: ${item.description}, ${formatCents(item.amountCents)}, ${confidenceLabel}`}
     >
       <View style={styles.descRow}>
         <Text
@@ -64,6 +71,12 @@ export function LineItemRow({
         onPress={() => onSelectEnvelope(index)}
         style={styles.envelopeButton}
         testID={`line-item-envelope-picker-${index}`}
+        accessibilityRole="button"
+        accessibilityLabel={
+          selectedEnvelope
+            ? `Envelope: ${selectedEnvelope.name}. Double-tap to change.`
+            : 'Assign envelope. Double-tap to select.'
+        }
       >
         <Text
           variant="bodySmall"

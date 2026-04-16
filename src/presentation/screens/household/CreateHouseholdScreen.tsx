@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
+import { Text, TextInput, Button } from 'react-native-paper';
 import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateHouseholdUseCase } from '../../../domain/households/CreateHouseholdUseCase';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { CreateHouseholdScreenProps } from '../../navigation/types';
@@ -19,16 +20,16 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
   const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const availableHouseholds = useAppStore((s) => s.availableHouseholds);
 
+  const enqueue = useToastStore((s) => s.enqueue);
+
   const [name, setName] = useState('');
   const [paydayDay, setPaydayDayInput] = useState('25');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async (): Promise<void> => {
     if (!session) return;
     const day = parseInt(paydayDay, 10);
     setLoading(true);
-    setError(null);
 
     const uc = new CreateHouseholdUseCase(db, audit, {
       userId: session.user.id,
@@ -39,7 +40,7 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
     setLoading(false);
 
     if (!result.success) {
-      setError(result.error.message);
+      enqueue(result.error.message, 'error');
       return;
     }
 
@@ -89,15 +90,6 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
           Create Household
         </Button>
       </ScrollView>
-
-      <Snackbar
-        visible={error !== null}
-        onDismiss={() => setError(null)}
-        duration={4000}
-        action={{ label: 'OK', onPress: () => setError(null) }}
-      >
-        {error}
-      </Snackbar>
     </KeyboardAvoidingView>
   );
 };
