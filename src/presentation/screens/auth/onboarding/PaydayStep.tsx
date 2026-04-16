@@ -53,6 +53,8 @@ export function PaydayStep(): React.JSX.Element {
     <OnboardingStepLayout
       title="When do you get paid?"
       subtitle="Your payday resets your budget period each month."
+      step={5}
+      totalSteps={8}
       onCta={handleNext}
       ctaLoading={loading}
       ctaDisabled={loading}

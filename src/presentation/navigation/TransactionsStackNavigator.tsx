@@ -15,6 +15,7 @@ export function TransactionsStackNavigator(): React.JSX.Element {
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.primary,
         headerTitleStyle: { fontFamily: 'PlusJakartaSans_700Bold' },
+        headerShadowVisible: false,
       }}
     >
       <Stack.Screen

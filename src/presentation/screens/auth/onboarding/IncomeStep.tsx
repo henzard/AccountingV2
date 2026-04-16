@@ -37,6 +37,8 @@ export function IncomeStep(): React.JSX.Element {
     <OnboardingStepLayout
       title="What's your monthly income?"
       subtitle="This helps us plan your budget envelopes."
+      step={2}
+      totalSteps={8}
       onCta={handleNext}
     >
       <TextInput
