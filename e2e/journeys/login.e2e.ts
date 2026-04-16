@@ -8,11 +8,6 @@ import { device, element, by, expect as detoxExpect, waitFor } from 'detox';
 
 describe('Login journey', () => {
   beforeAll(async () => {
-    // Supabase keeps OkHttp connections open (auth session + realtime WebSocket).
-    // Blacklisting prevents Detox from waiting for those connections to drain
-    // before executing each UI command — without this every assertion hits the
-    // 60-second idleResourceTimeout and reports "unexpectedly disconnected".
-    await device.setURLBlacklist(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']);
     await device.launchApp({ newInstance: true });
   });
 

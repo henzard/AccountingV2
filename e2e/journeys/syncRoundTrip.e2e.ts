@@ -7,17 +7,16 @@
  * properly gated behind authentication and the app remains stable after a
  * failed network interaction.
  *
- * NOTE: Offline-banner tests are excluded because `device.setURLBlacklist`
- * only blocks OkHttp requests and does NOT drive `NetInfo.isConnected` to
- * false. Testing OfflineBanner reliably requires a `__FORCE_OFFLINE__` debug
- * flag that bypasses NetInfo — a follow-up task.
+ * NOTE: Offline-banner tests are excluded because URL blacklisting only blocks
+ * OkHttp requests and does NOT drive `NetInfo.isConnected` to false. Testing
+ * OfflineBanner reliably requires a `__FORCE_OFFLINE__` debug flag that
+ * bypasses NetInfo — a follow-up task.
  */
 
 import { device, element, by, expect as detoxExpect } from 'detox';
 
 describe('Sync round-trip journey', () => {
   beforeAll(async () => {
-    await device.setURLBlacklist(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']);
     await device.launchApp({ newInstance: true });
   });
 

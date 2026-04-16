@@ -16,7 +16,6 @@ import { device, element, by, expect as detoxExpect } from 'detox';
 
 describe('Add Envelope journey', () => {
   beforeAll(async () => {
-    await device.setURLBlacklist(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']);
     await device.launchApp({ newInstance: true });
   });
 
