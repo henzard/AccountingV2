@@ -22,6 +22,8 @@ interface PickerFieldProps {
   showChevron?: boolean;
   onPress: () => void;
   testID?: string;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 export function PickerField({
@@ -33,6 +35,8 @@ export function PickerField({
   showChevron = false,
   onPress,
   testID,
+  accessibilityLabel,
+  accessibilityHint,
 }: PickerFieldProps): React.JSX.Element {
   const { colors } = useAppTheme();
 
@@ -41,6 +45,9 @@ export function PickerField({
       onPress={onPress}
       style={[styles.trigger, { borderColor: colors.outline }]}
       testID={testID}
+      accessibilityLabel={accessibilityLabel ?? label ?? placeholder ?? 'Select value'}
+      accessibilityHint={accessibilityHint ?? 'Double-tap to open picker'}
+      accessibilityRole="button"
     >
       <View style={styles.inner}>
         {label !== undefined ? (

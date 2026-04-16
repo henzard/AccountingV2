@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
+import { Text, TextInput, Button } from 'react-native-paper';
 import { db } from '../../../data/local/db';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { AcceptInviteUseCase } from '../../../domain/households/AcceptInviteUseCase';
@@ -24,18 +24,16 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
 
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleJoin = async (): Promise<void> => {
     if (!session) return;
     const trimmedCode = code.trim().toUpperCase();
     if (trimmedCode.length !== 6) {
-      setError('Please enter a 6-character invite code');
+      enqueue('Please enter a 6-character invite code', 'error');
       return;
     }
 
     setLoading(true);
-    setError(null);
 
     const uc = new AcceptInviteUseCase(supabase, db, restoreService, {
       code: trimmedCode,
@@ -45,7 +43,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
     setLoading(false);
 
     if (!result.success) {
-      setError(result.error.message);
+      enqueue(result.error.message, 'error');
       return;
     }
 
@@ -89,15 +87,6 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
           Join Household
         </Button>
       </ScrollView>
-
-      <Snackbar
-        visible={error !== null}
-        onDismiss={() => setError(null)}
-        duration={4000}
-        action={{ label: 'OK', onPress: () => setError(null) }}
-      >
-        {error}
-      </Snackbar>
     </KeyboardAvoidingView>
   );
 };
