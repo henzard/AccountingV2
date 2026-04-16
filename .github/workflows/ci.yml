@@ -70,6 +70,9 @@ jobs:
       - name: Install Detox CLI
         run: npm install -g detox-cli
 
+      - name: Start ADB server
+        run: adb start-server
+
       - name: Build debug APK
         run: detox build --configuration android.emu.debug
 
