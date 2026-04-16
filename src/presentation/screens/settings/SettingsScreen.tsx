@@ -7,7 +7,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { supabase } from '../../../data/remote/supabaseClient';
-import { spacing } from '../../theme/tokens';
+import { radius, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
 
@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
   section: {
     marginTop: spacing.base,
     marginHorizontal: spacing.base,
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
   subheader: {
     marginHorizontal: spacing.base,

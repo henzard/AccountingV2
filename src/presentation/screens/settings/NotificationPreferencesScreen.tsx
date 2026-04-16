@@ -5,7 +5,7 @@ import { NotificationPreferencesRepository } from '../../../infrastructure/notif
 import { LocalNotificationScheduler } from '../../../infrastructure/notifications/LocalNotificationScheduler';
 import * as Notifications from 'expo-notifications';
 import { useNotificationStore } from '../../stores/notificationStore';
-import { spacing } from '../../theme/tokens';
+import { radius, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppStore } from '../../stores/appStore';
 import type { NotificationPreferences } from '../../../infrastructure/notifications/NotificationPreferences';
@@ -189,12 +189,12 @@ const styles = StyleSheet.create({
   container: { padding: spacing.base },
   permWarning: {
     padding: spacing.base,
-    borderRadius: 8,
+    borderRadius: radius.md,
     marginBottom: spacing.base,
   },
   permWarningText: {},
   subheader: { letterSpacing: 1 },
-  section: { borderRadius: 8, marginBottom: spacing.sm },
+  section: { borderRadius: radius.md, marginBottom: spacing.sm },
   timeRow: {
     flexDirection: 'row',
     gap: spacing.sm,
