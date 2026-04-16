@@ -11,7 +11,8 @@ import { ArchiveEnvelopeUseCase } from '../../../domain/envelopes/ArchiveEnvelop
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddEditEnvelopeScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity, EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
 import { format } from 'date-fns';
@@ -34,6 +35,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
   route,
   navigation,
 }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const paydayDay = useAppStore((s) => s.paydayDay);
   const enqueue = useToastStore((s) => s.enqueue);
@@ -134,7 +136,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
@@ -144,7 +146,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           onChangeText={setName}
           mode="outlined"
           testID="envelope-name"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Groceries"
         />
@@ -155,14 +157,14 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           onChangeText={setAmountStr}
           mode="outlined"
           testID="envelope-amount"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           keyboardType="decimal-pad"
           disabled={loading}
           placeholder="0.00"
           left={<TextInput.Affix text="R" />}
         />
 
-        <Text variant="labelLarge" style={styles.typeLabel}>
+        <Text variant="labelLarge" style={[styles.typeLabel, { color: colors.onSurface }]}>
           Type
         </Text>
         <SegmentedButtons
@@ -194,8 +196,8 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
             mode="outlined"
             icon="archive-outline"
             onPress={handleArchive}
-            textColor={colours.error}
-            style={styles.archiveButton}
+            textColor={colors.error}
+            style={[styles.archiveButton, { borderColor: colors.error }]}
             contentStyle={styles.buttonContent}
             testID="archive-envelope-button"
           >
@@ -218,12 +220,12 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.surface },
+  flex: { flex: 1 },
   container: { padding: spacing.base, gap: spacing.sm },
-  input: { backgroundColor: colours.surface },
-  typeLabel: { color: colours.onSurface, marginTop: spacing.sm },
+  input: {},
+  typeLabel: { marginTop: spacing.sm },
   segmented: { marginTop: spacing.xs },
   button: { marginTop: spacing.lg },
-  archiveButton: { marginTop: spacing.sm, borderColor: colours.error },
+  archiveButton: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
 });

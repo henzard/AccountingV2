@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, StyleSheet, Modal, FlatList, TouchableOpacity } from 'react-native';
 import { Text, TouchableRipple, Surface } from 'react-native-paper';
-import { colours, spacing, radius } from '../../../theme/tokens';
+import { spacing, radius } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { EnvelopeType } from '../../../../domain/envelopes/EnvelopeEntity';
 
 export interface EnvelopeOption {
@@ -34,6 +35,7 @@ export function EnvelopePickerSheet({
   onSelect,
   onClose,
 }: EnvelopePickerSheetProps): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
     <Modal
       visible={visible}
@@ -50,9 +52,9 @@ export function EnvelopePickerSheet({
         accessibilityRole="button"
         testID="envelope-picker-backdrop"
       >
-        <Surface style={styles.sheet} elevation={4}>
-          <View style={styles.handle} />
-          <Text variant="titleMedium" style={styles.title}>
+        <Surface style={[styles.sheet, { backgroundColor: colors.surface }]} elevation={4}>
+          <View style={[styles.handle, { backgroundColor: colors.outline }]} />
+          <Text variant="titleMedium" style={[styles.title, { color: colors.onSurface }]}>
             Select Envelope
           </Text>
           <FlatList
@@ -73,14 +75,18 @@ export function EnvelopePickerSheet({
                   <View style={styles.itemInner}>
                     <Text
                       variant="bodyLarge"
-                      style={isSelected ? styles.itemSelected : styles.itemText}
+                      style={
+                        isSelected
+                          ? [styles.itemSelected, { color: colors.primary }]
+                          : [styles.itemText, { color: colors.onSurface }]
+                      }
                     >
                       {item.name}
                     </Text>
                     <Text
                       variant="bodySmall"
                       style={{
-                        color: balance < 0 ? colours.error : colours.onSurfaceVariant,
+                        color: balance < 0 ? colors.error : colors.onSurfaceVariant,
                       }}
                       testID={`envelope-balance-${item.id}`}
                     >
@@ -92,7 +98,7 @@ export function EnvelopePickerSheet({
             }}
             ListEmptyComponent={
               <View style={styles.center}>
-                <Text variant="bodyMedium" style={{ color: colours.onSurfaceVariant }}>
+                <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
                   No envelopes for this period. Add envelopes first.
                 </Text>
               </View>
@@ -115,13 +121,11 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.lg,
     paddingBottom: spacing.xl,
     maxHeight: '70%',
-    backgroundColor: colours.surface,
   },
   handle: {
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: colours.outline,
     alignSelf: 'center',
     marginTop: spacing.sm,
     marginBottom: spacing.xs,
@@ -129,11 +133,10 @@ const styles = StyleSheet.create({
   title: {
     textAlign: 'center',
     paddingVertical: spacing.sm,
-    color: colours.onSurface,
   },
   item: { paddingHorizontal: spacing.base, paddingVertical: spacing.sm },
   itemInner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  itemText: { color: colours.onSurface },
-  itemSelected: { color: colours.primary, fontWeight: 'bold' },
+  itemText: {},
+  itemSelected: { fontWeight: 'bold' },
   center: { padding: spacing.base, alignItems: 'center' },
 });

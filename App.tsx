@@ -17,7 +17,6 @@ import { useDatabaseMigrations } from './src/data/local/db';
 import { useFonts } from './src/presentation/theme/useFonts';
 import { useAppTheme } from './src/presentation/theme/useAppTheme';
 import { RootNavigator } from './src/presentation/navigation/RootNavigator';
-import { colours } from './src/presentation/theme/tokens';
 import { supabase } from './src/data/remote/supabaseClient';
 import { useAppStore } from './src/presentation/stores/appStore';
 import { db } from './src/data/local/db';
@@ -228,14 +227,14 @@ export default function App(): React.JSX.Element {
     // Record font/DB init errors — these surface before Crashlytics is ready.
     captureBoot('App render — font/db init', fontError ?? dbError);
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, { backgroundColor: appTheme.colors.surface }]}>
         <Text>Error: {(fontError ?? dbError)?.message}</Text>
       </View>
     );
   }
 
   if (!fontsLoaded || !dbReady || !sessionRestored) {
-    return <View style={styles.center} />;
+    return <View style={[styles.center, { backgroundColor: appTheme.colors.surface }]} />;
   }
 
   return (
@@ -256,6 +255,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colours.surface,
   },
 });

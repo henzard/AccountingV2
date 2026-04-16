@@ -14,7 +14,8 @@ import React from 'react';
 import { View, StyleSheet, Switch } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { colours, spacing, radius } from '../../../theme/tokens';
+import { spacing, radius } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 export interface ManualStepPanelProps {
   /** Whether the step is currently marked done */
@@ -30,26 +31,37 @@ export const ManualStepPanel: React.FC<ManualStepPanelProps> = ({
   onToggle,
   loading = false,
 }) => {
+  const { colors } = useAppTheme();
   return (
-    <Surface style={styles.container} elevation={0} testID="manual-step-panel">
+    <Surface
+      style={[
+        styles.container,
+        { backgroundColor: colors.secondaryContainer, borderColor: colors.secondary },
+      ]}
+      elevation={0}
+      testID="manual-step-panel"
+    >
       <View style={styles.iconRow}>
-        <MaterialCommunityIcons name="hand-pointing-right" size={32} color={colours.secondary} />
+        <MaterialCommunityIcons name="hand-pointing-right" size={32} color={colors.secondary} />
       </View>
 
-      <Text variant="bodyMedium" style={styles.label}>
+      <Text variant="bodyMedium" style={[styles.label, { color: colors.onSecondaryContainer }]}>
         You decide when this is complete — tap to mark done.
       </Text>
 
       <View style={styles.switchRow}>
-        <Text variant="labelLarge" style={styles.switchLabel}>
+        <Text
+          variant="labelLarge"
+          style={[styles.switchLabel, { color: colors.onSecondaryContainer }]}
+        >
           {isCompleted ? 'Done' : 'Not yet'}
         </Text>
         <Switch
           value={isCompleted}
           onValueChange={onToggle}
           disabled={loading}
-          trackColor={{ false: colours.outlineVariant, true: colours.primary }}
-          thumbColor={isCompleted ? colours.onPrimary : colours.surface}
+          trackColor={{ false: colors.outlineVariant, true: colors.primary }}
+          thumbColor={isCompleted ? colors.onPrimary : colors.surface}
           accessible
           accessibilityRole="switch"
           accessibilityState={{ checked: isCompleted, disabled: loading }}
@@ -63,11 +75,9 @@ export const ManualStepPanel: React.FC<ManualStepPanelProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colours.secondaryContainer,
     borderRadius: radius.lg,
     borderWidth: 1.5,
     borderStyle: 'dashed',
-    borderColor: colours.secondary,
     padding: spacing.base,
     gap: spacing.sm,
   },
@@ -76,7 +86,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   label: {
-    color: colours.onSecondaryContainer,
     textAlign: 'center',
     lineHeight: 22,
   },
@@ -86,7 +95,5 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: spacing.xs,
   },
-  switchLabel: {
-    color: colours.onSecondaryContainer,
-  },
+  switchLabel: {},
 });

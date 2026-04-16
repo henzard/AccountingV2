@@ -1,22 +1,24 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
-import { colours, radius } from '../../theme/tokens';
+import { radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 interface Props {
   percentRemaining: number;
   height?: number;
 }
 
-function getFillColour(pct: number): string {
-  if (pct > 60) return colours.envelopeFull;
-  if (pct > 20) return colours.envelopeMid;
-  if (pct > 10) return colours.envelopeWarning;
-  if (pct > 0) return colours.envelopeDanger;
-  return colours.envelopeEmpty;
-}
-
 export function EnvelopeFillBar({ percentRemaining, height = 8 }: Props): React.JSX.Element {
+  const { colors } = useAppTheme();
   const anim = useRef(new Animated.Value(0)).current;
+
+  function getFillColour(pct: number): string {
+    if (pct > 60) return colors.envelopeFull;
+    if (pct > 20) return colors.envelopeMid;
+    if (pct > 10) return colors.envelopeWarning;
+    if (pct > 0) return colors.envelopeDanger;
+    return colors.envelopeEmpty;
+  }
 
   useEffect(() => {
     Animated.timing(anim, {
@@ -35,7 +37,12 @@ export function EnvelopeFillBar({ percentRemaining, height = 8 }: Props): React.
   });
 
   return (
-    <View style={[styles.track, { height, borderRadius: radius.full }]}>
+    <View
+      style={[
+        styles.track,
+        { height, borderRadius: radius.full, backgroundColor: colors.outlineVariant },
+      ]}
+    >
       <Animated.View
         style={[
           styles.fill,
@@ -52,6 +59,6 @@ export function EnvelopeFillBar({ percentRemaining, height = 8 }: Props): React.
 }
 
 const styles = StyleSheet.create({
-  track: { width: '100%', backgroundColor: colours.outlineVariant, overflow: 'hidden' },
+  track: { width: '100%', overflow: 'hidden' },
   fill: { position: 'absolute', left: 0, top: 0 },
 });

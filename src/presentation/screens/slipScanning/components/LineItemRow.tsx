@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, TouchableRipple } from 'react-native-paper';
-import { colours, spacing } from '../../../theme/tokens';
+import { spacing } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { SlipExtractionItem } from '../../../../domain/slipScanning/types';
 import type { EnvelopeOption } from './EnvelopePickerSheet';
 
@@ -17,32 +18,45 @@ function formatCents(cents: number): string {
   return `R${(cents / 100).toFixed(2)}`;
 }
 
-function getConfidenceBorderColor(
-  item: SlipExtractionItem,
-  selectedEnvelope: EnvelopeOption | null,
-): string {
-  if (!selectedEnvelope) return colours.error;
-  if (item.confidence < 0.7) return colours.warning;
-  return colours.outlineVariant;
-}
-
 export function LineItemRow({
   item,
   index,
   selectedEnvelope,
   onSelectEnvelope,
 }: LineItemRowProps): React.JSX.Element {
+  const { colors } = useAppTheme();
+
+  function getConfidenceBorderColor(
+    lineItem: SlipExtractionItem,
+    selEnvelope: EnvelopeOption | null,
+  ): string {
+    if (!selEnvelope) return colors.error;
+    if (lineItem.confidence < 0.7) return colors.warning;
+    return colors.outlineVariant;
+  }
+
   const borderColor = getConfidenceBorderColor(item, selectedEnvelope);
   return (
     <View
-      style={[styles.container, { borderLeftColor: borderColor, borderLeftWidth: 3 }]}
+      style={[
+        styles.container,
+        {
+          borderLeftColor: borderColor,
+          borderLeftWidth: 3,
+          borderBottomColor: colors.outlineVariant,
+        },
+      ]}
       testID={`line-item-${index}`}
     >
       <View style={styles.descRow}>
-        <Text variant="bodyMedium" style={styles.desc} numberOfLines={2}>
+        <Text
+          variant="bodyMedium"
+          style={[styles.desc, { color: colors.onSurface }]}
+          numberOfLines={2}
+        >
           {item.description}
         </Text>
-        <Text variant="bodyMedium" style={styles.amount}>
+        <Text variant="bodyMedium" style={[styles.amount, { color: colors.onSurface }]}>
           {formatCents(item.amountCents)}
         </Text>
       </View>
@@ -53,7 +67,11 @@ export function LineItemRow({
       >
         <Text
           variant="bodySmall"
-          style={selectedEnvelope ? styles.envelopeSelected : styles.envelopePlaceholder}
+          style={
+            selectedEnvelope
+              ? [styles.envelopeSelected, { color: colors.primary }]
+              : [styles.envelopePlaceholder, { color: colors.onSurfaceVariant }]
+          }
         >
           {selectedEnvelope ? selectedEnvelope.name : 'Assign envelope…'}
         </Text>
@@ -67,12 +85,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colours.outlineVariant,
   },
   descRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  desc: { flex: 1, marginRight: spacing.sm, color: colours.onSurface },
-  amount: { color: colours.onSurface, fontWeight: '600' },
+  desc: { flex: 1, marginRight: spacing.sm },
+  amount: { fontWeight: '600' },
   envelopeButton: { paddingVertical: 4 },
-  envelopeSelected: { color: colours.primary },
-  envelopePlaceholder: { color: colours.onSurfaceVariant },
+  envelopeSelected: {},
+  envelopePlaceholder: {},
 });

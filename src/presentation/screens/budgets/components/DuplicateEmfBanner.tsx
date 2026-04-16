@@ -17,25 +17,35 @@ import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useEmergencyFundReconcileFlag } from '../../../hooks/useEmergencyFundReconcileFlag';
-import { colours, spacing, radius } from '../../../theme/tokens';
+import { spacing, radius } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 const COPY =
   'We found two emergency fund envelopes (one from each device). We kept the original. The other is now a Savings envelope — check your Budget to confirm.';
 
 export const DuplicateEmfBanner: React.FC = () => {
   const { hasFlag, dismiss } = useEmergencyFundReconcileFlag();
+  const { colors } = useAppTheme();
 
   if (!hasFlag) return null;
 
   return (
-    <Surface style={styles.banner} elevation={0} testID="duplicate-emf-banner">
+    <Surface
+      style={[styles.banner, { backgroundColor: colors.warningContainer }]}
+      elevation={0}
+      testID="duplicate-emf-banner"
+    >
       <MaterialCommunityIcons
         name="information-outline"
         size={20}
-        color={colours.warning}
+        color={colors.warning}
         style={styles.icon}
       />
-      <Text variant="bodySmall" style={styles.copy} testID="duplicate-emf-copy">
+      <Text
+        variant="bodySmall"
+        style={[styles.copy, { color: colors.onSurface }]}
+        testID="duplicate-emf-copy"
+      >
         {COPY}
       </Text>
       <TouchableOpacity
@@ -44,7 +54,7 @@ export const DuplicateEmfBanner: React.FC = () => {
         accessibilityLabel="Dismiss notification"
         testID="duplicate-emf-dismiss"
       >
-        <MaterialCommunityIcons name="close" size={18} color={colours.onSurfaceVariant} />
+        <MaterialCommunityIcons name="close" size={18} color={colors.onSurfaceVariant} />
       </TouchableOpacity>
     </Surface>
   );
@@ -54,7 +64,6 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: colours.warningContainer,
     borderRadius: radius.lg,
     padding: spacing.sm,
     marginHorizontal: spacing.base,
@@ -66,7 +75,6 @@ const styles = StyleSheet.create({
   },
   copy: {
     flex: 1,
-    color: colours.onSurface,
     lineHeight: 20,
   },
 });

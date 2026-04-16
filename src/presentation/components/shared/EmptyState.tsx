@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Button } from 'react-native-paper';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 interface EmptyStateProps {
   title: string;
@@ -18,6 +19,7 @@ export function EmptyState({
   onCta,
   testID,
 }: EmptyStateProps): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
     <View
       style={styles.container}
@@ -27,7 +29,7 @@ export function EmptyState({
     >
       <Text
         variant="titleMedium"
-        style={styles.title}
+        style={[styles.title, { color: colors.onSurface }]}
         testID="empty-state-title"
         accessibilityRole="text"
       >
@@ -36,7 +38,7 @@ export function EmptyState({
       {body ? (
         <Text
           variant="bodyMedium"
-          style={styles.body}
+          style={[styles.body, { color: colors.onSurfaceVariant }]}
           testID="empty-state-body"
           accessibilityRole="text"
         >
@@ -67,12 +69,10 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   title: {
-    color: colours.onSurface,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
   body: {
-    color: colours.onSurfaceVariant,
     textAlign: 'center',
     marginBottom: spacing.lg,
   },

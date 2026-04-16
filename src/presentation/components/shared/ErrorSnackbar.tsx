@@ -1,6 +1,6 @@
 import React from 'react';
 import { Snackbar } from 'react-native-paper';
-import { colours } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 interface Props {
   visible: boolean;
@@ -17,13 +17,14 @@ export function ErrorSnackbar({
   onAction,
   onDismiss,
 }: Props): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
     <Snackbar
       visible={visible}
       onDismiss={onDismiss}
       duration={4000}
       action={{ label: actionLabel, onPress: onAction ?? onDismiss }}
-      style={{ backgroundColor: colours.onSurface }}
+      style={{ backgroundColor: colors.onSurface }}
     >
       {message}
     </Snackbar>

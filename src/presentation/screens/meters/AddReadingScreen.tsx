@@ -10,7 +10,8 @@ import { LogMeterReadingUseCase } from '../../../domain/meterReadings/LogMeterRe
 import { AnomalyDetector } from '../../../domain/meterReadings/AnomalyDetector';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type {
   MeterReadingEntity,
   MeterType,
@@ -22,6 +23,7 @@ const audit = new AuditLogger(db);
 const anomalyDetector = new AnomalyDetector();
 
 export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, route }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const enqueue = useToastStore((s) => s.enqueue);
   const [meterType, setMeterType] = useState<MeterType>(route.params.meterType);
@@ -115,7 +117,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text variant="titleMedium" style={styles.label}>
+      <Text variant="titleMedium" style={[styles.label, { color: colors.onSurface }]}>
         Meter Type
       </Text>
       <SegmentedButtons
@@ -141,11 +143,15 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         }}
         keyboardType="numeric"
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
       />
 
       {anomalyWarning ? (
-        <Chip icon="alert" style={styles.anomalyChip} textStyle={styles.anomalyText}>
+        <Chip
+          icon="alert"
+          style={[styles.anomalyChip, { backgroundColor: colors.warningContainer }]}
+          textStyle={[styles.anomalyText, { color: colors.warning }]}
+        >
           {anomalyWarning}
         </Chip>
       ) : null}
@@ -156,7 +162,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         onChangeText={setCostRands}
         keyboardType="numeric"
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
       />
 
       <TextInput
@@ -164,7 +170,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         value={notes}
         onChangeText={setNotes}
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
       />
 
       <View accessibilityLiveRegion="polite">
@@ -180,7 +186,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         onPress={handleSave}
         loading={saving}
         disabled={saving}
-        style={styles.button}
+        style={[styles.button, { backgroundColor: colors.primary }]}
       >
         Save Reading
       </Button>
@@ -190,10 +196,10 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
 
 const styles = StyleSheet.create({
   container: { padding: spacing.base, gap: spacing.sm },
-  label: { color: colours.onSurface, fontFamily: 'PlusJakartaSans_600SemiBold' },
+  label: { fontFamily: 'PlusJakartaSans_600SemiBold' },
   segmented: { marginBottom: spacing.sm },
-  input: { backgroundColor: colours.surface },
-  anomalyChip: { backgroundColor: colours.warningContainer },
-  anomalyText: { color: colours.warning, fontSize: 12, flexShrink: 1 },
-  button: { marginTop: spacing.base, backgroundColor: colours.primary },
+  input: {},
+  anomalyChip: {},
+  anomalyText: { fontSize: 12, flexShrink: 1 },
+  button: { marginTop: spacing.base },
 });

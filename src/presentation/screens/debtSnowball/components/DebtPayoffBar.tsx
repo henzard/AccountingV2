@@ -1,27 +1,30 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
-import { colours, spacing, radius } from '../../../theme/tokens';
+import { spacing, radius } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 interface DebtPayoffBarProps {
   progressPercent: number; // 0–100
   label: string;
 }
 
-function getFillColour(progress: number): string {
-  if (progress >= 100) return colours.debtBarPaid; // green — paid off
-  if (progress >= 50) return colours.secondary; // amber — making good progress
-  return colours.debtBar; // red — just getting started
-}
-
 export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): React.JSX.Element {
+  const { colors } = useAppTheme();
   const clamped = Math.min(100, Math.max(0, progressPercent));
+
+  function getFillColour(progress: number): string {
+    if (progress >= 100) return colors.debtBarPaid; // green — paid off
+    if (progress >= 50) return colors.secondary; // amber — making good progress
+    return colors.debtBar; // red — just getting started
+  }
+
   const fillColour = getFillColour(clamped);
 
   return (
     <View style={styles.container}>
       <View
-        style={styles.track}
+        style={[styles.track, { backgroundColor: colors.surfaceVariant }]}
         accessibilityRole="progressbar"
         accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
         accessibilityLabel={`${label}: ${Math.round(clamped)}% paid off`}
@@ -37,7 +40,7 @@ export function DebtPayoffBar({ progressPercent, label }: DebtPayoffBarProps): R
         />
       </View>
       <View style={styles.labelRow}>
-        <Text variant="labelSmall" style={styles.label}>
+        <Text variant="labelSmall" style={[styles.label, { color: colors.onSurfaceVariant }]}>
           {label}
         </Text>
         <Text variant="labelSmall" style={[styles.percent, { color: fillColour }]}>
@@ -53,7 +56,6 @@ const styles = StyleSheet.create({
   track: {
     height: 12,
     borderRadius: radius.full,
-    backgroundColor: colours.surfaceVariant,
     overflow: 'hidden',
   },
   fill: {
@@ -65,6 +67,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: spacing.xs / 2,
   },
-  label: { color: colours.onSurfaceVariant },
+  label: {},
   percent: { fontFamily: 'PlusJakartaSans_600SemiBold' },
 });

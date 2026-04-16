@@ -5,12 +5,14 @@ import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateHouseholdUseCase } from '../../../domain/households/CreateHouseholdUseCase';
 import { useAppStore } from '../../stores/appStore';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { CreateHouseholdScreenProps } from '../../navigation/types';
 
 const audit = new AuditLogger(db);
 
 export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () => {
+  const { colors } = useAppTheme();
   const session = useAppStore((s) => s.session);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
@@ -49,11 +51,11 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text variant="bodyMedium" style={styles.description}>
+        <Text variant="bodyMedium" style={[styles.description, { color: colors.onSurfaceVariant }]}>
           Give your household a name and set your payday. You can invite members after creating it.
         </Text>
 
@@ -62,7 +64,7 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
           value={name}
           onChangeText={setName}
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
         />
 
@@ -72,7 +74,7 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
           onChangeText={setPaydayDayInput}
           keyboardType="numeric"
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
         />
 
@@ -101,10 +103,10 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.surface },
+  flex: { flex: 1 },
   container: { flexGrow: 1, padding: spacing.xl, gap: spacing.base },
-  description: { color: colours.onSurfaceVariant, marginBottom: spacing.base },
-  input: { backgroundColor: colours.surface },
+  description: { marginBottom: spacing.base },
+  input: {},
   button: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
 });

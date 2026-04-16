@@ -17,7 +17,7 @@
 
 import React from 'react';
 import Svg, { Circle, Rect, Path, Line, G, Text as SvgText } from 'react-native-svg';
-import { colours } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 export type SealState = 'future' | 'current' | 'complete';
 
@@ -27,7 +27,12 @@ export interface StepSealMarkProps {
   size: number;
 }
 
-function getSealColours(state: SealState): {
+function getSealColours(
+  state: SealState,
+  primary: string,
+  onPrimary: string,
+  outlineVariant: string,
+): {
   bg: string;
   stroke: string;
   glyph: string;
@@ -35,21 +40,21 @@ function getSealColours(state: SealState): {
   switch (state) {
     case 'complete':
       return {
-        bg: colours.primary,
-        stroke: colours.primary,
-        glyph: colours.onPrimary,
+        bg: primary,
+        stroke: primary,
+        glyph: onPrimary,
       };
     case 'current':
       return {
         bg: 'transparent',
-        stroke: colours.primary,
-        glyph: colours.primary,
+        stroke: primary,
+        glyph: primary,
       };
     case 'future':
       return {
         bg: 'transparent',
-        stroke: colours.outlineVariant,
-        glyph: colours.outlineVariant,
+        stroke: outlineVariant,
+        glyph: outlineVariant,
       };
   }
 }
@@ -300,7 +305,13 @@ function StepGlyph({
 }
 
 export const StepSealMark: React.FC<StepSealMarkProps> = ({ stepNumber, state, size }) => {
-  const { bg, stroke, glyph } = getSealColours(state);
+  const { colors } = useAppTheme();
+  const { bg, stroke, glyph } = getSealColours(
+    state,
+    colors.primary,
+    colors.onPrimary,
+    colors.outlineVariant,
+  );
   const r = size / 2;
   const sw = Math.max(1.5, size / 16);
   // Glyph uses 24×24 internal coordinate space

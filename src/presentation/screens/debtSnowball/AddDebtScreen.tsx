@@ -6,7 +6,8 @@ import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateDebtUseCase } from '../../../domain/debtSnowball/CreateDebtUseCase';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtType } from '../../../domain/debtSnowball/DebtEntity';
 import type { AddDebtScreenProps } from '../../navigation/types';
 
@@ -21,6 +22,7 @@ const DEBT_TYPES: { value: DebtType; label: string }[] = [
 ];
 
 export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
   const enqueue = useToastStore((s) => s.enqueue);
   const [creditorName, setCreditorName] = useState('');
@@ -75,7 +77,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text variant="titleMedium" style={styles.sectionLabel}>
+      <Text variant="titleMedium" style={[styles.sectionLabel, { color: colors.onSurface }]}>
         Debt Type
       </Text>
       <SegmentedButtons
@@ -90,7 +92,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         value={creditorName}
         onChangeText={setCreditorName}
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
         accessibilityHint="Required — enter the creditor or account name"
       />
       <TextInput
@@ -99,7 +101,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         onChangeText={setBalanceRands}
         keyboardType="numeric"
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
         accessibilityHint="Required — enter the current outstanding balance in rands"
       />
       <TextInput
@@ -108,7 +110,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         onChangeText={setRatePercent}
         keyboardType="numeric"
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
         accessibilityHint="Required — enter 0 for interest-free"
       />
       <TextInput
@@ -117,7 +119,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         onChangeText={setMinPaymentRands}
         keyboardType="numeric"
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
         accessibilityHint="Required — enter the minimum monthly payment in rands"
       />
 
@@ -134,7 +136,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
         onPress={handleSave}
         loading={saving}
         disabled={saving}
-        style={styles.button}
+        style={[styles.button, { backgroundColor: colors.primary }]}
       >
         Add Debt
       </Button>
@@ -144,8 +146,8 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { padding: spacing.base, gap: spacing.sm },
-  sectionLabel: { color: colours.onSurface, fontFamily: 'PlusJakartaSans_600SemiBold' },
+  sectionLabel: { fontFamily: 'PlusJakartaSans_600SemiBold' },
   segmented: { marginBottom: spacing.sm },
-  input: { backgroundColor: colours.surface },
-  button: { marginTop: spacing.base, backgroundColor: colours.primary },
+  input: {},
+  button: { marginTop: spacing.base },
 });

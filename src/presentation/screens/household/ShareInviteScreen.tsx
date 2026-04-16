@@ -4,10 +4,12 @@ import { Text, Surface, Button, ActivityIndicator } from 'react-native-paper';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { CreateInviteUseCase } from '../../../domain/households/CreateInviteUseCase';
 import { useAppStore } from '../../stores/appStore';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { ShareInviteScreenProps } from '../../navigation/types';
 
 export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) => {
+  const { colors } = useAppTheme();
   const { householdName } = route.params;
   const session = useAppStore((s) => s.session);
   const householdId = useAppStore((s) => s.householdId)!;
@@ -44,7 +46,7 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator animating color={colours.primary} />
+        <ActivityIndicator animating color={colors.primary} />
       </View>
     );
   }
@@ -52,7 +54,7 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
   if (error || !code) {
     return (
       <View style={styles.center}>
-        <Text variant="bodyMedium" style={styles.errorText}>
+        <Text variant="bodyMedium" style={[styles.errorText, { color: colors.error }]}>
           {error ?? 'Failed to generate code'}
         </Text>
       </View>
@@ -62,20 +64,20 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
   const expiryDate = expiresAt ? new Date(expiresAt).toLocaleDateString('en-ZA') : '';
 
   return (
-    <View style={styles.flex}>
-      <Surface style={styles.card} elevation={1}>
-        <Text variant="labelMedium" style={styles.label}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+      <Surface style={[styles.card, { backgroundColor: colors.primaryContainer }]} elevation={1}>
+        <Text variant="labelMedium" style={[styles.label, { color: colors.onPrimaryContainer }]}>
           INVITE CODE
         </Text>
-        <Text variant="displaySmall" style={styles.code}>
+        <Text variant="displaySmall" style={[styles.code, { color: colors.primary }]}>
           {code}
         </Text>
-        <Text variant="bodySmall" style={styles.expiry}>
+        <Text variant="bodySmall" style={[styles.expiry, { color: colors.onPrimaryContainer }]}>
           Expires {expiryDate} · Single use
         </Text>
       </Surface>
 
-      <Text variant="bodyMedium" style={styles.instructions}>
+      <Text variant="bodyMedium" style={[styles.instructions, { color: colors.onSurfaceVariant }]}>
         Share this code with the person you want to invite. They can enter it in Settings → Join a
         Household.
       </Text>
@@ -84,7 +86,7 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
         mode="contained"
         icon="share-variant"
         onPress={handleShare}
-        style={styles.shareBtn}
+        style={[styles.shareBtn, { backgroundColor: colors.primary }]}
         contentStyle={styles.shareBtnContent}
       >
         Share Code
@@ -94,25 +96,23 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.background, padding: spacing.base },
+  flex: { flex: 1, padding: spacing.base },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   card: {
     alignItems: 'center',
     borderRadius: radius.xl,
     padding: spacing.xl,
-    backgroundColor: colours.primaryContainer,
     marginTop: spacing.xl,
     marginBottom: spacing.base,
   },
-  label: { color: colours.onPrimaryContainer, letterSpacing: 1.5, marginBottom: spacing.sm },
-  code: { color: colours.primary, fontFamily: 'PlusJakartaSans_700Bold', letterSpacing: 8 },
-  expiry: { color: colours.onPrimaryContainer, marginTop: spacing.sm },
+  label: { letterSpacing: 1.5, marginBottom: spacing.sm },
+  code: { fontFamily: 'PlusJakartaSans_700Bold', letterSpacing: 8 },
+  expiry: { marginTop: spacing.sm },
   instructions: {
-    color: colours.onSurfaceVariant,
     textAlign: 'center',
     marginHorizontal: spacing.base,
   },
-  errorText: { color: colours.error, textAlign: 'center' },
-  shareBtn: { marginTop: spacing.xl, backgroundColor: colours.primary },
+  errorText: { textAlign: 'center' },
+  shareBtn: { marginTop: spacing.xl },
   shareBtnContent: { paddingVertical: spacing.xs },
 });

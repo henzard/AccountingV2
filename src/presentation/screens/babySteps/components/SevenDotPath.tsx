@@ -19,7 +19,8 @@ import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, useWindowDimensions, AccessibilityInfo } from 'react-native';
 import { Text } from 'react-native-paper';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
-import { colours, spacing } from '../../../theme/tokens';
+import { spacing } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { BabyStepStatus } from '../../../../domain/babySteps/types';
 import { BABY_STEP_RULES } from '../../../../domain/babySteps/BabyStepRules';
 
@@ -51,7 +52,17 @@ function getCurrentStepTitle(statuses: BabyStepStatus[]): { stepNumber: number; 
 }
 
 /** Single animated node for the "current" state */
-function CurrentNodeSvg({ cx, cy, r }: { cx: number; cy: number; r: number }): React.JSX.Element {
+function CurrentNodeSvg({
+  cx,
+  cy,
+  r,
+  primaryColor,
+}: {
+  cx: number;
+  cy: number;
+  r: number;
+  primaryColor: string;
+}): React.JSX.Element {
   const anim = useRef(new Animated.Value(1)).current;
 
   useEffect((): (() => void) => {
@@ -81,7 +92,7 @@ function CurrentNodeSvg({ cx, cy, r }: { cx: number; cy: number; r: number }): R
           cy={r}
           r={r - STROKE_WIDTH}
           fill="transparent"
-          stroke={colours.primary}
+          stroke={primaryColor}
           strokeWidth={STROKE_WIDTH}
         />
       </Svg>
@@ -93,6 +104,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
   statuses,
   reducedMotion: reducedMotionProp,
 }) => {
+  const { colors } = useAppTheme();
   const { width: windowWidth } = useWindowDimensions();
 
   // ─── All hooks must be declared before any early return ──────────────────────
@@ -113,10 +125,14 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
     const dots = buildDotString(statuses);
     return (
       <View style={styles.compactContainer} accessible accessibilityLabel={a11yLabel}>
-        <Text variant="bodySmall" style={styles.compactDots}>
+        <Text variant="bodySmall" style={[styles.compactDots, { color: colors.primary }]}>
           {dots}
         </Text>
-        <Text variant="bodySmall" style={styles.compactText} numberOfLines={1}>
+        <Text
+          variant="bodySmall"
+          style={[styles.compactText, { color: colors.onSurfaceVariant }]}
+          numberOfLines={1}
+        >
           {`Step ${currentStepNumber} of 7 · ${currentTitle}`}
         </Text>
       </View>
@@ -167,7 +183,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
           y1={cy}
           x2={paddingH + availableWidth}
           y2={cy}
-          stroke={colours.outlineVariant}
+          stroke={colors.outlineVariant}
           strokeWidth={1.5}
         />
         {/* Completed segment overlay */}
@@ -177,7 +193,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
             y1={cy}
             x2={paddingH + segment * Math.max(0, currentIndex - 0.5)}
             y2={cy}
-            stroke={colours.primary}
+            stroke={colors.primary}
             strokeWidth={1.5}
           />
         )}
@@ -194,15 +210,15 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
                   cx={cx}
                   cy={cy}
                   r={NODE_RADIUS_COMPLETE}
-                  fill={colours.primary}
-                  stroke={colours.primary}
+                  fill={colors.primary}
+                  stroke={colors.primary}
                   strokeWidth={STROKE_WIDTH}
                 />
                 {/* Check mark */}
                 <Path
                   d={`M${cx - 5} ${cy} L${cx - 1.5} ${cy + 4} L${cx + 5} ${cy - 4}`}
                   fill="none"
-                  stroke={colours.onPrimary}
+                  stroke={colors.onPrimary}
                   strokeWidth={2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -220,7 +236,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
                 cy={cy}
                 r={NODE_RADIUS_FUTURE - STROKE_WIDTH / 2}
                 fill="transparent"
-                stroke={colours.outlineVariant}
+                stroke={colors.outlineVariant}
                 strokeWidth={STROKE_WIDTH}
               />
             );
@@ -244,13 +260,21 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
                   cy={cy}
                   r={r - STROKE_WIDTH}
                   fill="transparent"
-                  stroke={colours.primary}
+                  stroke={colors.primary}
                   strokeWidth={STROKE_WIDTH}
                 />
               </Svg>
             );
           }
-          return <CurrentNodeSvg key="current-node" cx={cx} cy={cy} r={r} />;
+          return (
+            <CurrentNodeSvg
+              key="current-node"
+              cx={cx}
+              cy={cy}
+              r={r}
+              primaryColor={colors.primary}
+            />
+          );
         })()}
     </View>
   );
@@ -263,11 +287,9 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   compactDots: {
-    color: colours.primary,
     letterSpacing: 1,
   },
   compactText: {
-    color: colours.onSurfaceVariant,
     flex: 1,
   },
   fullContainer: {

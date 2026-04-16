@@ -12,13 +12,15 @@ import {
   getPayoffProgressPercent,
 } from '../../../domain/debtSnowball/DebtEntity';
 import { DebtPayoffBar } from './components/DebtPayoffBar';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { DebtDetailScreenProps } from '../../navigation/types';
 
 const projector = new SnowballPayoffProjector();
 
 export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, route }) => {
+  const { colors } = useAppTheme();
   const { debtId } = route.params;
   const [debt, setDebt] = useState<DebtEntity | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,7 +41,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
   if (loading || !debt) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator animating color={colours.primary} />
+        <ActivityIndicator animating color={colors.primary} />
       </View>
     );
   }
@@ -50,20 +52,23 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Surface style={styles.card} elevation={1}>
-        <Text variant="titleLarge" style={styles.creditor}>
+      <Surface style={[styles.card, { backgroundColor: colors.surface }]} elevation={1}>
+        <Text variant="titleLarge" style={[styles.creditor, { color: colors.onSurface }]}>
           {debt.creditorName}
         </Text>
-        <Text variant="bodyMedium" style={styles.type}>
+        <Text variant="bodyMedium" style={[styles.type, { color: colors.onSurfaceVariant }]}>
           {getDebtTypeLabel(debt.debtType)}
         </Text>
 
         <View style={styles.statsRow}>
           <View style={styles.stat}>
-            <Text variant="labelSmall" style={styles.statLabel}>
+            <Text
+              variant="labelSmall"
+              style={[styles.statLabel, { color: colors.onSurfaceVariant }]}
+            >
               OUTSTANDING
             </Text>
-            <Text variant="titleMedium" style={styles.statValue}>
+            <Text variant="titleMedium" style={[styles.statValue, { color: colors.onSurface }]}>
               R
               {(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', {
                 minimumFractionDigits: 2,
@@ -71,10 +76,13 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
             </Text>
           </View>
           <View style={styles.stat}>
-            <Text variant="labelSmall" style={styles.statLabel}>
+            <Text
+              variant="labelSmall"
+              style={[styles.statLabel, { color: colors.onSurfaceVariant }]}
+            >
               PAID TO DATE
             </Text>
-            <Text variant="titleMedium" style={[styles.statValue, { color: colours.success }]}>
+            <Text variant="titleMedium" style={[styles.statValue, { color: colors.success }]}>
               R{(debt.totalPaidCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
             </Text>
           </View>
@@ -83,18 +91,18 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
         <DebtPayoffBar progressPercent={progress} label={`${progress}% paid off`} />
 
         <View style={styles.detailsRow}>
-          <Text variant="bodySmall" style={styles.detail}>
+          <Text variant="bodySmall" style={[styles.detail, { color: colors.onSurfaceVariant }]}>
             Min payment: R
             {(debt.minimumPaymentCents / 100).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
             /month
           </Text>
-          <Text variant="bodySmall" style={styles.detail}>
+          <Text variant="bodySmall" style={[styles.detail, { color: colors.onSurfaceVariant }]}>
             Rate: {debt.interestRatePercent}% p.a.
           </Text>
         </View>
 
         {projection && projection.monthsToPayoff > 0 && (
-          <Text variant="bodyMedium" style={styles.payoffDate}>
+          <Text variant="bodyMedium" style={[styles.payoffDate, { color: colors.primary }]}>
             Projected payoff: {format(projection.payoffDate, 'MMMM yyyy')} (
             {projection.monthsToPayoff} months)
           </Text>
@@ -106,7 +114,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
           mode="contained"
           icon="cash"
           onPress={() => navigation.navigate('LogPayment', { debtId: debt.id })}
-          style={styles.payButton}
+          style={[styles.payButton, { backgroundColor: colors.primary }]}
         >
           Log Payment
         </Button>
@@ -118,23 +126,21 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 const styles = StyleSheet.create({
   container: { padding: spacing.base },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  card: { borderRadius: radius.lg, padding: spacing.base, backgroundColor: colours.surface },
-  creditor: { color: colours.onSurface, fontFamily: 'PlusJakartaSans_700Bold' },
-  type: { color: colours.onSurfaceVariant, marginTop: 2, marginBottom: spacing.base },
+  card: { borderRadius: radius.lg, padding: spacing.base },
+  creditor: { fontFamily: 'PlusJakartaSans_700Bold' },
+  type: { marginTop: 2, marginBottom: spacing.base },
   statsRow: { flexDirection: 'row', marginBottom: spacing.base },
   stat: { flex: 1 },
-  statLabel: { color: colours.onSurfaceVariant, letterSpacing: 0.8 },
+  statLabel: { letterSpacing: 0.8 },
   statValue: {
-    color: colours.onSurface,
     fontFamily: 'PlusJakartaSans_700Bold',
     marginTop: spacing.xs / 2,
   },
   detailsRow: { marginTop: spacing.sm, gap: spacing.xs },
-  detail: { color: colours.onSurfaceVariant },
+  detail: {},
   payoffDate: {
-    color: colours.primary,
     marginTop: spacing.sm,
     fontFamily: 'PlusJakartaSans_600SemiBold',
   },
-  payButton: { marginTop: spacing.base, backgroundColor: colours.primary },
+  payButton: { marginTop: spacing.base },
 });

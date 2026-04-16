@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 interface ScreenHeaderProps {
   eyebrow?: string;
@@ -10,12 +11,13 @@ interface ScreenHeaderProps {
 }
 
 export function ScreenHeader({ eyebrow, title, testID }: ScreenHeaderProps): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
     <View style={styles.container} testID={testID ?? 'screen-header'}>
       {eyebrow ? (
         <Text
           variant="labelMedium"
-          style={styles.eyebrow}
+          style={[styles.eyebrow, { color: colors.onSurfaceVariant }]}
           testID="screen-header-eyebrow"
           accessibilityRole="text"
         >
@@ -24,7 +26,7 @@ export function ScreenHeader({ eyebrow, title, testID }: ScreenHeaderProps): Rea
       ) : null}
       <Text
         variant="headlineLarge"
-        style={styles.title}
+        style={[styles.title, { color: colors.onSurface }]}
         testID="screen-header-title"
         accessibilityRole="header"
       >
@@ -41,11 +43,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   eyebrow: {
-    color: colours.onSurfaceVariant,
     marginBottom: spacing.xs,
     letterSpacing: 1.2,
   },
-  title: {
-    color: colours.onSurface,
-  },
+  title: {},
 });

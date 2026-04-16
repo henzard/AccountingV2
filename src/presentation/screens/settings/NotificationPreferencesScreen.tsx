@@ -5,7 +5,8 @@ import { NotificationPreferencesRepository } from '../../../infrastructure/notif
 import { LocalNotificationScheduler } from '../../../infrastructure/notifications/LocalNotificationScheduler';
 import * as Notifications from 'expo-notifications';
 import { useNotificationStore } from '../../stores/notificationStore';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppStore } from '../../stores/appStore';
 import type { NotificationPreferences } from '../../../infrastructure/notifications/NotificationPreferences';
 import type { NotificationPreferencesScreenProps } from '../../navigation/types';
@@ -14,6 +15,7 @@ const repo = new NotificationPreferencesRepository();
 const scheduler = new LocalNotificationScheduler();
 
 export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScreenProps> = () => {
+  const { colors } = useAppTheme();
   const { preferences, setPreferences, permissionsGranted } = useNotificationStore();
   const paydayDay = useAppStore((s) => s.paydayDay);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,16 +59,21 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   return (
     <ScrollView contentContainerStyle={styles.container}>
       {!permissionsGranted && (
-        <Surface style={styles.permWarning} elevation={0}>
-          <Text variant="bodySmall" style={styles.permWarningText}>
+        <Surface
+          style={[styles.permWarning, { backgroundColor: colors.warningContainer }]}
+          elevation={0}
+        >
+          <Text variant="bodySmall" style={[styles.permWarningText, { color: colors.warning }]}>
             Notification permissions not granted. Enable in device Settings to receive reminders.
           </Text>
         </Surface>
       )}
 
       <List.Section>
-        <List.Subheader style={styles.subheader}>Daily Log Prompt</List.Subheader>
-        <Surface style={styles.section} elevation={0}>
+        <List.Subheader style={[styles.subheader, { color: colors.onSurfaceVariant }]}>
+          Daily Log Prompt
+        </List.Subheader>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
           <List.Item
             title="Evening log reminder"
             description="Daily prompt to log transactions"
@@ -74,7 +81,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
               <Switch
                 value={preferences.eveningLogPromptEnabled}
                 onValueChange={(v) => updatePref({ eveningLogPromptEnabled: v })}
-                color={colours.primary}
+                color={colors.primary}
               />
             )}
           />
@@ -90,7 +97,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 }}
                 keyboardType="numeric"
                 mode="outlined"
-                style={styles.timeInput}
+                style={[styles.timeInput, { backgroundColor: colors.surface }]}
               />
               <TextInput
                 label="Minute (0-59)"
@@ -102,7 +109,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 }}
                 keyboardType="numeric"
                 mode="outlined"
-                style={styles.timeInput}
+                style={[styles.timeInput, { backgroundColor: colors.surface }]}
               />
             </View>
           )}
@@ -110,8 +117,10 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
       </List.Section>
 
       <List.Section>
-        <List.Subheader style={styles.subheader}>Meter Reading Reminder</List.Subheader>
-        <Surface style={styles.section} elevation={0}>
+        <List.Subheader style={[styles.subheader, { color: colors.onSurfaceVariant }]}>
+          Meter Reading Reminder
+        </List.Subheader>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
           <List.Item
             title="Monthly meter reminder"
             description="Prompt to log readings each month"
@@ -119,7 +128,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
               <Switch
                 value={preferences.meterReadingReminderEnabled}
                 onValueChange={(v) => updatePref({ meterReadingReminderEnabled: v })}
-                color={colours.primary}
+                color={colors.primary}
               />
             )}
           />
@@ -135,7 +144,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 }}
                 keyboardType="numeric"
                 mode="outlined"
-                style={styles.dayInput}
+                style={[styles.dayInput, { backgroundColor: colors.surface }]}
               />
             </View>
           )}
@@ -143,8 +152,10 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
       </List.Section>
 
       <List.Section>
-        <List.Subheader style={styles.subheader}>Budget Period</List.Subheader>
-        <Surface style={styles.section} elevation={0}>
+        <List.Subheader style={[styles.subheader, { color: colors.onSurfaceVariant }]}>
+          Budget Period
+        </List.Subheader>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
           <List.Item
             title="Month-start pre-flight"
             description={`Reminder on payday (day ${paydayDay}) to fill envelopes`}
@@ -152,7 +163,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
               <Switch
                 value={preferences.monthStartPreflightEnabled}
                 onValueChange={(v) => updatePref({ monthStartPreflightEnabled: v })}
-                color={colours.primary}
+                color={colors.primary}
               />
             )}
           />
@@ -164,7 +175,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
               <Switch
                 value={preferences.envelopeWarningEnabled}
                 onValueChange={(v) => updatePref({ envelopeWarningEnabled: v })}
-                color={colours.primary}
+                color={colors.primary}
               />
             )}
           />
@@ -177,21 +188,20 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
 const styles = StyleSheet.create({
   container: { padding: spacing.base },
   permWarning: {
-    backgroundColor: colours.warningContainer,
     padding: spacing.base,
     borderRadius: 8,
     marginBottom: spacing.base,
   },
-  permWarningText: { color: colours.warning },
-  subheader: { color: colours.onSurfaceVariant, letterSpacing: 1 },
-  section: { backgroundColor: colours.surface, borderRadius: 8, marginBottom: spacing.sm },
+  permWarningText: {},
+  subheader: { letterSpacing: 1 },
+  section: { borderRadius: 8, marginBottom: spacing.sm },
   timeRow: {
     flexDirection: 'row',
     gap: spacing.sm,
     paddingHorizontal: spacing.base,
     paddingBottom: spacing.sm,
   },
-  timeInput: { flex: 1, backgroundColor: colours.surface },
+  timeInput: { flex: 1 },
   dayRow: { paddingHorizontal: spacing.base, paddingBottom: spacing.sm },
-  dayInput: { backgroundColor: colours.surface },
+  dayInput: {},
 });

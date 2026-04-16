@@ -8,13 +8,15 @@ import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { LogDebtPaymentUseCase } from '../../../domain/debtSnowball/LogDebtPaymentUseCase';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { LogPaymentScreenProps } from '../../navigation/types';
 
 const audit = new AuditLogger(db);
 
 export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, route }) => {
+  const { colors } = useAppTheme();
   const { debtId } = route.params;
   const householdId = useAppStore((s) => s.householdId)!;
   const enqueue = useToastStore((s) => s.enqueue);
@@ -62,7 +64,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       {debt && (
-        <Text variant="bodyMedium" style={styles.hint}>
+        <Text variant="bodyMedium" style={[styles.hint, { color: colors.onSurfaceVariant }]}>
           Outstanding: R
           {(debt.outstandingBalanceCents / 100).toLocaleString('en-ZA', {
             minimumFractionDigits: 2,
@@ -75,7 +77,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
         onChangeText={setAmountRands}
         keyboardType="numeric"
         mode="outlined"
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.surface }]}
         autoFocus
         accessibilityHint="Required — enter the payment amount in rands"
       />
@@ -91,7 +93,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
         onPress={handleSave}
         loading={saving}
         disabled={saving || !debt}
-        style={styles.button}
+        style={[styles.button, { backgroundColor: colors.primary }]}
       >
         Record Payment
       </Button>
@@ -101,7 +103,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
 
 const styles = StyleSheet.create({
   container: { padding: spacing.base, gap: spacing.sm },
-  hint: { color: colours.onSurfaceVariant, marginBottom: spacing.sm },
-  input: { backgroundColor: colours.surface },
-  button: { marginTop: spacing.base, backgroundColor: colours.primary },
+  hint: { marginBottom: spacing.sm },
+  input: {},
+  button: { marginTop: spacing.base },
 });

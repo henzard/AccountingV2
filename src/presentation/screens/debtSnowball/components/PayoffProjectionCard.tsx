@@ -2,7 +2,8 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
 import { format, differenceInMonths } from 'date-fns';
-import { colours, spacing, radius } from '../../../theme/tokens';
+import { spacing, radius } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 import type { SnowballPlan } from '../../../../domain/debtSnowball/SnowballPayoffProjector';
 
 interface PayoffProjectionCardProps {
@@ -14,6 +15,7 @@ export function PayoffProjectionCard({
   plan,
   totalDebtCents,
 }: PayoffProjectionCardProps): React.JSX.Element | null {
+  const { colors } = useAppTheme();
   if (plan.projections.length === 0) return null;
 
   const monthsRemaining = plan.debtFreeDate
@@ -23,7 +25,7 @@ export function PayoffProjectionCard({
   const debtsToPayoff = plan.projections.filter((p) => p.monthsToPayoff !== -1).length;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.primary }]}>
       <Text style={styles.eyebrow}>DEBT-FREE DATE</Text>
       {plan.debtFreeDate ? (
         <>
@@ -61,7 +63,6 @@ const styles = StyleSheet.create({
     margin: spacing.base,
     borderRadius: radius.xl,
     padding: spacing.lg,
-    backgroundColor: colours.primary,
   },
   eyebrow: {
     color: 'rgba(255,255,255,0.65)',

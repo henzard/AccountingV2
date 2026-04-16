@@ -13,7 +13,8 @@ import { Text, Surface } from 'react-native-paper';
 import { SevenDotPath } from '../babySteps/components/SevenDotPath';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 export interface BabyStepsCardProps {
   statuses: BabyStepStatus[];
@@ -21,6 +22,7 @@ export interface BabyStepsCardProps {
 }
 
 export const BabyStepsCard: React.FC<BabyStepsCardProps> = ({ statuses, onPress }) => {
+  const { colors } = useAppTheme();
   const currentStep = useMemo(() => statuses.find((s) => !s.isCompleted) ?? null, [statuses]);
 
   const completedCount = statuses.filter((s) => s.isCompleted).length;
@@ -43,12 +45,12 @@ export const BabyStepsCard: React.FC<BabyStepsCardProps> = ({ statuses, onPress 
       accessibilityLabel="Open Baby Steps tracker"
       activeOpacity={0.85}
     >
-      <Surface style={styles.card} elevation={1}>
+      <Surface style={[styles.card, { backgroundColor: colors.surface }]} elevation={1}>
         <View style={styles.header}>
-          <Text variant="labelSmall" style={styles.cardLabel}>
+          <Text variant="labelSmall" style={[styles.cardLabel, { color: colors.onSurfaceVariant }]}>
             BABY STEPS
           </Text>
-          <Text variant="labelSmall" style={styles.count}>
+          <Text variant="labelSmall" style={[styles.count, { color: colors.primary }]}>
             {`${completedCount} / 7`}
           </Text>
         </View>
@@ -57,17 +59,25 @@ export const BabyStepsCard: React.FC<BabyStepsCardProps> = ({ statuses, onPress 
 
         {currentStep && (
           <View style={styles.footer}>
-            <Text variant="titleSmall" style={styles.stepTitle} numberOfLines={1}>
+            <Text
+              variant="titleSmall"
+              style={[styles.stepTitle, { color: colors.onSurface }]}
+              numberOfLines={1}
+            >
               {`Step ${currentStep.stepNumber}: ${BABY_STEP_RULES[currentStep.stepNumber].shortTitle}`}
             </Text>
-            <Text variant="bodySmall" style={styles.progress} numberOfLines={1}>
+            <Text
+              variant="bodySmall"
+              style={[styles.progress, { color: colors.onSurfaceVariant }]}
+              numberOfLines={1}
+            >
               {progressLine}
             </Text>
           </View>
         )}
 
         {!currentStep && (
-          <Text variant="bodySmall" style={styles.allDone}>
+          <Text variant="bodySmall" style={[styles.allDone, { color: colors.primary }]}>
             All Baby Steps complete!
           </Text>
         )}
@@ -79,7 +89,6 @@ export const BabyStepsCard: React.FC<BabyStepsCardProps> = ({ statuses, onPress 
 const styles = StyleSheet.create({
   card: {
     borderRadius: radius.xl,
-    backgroundColor: colours.surface,
     padding: spacing.base,
     gap: spacing.sm,
     marginHorizontal: spacing.base,
@@ -91,11 +100,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cardLabel: {
-    color: colours.onSurfaceVariant,
     letterSpacing: 1.2,
   },
   count: {
-    color: colours.primary,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
   footer: {
@@ -103,15 +110,12 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   stepTitle: {
-    color: colours.onSurface,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
   progress: {
-    color: colours.onSurfaceVariant,
     fontVariant: ['tabular-nums'],
   },
   allDone: {
-    color: colours.primary,
     textAlign: 'center',
     fontFamily: 'PlusJakartaSans_700Bold',
   },

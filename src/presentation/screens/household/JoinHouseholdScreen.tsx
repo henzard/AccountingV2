@@ -7,12 +7,14 @@ import { AcceptInviteUseCase } from '../../../domain/households/AcceptInviteUseC
 import { RestoreService } from '../../../data/sync/RestoreService';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
-import { colours, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 import type { JoinHouseholdScreenProps } from '../../navigation/types';
 
 const restoreService = new RestoreService(db, supabase);
 
 export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ navigation }) => {
+  const { colors } = useAppTheme();
   const session = useAppStore((s) => s.session);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
@@ -56,11 +58,11 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.container}>
-        <Text variant="bodyMedium" style={styles.description}>
+        <Text variant="bodyMedium" style={[styles.description, { color: colors.onSurfaceVariant }]}>
           Enter the 6-character code shared by your household member.
         </Text>
 
@@ -72,7 +74,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
           autoCorrect={false}
           maxLength={6}
           mode="outlined"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
         />
 
@@ -101,10 +103,10 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
 };
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colours.surface },
+  flex: { flex: 1 },
   container: { flexGrow: 1, padding: spacing.xl, gap: spacing.base },
-  description: { color: colours.onSurfaceVariant, marginBottom: spacing.base },
-  input: { backgroundColor: colours.surface },
+  description: { marginBottom: spacing.base },
+  input: {},
   button: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
 });

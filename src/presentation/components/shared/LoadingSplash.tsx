@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colours } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 /**
  * LoadingSplash — neutral full-screen loading view shown while async flags
@@ -9,9 +9,13 @@ import { colours } from '../../theme/tokens';
  * navigator on slow devices.
  */
 export function LoadingSplash(): React.JSX.Element {
+  const { colors } = useAppTheme();
   return (
-    <SafeAreaView style={styles.container} testID="loading-splash">
-      <ActivityIndicator size="large" color={colours.primary} />
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.surface }]}
+      testID="loading-splash"
+    >
+      <ActivityIndicator size="large" color={colors.primary} />
     </SafeAreaView>
   );
 }
@@ -21,6 +25,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colours.surface,
   },
 });

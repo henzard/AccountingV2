@@ -17,7 +17,8 @@ import { format, parseISO } from 'date-fns';
 import { StepSealMark } from './components/StepSealMark';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
-import { colours, spacing, radius } from '../../theme/tokens';
+import { spacing, radius } from '../../theme/tokens';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 export interface CelebrationModalProps {
   /** The step being celebrated */
@@ -41,6 +42,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
   reducedMotion: reducedMotionProp,
   visible,
 }) => {
+  const { colors } = useAppTheme();
   // 5.8: Auto-detect system reduce-motion setting; subscribe to changes.
   // reducedMotionProp (if provided) overrides — used in tests to force a known value.
   const [systemReducedMotion, setSystemReducedMotion] = useState(false);
@@ -116,8 +118,8 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
       <View style={styles.overlay}>
         <View style={styles.sheet}>
           {/* Ribbon banner */}
-          <View style={styles.ribbon}>
-            <Text variant="labelSmall" style={styles.ribbonText}>
+          <View style={[styles.ribbon, { backgroundColor: colors.secondary }]}>
+            <Text variant="labelSmall" style={[styles.ribbonText, { color: colors.onSecondary }]}>
               {`Completed ${completedDate}`}
             </Text>
           </View>
@@ -134,12 +136,20 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
           </Animated.View>
 
           {/* Step title */}
-          <Text variant="headlineMedium" style={styles.stepTitle} testID="celebration-title">
+          <Text
+            variant="headlineMedium"
+            style={[styles.stepTitle, { color: colors.onSurface }]}
+            testID="celebration-title"
+          >
             {rule.shortTitle}
           </Text>
 
           {/* Completion message */}
-          <Text variant="bodyLarge" style={styles.completionMessage} testID="celebration-message">
+          <Text
+            variant="bodyLarge"
+            style={[styles.completionMessage, { color: colors.onSurfaceVariant }]}
+            testID="celebration-message"
+          >
             {rule.completionMessage}
           </Text>
 
@@ -147,7 +157,7 @@ export const CelebrationModal: React.FC<CelebrationModalProps> = ({
           <Button
             mode="contained"
             onPress={onDismiss}
-            style={styles.dismissButton}
+            style={[styles.dismissButton, { backgroundColor: colors.primary }]}
             contentStyle={styles.dismissButtonContent}
             testID="celebration-dismiss"
           >
@@ -174,14 +184,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   ribbon: {
-    backgroundColor: colours.secondary,
     borderRadius: radius.full,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     marginBottom: spacing.sm,
   },
   ribbonText: {
-    color: colours.onSecondary,
     letterSpacing: 0.8,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
@@ -189,18 +197,15 @@ const styles = StyleSheet.create({
     marginVertical: spacing.lg,
   },
   stepTitle: {
-    color: colours.onSurface,
     fontFamily: 'PlusJakartaSans_700Bold',
     textAlign: 'center',
   },
   completionMessage: {
-    color: colours.onSurfaceVariant,
     textAlign: 'center',
     lineHeight: 26,
   },
   dismissButton: {
     marginTop: spacing.lg,
-    backgroundColor: colours.primary,
     borderRadius: radius.full,
     minWidth: 180,
   },
