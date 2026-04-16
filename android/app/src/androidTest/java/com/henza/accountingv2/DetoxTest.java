@@ -22,6 +22,15 @@ public class DetoxTest {
         DetoxConfig detoxConfig = new DetoxConfig();
         detoxConfig.idlePolicyConfig.masterTimeoutSec = 90;
         detoxConfig.idlePolicyConfig.idleResourceTimeoutSec = 60;
+        // Supabase keeps OkHttp connections open (auth session, realtime WebSocket).
+        // Without this blacklist Detox waits the full idleResourceTimeoutSec for those
+        // connections to drain before sending the first UI command, causing every test
+        // to hit the 60-second timeout and report "unexpectedly disconnected".
+        detoxConfig.idlePolicyConfig.networkRequestParams.blacklistURLs = new String[] {
+            ".*supabase\\.co.*",
+            ".*firebase.*",
+            ".*crashlytics.*",
+        };
 
         Detox.runTests(mActivityRule, detoxConfig);
     }
