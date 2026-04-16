@@ -112,5 +112,5 @@ jobs:
           packageName: com.henza.accountingv2
           releaseFiles: android/app/build/outputs/bundle/release/*.aab
           track: internal
-          status: draft
+          status: completed
           inAppUpdatePriority: 2
