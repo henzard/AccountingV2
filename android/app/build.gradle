@@ -102,6 +102,7 @@ android {
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
         testInstrumentationRunner "com.wix.detox.DetoxJUnitRunner"
         testInstrumentationRunnerArguments clearPackageData: 'true'
+        missingDimensionStrategy 'detox', 'full'
     }
     signingConfigs {
         debug {
