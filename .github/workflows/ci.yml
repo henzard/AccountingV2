@@ -41,7 +41,7 @@ jobs:
 
   e2e-android:
     if: github.ref == 'refs/heads/master'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     needs: check
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +55,12 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      - name: Enable KVM for hardware-accelerated emulation
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       - name: Install JS dependencies
         run: npm ci
@@ -70,10 +76,10 @@ jobs:
         with:
           api-level: 34
           target: google_apis
-          arch: arm64-v8a
+          arch: x86_64
           avd-name: Pixel_6_API_34
           disable-animations: true
-          emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu host
+          emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect
           script: |
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
