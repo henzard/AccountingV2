@@ -23,15 +23,4 @@ module.exports = {
     'android.emu.release': { device: 'emulator', app: 'android.release' },
     'android.emu.debug': { device: 'emulator', app: 'android.debug' },
   },
-  // Supabase keeps OkHttp connections open (auth session, realtime WebSocket).
-  // Without this blacklist Detox waits the full idleResourceTimeout for those
-  // connections to drain before each UI command, causing "unexpectedly disconnected".
-  networkSynchronization: {
-    enabled: true,
-    blacklistURLs: [
-      '.*supabase\\.co.*',
-      '.*firebase.*',
-      '.*crashlytics.*',
-    ],
-  },
 };

@@ -17,6 +17,7 @@ import { device, element, by, expect as detoxExpect } from 'detox';
 describe('Add Envelope journey', () => {
   beforeAll(async () => {
     await device.launchApp({ newInstance: true });
+    await device.setURLBlacklist(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']);
   });
 
   it('shows the login screen on fresh launch', async () => {
