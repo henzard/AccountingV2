@@ -72,7 +72,6 @@ jobs:
 
       - name: Upload JS source maps to Crashlytics
         working-directory: android
-        continue-on-error: true
         run: |
           ./gradlew uploadCrashlyticsSymbolFileRelease
           ./gradlew uploadCrashlyticsMappingFileRelease
