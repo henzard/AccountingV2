@@ -21,7 +21,7 @@ import {
   type CrashRecord,
 } from '../../../infrastructure/monitoring/earlyCrashLog';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { spacing } from '../../theme/tokens';
+import { radius, spacing } from '../../theme/tokens';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   card: {
-    borderRadius: 8,
+    borderRadius: radius.md,
     overflow: 'hidden',
   },
   row: {
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   stackCard: {
-    borderRadius: 8,
+    borderRadius: radius.md,
     padding: spacing.base,
   },
   stackText: {
@@ -211,6 +211,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   actionButton: {
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
 });

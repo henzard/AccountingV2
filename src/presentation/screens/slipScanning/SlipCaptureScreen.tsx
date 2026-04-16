@@ -6,6 +6,7 @@ import { MultiShotCoachmark } from './components/MultiShotCoachmark';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppNavigation } from '../../navigation/useAppNavigation';
 import { useSyncStore } from '../../stores/syncStore';
+import { radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 const MAX_FRAMES = 5;
@@ -275,7 +276,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
   counterRow: { padding: 8, alignItems: 'center' },
   // Counter text on black camera background — white is intentional
@@ -291,14 +292,14 @@ const styles = StyleSheet.create({
     right: 2,
     // Semi-transparent black overlay on camera thumbnail — intentional
     backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 8,
+    borderRadius: radius.md,
     padding: 2,
   },
   undoButton: {
     position: 'absolute',
     top: 2,
     right: 2,
-    borderRadius: 8,
+    borderRadius: radius.md,
     padding: 2,
   },
   // White text on dark overlays (deleteButton/undoButton) is correct and intentional
@@ -313,13 +314,13 @@ const styles = StyleSheet.create({
   doneButton: {
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
   controlButtonText: { fontWeight: 'bold' },
   addPageButton: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: radius.md,
     marginRight: 12,
   },
   offlineBanner: {

@@ -9,7 +9,7 @@ import { db } from '../../../../data/local/db';
 import { meterReadings } from '../../../../data/local/schema';
 import { PendingSyncEnqueuer } from '../../../../data/sync/PendingSyncEnqueuer';
 import { useAppStore } from '../../../stores/appStore';
-import { spacing } from '../../../theme/tokens';
+import { radius, spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
   },
   subtitle: { marginBottom: spacing.lg },
   switchList: {
-    borderRadius: 8,
+    borderRadius: radius.md,
     marginBottom: spacing.lg,
   },
   button: { marginTop: spacing.lg },

@@ -37,23 +37,24 @@ export function LoadingSkeletonCard(): React.JSX.Element {
 const styles = StyleSheet.create({
   card: {
     borderRadius: radius.lg,
-    padding: spacing.base,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
     marginBottom: spacing.md,
   },
   titleLine: {
-    height: 16,
+    height: 14,
     width: '60%',
     borderRadius: radius.sm,
     marginBottom: spacing.sm,
   },
   amountLine: {
-    height: 22,
+    height: 14,
     width: '40%',
     borderRadius: radius.sm,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   barLine: {
-    height: 8,
+    height: 4,
     width: '100%',
     borderRadius: radius.full,
   },
