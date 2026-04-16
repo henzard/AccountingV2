@@ -23,6 +23,6 @@ public class DetoxTest {
         detoxConfig.idlePolicyConfig.masterTimeoutSec = 90;
         detoxConfig.idlePolicyConfig.idleResourceTimeoutSec = 60;
 
-        Detox.run(mActivityRule, detoxConfig);
+        Detox.runTests(mActivityRule, detoxConfig);
     }
 }
