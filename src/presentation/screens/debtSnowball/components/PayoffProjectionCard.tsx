@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
 import { format, differenceInMonths } from 'date-fns';
 import { formatCurrency } from '../../../utils/currency';
-import { spacing, radius } from '../../../theme/tokens';
+import { fontSize, spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { SnowballPlan } from '../../../../domain/debtSnowball/SnowballPayoffProjector';
 
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
   stat: { flex: 1 },
   statLabel: {
     color: 'rgba(255,255,255,0.65)',
-    fontSize: 10,
+    fontSize: fontSize.xs,
     fontFamily: 'PlusJakartaSans_600SemiBold',
     letterSpacing: 0.8,
   },

@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Text, Button } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { useAppStore } from '../../stores/appStore';
+import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 export type SlipConsentScreenProps = {
@@ -45,7 +46,7 @@ export function SlipConsentScreen({ recordConsent }: SlipConsentScreenProps): Re
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, justifyContent: 'center' },
-  title: { marginBottom: 16 },
-  body: { marginBottom: 24, lineHeight: 22 },
+  container: { flex: 1, padding: spacing.lg, justifyContent: 'center' },
+  title: { marginBottom: spacing.base },
+  body: { marginBottom: spacing.lg, lineHeight: 22 },
 });

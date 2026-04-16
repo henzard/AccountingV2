@@ -162,7 +162,8 @@ const styles = StyleSheet.create({
   headerLeft: { flex: 1 },
   list: {
     padding: spacing.base,
-    paddingBottom: 100,
+    // FAB clearance: bottom(spacing.xl=32) + FAB height(56) + gap(12) = 100
+    paddingBottom: spacing.xl + 56 + spacing.md,
   },
   fab: {
     position: 'absolute',
