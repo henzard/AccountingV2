@@ -21,7 +21,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  caller_id uuid := auth.uid()::text;
+  caller_id uuid := auth.uid();
   is_member boolean;
 BEGIN
   SELECT EXISTS (
@@ -57,7 +57,8 @@ BEGIN
       target_amount_cents = EXCLUDED.target_amount_cents,
       target_date         = EXCLUDED.target_date,
       updated_at          = EXCLUDED.updated_at
-    WHERE EXCLUDED.updated_at >= envelopes.updated_at;
+    WHERE envelopes.household_id = r.household_id
+      AND EXCLUDED.updated_at >= envelopes.updated_at;
 END;
 $$;
 
