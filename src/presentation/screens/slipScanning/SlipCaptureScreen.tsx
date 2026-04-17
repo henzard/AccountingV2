@@ -6,6 +6,7 @@ import { MultiShotCoachmark } from './components/MultiShotCoachmark';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppNavigation } from '../../navigation/useAppNavigation';
 import { useSyncStore } from '../../stores/syncStore';
+import { useToastStore } from '../../stores/toastStore';
 import { fontSize, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 
@@ -35,6 +36,7 @@ export function SlipCaptureScreen({
   const [dailyCount, setDailyCount] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
   const isOnline = useSyncStore((s) => s.isOnline);
+  const enqueue = useToastStore((s) => s.enqueue);
 
   useEffect(() => {
     AsyncStorage.getItem(COACHMARK_KEY).then((val) => {
@@ -75,19 +77,23 @@ export function SlipCaptureScreen({
     const cam = cameraRef.current as unknown as {
       takePictureAsync: (opts: object) => Promise<{ uri: string }>;
     };
-    const photo = await cam.takePictureAsync({
-      base64: false,
-      quality: 0.9,
-    });
-    const newFrames = [...frames, photo.uri];
-    setFrames(newFrames);
-    const newCount = dailyCount + 1;
-    setDailyCount(newCount);
-    await AsyncStorage.setItem(
-      DAILY_COUNT_KEY,
-      JSON.stringify({ date: todayKey(), count: newCount }),
-    );
-  }, [cameraRef, frames, isOnline, dailyCount, showCoachmark, dismissCoachmark]);
+    try {
+      const photo = await cam.takePictureAsync({
+        base64: false,
+        quality: 0.9,
+      });
+      const newFrames = [...frames, photo.uri];
+      setFrames(newFrames);
+      const newCount = dailyCount + 1;
+      setDailyCount(newCount);
+      await AsyncStorage.setItem(
+        DAILY_COUNT_KEY,
+        JSON.stringify({ date: todayKey(), count: newCount }),
+      );
+    } catch {
+      enqueue('Failed to capture photo. Please try again.', 'error');
+    }
+  }, [cameraRef, frames, isOnline, dailyCount, showCoachmark, dismissCoachmark, enqueue]);
 
   const removeFrame = useCallback((idx: number): void => {
     setPendingDelete(idx);
