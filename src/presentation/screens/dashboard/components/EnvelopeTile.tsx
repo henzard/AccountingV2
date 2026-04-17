@@ -60,7 +60,7 @@ export function EnvelopeTile({ envelope, onPress }: Props): React.JSX.Element {
       onPress={onPress}
       activeOpacity={0.75}
       accessibilityRole="button"
-      accessibilityLabel={`${envelope.name}, ${remaining} cents remaining, ${pct}% left`}
+      accessibilityLabel={`${envelope.name}, R${(Math.abs(remaining) / 100).toFixed(2)} ${remaining < 0 ? 'over budget' : 'remaining'}, ${pct}% left`}
     >
       <Text style={[styles.name, { color: nameColor }]} numberOfLines={1}>
         {envelope.name}
