@@ -16,13 +16,14 @@ import { useBabySteps } from '../../hooks/useBabySteps';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
-import { HeroSummaryCard, P } from './components/HeroSummaryCard';
-import { EnvelopeTile } from './components/EnvelopeTile';
+import { BudgetRingCard } from './components/BudgetRingCard';
 import { BabyStepsBar } from './components/BabyStepsBar';
+import { P } from './components/HeroSummaryCard';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
 import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
+import { formatCurrency } from '../../utils/currency';
 import { spacing, radius, fontSize } from '../../theme/tokens';
 import { format, differenceInDays } from 'date-fns';
 import { db } from '../../../data/local/db';
@@ -32,7 +33,6 @@ import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 const engine = new BudgetPeriodEngine();
 const scoreCalculator = new HabitScoreCalculator();
 
-// Dark gradient stops
 const GRAD_DARK = ['#071A16', '#0C1D2B', '#081420'] as const;
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
@@ -68,10 +68,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     }, [reload, hid, period.endDate, periodStart]),
   );
 
-  // ── Derived values (safe to compute even when householdId is null) ────────
+  // ── Derived values ────────────────────────────────────────────────────────
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
   const totalSpent = envelopes.reduce((s, e) => s + e.spentCents, 0);
-  const totalRemaining = totalAllocated - totalSpent;
   const daysRemaining = Math.max(0, differenceInDays(period.endDate, new Date()));
 
   const envelopesOnBudget = envelopes.filter((e) => e.spentCents <= e.allocatedCents).length;
@@ -84,49 +83,120 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     babyStepIsActive,
   });
 
-  // ── Theme-derived colors ───────────────────────────────────────────────────
-  const actionBg = isDark ? P.tileBgDark : '#FFFFFF';
-  const actionBorder = isDark ? P.tileBorderDark : P.tileBorderLight;
-  const actionLbl = isDark ? P.statLabel : '#5A7A6E';
-  const sectionTitleColor = isDark ? 'rgba(180,225,210,0.65)' : '#1A2E28';
-  const sectionSubColor = isDark ? 'rgba(0,214,143,0.55)' : '#00695C';
-  const greetingColor = isDark ? 'rgba(160,210,190,0.45)' : '#8AA898';
-  const periodColor = isDark ? 'rgba(220,245,235,0.90)' : '#1A2E28';
+  // ── Theme-derived colors ──────────────────────────────────────────────────
+  const cardBg = isDark ? P.tileBgDark : '#FFFFFF';
+  const cardBorder = isDark ? P.tileBorderDark : P.tileBorderLight;
+  const labelColor = isDark ? P.statLabel : '#5A7A6E';
+  const valueColor = isDark ? 'rgba(220,245,235,0.90)' : '#1A2E28';
+  const accentColor = isDark ? P.accent : '#00695C';
   const fabBg = isDark ? '#00895A' : '#00695C';
+  const sectionTitleColor = isDark ? 'rgba(180,225,210,0.65)' : '#1A2E28';
 
-  // ── List header — all content above the envelope tile grid ────────────────
+  // ── List header ───────────────────────────────────────────────────────────
   const ListHeader = useMemo(
     () => (
       <View>
-        {/* Greeting */}
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={[styles.greeting, { color: greetingColor }]}>Good morning</Text>
-            <Text style={[styles.periodLabel, { color: periodColor }]}>{periodLabel}</Text>
-          </View>
+        {/* Period + days row */}
+        <View style={styles.periodRow}>
+          <Text style={[styles.periodLabel, { color: valueColor }]}>{periodLabel}</Text>
+          <Text style={[styles.daysTag, { color: labelColor }]}>{daysRemaining}d remaining</Text>
         </View>
 
-        {/* Hero card — only when envelopes exist */}
+        {/* Budget ring — only when envelopes exist */}
         {envelopes.length > 0 && (
-          <HeroSummaryCard
-            totalAllocatedCents={totalAllocated}
-            totalSpentCents={totalSpent}
-            totalRemainingCents={totalRemaining}
-            daysRemaining={daysRemaining}
-            score={scoreResult.score}
-            testID="dashboard-kpi-row"
+          <View style={styles.ringSection}>
+            <BudgetRingCard
+              totalAllocatedCents={totalAllocated}
+              totalSpentCents={totalSpent}
+              daysRemaining={daysRemaining}
+              score={scoreResult.score}
+              testID="dashboard-kpi-row"
+            />
+
+            {/* Spent / Budget / Score stat row */}
+            <View style={styles.statRow}>
+              <View style={styles.stat}>
+                <Text style={[styles.statLabel, { color: labelColor }]}>Spent</Text>
+                <Text style={[styles.statValue, { color: valueColor }]}>
+                  {formatCurrency(totalSpent)}
+                </Text>
+              </View>
+              <View style={[styles.statDivider, { backgroundColor: cardBorder }]} />
+              <View style={styles.stat}>
+                <Text style={[styles.statLabel, { color: labelColor }]}>Budget</Text>
+                <Text style={[styles.statValue, { color: valueColor }]}>
+                  {formatCurrency(totalAllocated)}
+                </Text>
+              </View>
+              <View style={[styles.statDivider, { backgroundColor: cardBorder }]} />
+              <View style={styles.stat}>
+                <Text style={[styles.statLabel, { color: labelColor }]}>Score</Text>
+                <Text style={[styles.statValue, { color: accentColor }]}>{scoreResult.score}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Baby steps bar */}
+        {babyStepStatuses.length > 0 && (
+          <BabyStepsBar
+            statuses={babyStepStatuses}
+            onPress={() => navigation.navigate('BabySteps')}
           />
         )}
 
-        {/* Quick actions */}
-        <View style={styles.actionsRow}>
+        {/* Envelope section header */}
+        {envelopes.length > 0 && (
+          <View style={styles.sectionHead}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Envelopes</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Budget')}
+              testID="view-budget-link"
+              accessibilityRole="link"
+              accessibilityLabel="View full budget"
+            >
+              <Text style={[styles.sectionSub, { color: accentColor }]}>
+                {envelopes.length} active ›
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      envelopes.length,
+      totalAllocated,
+      totalSpent,
+      daysRemaining,
+      scoreResult.score,
+      isDark,
+      periodLabel,
+      babyStepStatuses,
+    ],
+  );
+
+  // ── List footer ───────────────────────────────────────────────────────────
+  const ListFooter = useMemo(
+    () => (
+      <View>
+        {/* Primary FAB */}
+        <View style={styles.fabRow}>
+          <TouchableOpacity
+            style={[styles.fab, { backgroundColor: fabBg }]}
+            onPress={() => navigation.navigate('AddTransaction')}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Add transaction"
+            testID="add-transaction-fab"
+          >
+            <Text style={styles.fabText}>＋ Add Transaction</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Secondary actions */}
+        <View style={styles.secondaryRow}>
           {[
-            {
-              icon: '＋',
-              label: 'Add Txn',
-              onPress: () => navigation.navigate('AddTransaction'),
-              testID: 'add-transaction-fab',
-            },
             {
               icon: '💰',
               label: 'Sinking',
@@ -140,82 +210,31 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
               testID: 'forecast-entry',
             },
             { icon: '🎯', label: 'Steps', onPress: () => navigation.navigate('BabySteps') },
+            { icon: '📊', label: 'Budget', onPress: () => navigation.navigate('Budget') },
           ].map((btn) => (
             <TouchableOpacity
               key={btn.label}
-              style={[styles.actionBtn, { backgroundColor: actionBg, borderColor: actionBorder }]}
+              style={[styles.secondaryBtn, { backgroundColor: cardBg, borderColor: cardBorder }]}
               onPress={btn.onPress}
               activeOpacity={0.7}
               testID={btn.testID}
               accessibilityRole="button"
               accessibilityLabel={btn.label}
             >
-              <Text style={styles.actionIcon}>{btn.icon}</Text>
-              <Text style={[styles.actionLbl, { color: actionLbl }]}>{btn.label}</Text>
+              <Text style={styles.secondaryIcon}>{btn.icon}</Text>
+              <Text style={[styles.secondaryLbl, { color: labelColor }]}>{btn.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Envelope section header */}
-        {envelopes.length > 0 && (
-          <View style={styles.sectionHead}>
-            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Envelopes</Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Budget')}
-              testID="view-budget-link"
-              accessibilityRole="link"
-              accessibilityLabel="View full budget"
-            >
-              <Text style={[styles.sectionSub, { color: sectionSubColor }]}>
-                {envelopes.length} active ›
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      envelopes.length,
-      totalAllocated,
-      totalSpent,
-      totalRemaining,
-      daysRemaining,
-      scoreResult.score,
-      isDark,
-      periodLabel,
-    ],
-  );
-
-  // ── List footer — baby steps bar + pill FAB ───────────────────────────────
-  const ListFooter = useMemo(
-    () => (
-      <View>
-        {babyStepStatuses.length > 0 && (
-          <BabyStepsBar
-            statuses={babyStepStatuses}
-            onPress={() => navigation.navigate('BabySteps')}
-          />
-        )}
-        <View style={styles.fabRow}>
-          <TouchableOpacity
-            style={[styles.fab, { backgroundColor: fabBg }]}
-            onPress={() => navigation.navigate('AddTransaction')}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="Add transaction"
-          >
-            <Text style={styles.fabText}>＋ Add Transaction</Text>
-          </TouchableOpacity>
-        </View>
         <View style={styles.bottomPad} />
       </View>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [babyStepStatuses, isDark],
+    [isDark],
   );
 
-  // ── Empty / loading content ────────────────────────────────────────────────
+  // ── Empty / loading ───────────────────────────────────────────────────────
   const EmptyContent = useMemo(
     () =>
       loading ? (
@@ -228,12 +247,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
             testID="dashboard-empty-state"
           />
           <TouchableOpacity
-            style={[styles.newEnvBtn, { borderColor: actionBorder }]}
+            style={[styles.newEnvBtn, { borderColor: cardBorder }]}
             onPress={() => navigation.navigate('AddEditEnvelope', {})}
             testID="new-envelope-button"
             accessibilityRole="button"
           >
-            <Text style={[styles.newEnvBtnText, { color: sectionSubColor }]}>+ New envelope</Text>
+            <Text style={[styles.newEnvBtnText, { color: accentColor }]}>+ New envelope</Text>
           </TouchableOpacity>
         </View>
       ),
@@ -241,23 +260,61 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     [loading, isDark],
   );
 
-  // ── Early return: no household yet ────────────────────────────────────────
+  // ── Early return: no household ────────────────────────────────────────────
   if (!householdId) return <LoadingSplash />;
+
+  // ── Envelope row renderer ─────────────────────────────────────────────────
+  const renderItem = ({ item }: { item: EnvelopeEntity }): React.JSX.Element => {
+    const remaining = item.allocatedCents - item.spentCents;
+    const pct =
+      item.allocatedCents > 0 ? Math.round((item.spentCents / item.allocatedCents) * 100) : 0;
+    const isOver = item.spentCents > item.allocatedCents;
+
+    return (
+      <TouchableOpacity
+        style={[styles.envelopeRow, { backgroundColor: cardBg, borderColor: cardBorder }]}
+        onPress={() => navigation.navigate('AddEditEnvelope', { envelopeId: item.id })}
+        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel={`${item.name}, ${formatCurrency(Math.abs(remaining))} ${isOver ? 'over budget' : 'remaining'}, ${pct}% used`}
+      >
+        <View style={styles.envelopeInfo}>
+          <Text style={[styles.envelopeName, { color: valueColor }]} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={[styles.envelopeAmt, { color: isOver ? '#EF4444' : labelColor }]}>
+            {isOver ? `−${formatCurrency(Math.abs(remaining))}` : formatCurrency(remaining)} left
+          </Text>
+        </View>
+
+        <View style={styles.progressRow}>
+          <View style={[styles.progressTrack, { backgroundColor: cardBorder }]}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${Math.min(100, pct)}%` as `${number}%`,
+                  backgroundColor: isOver ? '#EF4444' : accentColor,
+                },
+              ]}
+            />
+          </View>
+          <Text style={[styles.pctLabel, { color: labelColor }]}>{pct}%</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   // ── Main list ─────────────────────────────────────────────────────────────
   const list = (
     <FlatList<EnvelopeEntity>
+      testID="dashboard-root"
       style={styles.list}
-      numColumns={2}
       data={loading ? [] : envelopes}
       keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
-        <EnvelopeTile
-          envelope={item}
-          onPress={() => navigation.navigate('AddEditEnvelope', { envelopeId: item.id })}
-        />
-      )}
-      columnWrapperStyle={styles.columnWrapper}
+      renderItem={renderItem}
+      ItemSeparatorComponent={() => <View style={styles.separator} />}
+      contentContainerStyle={styles.listContent}
       ListHeaderComponent={ListHeader}
       ListFooterComponent={ListFooter}
       ListEmptyComponent={EmptyContent}
@@ -286,52 +343,57 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   list: { flex: 1 },
-  headerRow: {
+  listContent: { paddingBottom: spacing.lg },
+
+  // Period header
+  periodRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.base,
     paddingTop: spacing.base,
-    paddingBottom: spacing.base,
-  },
-  greeting: {
-    fontFamily: 'PlusJakartaSans_400Regular',
-    fontSize: fontSize.sm,
-    marginBottom: 2,
+    paddingBottom: spacing.sm,
   },
   periodLabel: {
     fontFamily: 'PlusJakartaSans_700Bold',
-    fontSize: 20,
-    letterSpacing: -0.3,
+    fontSize: 22,
+    letterSpacing: -0.4,
   },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.base,
-    marginBottom: spacing.base,
+  daysTag: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: fontSize.sm,
   },
-  actionBtn: {
-    flex: 1,
-    paddingVertical: 11,
-    paddingHorizontal: spacing.sm,
-    borderWidth: 1,
-    borderRadius: radius.xl,
+
+  // Budget ring section
+  ringSection: {
     alignItems: 'center',
-    gap: 5,
+    paddingVertical: spacing.base,
   },
-  actionIcon: {
-    fontSize: 18,
-    lineHeight: 20,
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.base,
+    paddingHorizontal: spacing.lg,
   },
-  actionLbl: {
-    fontFamily: 'PlusJakartaSans_500Medium',
+  stat: { flex: 1, alignItems: 'center', gap: 2 },
+  statLabel: {
+    fontFamily: 'PlusJakartaSans_400Regular',
     fontSize: fontSize.xs,
   },
+  statValue: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: fontSize.sm,
+  },
+  statDivider: { width: 1, height: 28, marginHorizontal: spacing.sm },
+
+  // Section header
   sectionHead: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.base,
-    marginBottom: spacing.sm,
+    paddingTop: spacing.base,
+    paddingBottom: spacing.sm,
   },
   sectionTitle: {
     fontFamily: 'PlusJakartaSans_700Bold',
@@ -341,19 +403,63 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans_400Regular',
     fontSize: fontSize.sm,
   },
-  columnWrapper: {
-    paddingHorizontal: spacing.base,
+
+  // Envelope list rows
+  envelopeRow: {
+    marginHorizontal: spacing.base,
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     gap: spacing.sm,
-    marginBottom: spacing.sm,
   },
+  envelopeInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  envelopeName: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: fontSize.base,
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  envelopeAmt: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: fontSize.sm,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  pctLabel: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: fontSize.xs,
+    minWidth: 32,
+    textAlign: 'right',
+  },
+  separator: { height: spacing.sm },
+
+  // FAB + secondary actions
   fabRow: {
     alignItems: 'center',
-    paddingVertical: spacing.base,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.base,
   },
   fab: {
-    width: 200,
-    height: 48,
-    borderRadius: 24,
+    width: 220,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -368,7 +474,28 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.3,
   },
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.base,
+  },
+  secondaryBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: radius.xl,
+    alignItems: 'center',
+    gap: 4,
+  },
+  secondaryIcon: { fontSize: 18, lineHeight: 20 },
+  secondaryLbl: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: fontSize.xs,
+  },
   bottomPad: { height: spacing.xl },
+
+  // Empty state
   newEnvBtn: {
     alignSelf: 'center',
     marginTop: spacing.base,
