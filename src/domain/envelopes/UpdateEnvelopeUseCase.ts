@@ -7,13 +7,14 @@ import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncE
 import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
-import type { EnvelopeEntity } from './EnvelopeEntity';
+import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
 
 interface UpdateInput {
   name: string;
   allocatedCents: number;
   /** Optional: if provided, income envelopes reject any non-zero value */
   spentCents?: number;
+  envelopeType?: EnvelopeType;
   targetAmountCents?: number | null;
   targetDate?: string | null;
 }
@@ -55,6 +56,8 @@ export class UpdateEnvelopeUseCase {
       ...this.current,
       name: trimmedName,
       allocatedCents: this.input.allocatedCents,
+      envelopeType:
+        this.input.envelopeType !== undefined ? this.input.envelopeType : this.current.envelopeType,
       targetAmountCents:
         this.input.targetAmountCents !== undefined
           ? this.input.targetAmountCents
@@ -69,6 +72,7 @@ export class UpdateEnvelopeUseCase {
       .set({
         name: updated.name,
         allocatedCents: updated.allocatedCents,
+        envelopeType: updated.envelopeType,
         targetAmountCents: updated.targetAmountCents,
         targetDate: updated.targetDate,
         updatedAt: now,
