@@ -7,19 +7,21 @@ import { AcceptInviteUseCase } from '../../../domain/households/AcceptInviteUseC
 import { RestoreService } from '../../../data/sync/RestoreService';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
+import { markOnboardingComplete } from '../../../infrastructure/storage/onboardingFlag';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { JoinHouseholdScreenProps } from '../../navigation/types';
 
 const restoreService = new RestoreService(db, supabase);
 
-export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ navigation }) => {
+export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = () => {
   const { colors } = useAppTheme();
   const session = useAppStore((s) => s.session);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
   const setAvailableHouseholds = useAppStore((s) => s.setAvailableHouseholds);
   const availableHouseholds = useAppStore((s) => s.availableHouseholds);
+  const setOnboardingCompleted = useAppStore((s) => s.setOnboardingCompleted);
   const enqueue = useToastStore((s) => s.enqueue);
 
   const [code, setCode] = useState('');
@@ -50,8 +52,16 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
     setAvailableHouseholds([...availableHouseholds, result.data]);
+
+    // Joiners inherit the household's existing config — skip the full
+    // budget-setup wizard by marking onboarding complete immediately.
+    if (session) {
+      await markOnboardingComplete(session.user.id, result.data.id);
+      setOnboardingCompleted(true);
+    }
+
     enqueue('Joined household', 'success');
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    // RootNavigator reacts automatically when householdId + onboardingCompleted are set.
   };
 
   return (
@@ -83,6 +93,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
           disabled={loading || code.trim().length !== 6}
           style={styles.button}
           contentStyle={styles.buttonContent}
+          testID="join-household-btn"
         >
           Join Household
         </Button>

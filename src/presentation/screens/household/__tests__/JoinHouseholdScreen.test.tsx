@@ -2,7 +2,7 @@
  * JoinHouseholdScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 jest.mock('../../../../data/remote/supabaseClient', () => ({ supabase: {} }));
@@ -11,9 +11,19 @@ jest.mock('../../../../data/sync/RestoreService', () => ({
     .fn()
     .mockImplementation(() => ({ restore: jest.fn().mockResolvedValue([]) })),
 }));
+const mockAcceptInviteExecute = jest.fn().mockResolvedValue({
+  success: true,
+  data: { id: 'hh-joined', paydayDay: 25 },
+});
 jest.mock('../../../../domain/households/AcceptInviteUseCase', () => ({
-  AcceptInviteUseCase: jest.fn().mockImplementation(() => ({ execute: jest.fn() })),
+  AcceptInviteUseCase: jest.fn().mockImplementation(() => ({ execute: mockAcceptInviteExecute })),
 }));
+
+const mockMarkOnboarding = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../../infrastructure/storage/onboardingFlag', () => ({
+  markOnboardingComplete: (...args: unknown[]) => mockMarkOnboarding(...args),
+}));
+const mockSetOnboardingCompleted = jest.fn();
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn(
     (
@@ -23,6 +33,7 @@ jest.mock('../../../stores/appStore', () => ({
         setPaydayDay: () => void;
         setAvailableHouseholds: () => void;
         availableHouseholds: [];
+        setOnboardingCompleted: () => void;
       }) => unknown,
     ) =>
       sel({
@@ -31,6 +42,7 @@ jest.mock('../../../stores/appStore', () => ({
         setPaydayDay: jest.fn(),
         setAvailableHouseholds: jest.fn(),
         availableHouseholds: [],
+        setOnboardingCompleted: mockSetOnboardingCompleted,
       }),
   ),
 }));
@@ -77,10 +89,25 @@ const mockNavigate = jest.fn();
 import { JoinHouseholdScreen } from '../JoinHouseholdScreen';
 
 describe('JoinHouseholdScreen', () => {
+  beforeEach(() => jest.clearAllMocks());
+
   it('renders invite code input', () => {
     const { getByTestId } = render(
       <JoinHouseholdScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
     );
     expect(getByTestId('Invite code')).toBeTruthy();
+  });
+
+  it('marks onboarding complete after successful join', async () => {
+    const { getByTestId } = render(
+      <JoinHouseholdScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.changeText(getByTestId('Invite code'), 'ABC123');
+    fireEvent.press(getByTestId('join-household-btn'));
+
+    await waitFor(() => {
+      expect(mockMarkOnboarding).toHaveBeenCalledWith('user-1', 'hh-joined');
+      expect(mockSetOnboardingCompleted).toHaveBeenCalledWith(true);
+    });
   });
 });

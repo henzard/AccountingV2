@@ -31,20 +31,13 @@ describe('EnsureHouseholdUseCase', () => {
         }),
       }),
     };
-    const audit = { log: jest.fn().mockResolvedValue(undefined) };
-    const uc = new EnsureHouseholdUseCase(db as any, audit as any, 'user-1');
+    const uc = new EnsureHouseholdUseCase(db as any, 'user-1');
     const result = await uc.execute();
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.id).toBe('hh-1');
   });
 
-  it('creates new household + membership when none exists', async () => {
-    const insertedRows: unknown[] = [];
-    const emptySelectChain = {
-      from: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockResolvedValue([]),
-    };
+  it('returns failure when user has no household (new user — create/join choice deferred to UI)', async () => {
     const db = {
       select: jest
         .fn()
@@ -53,26 +46,13 @@ describe('EnsureHouseholdUseCase', () => {
         })
         .mockReturnValueOnce({
           from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
-        })
-        .mockReturnValue(emptySelectChain), // default for PendingSyncEnqueuer dedup checks
-      insert: jest.fn().mockReturnValue({
-        values: (row: unknown) => {
-          insertedRows.push(row);
-          return {
-            onConflictDoNothing: () => Promise.resolve(undefined),
-            then: (resolve: (v: undefined) => void) => {
-              resolve(undefined);
-              return Promise.resolve(undefined);
-            },
-          };
-        },
-      }),
+        }),
+      insert: jest.fn(),
     };
-    const audit = { log: jest.fn().mockResolvedValue(undefined) };
-    const uc = new EnsureHouseholdUseCase(db as any, audit as any, 'user-1');
+    const uc = new EnsureHouseholdUseCase(db as any, 'new-user-id');
     const result = await uc.execute();
-    expect(result.success).toBe(true);
-    // Should have inserted household, household_members row, and 2 pending_sync rows
-    expect(insertedRows.length).toBeGreaterThanOrEqual(2);
+    expect(result.success).toBe(false);
+    // Must NOT have inserted anything — household creation is now explicit via UI
+    expect(db.insert).not.toHaveBeenCalled();
   });
 });

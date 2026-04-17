@@ -20,7 +20,6 @@ import { RootNavigator } from './src/presentation/navigation/RootNavigator';
 import { supabase } from './src/data/remote/supabaseClient';
 import { useAppStore } from './src/presentation/stores/appStore';
 import { db } from './src/data/local/db';
-import { AuditLogger } from './src/data/audit/AuditLogger';
 import { EnsureHouseholdUseCase } from './src/domain/households/EnsureHouseholdUseCase';
 import { RestoreService } from './src/data/sync/RestoreService';
 import type { RestoredHousehold } from './src/data/sync/RestoreService';
@@ -67,14 +66,12 @@ try {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-let audit: AuditLogger;
 let restoreService: RestoreService;
 let syncOrchestrator: SyncOrchestrator;
 let slipQueueRepo: DrizzleSlipQueueRepository;
 let slipLocalStore: SlipImageLocalStore;
 let cleanupSlips: CleanupExpiredSlipsUseCase;
 try {
-  audit = new AuditLogger(db);
   restoreService = new RestoreService(db, supabase);
   syncOrchestrator = new SyncOrchestrator(db, supabase);
   slipQueueRepo = new DrizzleSlipQueueRepository(db);
@@ -89,11 +86,12 @@ async function initSession(userId: string): Promise<void> {
   // C5: Run EnsureHousehold (local DB) + restore (remote) in parallel.
   // Restore is network-dependent — it must not block local household resolution.
   const restorePromise = restoreService.restore(userId).catch((): RestoredHousehold[] => []);
-  const uc = new EnsureHouseholdUseCase(db, audit, userId);
+  const uc = new EnsureHouseholdUseCase(db, userId);
   const [restoredHouseholds, result] = await Promise.all([restorePromise, uc.execute()]);
 
   const store = useAppStore.getState();
   if (result.success) {
+    // Normal path: found household in local DB (existing user or legacy migration).
     store.setHouseholdId(result.data.id);
     store.setPaydayDay(result.data.paydayDay);
     store.setAvailableHouseholds([
@@ -102,9 +100,15 @@ async function initSession(userId: string): Promise<void> {
         .filter((h) => h.id !== result.data.id)
         .map((h) => ({ ...h, userLevel: 1 as const })),
     ]);
-  } else {
-    console.error('[initSession] Failed to ensure household:', result.error);
+  } else if (restoredHouseholds.length > 0) {
+    // Reinstall path: no local data but Supabase has households for this user.
+    const primary = restoredHouseholds[0];
+    store.setHouseholdId(primary.id);
+    store.setPaydayDay(primary.paydayDay);
+    store.setAvailableHouseholds(restoredHouseholds.map((h) => ({ ...h, userLevel: 1 as const })));
   }
+  // else: new user with no household anywhere — householdId stays null and
+  // RootNavigator shows the create/join choice screen.
 
   // Seed restored households (fire-and-forget — non-fatal).
   const seeder = new SeedBabyStepsUseCase(db);

@@ -4,6 +4,10 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
 
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({ navigate: jest.fn() }),
+}));
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
@@ -69,9 +73,7 @@ import { CreateHouseholdScreen } from '../CreateHouseholdScreen';
 
 describe('CreateHouseholdScreen', () => {
   it('renders household name input', () => {
-    const { getByTestId } = render(
-      <CreateHouseholdScreen route={{} as never} navigation={{} as never} />,
-    );
+    const { getByTestId } = render(<CreateHouseholdScreen />);
     expect(getByTestId('Household name')).toBeTruthy();
   });
 });
