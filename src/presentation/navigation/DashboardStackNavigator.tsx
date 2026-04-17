@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
 import { AddEditEnvelopeScreen } from '../screens/envelopes/AddEditEnvelopeScreen';
+import { AddTransactionScreen } from '../screens/transactions/AddTransactionScreen';
 import { BabyStepsScreen } from '../screens/babySteps/BabyStepsScreen';
 import { SinkingFundsScreen } from '../screens/sinkingFunds/SinkingFundsScreen';
 import { ForecastScreen } from '../screens/forecasting/ForecastScreen';
@@ -43,6 +44,11 @@ export function DashboardStackNavigator(): React.JSX.Element {
           name="SinkingFunds"
           component={SinkingFundsScreen}
           options={{ title: 'Sinking Funds' }}
+        />
+        <Stack.Screen
+          name="AddTransaction"
+          component={AddTransactionScreen}
+          options={{ title: 'Add Transaction' }}
         />
         <Stack.Screen name="Forecast" component={ForecastScreen} options={{ title: 'Forecast' }} />
       </Stack.Navigator>

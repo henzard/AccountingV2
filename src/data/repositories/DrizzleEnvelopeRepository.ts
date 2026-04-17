@@ -42,6 +42,7 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
         isArchived: e.isArchived,
         periodStart: e.periodStart,
         updatedAt: e.updatedAt,
+        isSynced: false,
       })
       .where(and(eq(envelopes.id, e.id), eq(envelopes.householdId, e.householdId)));
   }
