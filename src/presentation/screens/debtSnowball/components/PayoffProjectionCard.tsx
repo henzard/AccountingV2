@@ -34,7 +34,7 @@ export function PayoffProjectionCard({
           <Text style={[styles.date, { color: colors.onPrimary }]}>
             {format(plan.debtFreeDate, 'MMM yyyy')}
           </Text>
-          {monthsRemaining !== null && (
+          {monthsRemaining !== null && monthsRemaining > 0 && (
             <Text style={styles.months}>
               {monthsRemaining} month{monthsRemaining !== 1 ? 's' : ''} away
             </Text>

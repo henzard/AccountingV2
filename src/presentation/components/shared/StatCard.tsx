@@ -40,7 +40,7 @@ export function StatCard({
         style={[styles.value, { color: valueColor ?? colors.onSurface }]}
         variant="headlineSmall"
         numberOfLines={1}
-        adjustsFontSizeToFit
+        adjustsFontSizeToFit // iOS-only; silently no-ops on Android (acceptable)
       >
         {value}
       </Text>
