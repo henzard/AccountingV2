@@ -15,6 +15,7 @@ import { EmptyState } from '../../components/shared/EmptyState';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { fontSize, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -44,6 +45,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
+  const enqueue = useToastStore((s) => s.enqueue);
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
@@ -77,15 +79,23 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
             text: 'Delete',
             style: 'destructive',
             onPress: async (): Promise<void> => {
-              const uc = new DeleteTransactionUseCase(db, audit, tx);
-              await uc.execute();
-              void reload();
+              try {
+                const uc = new DeleteTransactionUseCase(db, audit, tx);
+                const result = await uc.execute();
+                if (!result.success) {
+                  enqueue('Failed to delete transaction', 'error');
+                  return;
+                }
+                void reload();
+              } catch {
+                enqueue('Failed to delete transaction', 'error');
+              }
             },
           },
         ],
       );
     },
-    [reload],
+    [reload, enqueue],
   );
 
   const renderSeparator = useCallback(

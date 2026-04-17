@@ -52,9 +52,15 @@ export function RootNavigator(): React.JSX.Element {
       return;
     }
     let cancelled = false;
-    isOnboardingComplete(userId, householdId).then((done) => {
-      if (!cancelled) setOnboardingCompleted(done);
-    });
+    isOnboardingComplete(userId, householdId)
+      .then((done) => {
+        if (!cancelled) setOnboardingCompleted(done);
+      })
+      .catch(() => {
+        // AsyncStorage failure — default to not complete so the wizard re-runs
+        // rather than leaving the user stuck on LoadingSplash.
+        if (!cancelled) setOnboardingCompleted(false);
+      });
     return () => {
       cancelled = true;
     };
