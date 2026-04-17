@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, View, Switch } from 'react-native';
 import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { and, eq, ne } from 'drizzle-orm';
@@ -51,6 +51,9 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [isBusinessExpense, setIsBusinessExpense] = useState(false);
+  const [spendingTriggerNote, setSpendingTriggerNote] = useState('');
+
   // Date picker
   const [transactionDate, setTransactionDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -99,6 +102,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         payee: payee.trim() || null,
         description: description.trim() || null,
         transactionDate: format(transactionDate, 'yyyy-MM-dd'),
+        isBusinessExpense,
+        spendingTriggerNote: isBusinessExpense ? spendingTriggerNote.trim() || null : null,
       });
       const result = await uc.execute();
       if (result.success) {
@@ -119,6 +124,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
     transactionDate,
     navigation,
     enqueue,
+    isBusinessExpense,
+    spendingTriggerNote,
   ]);
 
   const balanceColor = (env: EnvelopeOption): string => {
@@ -176,6 +183,33 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           disabled={loading}
           placeholder="e.g. Weekly groceries"
         />
+
+        {/* Business expense toggle */}
+        <View style={styles.toggleRow}>
+          <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
+            Business expense
+          </Text>
+          <Switch
+            value={isBusinessExpense}
+            onValueChange={setIsBusinessExpense}
+            testID="business-expense-toggle"
+            trackColor={{ true: colors.primary, false: colors.surfaceVariant }}
+            thumbColor={colors.onPrimary}
+          />
+        </View>
+
+        {isBusinessExpense && (
+          <TextInput
+            label="Trigger note (optional)"
+            value={spendingTriggerNote}
+            onChangeText={setSpendingTriggerNote}
+            mode="outlined"
+            placeholder="e.g. Client lunch, travel reimbursement"
+            testID="trigger-note-input"
+            style={styles.input}
+            disabled={loading}
+          />
+        )}
 
         {/* Date picker row */}
         <PickerField
@@ -250,4 +284,10 @@ const styles = StyleSheet.create({
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
   center: { padding: spacing.base },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
 });
