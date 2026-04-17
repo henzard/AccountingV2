@@ -39,7 +39,7 @@ function formatBalance(env: EnvelopeOption): string {
 
 export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
-  const householdId = useAppStore((s) => s.householdId)!;
+  const householdId = useAppStore((s) => s.householdId) ?? '';
   const paydayDay = useAppStore((s) => s.paydayDay);
   const enqueue = useToastStore((s) => s.enqueue);
 
@@ -87,8 +87,11 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       .then((rows) => {
         setEnvelopes(rows as EnvelopeOption[]);
         if (rows.length === 1) setSelectedEnvelope(rows[0] as EnvelopeOption);
+      })
+      .catch(() => {
+        enqueue('Failed to load envelopes', 'error');
       });
-  }, [householdId, periodStart]);
+  }, [householdId, periodStart, enqueue]);
 
   const doSave = useCallback(
     async (amountCents: number): Promise<void> => {
