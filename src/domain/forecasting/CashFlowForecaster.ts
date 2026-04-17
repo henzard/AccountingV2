@@ -20,7 +20,9 @@ export interface EnvelopeForecast {
 
 export interface ForecastInput {
   envelopes: EnvelopeEntity[];
-  transactions: TransactionEntity[];
+  /** Reserved for future per-category drill-down. Currently unused — spentCents is read
+   *  directly from envelope aggregates to avoid a redundant DB query. */
+  transactions?: TransactionEntity[];
   periodStart: string; // YYYY-MM-DD
   periodEnd: string; // YYYY-MM-DD
   today?: Date;

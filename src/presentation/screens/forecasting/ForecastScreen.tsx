@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,12 +12,15 @@ import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { spacing, radius, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
-import type { EnvelopeForecast } from '../../../domain/forecasting/CashFlowForecaster';
+import type {
+  EnvelopeForecast,
+  ForecastStatus,
+} from '../../../domain/forecasting/CashFlowForecaster';
 
 const engine = new BudgetPeriodEngine();
 const forecaster = new CashFlowForecaster();
 
-const STATUS_ORDER: Record<string, number> = { over_budget: 0, warning: 1, on_track: 2 };
+const STATUS_ORDER: Record<ForecastStatus, number> = { over_budget: 0, warning: 1, on_track: 2 };
 
 export function ForecastScreen(): React.JSX.Element {
   const { colors } = useAppTheme();
@@ -35,14 +38,15 @@ export function ForecastScreen(): React.JSX.Element {
     }, [reload]),
   );
 
-  const forecasts = forecaster.project({
-    envelopes,
-    transactions: [], // spentCents already aggregated on envelope
-    periodStart,
-    periodEnd,
-  });
+  const forecasts = useMemo(
+    () => forecaster.project({ envelopes, periodStart, periodEnd }),
+    [envelopes, periodStart, periodEnd],
+  );
 
-  const sorted = [...forecasts].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+  const sorted = useMemo(
+    () => [...forecasts].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]),
+    [forecasts],
+  );
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
