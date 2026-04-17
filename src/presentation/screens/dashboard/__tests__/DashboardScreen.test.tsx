@@ -32,6 +32,11 @@ jest.mock('../../../../domain/scoring/resolveLoggingDays', () => ({
   resolveLoggingDays: jest.fn().mockResolvedValue(7),
 }));
 
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: jest.fn().mockResolvedValue('true'), // acknowledged — suppresses rollover modal
+  setItem: jest.fn().mockResolvedValue(undefined),
+}));
+
 // ─── Store mock ───────────────────────────────────────────────────────────────
 let mockHouseholdId: string | null = 'hh-1';
 jest.mock('../../../stores/appStore', () => ({

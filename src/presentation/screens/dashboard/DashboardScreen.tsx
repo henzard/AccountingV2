@@ -9,7 +9,9 @@ import {
   useColorScheme,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import { PeriodRolloverModal } from './PeriodRolloverModal';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useBabySteps } from '../../hooks/useBabySteps';
@@ -50,6 +52,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 
   const [babyStepIsActive, setBabyStepIsActive] = useState(false);
   const [loggingDaysCount, setLoggingDaysCount] = useState(0);
+  const [showRollover, setShowRollover] = useState(false);
 
   useFocusEffect(
     useCallback((): (() => void) => {
@@ -62,11 +65,23 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       resolveLoggingDays(db, hid, periodStart, periodEnd).then((days) => {
         if (!cancelled) setLoggingDaysCount(days);
       });
+      // Show rollover prompt once at the start of each new period (within 2 days of payday).
+      const rolloverKey = `period_ack_${periodStart}`;
+      if (engine.isNewPeriodWithin(paydayDay, 2)) {
+        AsyncStorage.getItem(rolloverKey).then((val) => {
+          if (!cancelled && val === null) setShowRollover(true);
+        });
+      }
       return () => {
         cancelled = true;
       };
-    }, [reload, hid, period.endDate, periodStart]),
+    }, [reload, hid, period.endDate, periodStart, paydayDay]),
   );
+
+  const handleRolloverAcknowledge = useCallback((): void => {
+    setShowRollover(false);
+    void AsyncStorage.setItem(`period_ack_${periodStart}`, 'true');
+  }, [periodStart]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
@@ -329,15 +344,29 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     />
   );
 
+  const rolloverModal = (
+    <PeriodRolloverModal
+      visible={showRollover}
+      periodLabel={periodLabel}
+      onAcknowledge={handleRolloverAcknowledge}
+    />
+  );
+
   if (isDark) {
     return (
       <LinearGradient colors={GRAD_DARK} locations={[0, 0.55, 1]} style={styles.flex}>
         {list}
+        {rolloverModal}
       </LinearGradient>
     );
   }
 
-  return <View style={[styles.flex, { backgroundColor: P.screenBgLight }]}>{list}</View>;
+  return (
+    <View style={[styles.flex, { backgroundColor: P.screenBgLight }]}>
+      {list}
+      {rolloverModal}
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({
