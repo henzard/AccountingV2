@@ -8,10 +8,15 @@ import { device, element, by, expect as detoxExpect, waitFor } from 'detox';
 
 describe('Login journey', () => {
   beforeAll(async () => {
-    // Disable sync before launch so Detox does not wait for Supabase/Firebase
-    // OkHttp connections to drain (auth session, realtime WebSocket).
-    await device.disableSynchronization();
-    await device.launchApp({ newInstance: true });
+    // Pass URL blacklist as launch args (Detox 20.x approach).
+    // Prevents Detox from waiting for Supabase/Firebase OkHttp connections to
+    // drain before executing UI commands.
+    await device.launchApp({
+      newInstance: true,
+      launchArgs: {
+        detoxURLBlacklist: JSON.stringify(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']),
+      },
+    });
   });
 
   it('shows the login screen on first launch', async () => {
