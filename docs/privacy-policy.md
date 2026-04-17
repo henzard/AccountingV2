@@ -1,6 +1,6 @@
 # Privacy Policy — AccountingV2
 
-_Last updated: 2026-04-16_
+_Last updated: 2026-04-18_
 
 ## Who we are
 
@@ -17,6 +17,7 @@ AccountingV2 is a personal budgeting app developed by Henza Kruger (henzardkruge
 ### Data collected automatically
 
 - Crash reports via Firebase Crashlytics. These include device model, OS version, app version, and a stack trace. They do not include personally identifiable information unless it appears in a log message (we do not log PII).
+- **FCM push token:** If you grant notification permission, your device's Firebase Cloud Messaging (FCM) token is stored in our Supabase database. It is used solely to deliver budget coaching notifications to your device. You can revoke this at any time by disabling notifications in Settings.
 - Anonymous usage events are not currently collected.
 
 ## Slip scanning (AI feature)
@@ -40,7 +41,7 @@ We do not sell or share your personal data with third parties except:
 
 - **Supabase** — database and authentication host (data processor).
 - **OpenAI** — slip image processing (only when you use the scan feature).
-- **Firebase / Google** — crash reporting.
+- **Firebase / Google** — crash reporting and push notification delivery (FCM).
 
 ## Your rights
 
