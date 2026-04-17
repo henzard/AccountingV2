@@ -10,6 +10,7 @@ import { AuditLogger } from '../../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../../domain/envelopes/CreateEnvelopeUseCase';
 import { BudgetPeriodEngine } from '../../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../../stores/appStore';
+import { useToastStore } from '../../../stores/toastStore';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import { spacing } from '../../../theme/tokens';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
@@ -38,6 +39,7 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
 
   const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
+  const enqueue = useToastStore((s) => s.enqueue);
   const incomeCents = useAppStore((s) => s.monthlyIncomeCents) ?? 0;
 
   const initialAllocations = useMemo<Record<string, number>>(() => {
@@ -90,6 +92,8 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
         await uc.execute();
       }
       navigation.navigate('Payday');
+    } catch {
+      enqueue('Failed to save envelopes — please try again', 'error');
     } finally {
       setLoading(false);
     }

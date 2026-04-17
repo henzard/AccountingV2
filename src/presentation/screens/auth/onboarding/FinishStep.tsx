@@ -18,7 +18,10 @@ export function FinishStep(): React.JSX.Element {
     try {
       const userId = session?.user?.id;
       if (userId && householdId) {
-        await markOnboardingComplete(userId, householdId);
+        // Non-fatal: if AsyncStorage write fails the in-memory flag still lets
+        // the user proceed. On the next cold start they'll see the wizard again
+        // and the flag will be re-written then.
+        await markOnboardingComplete(userId, householdId).catch(() => {});
       }
       // Flip the store flag so RootNavigator swaps OnboardingNavigator for
       // MainTabNavigator. navigation.reset is not usable here — 'Main' is not

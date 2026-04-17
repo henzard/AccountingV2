@@ -21,26 +21,31 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
-    const rows = await db
-      .select()
-      .from(txTable)
-      .where(and(eq(txTable.householdId, householdId), eq(txTable.isBusinessExpense, true)));
-    const entities: TransactionEntity[] = rows.map((r) => ({
-      id: r.id,
-      householdId: r.householdId,
-      envelopeId: r.envelopeId,
-      amountCents: r.amountCents,
-      payee: r.payee ?? null,
-      description: r.description ?? null,
-      transactionDate: r.transactionDate,
-      isBusinessExpense: Boolean(r.isBusinessExpense),
-      spendingTriggerNote: r.spendingTriggerNote ?? null,
-      slipId: r.slipId ?? null,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
-    setGroups(groupBusinessExpenses(entities));
-    setLoading(false);
+    try {
+      const rows = await db
+        .select()
+        .from(txTable)
+        .where(and(eq(txTable.householdId, householdId), eq(txTable.isBusinessExpense, true)));
+      const entities: TransactionEntity[] = rows.map((r) => ({
+        id: r.id,
+        householdId: r.householdId,
+        envelopeId: r.envelopeId,
+        amountCents: r.amountCents,
+        payee: r.payee ?? null,
+        description: r.description ?? null,
+        transactionDate: r.transactionDate,
+        isBusinessExpense: Boolean(r.isBusinessExpense),
+        spendingTriggerNote: r.spendingTriggerNote ?? null,
+        slipId: r.slipId ?? null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
+      setGroups(groupBusinessExpenses(entities));
+    } catch {
+      setGroups([]);
+    } finally {
+      setLoading(false);
+    }
   }, [householdId]);
 
   useFocusEffect(

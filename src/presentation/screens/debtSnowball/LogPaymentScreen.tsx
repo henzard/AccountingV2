@@ -34,6 +34,9 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
         const row = rows[0] as DebtEntity | undefined;
         if (row) setAmountRands((row.minimumPaymentCents / 100).toFixed(2));
         setDebt(row ?? null);
+      })
+      .catch(() => {
+        setError('Failed to load debt details');
       });
   }, [debtId]);
 
@@ -46,19 +49,24 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
     }
     setSaving(true);
     setError(null);
-    const uc = new LogDebtPaymentUseCase(db, audit, {
-      householdId,
-      debtId,
-      paymentAmountCents: amountCents,
-      currentDebt: debt,
-    });
-    const result = await uc.execute();
-    setSaving(false);
-    if (result.success) {
-      enqueue('Payment logged', 'success');
-      navigation.goBack();
-    } else {
-      setError(result.error.message);
+    try {
+      const uc = new LogDebtPaymentUseCase(db, audit, {
+        householdId,
+        debtId,
+        paymentAmountCents: amountCents,
+        currentDebt: debt,
+      });
+      const result = await uc.execute();
+      if (result.success) {
+        enqueue('Payment logged', 'success');
+        navigation.goBack();
+      } else {
+        setError(result.error.message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to log payment');
+    } finally {
+      setSaving(false);
     }
   };
 

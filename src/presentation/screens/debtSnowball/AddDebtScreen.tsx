@@ -57,21 +57,26 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
 
     setSaving(true);
     setError(null);
-    const uc = new CreateDebtUseCase(db, audit, {
-      householdId,
-      creditorName: creditorName.trim(),
-      debtType,
-      outstandingBalanceCents: balanceCents,
-      interestRatePercent: rate,
-      minimumPaymentCents: minPayCents,
-    });
-    const result = await uc.execute();
-    setSaving(false);
-    if (result.success) {
-      enqueue('Debt saved', 'success');
-      navigation.goBack();
-    } else {
-      setError(result.error.message);
+    try {
+      const uc = new CreateDebtUseCase(db, audit, {
+        householdId,
+        creditorName: creditorName.trim(),
+        debtType,
+        outstandingBalanceCents: balanceCents,
+        interestRatePercent: rate,
+        minimumPaymentCents: minPayCents,
+      });
+      const result = await uc.execute();
+      if (result.success) {
+        enqueue('Debt saved', 'success');
+        navigation.goBack();
+      } else {
+        setError(result.error.message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save debt');
+    } finally {
+      setSaving(false);
     }
   };
 
