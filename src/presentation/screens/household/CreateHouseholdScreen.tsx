@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { Text, TextInput, Button } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateHouseholdUseCase } from '../../../domain/households/CreateHouseholdUseCase';
@@ -8,12 +10,13 @@ import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
-import type { CreateHouseholdScreenProps } from '../../navigation/types';
+import type { CreateHouseholdStackParamList } from '../../navigation/types';
 
 const audit = new AuditLogger(db);
 
-export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () => {
+export const CreateHouseholdScreen: React.FC = () => {
   const { colors } = useAppTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<CreateHouseholdStackParamList>>();
   const session = useAppStore((s) => s.session);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
@@ -89,6 +92,15 @@ export const CreateHouseholdScreen: React.FC<CreateHouseholdScreenProps> = () =>
         >
           Create Household
         </Button>
+
+        <Button
+          mode="text"
+          onPress={() => navigation.navigate('JoinHouseholdGate')}
+          disabled={loading}
+          style={styles.joinLink}
+        >
+          Have an invite code? Join instead
+        </Button>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -101,4 +113,5 @@ const styles = StyleSheet.create({
   input: {},
   button: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
+  joinLink: { marginTop: spacing.xs },
 });

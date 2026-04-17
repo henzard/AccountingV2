@@ -4,11 +4,10 @@ import type { InferInsertModel } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { households, householdMembers } from '../../data/local/schema';
-import type { AuditLogger } from '../../data/audit/AuditLogger';
 import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
 import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { Result } from '../shared/types';
-import { createSuccess } from '../shared/types';
+import { createSuccess, createFailure } from '../shared/types';
 import { SeedBabyStepsUseCase } from '../babySteps/SeedBabyStepsUseCase';
 
 export interface HouseholdSummary {
@@ -23,7 +22,6 @@ export class EnsureHouseholdUseCase {
 
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
-    private readonly audit: AuditLogger,
     private readonly userId: string,
     enqueuer?: ISyncEnqueuer,
   ) {
@@ -92,51 +90,11 @@ export class EnsureHouseholdUseCase {
       });
     }
 
-    // 3. Create new household with UUID + membership
-    const householdId = randomUUID();
-    const newHousehold: InferInsertModel<typeof households> = {
-      id: householdId,
-      name: 'My Household',
-      paydayDay: 25,
-      userLevel: 1,
-      createdAt: now,
-      updatedAt: now,
-      isSynced: false,
-    };
-    await this.db.insert(households).values(newHousehold);
-
-    const memberId = randomUUID();
-    const memberRow: InferInsertModel<typeof householdMembers> = {
-      id: memberId,
-      householdId,
-      userId: this.userId,
-      role: 'owner',
-      joinedAt: now,
-      updatedAt: now,
-    };
-    await this.db.insert(householdMembers).values(memberRow);
-
-    await this.audit.log({
-      householdId,
-      entityType: 'household',
-      entityId: householdId,
-      action: 'create',
-      previousValue: null,
-      newValue: { id: householdId, name: newHousehold.name, paydayDay: newHousehold.paydayDay },
-    });
-
-    await this.enqueuer.enqueue('households', householdId, 'INSERT');
-    await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
-
-    // Seed baby steps for the newly created household
-    const seeder = new SeedBabyStepsUseCase(this.db);
-    await seeder.execute(householdId);
-
-    return createSuccess({
-      id: householdId,
-      name: newHousehold.name,
-      paydayDay: newHousehold.paydayDay ?? 25,
-      userLevel: 1,
-    });
+    // 3. No existing membership and no legacy household.
+    // Return failure so the navigator shows the create/join choice screen.
+    // Household creation is now explicit — triggered by CreateHouseholdUseCase
+    // when the user taps "Create Household", or by AcceptInviteUseCase when
+    // the user enters an invite code.
+    return createFailure({ code: 'no_household', message: 'no_household' });
   }
 }
