@@ -16,12 +16,23 @@ import { device, element, by, expect as detoxExpect } from 'detox';
 
 describe('Add Envelope journey', () => {
   beforeAll(async () => {
+    // Blocks OkHttp requests to Supabase/Firebase/GCM so Detox doesn't wait
+    // for long-lived connections before executing UI commands.
+    // googleapis.com covers FCM (fcm.googleapis.com) — a persistent connection
+    // that blocks Detox synchronisation indefinitely without this entry.
     await device.launchApp({
       newInstance: true,
       launchArgs: {
-        detoxURLBlacklist: JSON.stringify(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']),
+        detoxURLBlacklist: JSON.stringify([
+          '.*supabase\\.co.*',
+          '.*firebase.*',
+          '.*crashlytics.*',
+          '.*googleapis\\.com.*',
+          '.*google\\.com/.*',
+        ]),
       },
     });
+    await device.disableSynchronization();
   });
 
   it('shows the login screen on fresh launch', async () => {

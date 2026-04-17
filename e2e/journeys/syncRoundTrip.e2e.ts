@@ -17,15 +17,25 @@ import { device, element, by, expect as detoxExpect } from 'detox';
 
 describe('Sync round-trip journey', () => {
   beforeAll(async () => {
-    // Pass URL blacklist as launch args (Detox 20.x approach).
-    // This prevents Detox from waiting for Supabase/Firebase OkHttp connections
-    // to drain before executing UI commands.
+    // Blocks OkHttp requests to Supabase/Firebase/GCM so Detox doesn't wait
+    // for long-lived connections before executing UI commands.
+    // googleapis.com covers FCM (fcm.googleapis.com) — a persistent connection
+    // that blocks Detox synchronisation indefinitely without this entry.
     await device.launchApp({
       newInstance: true,
       launchArgs: {
-        detoxURLBlacklist: JSON.stringify(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']),
+        detoxURLBlacklist: JSON.stringify([
+          '.*supabase\\.co.*',
+          '.*firebase.*',
+          '.*crashlytics.*',
+          '.*googleapis\\.com.*',
+          '.*google\\.com/.*',
+        ]),
       },
     });
+    // Belt-and-suspenders: disable Detox network sync so long-lived Firebase
+    // WebSocket connections can't stall UI command dispatch.
+    await device.disableSynchronization();
   });
 
   it('gates the add-transaction FAB behind authentication', async () => {
