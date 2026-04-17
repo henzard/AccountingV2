@@ -86,10 +86,10 @@ jobs:
       - name: Run Detox tests on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
-          target: default
+          api-level: 34
+          target: google_apis
           arch: x86_64
-          avd-name: Pixel_API_29
+          avd-name: Pixel_API_34
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
