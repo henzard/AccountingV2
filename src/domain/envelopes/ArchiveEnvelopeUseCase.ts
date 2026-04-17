@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
@@ -26,7 +26,12 @@ export class ArchiveEnvelopeUseCase {
     await this.db
       .update(envelopes)
       .set({ isArchived: true, updatedAt: now, isSynced: false })
-      .where(eq(envelopes.id, this.envelope.id));
+      .where(
+        and(
+          eq(envelopes.id, this.envelope.id),
+          eq(envelopes.householdId, this.envelope.householdId),
+        ),
+      );
 
     await this.audit.log({
       householdId: this.envelope.householdId,

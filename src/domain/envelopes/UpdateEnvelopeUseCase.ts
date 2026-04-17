@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
@@ -74,7 +74,9 @@ export class UpdateEnvelopeUseCase {
         updatedAt: now,
         isSynced: false,
       })
-      .where(eq(envelopes.id, this.current.id));
+      .where(
+        and(eq(envelopes.id, this.current.id), eq(envelopes.householdId, this.current.householdId)),
+      );
 
     const previousValueRecord: Record<string, unknown> = {
       id: this.current.id,

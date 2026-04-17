@@ -67,7 +67,7 @@ export class ReconcileEmergencyFundTypeUseCase {
           updatedAt: now,
           isSynced: false,
         })
-        .where(eq(envelopes.id, envelope.id));
+        .where(and(eq(envelopes.id, envelope.id), eq(envelopes.householdId, householdId)));
       await this.enqueuer.enqueue('envelopes', envelope.id, 'UPDATE');
     }
 
