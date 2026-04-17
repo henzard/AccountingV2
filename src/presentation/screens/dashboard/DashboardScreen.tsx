@@ -160,9 +160,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
         {envelopes.length > 0 && (
           <View style={styles.sectionHead}>
             <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Envelopes</Text>
-            <Text style={[styles.sectionSub, { color: sectionSubColor }]}>
-              {envelopes.length} active
-            </Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Budget')}
+              testID="view-budget-link"
+              accessibilityRole="link"
+              accessibilityLabel="View full budget"
+            >
+              <Text style={[styles.sectionSub, { color: sectionSubColor }]}>
+                {envelopes.length} active ›
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>

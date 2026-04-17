@@ -6,6 +6,7 @@ import { AddEditEnvelopeScreen } from '../screens/envelopes/AddEditEnvelopeScree
 import { BabyStepsScreen } from '../screens/babySteps/BabyStepsScreen';
 import { SinkingFundsScreen } from '../screens/sinkingFunds/SinkingFundsScreen';
 import { ForecastScreen } from '../screens/forecasting/ForecastScreen';
+import { BudgetScreen } from '../screens/budgets/BudgetScreen';
 import { CelebrationModalHost } from '../screens/babySteps/CelebrationModalHost';
 import { useAppTheme } from '../theme/useAppTheme';
 import type { DashboardStackParamList } from './types';
@@ -45,6 +46,7 @@ export function DashboardStackNavigator(): React.JSX.Element {
           options={{ title: 'Sinking Funds' }}
         />
         <Stack.Screen name="Forecast" component={ForecastScreen} options={{ title: 'Forecast' }} />
+        <Stack.Screen name="Budget" component={BudgetScreen} options={{ title: 'Budget' }} />
       </Stack.Navigator>
 
       {/*
