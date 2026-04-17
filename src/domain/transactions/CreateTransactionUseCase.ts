@@ -19,6 +19,8 @@ interface CreateTransactionInput {
   description: string | null;
   transactionDate: string; // YYYY-MM-DD
   slipId?: string | null; // optional FK to slip_queue.id
+  isBusinessExpense?: boolean;
+  spendingTriggerNote?: string | null;
 }
 
 export class CreateTransactionUseCase {
@@ -72,8 +74,8 @@ export class CreateTransactionUseCase {
       payee: this.input.payee,
       description: this.input.description,
       transactionDate: this.input.transactionDate,
-      isBusinessExpense: false,
-      spendingTriggerNote: null,
+      isBusinessExpense: this.input.isBusinessExpense ?? false,
+      spendingTriggerNote: this.input.spendingTriggerNote ?? null,
       createdAt: now,
       updatedAt: now,
     };
