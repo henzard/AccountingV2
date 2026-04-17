@@ -115,7 +115,7 @@ jobs:
           gcloud firebase test android run \
             --type robo \
             --app android/app/build/outputs/apk/release/app-release.apk \
-            --device model=Pixel6,version=34,locale=en,orientation=portrait \
+            --device model=oriole,version=33,locale=en,orientation=portrait \
             --timeout 90s \
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
 
