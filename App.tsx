@@ -32,6 +32,7 @@ import { useEmergencyFundReconcileStore } from './src/presentation/stores/emerge
 import { initCrashlytics } from './src/infrastructure/monitoring/crashlytics';
 import crashlytics from '@react-native-firebase/crashlytics';
 import { subscribeNetworkChanges, useSyncStore } from './src/presentation/stores/syncStore';
+import { networkObserver } from './src/infrastructure/network/NetworkObserver';
 import { DrizzleSlipQueueRepository } from './src/data/repositories/DrizzleSlipQueueRepository';
 import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImageLocalStore';
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
@@ -167,6 +168,13 @@ export default function App(): React.JSX.Element {
     // Subscribe NetworkObserver → syncStore (drives OfflineBanner).
     const unsubscribeNetwork = subscribeNetworkChanges();
 
+    // Wire auto-sync: push pending local writes whenever the device reconnects.
+    networkObserver.onConnected(async () => {
+      const currentHouseholdId = useAppStore.getState().householdId ?? undefined;
+      await syncOrchestrator.syncPending(currentHouseholdId).catch(() => {});
+    });
+    networkObserver.start();
+
     // Cleanup expired slip images (fire-and-forget — non-fatal).
     void cleanupSlips.execute().catch(() => {});
 
@@ -181,7 +189,10 @@ export default function App(): React.JSX.Element {
       )
       .catch(() => {});
 
-    return unsubscribeNetwork;
+    return () => {
+      unsubscribeNetwork();
+      networkObserver.stop();
+    };
   }, [bindCelebrationStore]);
 
   useEffect(() => {
