@@ -37,12 +37,19 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = () => {
 
     setLoading(true);
 
-    const uc = new AcceptInviteUseCase(supabase, db, restoreService, {
-      code: trimmedCode,
-      userId: session.user.id,
-    });
-    const result = await uc.execute();
-    setLoading(false);
+    let result;
+    try {
+      const uc = new AcceptInviteUseCase(supabase, db, restoreService, {
+        code: trimmedCode,
+        userId: session.user.id,
+      });
+      result = await uc.execute();
+    } catch (err) {
+      enqueue(err instanceof Error ? err.message : 'Failed to join household', 'error');
+      return;
+    } finally {
+      setLoading(false);
+    }
 
     if (!result.success) {
       enqueue(result.error.message, 'error');

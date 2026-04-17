@@ -138,6 +138,60 @@ describe('AcceptInviteUseCase — success path', () => {
   });
 });
 
+describe('AcceptInviteUseCase — restore failure graceful degradation', () => {
+  it('still succeeds with fallback summary when restoreHousehold returns null', async () => {
+    jest.useFakeTimers();
+    const mockInvite = {
+      id: 'inv-1',
+      household_id: 'hh-fallback',
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      used_by: null,
+    };
+
+    const supabase = {
+      from: jest.fn().mockReturnValue({ insert: jest.fn().mockResolvedValue({ error: null }) }),
+      rpc: jest.fn().mockImplementation((name: string) => {
+        if (name === 'lookup_invite_by_code')
+          return { single: jest.fn().mockResolvedValue({ data: mockInvite, error: null }) };
+        return Promise.resolve({ error: null });
+      }),
+    };
+    const db = {
+      select: jest.fn().mockReturnValue({
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([]),
+      }),
+      insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
+      update: jest.fn().mockReturnValue({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+      }),
+    };
+    const restoreService = { restoreHousehold: jest.fn().mockResolvedValue(null) };
+    const enqueuer = { enqueue: jest.fn() };
+
+    const uc = new AcceptInviteUseCase(
+      supabase as any,
+      db as any,
+      restoreService as any,
+      { userId: 'user-c', code: 'XYZ789' },
+      enqueuer as any,
+    );
+
+    const resultPromise = uc.execute();
+    // Fast-forward the 1500ms retry delay
+    await jest.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Falls back to householdId as id, default name/paydayDay
+      expect(result.data.id).toBe('hh-fallback');
+    }
+    jest.useRealTimers();
+  });
+});
+
 describe('AcceptInviteUseCase — uses lookup_invite_by_code RPC', () => {
   it('calls supabase.rpc("lookup_invite_by_code") not a direct table SELECT', async () => {
     const mockInvite = {
