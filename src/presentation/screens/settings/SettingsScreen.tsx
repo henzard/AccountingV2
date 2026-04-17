@@ -7,7 +7,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { supabase } from '../../../data/remote/supabaseClient';
-import { radius, spacing } from '../../theme/tokens';
+import { radius, spacing, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
 
@@ -20,6 +20,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const householdId = useAppStore((s) => s.householdId);
   const availableHouseholds = useAppStore((s) => s.availableHouseholds);
   const currentHousehold = availableHouseholds.find((h) => h.id === householdId);
+  const userLevel = useAppStore((s) => s.userLevel);
+  const levelLabels: Record<number, string> = { 1: 'Learner', 2: 'Practitioner', 3: 'Mentor' };
+  const levelLabel = levelLabels[userLevel] ?? 'Learner';
 
   const themePref = useThemeStore((s) => s.preference);
   const setThemePref = useThemeStore((s) => s.setPreference);
@@ -63,6 +66,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             title={currentHousehold?.name ?? 'My Household'}
             description="Active household"
             left={(props) => <List.Icon {...props} icon="home-outline" />}
+            right={() => (
+              <View style={[styles.levelBadge, { backgroundColor: colors.primaryContainer }]}>
+                <List.Subheader
+                  style={[styles.levelText, { color: colors.onPrimaryContainer }]}
+                  testID="level-badge"
+                >
+                  {`Lv${userLevel} ${levelLabel}`}
+                </List.Subheader>
+              </View>
+            )}
           />
           <Divider />
           <List.Item
@@ -221,5 +234,17 @@ const styles = StyleSheet.create({
   signOutButton: {},
   appearanceRow: {
     padding: spacing.base,
+  },
+  levelBadge: {
+    alignSelf: 'center',
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    justifyContent: 'center',
+  },
+  levelText: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: fontSize.xs,
+    marginHorizontal: 0,
+    paddingHorizontal: 0,
   },
 });
