@@ -3,6 +3,10 @@ import { View, FlatList, StyleSheet } from 'react-native';
 import { Text, Surface, TouchableRipple, FAB, Button } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
+import { useCelebrationStore } from '../../stores/celebrationStore';
+import { useSyncStore } from '../../stores/syncStore';
+import { useSlipScannerStore } from '../../stores/slipScannerStore';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { HouseholdPickerScreenProps } from '../../navigation/types';
@@ -15,6 +19,13 @@ export const HouseholdPickerScreen: React.FC<HouseholdPickerScreenProps> = ({ na
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
 
   const handleSelect = (hh: HouseholdSummary): void => {
+    // Clear household-scoped store state so stale data from the previous
+    // household does not bleed into the newly selected one.
+    useToastStore.getState().clear();
+    useCelebrationStore.getState().clear();
+    useSyncStore.getState().reset();
+    useSlipScannerStore.getState().setInFlight(null);
+
     setHouseholdId(hh.id);
     setPaydayDay(hh.paydayDay);
     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
