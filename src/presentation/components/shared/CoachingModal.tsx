@@ -23,14 +23,8 @@ export function CoachingModal({
   const { colors } = useAppTheme();
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onCancel}
-      testID="coaching-modal"
-    >
-      <View style={styles.overlay}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.overlay} testID="coaching-modal">
         <Surface style={[styles.sheet, { backgroundColor: colors.surface }]} elevation={4}>
           <Text style={styles.icon}>💬</Text>
 

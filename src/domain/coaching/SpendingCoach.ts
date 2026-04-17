@@ -27,7 +27,8 @@ export class SpendingCoach {
     if (projectedSpend <= input.allocatedCents) return null;
 
     const overspendCents = projectedSpend - input.allocatedCents;
-    const message = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+    const message =
+      MESSAGES[Math.floor(Math.random() * MESSAGES.length)] ?? 'Stick to your budget.';
     return { message, overspendCents };
   }
 }

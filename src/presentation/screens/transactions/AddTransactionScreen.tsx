@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, View, Switch } from 'react-native';
 import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -63,6 +63,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [coachingResult, setCoachingResult] = useState<CoachingResult | null>(null);
+  const pendingAmountCents = useRef<number>(0);
+  const isSaving = useRef(false);
 
   useEffect(() => {
     db.select({
@@ -90,6 +92,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
 
   const doSave = useCallback(
     async (amountCents: number): Promise<void> => {
+      if (isSaving.current) return; // guard against double-tap race
+      isSaving.current = true;
       setLoading(true);
       setError(null);
       try {
@@ -112,6 +116,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         }
       } finally {
         setLoading(false);
+        isSaving.current = false;
       }
     },
     [
@@ -145,6 +150,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
     });
 
     if (coaching) {
+      pendingAmountCents.current = amountCents;
       setCoachingResult(coaching);
       return;
     }
@@ -154,8 +160,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
 
   const handleCoachingProceed = useCallback((): void => {
     setCoachingResult(null);
-    void doSave(toCents(amountStr));
-  }, [amountStr, doSave]);
+    void doSave(pendingAmountCents.current);
+  }, [doSave]);
 
   const handleCoachingCancel = useCallback((): void => {
     setCoachingResult(null);
