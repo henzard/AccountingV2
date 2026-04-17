@@ -169,7 +169,11 @@ import { AddTransactionScreen } from '../AddTransactionScreen';
 const { db: mockDb } = require('../../../../data/local/db');
 
 function setupDbChain(rows: object[]): void {
-  const mockThen = jest.fn((cb: (r: object[]) => void) => cb(rows));
+  // Synchronous-style mock that still supports .then(...).catch(...) chaining
+  const mockThen = jest.fn((cb: (r: object[]) => void) => {
+    cb(rows);
+    return { catch: jest.fn() };
+  });
   const mockWhere = jest.fn(() => ({ then: mockThen }));
   const mockFrom = jest.fn(() => ({ where: mockWhere }));
   mockDb.select.mockReturnValue({ from: mockFrom });
