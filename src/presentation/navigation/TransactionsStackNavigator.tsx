@@ -1,7 +1,5 @@
 import React from 'react';
-import { TouchableOpacity } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text } from 'react-native-paper';
 import { useAppTheme } from '../theme/useAppTheme';
 import type { TransactionsStackParamList } from './types';
 import { TransactionListScreen } from '../screens/transactions/TransactionListScreen';
@@ -24,19 +22,7 @@ export function TransactionsStackNavigator(): React.JSX.Element {
       <Stack.Screen
         name="TransactionList"
         component={TransactionListScreen}
-        options={({ navigation }) => ({
-          headerShown: true,
-          title: 'Transactions',
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={() => navigation.navigate('BusinessExpenseReport')}
-              style={{ marginRight: 8 }}
-              testID="biz-expense-header-button"
-            >
-              <Text style={{ color: colors.primary }}>Business</Text>
-            </TouchableOpacity>
-          ),
-        })}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="AddTransaction"

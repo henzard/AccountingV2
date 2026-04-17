@@ -191,7 +191,10 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           </Text>
           <Switch
             value={isBusinessExpense}
-            onValueChange={setIsBusinessExpense}
+            onValueChange={(v) => {
+              setIsBusinessExpense(v);
+              if (!v) setSpendingTriggerNote('');
+            }}
             testID="business-expense-toggle"
             trackColor={{ true: colors.primary, false: colors.surfaceVariant }}
             thumbColor={colors.onPrimary}

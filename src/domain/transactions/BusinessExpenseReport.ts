@@ -37,7 +37,8 @@ export function groupBusinessExpenses(transactions: TransactionEntity[]): Busine
     .sort(([a], [b]) => b.localeCompare(a))
     .map(([monthKey, txs]) => {
       const [year, month] = monthKey.split('-');
-      const monthLabel = `${MONTH_NAMES[parseInt(month, 10) - 1]} ${year}`;
+      const monthIndex = parseInt(month, 10) - 1;
+      const monthLabel = `${MONTH_NAMES[monthIndex] ?? month} ${year}`;
       const sorted = [...txs].sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
       const totalCents = sorted.reduce((sum, t) => sum + t.amountCents, 0);
       return { monthKey, monthLabel, totalCents, transactions: sorted };

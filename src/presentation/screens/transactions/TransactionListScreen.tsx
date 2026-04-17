@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, SectionList, Alert } from 'react-native';
-import { FAB, ActivityIndicator, Surface, IconButton, Divider } from 'react-native-paper';
+import { View, StyleSheet, SectionList, Alert, TouchableOpacity } from 'react-native';
+import { FAB, ActivityIndicator, Surface, IconButton, Divider, Text } from 'react-native-paper';
 import { ListRow } from '../../components/shared/ListRow';
 import { useFocusEffect } from '@react-navigation/native';
 import { eq } from 'drizzle-orm';
@@ -100,7 +100,18 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <Surface style={[styles.header, { backgroundColor: colors.surface }]} elevation={0}>
-        <ScreenHeader eyebrow="Transactions" title={period.label} />
+        <View style={styles.headerRow}>
+          <ScreenHeader eyebrow="Transactions" title={period.label} />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('BusinessExpenseReport')}
+            style={styles.bizButton}
+            testID="biz-expense-header-button"
+          >
+            <Text variant="labelMedium" style={{ color: colors.primary }}>
+              Business
+            </Text>
+          </TouchableOpacity>
+        </View>
       </Surface>
 
       {loading ? (
@@ -159,6 +170,8 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: {},
+  headerRow: { flexDirection: 'row', alignItems: 'flex-end' },
+  bizButton: { paddingHorizontal: spacing.base, paddingBottom: spacing.md },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   rowTrailing: {
     flexDirection: 'row',
