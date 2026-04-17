@@ -41,4 +41,20 @@ export class BudgetPeriodEngine {
   isDateInPeriod(date: Date, period: BudgetPeriod): boolean {
     return date >= period.startDate && date <= period.endDate;
   }
+
+  /**
+   * Returns true if `referenceDate` is within `windowDays` days of the most
+   * recent payday boundary. Used by the dashboard rollover prompt to fire once
+   * at the start of each new period, then stay silent for the rest of the month.
+   */
+  isNewPeriodWithin(
+    paydayDay: number,
+    windowDays: number,
+    referenceDate: Date = new Date(),
+  ): boolean {
+    const period = this.getPeriodForDate(paydayDay, referenceDate);
+    const msSinceStart = referenceDate.getTime() - period.startDate.getTime();
+    const daysSinceStart = Math.floor(msSinceStart / (1000 * 60 * 60 * 24));
+    return daysSinceStart >= 0 && daysSinceStart <= windowDays;
+  }
 }

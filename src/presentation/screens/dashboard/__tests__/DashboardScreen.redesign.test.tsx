@@ -30,6 +30,11 @@ jest.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: jest.fn().mockResolvedValue('true'),
+  setItem: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { DashboardScreen } from '../DashboardScreen';
 
 const mockNavigate = jest.fn();
