@@ -28,6 +28,7 @@ import { SeedBabyStepsUseCase } from './src/domain/babySteps/SeedBabyStepsUseCas
 import { babySteps as babyStepsTable } from './src/data/local/schema';
 import { and, eq } from 'drizzle-orm';
 import { useCelebrationStore } from './src/presentation/stores/celebrationStore';
+import { useToastStore } from './src/presentation/stores/toastStore';
 import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
 import { initCrashlytics } from './src/infrastructure/monitoring/crashlytics';
 import crashlytics from '@react-native-firebase/crashlytics';
@@ -218,6 +219,8 @@ export default function App(): React.JSX.Element {
         useAppStore.getState().reset();
         useSyncStore.getState().reset();
         resetThemeStore();
+        useToastStore.getState().clear();
+        useCelebrationStore.getState().clear();
         crashlytics()
           .setUserId('')
           .catch(() => {});

@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { transactions, envelopes } from '../../data/local/schema';
@@ -24,13 +24,19 @@ export class DeleteTransactionUseCase {
   async execute(): Promise<Result<void>> {
     const now = new Date().toISOString();
 
-    await this.db.delete(transactions).where(sql`${transactions.id} = ${this.tx.id}`);
+    await this.db
+      .delete(transactions)
+      .where(
+        and(eq(transactions.id, this.tx.id), eq(transactions.householdId, this.tx.householdId)),
+      );
 
-    // Atomically decrement spentCents
+    // Atomically decrement spentCents — scoped to household to prevent cross-household update
     await this.db
       .update(envelopes)
       .set({ spentCents: sql`${envelopes.spentCents} - ${this.tx.amountCents}`, updatedAt: now })
-      .where(sql`${envelopes.id} = ${this.tx.envelopeId}`);
+      .where(
+        and(eq(envelopes.id, this.tx.envelopeId), eq(envelopes.householdId, this.tx.householdId)),
+      );
 
     await this.audit.log({
       householdId: this.tx.householdId,

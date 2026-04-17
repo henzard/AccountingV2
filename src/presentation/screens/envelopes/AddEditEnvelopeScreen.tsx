@@ -101,25 +101,30 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
         envelopeType === 'sinking_fund' && targetDateStr.trim() ? targetDateStr.trim() : null;
 
       let result;
-      if (existing) {
-        const uc = new UpdateEnvelopeUseCase(db, audit, existing, {
-          name,
-          allocatedCents,
-          targetAmountCents,
-          targetDate,
-        });
-        result = await uc.execute();
-      } else {
-        const uc = new CreateEnvelopeUseCase(db, audit, {
-          householdId,
-          name,
-          allocatedCents,
-          envelopeType,
-          periodStart,
-          targetAmountCents,
-          targetDate,
-        });
-        result = await uc.execute();
+      try {
+        if (existing) {
+          const uc = new UpdateEnvelopeUseCase(db, audit, existing, {
+            name,
+            allocatedCents,
+            targetAmountCents,
+            targetDate,
+          });
+          result = await uc.execute();
+        } else {
+          const uc = new CreateEnvelopeUseCase(db, audit, {
+            householdId,
+            name,
+            allocatedCents,
+            envelopeType,
+            periodStart,
+            targetAmountCents,
+            targetDate,
+          });
+          result = await uc.execute();
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save envelope');
+        return;
       }
 
       if (result.success) {

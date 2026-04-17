@@ -51,6 +51,8 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   reset: (): void =>
     set({
       session: null,
+      userLevel: 1,
+      currentPeriod: null,
       householdId: null,
       availableHouseholds: [],
       paydayDay: DEFAULT_PAYDAY_DAY,
