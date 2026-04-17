@@ -12,6 +12,7 @@ import {
   getPayoffProgressPercent,
 } from '../../../domain/debtSnowball/DebtEntity';
 import { DebtPayoffBar } from './components/DebtPayoffBar';
+import { StatCard } from '../../components/shared/StatCard';
 import { formatCurrency } from '../../utils/currency';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -62,28 +63,17 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
         </Text>
 
         <View style={styles.statsRow}>
-          <View style={styles.stat}>
-            <Text
-              variant="labelSmall"
-              style={[styles.statLabel, { color: colors.onSurfaceVariant }]}
-            >
-              OUTSTANDING
-            </Text>
-            <Text variant="titleMedium" style={[styles.statValue, { color: colors.onSurface }]}>
-              {formatCurrency(debt.outstandingBalanceCents)}
-            </Text>
-          </View>
-          <View style={styles.stat}>
-            <Text
-              variant="labelSmall"
-              style={[styles.statLabel, { color: colors.onSurfaceVariant }]}
-            >
-              PAID TO DATE
-            </Text>
-            <Text variant="titleMedium" style={[styles.statValue, { color: colors.success }]}>
-              {formatCurrency(debt.totalPaidCents)}
-            </Text>
-          </View>
+          <StatCard
+            label="Outstanding"
+            value={formatCurrency(debt.outstandingBalanceCents)}
+            testID="stat-outstanding"
+          />
+          <StatCard
+            label="Paid to Date"
+            value={formatCurrency(debt.totalPaidCents)}
+            valueColor={colors.success}
+            testID="stat-paid-to-date"
+          />
         </View>
 
         <DebtPayoffBar progressPercent={progress} label={`${progress}% paid off`} />
@@ -125,13 +115,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, padding: spacing.base },
   creditor: { fontFamily: 'PlusJakartaSans_700Bold' },
   type: { marginTop: 2, marginBottom: spacing.base },
-  statsRow: { flexDirection: 'row', marginBottom: spacing.base },
-  stat: { flex: 1 },
-  statLabel: { letterSpacing: 0.8 },
-  statValue: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    marginTop: spacing.xs / 2,
-  },
+  statsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.base },
   detailsRow: { marginTop: spacing.sm, gap: spacing.xs },
   detail: {},
   payoffDate: {
