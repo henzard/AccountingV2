@@ -106,6 +106,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           const uc = new UpdateEnvelopeUseCase(db, audit, existing, {
             name,
             allocatedCents,
+            envelopeType,
             targetAmountCents,
             targetDate,
           });
