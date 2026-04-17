@@ -1,3 +1,4 @@
+import { parseISO } from 'date-fns';
 import { CashFlowForecaster } from '../CashFlowForecaster';
 import type { EnvelopeEntity } from '../../envelopes/EnvelopeEntity';
 import type { TransactionEntity } from '../../transactions/TransactionEntity';
@@ -42,9 +43,10 @@ function tx(overrides: Partial<TransactionEntity>): TransactionEntity {
 describe('CashFlowForecaster', () => {
   const forecaster = new CashFlowForecaster();
   // Period: 1 Apr – 30 Apr (30 days). Today = 10 Apr (day 10). Days remaining = 20.
+  // Use parseISO so today is local midnight, consistent with how start/end are parsed.
   const periodStart = '2026-04-01';
   const periodEnd = '2026-04-30';
-  const today = new Date('2026-04-10');
+  const today = parseISO('2026-04-10');
 
   it('returns empty array for empty envelopes', () => {
     const result = forecaster.project({

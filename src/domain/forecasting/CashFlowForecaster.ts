@@ -34,9 +34,10 @@ export class CashFlowForecaster {
     const start = parseISO(input.periodStart);
     const end = parseISO(input.periodEnd);
 
-    // +1 for inclusive counting: today counts as elapsed, period-end counts as remaining
+    // +1 so today counts as an elapsed day (Apr 1 → Apr 10 = 10 days, not 9).
+    // daysRemaining is exclusive of today (already in elapsed): Apr 10 → Apr 30 = 20 days.
     const daysElapsed = Math.max(1, differenceInDays(today, start) + 1);
-    const daysRemaining = Math.max(0, differenceInDays(end, today) + 1);
+    const daysRemaining = Math.max(0, differenceInDays(end, today));
 
     return input.envelopes
       .filter(
