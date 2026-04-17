@@ -17,9 +17,13 @@ import type { AddTransactionScreenProps } from '../../navigation/types';
 import { EnvelopePickerSheet } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 import type { EnvelopeOption } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 import { PickerField } from '../../components/shared/PickerField';
+import { SpendingCoach } from '../../../domain/coaching/SpendingCoach';
+import { CoachingModal } from '../../components/shared/CoachingModal';
+import type { CoachingResult } from '../../../domain/coaching/SpendingCoach';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
+const coach = new SpendingCoach();
 
 function toCents(randStr: string): number {
   const n = parseFloat(randStr.replace(',', '.'));
@@ -58,6 +62,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
   const [transactionDate, setTransactionDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  const [coachingResult, setCoachingResult] = useState<CoachingResult | null>(null);
+
   useEffect(() => {
     db.select({
       id: envelopesTable.id,
@@ -82,51 +88,78 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       });
   }, [householdId, periodStart]);
 
-  const handleSave = useCallback(async () => {
+  const doSave = useCallback(
+    async (amountCents: number): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      try {
+        const uc = new CreateTransactionUseCase(db, audit, {
+          householdId,
+          envelopeId: selectedEnvelope!.id,
+          amountCents,
+          payee: payee.trim() || null,
+          description: description.trim() || null,
+          transactionDate: format(transactionDate, 'yyyy-MM-dd'),
+          isBusinessExpense,
+          spendingTriggerNote: isBusinessExpense ? spendingTriggerNote.trim() || null : null,
+        });
+        const result = await uc.execute();
+        if (result.success) {
+          enqueue('Transaction saved', 'success');
+          navigation.goBack();
+        } else {
+          setError(result.error.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      selectedEnvelope,
+      payee,
+      description,
+      householdId,
+      transactionDate,
+      isBusinessExpense,
+      spendingTriggerNote,
+      enqueue,
+      navigation,
+    ],
+  );
+
+  const handleSave = useCallback((): void => {
     if (!selectedEnvelope) {
       setError('Please select an envelope');
       return;
     }
-    const cents = toCents(amountStr);
-    if (cents <= 0) {
+    const amountCents = toCents(amountStr);
+    if (amountCents <= 0) {
       setError('Amount must be greater than R0');
       return;
     }
-    setLoading(true);
-    setError(null);
-    try {
-      const uc = new CreateTransactionUseCase(db, audit, {
-        householdId,
-        envelopeId: selectedEnvelope.id,
-        amountCents: cents,
-        payee: payee.trim() || null,
-        description: description.trim() || null,
-        transactionDate: format(transactionDate, 'yyyy-MM-dd'),
-        isBusinessExpense,
-        spendingTriggerNote: isBusinessExpense ? spendingTriggerNote.trim() || null : null,
-      });
-      const result = await uc.execute();
-      if (result.success) {
-        enqueue('Transaction saved', 'success');
-        navigation.goBack();
-      } else {
-        setError(result.error.message);
-      }
-    } finally {
-      setLoading(false);
+
+    const coaching = coach.evaluate({
+      amountCents,
+      allocatedCents: selectedEnvelope.allocatedCents,
+      spentCents: selectedEnvelope.spentCents,
+    });
+
+    if (coaching) {
+      setCoachingResult(coaching);
+      return;
     }
-  }, [
-    selectedEnvelope,
-    amountStr,
-    payee,
-    description,
-    householdId,
-    transactionDate,
-    navigation,
-    enqueue,
-    isBusinessExpense,
-    spendingTriggerNote,
-  ]);
+
+    void doSave(amountCents);
+  }, [selectedEnvelope, amountStr, doSave]);
+
+  const handleCoachingProceed = useCallback((): void => {
+    setCoachingResult(null);
+    void doSave(toCents(amountStr));
+  }, [amountStr, doSave]);
+
+  const handleCoachingCancel = useCallback((): void => {
+    setCoachingResult(null);
+  }, []);
 
   const balanceColor = (env: EnvelopeOption): string => {
     const balance = env.allocatedCents - env.spentCents;
@@ -275,6 +308,16 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       >
         {error}
       </Snackbar>
+
+      {coachingResult && (
+        <CoachingModal
+          visible={true}
+          message={coachingResult.message}
+          overspendCents={coachingResult.overspendCents}
+          onProceed={handleCoachingProceed}
+          onCancel={handleCoachingCancel}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 };
