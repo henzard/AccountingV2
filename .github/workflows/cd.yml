@@ -111,6 +111,9 @@ jobs:
 
       - name: Firebase Test Lab — Robo smoke test
         if: steps.firebase_check.outputs.has_both == 'true'
+        # Non-fatal: toolresults.googleapis.com may not be enabled in the GCP project.
+        # Enable via GCP Console → APIs & Services → Cloud Tool Results API.
+        continue-on-error: true
         run: |
           gcloud firebase test android run \
             --type robo \
