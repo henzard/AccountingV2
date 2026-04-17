@@ -171,7 +171,12 @@ export class RestoreService {
       const localRow = toLocalRow(row as Record<string, unknown>);
       // Build set clause from all non-id columns so remote overwrites stale local rows.
       // Remote is authoritative on restore.
-      const columns = Object.keys(getTableColumns(localTable)).filter((col) => col !== 'id');
+      // Exclude isSynced from the conflict-update set so pending local edits
+      // (isSynced=false) are not silently overwritten back to true on restore.
+      // New rows inserted without conflict still get isSynced=true from toLocalRow.
+      const columns = Object.keys(getTableColumns(localTable)).filter(
+        (col) => col !== 'id' && col !== 'isSynced',
+      );
       const setClause = Object.fromEntries(
         columns.map((col) => {
           // Map camelCase col to snake_case for the EXCLUDED reference
