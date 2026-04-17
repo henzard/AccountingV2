@@ -17,10 +17,10 @@ import { device, element, by, expect as detoxExpect } from 'detox';
 
 describe('Sync round-trip journey', () => {
   beforeAll(async () => {
+    // Disable sync before launch so Detox does not wait for Supabase/Firebase
+    // OkHttp connections to drain (auth session, realtime WebSocket).
+    await device.disableSynchronization();
     await device.launchApp({ newInstance: true });
-    // Supabase keeps OkHttp connections open (auth session, realtime WebSocket).
-    // setURLBlacklist must be called after launchApp in Detox 20.x.
-    await device.setURLBlacklist(['.*supabase\\.co.*', '.*firebase.*', '.*crashlytics.*']);
   });
 
   it('gates the add-transaction FAB behind authentication', async () => {
