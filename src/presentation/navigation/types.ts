@@ -41,6 +41,7 @@ export type DashboardStackParamList = {
 export type TransactionsStackParamList = {
   TransactionList: undefined;
   AddTransaction: undefined;
+  BusinessExpenseReport: undefined;
 };
 
 export type MetersStackParamList = {
