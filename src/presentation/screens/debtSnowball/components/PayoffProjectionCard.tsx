@@ -2,8 +2,9 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
 import { format, differenceInMonths } from 'date-fns';
+import { StatCard } from '../../../components/shared/StatCard';
 import { formatCurrency } from '../../../utils/currency';
-import { fontSize, spacing, radius } from '../../../theme/tokens';
+import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { SnowballPlan } from '../../../../domain/debtSnowball/SnowballPayoffProjector';
 
@@ -46,16 +47,20 @@ export function PayoffProjectionCard({
       <View style={styles.divider} />
 
       <View style={styles.row}>
-        <View style={styles.stat}>
-          <Text style={styles.statLabel}>TOTAL DEBT</Text>
-          <Text style={[styles.statValue, { color: colors.onPrimary }]}>
-            {formatCurrency(totalDebtCents)}
-          </Text>
-        </View>
-        <View style={styles.stat}>
-          <Text style={styles.statLabel}>DEBTS TO CLEAR</Text>
-          <Text style={[styles.statValue, { color: colors.onPrimary }]}>{debtsToPayoff}</Text>
-        </View>
+        <StatCard
+          label="Total Debt"
+          value={formatCurrency(totalDebtCents)}
+          backgroundColor="transparent"
+          valueColor={colors.onPrimary}
+          testID="stat-total-debt"
+        />
+        <StatCard
+          label="Debts to Clear"
+          value={String(debtsToPayoff)}
+          backgroundColor="transparent"
+          valueColor={colors.onPrimary}
+          testID="stat-debts-to-clear"
+        />
       </View>
     </View>
   );
@@ -95,17 +100,5 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     marginVertical: spacing.base,
   },
-  row: { flexDirection: 'row' },
-  stat: { flex: 1 },
-  statLabel: {
-    color: 'rgba(255,255,255,0.65)',
-    fontSize: fontSize.xs,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    letterSpacing: 0.8,
-  },
-  statValue: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    marginTop: spacing.xs / 2,
-  },
+  row: { flexDirection: 'row', gap: spacing.sm },
 });
