@@ -119,6 +119,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
         <Text style={{ color: colors.onSecondaryContainer }}>›</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={[styles.sinkingFundsRow, { backgroundColor: colors.secondaryContainer }]}
+        onPress={() => navigation.navigate('Forecast')}
+        testID="forecast-entry"
+      >
+        <Text variant="labelLarge" style={{ color: colors.onSecondaryContainer }}>
+          90-Day Forecast
+        </Text>
+        <Text style={{ color: colors.onSecondaryContainer }}>›</Text>
+      </TouchableOpacity>
+
       {loading ? (
         <LoadingSkeletonList count={4} testID="dashboard-loading" />
       ) : envelopes.length === 0 ? (
