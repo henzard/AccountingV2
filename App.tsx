@@ -39,6 +39,7 @@ import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImage
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
 import { BootRecoveryGate } from './src/presentation/boot/BootRecoveryGate';
 import { BootErrorBoundary } from './src/presentation/boot/BootErrorBoundary';
+import { registerFcmToken } from './src/infrastructure/notifications/FcmTokenRegistrar';
 import {
   hydrateThemeFromLocal,
   hydrateThemeFromRemote,
@@ -117,6 +118,9 @@ async function initSession(userId: string): Promise<void> {
   for (const restored of restoredHouseholds) {
     void seeder.execute(restored.id).catch(() => {});
   }
+
+  // Register FCM token for push notifications (fire-and-forget — non-fatal).
+  void registerFcmToken(userId).catch(() => {});
 
   // C5: Push pending writes to Supabase (fire-and-forget after navigator mounts).
   const resolvedHouseholdId = result.success ? result.data.id : undefined;
