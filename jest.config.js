@@ -38,5 +38,5 @@ module.exports = {
     '!src/infrastructure/monitoring/earlyCrashLog.ts',
     '!src/presentation/boot/**',
   ],
-  coverageThreshold: { global: { lines: 65, branches: 50 } },
+  coverageThreshold: { global: { lines: 80, branches: 60 } },
 };
