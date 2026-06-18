@@ -58,7 +58,12 @@ jest.mock('react-native-paper', () => {
       children?: React.ReactNode;
       testID?: string;
       onPress?: () => void;
-    }) => React.createElement('Pressable', { testID, onPress }, children),
+    }) =>
+      React.createElement(
+        'Pressable',
+        { testID, onPress },
+        React.createElement('Text', null, children),
+      ),
     HelperText: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('Text', null, children),
   };
@@ -77,5 +82,25 @@ describe('LogPaymentScreen', () => {
       />,
     );
     expect(UNSAFE_root).toBeTruthy();
+  });
+
+  it('renders payment input', () => {
+    const { getByTestId } = render(
+      <LogPaymentScreen
+        route={{ params: { debtId: 'debt-1' } } as never}
+        navigation={{ navigate: mockNavigate, goBack: mockGoBack } as never}
+      />,
+    );
+    expect(getByTestId('Payment amount (R)')).toBeTruthy();
+  });
+
+  it('renders Record Payment button', () => {
+    const { getByText } = render(
+      <LogPaymentScreen
+        route={{ params: { debtId: 'debt-1' } } as never}
+        navigation={{ navigate: mockNavigate, goBack: mockGoBack } as never}
+      />,
+    );
+    expect(getByText('Record Payment')).toBeTruthy();
   });
 });

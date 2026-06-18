@@ -2,12 +2,18 @@
  * MeterDashboardScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 
-jest.mock('@react-navigation/native', () => ({
-  ...jest.requireActual('@react-navigation/native'),
-  useFocusEffect: jest.fn(),
-}));
+jest.mock('@react-navigation/native', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const R = require('react');
+  return {
+    ...jest.requireActual('@react-navigation/native'),
+    useFocusEffect: (cb: () => (() => void) | void) => {
+      R.useEffect(() => cb(), []);
+    },
+  };
+});
 jest.mock('../../../../data/local/db', () => ({
   db: {
     select: jest.fn(() => ({
@@ -46,10 +52,19 @@ const mockNavigate = jest.fn();
 import { MeterDashboardScreen } from '../MeterDashboardScreen';
 
 describe('MeterDashboardScreen', () => {
-  it('renders without crashing', () => {
+  it('renders without crashing', async () => {
     const { UNSAFE_root } = render(
       <MeterDashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
     );
-    expect(UNSAFE_root).toBeTruthy();
+    await waitFor(() => expect(UNSAFE_root).toBeTruthy());
+  });
+
+  it('renders METER READINGS header after data loads', async () => {
+    const { getByText } = render(
+      <MeterDashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    await waitFor(() => {
+      expect(getByText('METER READINGS')).toBeTruthy();
+    });
   });
 });

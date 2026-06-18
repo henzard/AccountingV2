@@ -20,6 +20,33 @@ jest.mock('../../../stores/syncStore', () => ({
   useSyncStore: (sel: (s: { isOnline: boolean }) => unknown) => sel({ isOnline: mockIsOnline }),
 }));
 
+jest.mock('../../../stores/toastStore', () => ({
+  useToastStore: jest.fn((sel: (s: { enqueue: () => void }) => unknown) =>
+    sel({ enqueue: jest.fn() }),
+  ),
+}));
+
+jest.mock('react-native-paper', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  return {
+    Button: ({
+      children,
+      onPress,
+      testID,
+    }: {
+      children?: React.ReactNode;
+      onPress?: () => void;
+      testID?: string;
+    }) =>
+      React.createElement(
+        'Pressable',
+        { onPress, testID },
+        React.createElement('Text', null, children),
+      ),
+  };
+});
+
 import { SlipCaptureScreen } from '../SlipCaptureScreen';
 import { useCameraPermissions } from 'expo-camera';
 
