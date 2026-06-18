@@ -27,8 +27,7 @@ BEGIN
         SELECT jsonb_array_elements_text(slip_row.image_uris::jsonb)
       LOOP
         BEGIN
-          DELETE FROM storage.objects
-            WHERE bucket_id = 'slip-images' AND name = image_path;
+          PERFORM storage.delete_object('slip-images', image_path);
         EXCEPTION WHEN OTHERS THEN
           storage_ok := false;
           INSERT INTO public.audit_events

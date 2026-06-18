@@ -40,7 +40,7 @@ fi
 # which the old `(-[^ ]+\s+)*` form missed → it fail-OPENED on that very common invocation.
 # Boundary class includes `"` so the raw-JSON last-resort fallback (where `git` is
 # preceded by a quote) still matches and the guard cannot fail open without jq.
-printf '%s' "$cmd" | grep -Eq '(^|[;&|"'"'"']|\s)git\s+(-[^ ]+\s+|[^ ]+=[^ ]+\s+)*commit(\s|$|")' || exit 0
+printf '%s' "$cmd" | grep -Eq '(^|[;&|"'"'"']|[[:space:]])git[[:space:]]+(-[^[:space:]]+[[:space:]]+|[^[:space:]]+=[^[:space:]]+[[:space:]]+)*commit([[:space:]]|$|")' || exit 0
 
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"

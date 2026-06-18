@@ -1,7 +1,5 @@
 # Issue-template chooser config (installed by repo-review).
-# TAILOR ME: replace OWNER/REPO in the URLs below with this repo's slug, and
-# drop any contact_link whose template you don't ship (e.g. the data-loss one
-# if the project has no sync/replication surface).
+# Configured for henzard/AccountingV2.
 #
 # blank_issues_enabled stays true: the structured templates cover the common
 # cases, but contributors must still be able to open a free-form issue for
