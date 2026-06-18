@@ -6,6 +6,7 @@ jest.mock('../../monitoring/crashlytics', () => ({
 
 describe('Logger', () => {
   let logger: import('../Logger').Logger;
+  const originalDev = (global as any).__DEV__;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -15,6 +16,7 @@ describe('Logger', () => {
   });
 
   afterEach(() => {
+    (global as any).__DEV__ = originalDev;
     jest.restoreAllMocks();
   });
 

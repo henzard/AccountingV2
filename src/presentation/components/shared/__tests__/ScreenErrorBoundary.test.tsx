@@ -21,7 +21,7 @@ function ThrowingChild(): React.JSX.Element {
 function GoodChild(): React.JSX.Element {
   return (
     <>
-      { }
+      {}
       <></>
     </>
   );
