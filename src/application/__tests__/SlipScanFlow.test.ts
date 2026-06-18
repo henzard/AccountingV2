@@ -128,4 +128,115 @@ describe('SlipScanFlow', () => {
     );
     expect(result.success).toBe(false);
   });
+
+  it('returns failure and reports failed progress when capture fails', async () => {
+    const capture = {
+      execute: jest.fn().mockResolvedValue({
+        success: false,
+        error: { code: 'DB_ERROR', message: 'Database unavailable' },
+      }),
+    };
+    const upload = { execute: jest.fn() };
+    const extract = { execute: jest.fn() };
+
+    const flow = new SlipScanFlow({
+      captureSlip: capture as any,
+      uploadSlipImages: upload as any,
+      extractSlip: extract as any,
+    });
+    const progress = jest.fn();
+    const result = await flow.start(
+      { householdId: 'h1', createdBy: 'u1', frameLocalUris: ['x'] },
+      progress,
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('SLIP_OFFLINE');
+      expect(result.error.message).toBe('Database unavailable');
+    }
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'failed',
+        error: expect.objectContaining({ code: 'SLIP_OFFLINE' }),
+      }),
+    );
+    expect(upload.execute).not.toHaveBeenCalled();
+    expect(extract.execute).not.toHaveBeenCalled();
+  });
+
+  it('returns failure and reports failed progress when upload fails', async () => {
+    const capture = {
+      execute: jest.fn().mockResolvedValue({ success: true, data: { slipId: 's1' } }),
+    };
+    const upload = {
+      execute: jest.fn().mockResolvedValue({
+        success: false,
+        error: { code: 'STORAGE_ERROR', message: 'Upload timeout' },
+      }),
+    };
+    const extract = { execute: jest.fn() };
+
+    const flow = new SlipScanFlow({
+      captureSlip: capture as any,
+      uploadSlipImages: upload as any,
+      extractSlip: extract as any,
+    });
+    const progress = jest.fn();
+    const result = await flow.start(
+      { householdId: 'h1', createdBy: 'u1', frameLocalUris: ['x'] },
+      progress,
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('SLIP_OFFLINE');
+      expect(result.error.message).toBe('Upload timeout');
+    }
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'failed',
+        slipId: 's1',
+        error: expect.objectContaining({ code: 'SLIP_OFFLINE' }),
+      }),
+    );
+    expect(extract.execute).not.toHaveBeenCalled();
+  });
+
+  it('reports failed progress with original error when extract fails', async () => {
+    const capture = {
+      execute: jest.fn().mockResolvedValue({ success: true, data: { slipId: 's1' } }),
+    };
+    const upload = {
+      execute: jest
+        .fn()
+        .mockResolvedValue({ success: true, data: { remotePaths: ['p'], framesBase64: ['b'] } }),
+    };
+    const extract = {
+      execute: jest.fn().mockResolvedValue({
+        success: false,
+        error: { code: 'SLIP_OPENAI_UNREACHABLE', message: 'OpenAI down' },
+      }),
+    };
+
+    const flow = new SlipScanFlow({
+      captureSlip: capture as any,
+      uploadSlipImages: upload as any,
+      extractSlip: extract as any,
+    });
+    const progress = jest.fn();
+    const result = await flow.start(
+      { householdId: 'h1', createdBy: 'u1', frameLocalUris: ['x'] },
+      progress,
+    );
+
+    expect(result.success).toBe(false);
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'failed',
+        slipId: 's1',
+        error: expect.objectContaining({ code: 'SLIP_OPENAI_UNREACHABLE' }),
+      }),
+    );
+  });
 });

@@ -50,3 +50,9 @@ coverage/
 # git worktrees
 .worktrees/
 deno.lock
+
+# repo-review kit (cloned, not part of source)
+.repo-review/
+
+# coverage artifacts
+coverage-output.txt

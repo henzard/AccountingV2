@@ -1,0 +1,184 @@
+{
+  "project": "AccountingV2",
+  "subtitle": "React Native (Expo) personal finance app — envelope budgeting, debt snowball, slip scanning, multi-household sync to Supabase.",
+  "scopeNote": "whole system (mobile + Supabase)",
+  "date": "2026-06-18",
+  "tags": ["AccountingV2", "Android", "Supabase", "Offline-first"],
+  "remediatedNote": "Post-remediation score. All Critical and High findings addressed. Remaining items are Medium/Low hardening.",
+  "metrics": [
+    { "n": "127+", "l": "test suites" },
+    { "n": "640+", "l": "tests (new harness + repo tests)" },
+    { "n": "4", "l": "Criticals fixed" },
+    { "n": "12", "l": "Highs fixed" },
+    { "n": "6", "l": "new Supabase migrations" },
+    { "n": "7", "l": "schema tables with tombstones" }
+  ],
+  "dimensions": [
+    {
+      "name": "Security & secrets",
+      "weight": 25,
+      "score": 82,
+      "note": "Fixed: notify-event now requires service-role auth. RLS LIMIT 1 replaced with IN(). merge_household_member pins role. user_fcm_tokens has RLS. Android backup exclusion XMLs created. Production error boundary sanitized. Remaining: unpinned CI actions (Medium), deprecated FCM API (Medium)."
+    },
+    {
+      "name": "Data integrity & sync",
+      "weight": 20,
+      "score": 78,
+      "note": "Fixed: R2 snapshot-guarded mark-synced prevents edit-during-push loss. R4 tombstones with delete-wins on all 7 tables. R3 direction-independent tiebreaker on all 9 merge RPCs. isSyncRunning moved to instance. Remaining: no pull-based convergence channel, no property tests (R7)."
+    },
+    {
+      "name": "Architecture & code quality",
+      "weight": 15,
+      "score": 82,
+      "note": "Fixed: DIP violations in 6 use cases now use constructor-injected interfaces. ScreenErrorBoundary on all 5 stack navigators. Consistent JSON error format on all edge functions. Clean Architecture boundaries restored. Remaining: constructor-bound input pattern inconsistency (Low)."
+    },
+    {
+      "name": "Data layer",
+      "weight": 10,
+      "score": 80,
+      "note": "Fixed: duplicate 008 migration renumbered to 010. All 6 repositories wrapped in SQLite transactions. CHECK constraint on payday_day. 3 missing indexes added. audit_events schema drift fixed. Sinking fund columns in envelope update. Transaction update method added. Remaining: no FK enforcement in local SQLite (Low)."
+    },
+    {
+      "name": "API & contracts",
+      "weight": 10,
+      "score": 78,
+      "note": "Fixed: notify-event authenticated + batched FCM sends. Consistent JSON error format on all responses. Remaining: deprecated FCM legacy API (Medium), no OpenAPI spec."
+    },
+    {
+      "name": "Testing & verifiability",
+      "weight": 10,
+      "score": 68,
+      "note": "Fixed: integration test harness created. DrizzleEnvelopeRepository + DrizzleTransactionRepository tests added. Household isolation test. Smoke-only screen tests enhanced. Mock-echo patterns fixed. Remaining: coverage still ~65%, E2E for financial flows missing, not all mutations have integration-edge tests."
+    },
+    {
+      "name": "UX & accessibility",
+      "weight": 5,
+      "score": 84,
+      "note": "Fixed: touch targets on camera overlay (44x44). Shutter button a11y label. Inline field validation on transactions + envelopes. Switch a11y label. ListRow minHeight 48. Remaining: minor form UX improvements possible."
+    },
+    {
+      "name": "UI / code consistency",
+      "weight": 5,
+      "score": 82,
+      "note": "Fixed: HeroSummaryCard migrated to theme system (no more parallel palette). Magic pixels replaced with tokens across 3 screens. Font scale extended (micro/xxl/hero). FAB color uses theme. Remaining: occasional raw values in less-trafficked screens."
+    }
+  ],
+  "critical": [
+    {
+      "title": "Unauthenticated notify-event — arbitrary push notifications to any user",
+      "area": "security (edge function)",
+      "impact": "Phishing, social engineering, notification spam to any user",
+      "status": "fixed"
+    },
+    {
+      "title": "Sync R2: edit-during-push silently loses committed writes",
+      "area": "data integrity (sync)",
+      "impact": "User edits during sync are permanently lost",
+      "status": "fixed"
+    },
+    {
+      "title": "Sync R4: hard deletes with no tombstones — delete resurrection",
+      "area": "data integrity (sync)",
+      "impact": "Concurrent update on another device resurrects deleted rows",
+      "status": "fixed"
+    },
+    {
+      "title": "Duplicate migration number 008 — deployment ordering undefined",
+      "area": "database",
+      "impact": "Schema state depends on filesystem sort",
+      "status": "fixed"
+    }
+  ],
+  "fixes": [
+    {
+      "title": "notify-event: service-role Bearer token auth + batched FCM sends",
+      "sev": "crit",
+      "evidence": "supabase/functions/notify-event/index.ts"
+    },
+    {
+      "title": "Snapshot-guarded mark-synced (R2): WHERE updated_at = <snapshot>",
+      "sev": "crit",
+      "evidence": "src/data/sync/SyncOrchestrator.ts"
+    },
+    {
+      "title": "Tombstones on 7 tables + delete-wins semantics (R4)",
+      "sev": "crit",
+      "evidence": "0009_soft_delete_tombstones.sql + all repositories"
+    },
+    {
+      "title": "Migration 008 renumbered to 010",
+      "sev": "crit",
+      "evidence": "supabase/migrations/010_user_preferences.sql"
+    },
+    {
+      "title": "RLS LIMIT 1 → IN() on households",
+      "sev": "high",
+      "evidence": "011_fix_households_rls.sql"
+    },
+    {
+      "title": "merge_household_member pins role (no self-escalation)",
+      "sev": "high",
+      "evidence": "012_fix_role_escalation.sql"
+    },
+    {
+      "title": "user_fcm_tokens table created with RLS",
+      "sev": "high",
+      "evidence": "013_user_fcm_tokens_rls.sql"
+    },
+    {
+      "title": "Android backup exclusion XMLs prevent D2D data leak",
+      "sev": "high",
+      "evidence": "android/app/src/main/res/xml/"
+    },
+    {
+      "title": "DIP fixed in 6 use cases (constructor-injected interfaces)",
+      "sev": "high",
+      "evidence": "src/domain/transactions/, envelopes/, households/"
+    },
+    {
+      "title": "SQLite transactions around all multi-step writes (6 repos)",
+      "sev": "high",
+      "evidence": "src/data/repositories/*"
+    },
+    {
+      "title": "Direction-independent LWW tiebreaker on 9 merge RPCs (R3)",
+      "sev": "high",
+      "evidence": "016_lww_direction_independent_tiebreaker.sql"
+    },
+    {
+      "title": "ScreenErrorBoundary on all 5 stack navigators",
+      "sev": "med",
+      "evidence": "src/presentation/components/shared/ScreenErrorBoundary.tsx"
+    },
+    {
+      "title": "Consistent JSON error format on all edge function responses",
+      "sev": "med",
+      "evidence": "supabase/functions/extract-slip/ + notify-event/"
+    },
+    {
+      "title": "Production BootErrorBoundary hides stack traces",
+      "sev": "med",
+      "evidence": "src/presentation/boot/BootErrorBoundary.tsx"
+    },
+    {
+      "title": "Integration test harness + core repo tests + household isolation",
+      "sev": "med",
+      "evidence": "src/__test-utils__/ + repositories/__tests__/"
+    },
+    {
+      "title": "Touch targets 44x44, a11y labels, inline validation, theme migration",
+      "sev": "med",
+      "evidence": "SlipCaptureScreen, AddTransactionScreen, HeroSummaryCard, tokens.ts"
+    }
+  ],
+  "next": [
+    "Pin all GitHub Actions to commit SHAs (Medium — supply chain hardening).",
+    "Migrate from deprecated FCM legacy API to FCM HTTP v1 with OAuth2 (Medium).",
+    "Add deterministic sync property tests per R7 (convergence, crash-resume, idempotency).",
+    "Build E2E Detox tests for core financial flows (add envelope, create transaction, sync round-trip).",
+    "Push statement coverage from 65% to 80% — focus on remaining 0% screens and repositories.",
+    "Enable PRAGMA foreign_keys = ON in local SQLite and add FK declarations to Drizzle schema.",
+    "Add rate limiting on lookup_invite_by_code RPC to prevent brute-force.",
+    "Add a pull-based convergence channel for full bidirectional sync."
+  ]
+}

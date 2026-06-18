@@ -41,4 +41,34 @@ describe('RateHistoryScreen', () => {
     );
     expect(UNSAFE_root).toBeTruthy();
   });
+
+  it('shows empty state when no readings exist', () => {
+    const { getByText } = render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={{} as never}
+      />,
+    );
+    expect(getByText('No readings yet')).toBeTruthy();
+  });
+
+  it('displays the meter type in sub-header', () => {
+    const { getByText } = render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={{} as never}
+      />,
+    );
+    expect(getByText(/Electricity/)).toBeTruthy();
+  });
+
+  it('shows guidance text in empty state', () => {
+    const { getByText } = render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'water' } } as never}
+        navigation={{} as never}
+      />,
+    );
+    expect(getByText(/Go back and log your first reading/)).toBeTruthy();
+  });
 });

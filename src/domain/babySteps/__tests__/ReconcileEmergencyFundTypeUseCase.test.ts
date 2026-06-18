@@ -133,7 +133,60 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.flipped).toBe(2);
     expect(db.update).toHaveBeenCalledTimes(2);
-    // Enqueuer called once per flipped envelope
     expect(enqueuer.enqueue).toHaveBeenCalledTimes(2);
+  });
+
+  it('sets updatedAt to current time on flipped envelopes', async () => {
+    const older = makeEnvelopeRow({ id: 'e-older', createdAt: '2025-01-01T00:00:00.000Z' });
+    const newer = makeEnvelopeRow({ id: 'e-newer', createdAt: '2026-01-01T00:00:00.000Z' });
+    const db = makeDb([newer, older]);
+    const enqueuer = makeEnqueuer();
+
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
+    await uc.execute(HOUSEHOLD_ID);
+
+    expect(db._updates[0]?.set.updatedAt).toBe('2026-04-12T10:00:00.000Z');
+  });
+
+  it('preserves oldest when all have identical names', async () => {
+    const e1 = makeEnvelopeRow({ id: 'e-1', name: 'EF', createdAt: '2024-06-01T00:00:00.000Z' });
+    const e2 = makeEnvelopeRow({ id: 'e-2', name: 'EF', createdAt: '2025-06-01T00:00:00.000Z' });
+    const db = makeDb([e2, e1]);
+    const enqueuer = makeEnqueuer();
+
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
+    const result = await uc.execute(HOUSEHOLD_ID);
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.flipped).toBe(1);
+    expect(enqueuer.enqueue).toHaveBeenCalledWith('envelopes', 'e-2', 'UPDATE');
+  });
+
+  it('enqueues each flipped envelope individually', async () => {
+    const rows = [
+      makeEnvelopeRow({ id: 'e-oldest', createdAt: '2023-01-01T00:00:00.000Z' }),
+      makeEnvelopeRow({ id: 'e-mid', createdAt: '2024-01-01T00:00:00.000Z' }),
+      makeEnvelopeRow({ id: 'e-newest', createdAt: '2026-01-01T00:00:00.000Z' }),
+    ];
+    const db = makeDb(rows);
+    const enqueuer = makeEnqueuer();
+
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any, enqueuer);
+    await uc.execute(HOUSEHOLD_ID);
+
+    expect(enqueuer.enqueue).toHaveBeenCalledWith('envelopes', 'e-mid', 'UPDATE');
+    expect(enqueuer.enqueue).toHaveBeenCalledWith('envelopes', 'e-newest', 'UPDATE');
+    expect(enqueuer.enqueue).not.toHaveBeenCalledWith('envelopes', 'e-oldest', 'UPDATE');
+  });
+
+  it('uses default PendingSyncEnqueuerAdapter when enqueuer not provided', async () => {
+    const rows = [makeEnvelopeRow({ id: 'e1' })];
+    const db = makeDb(rows);
+
+    const uc = new ReconcileEmergencyFundTypeUseCase(db as any);
+    const result = await uc.execute(HOUSEHOLD_ID);
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.flipped).toBe(0);
   });
 });

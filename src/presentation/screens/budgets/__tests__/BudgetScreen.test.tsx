@@ -48,4 +48,14 @@ describe('BudgetScreen', () => {
     const { UNSAFE_root } = render(<BudgetScreen />);
     expect(UNSAFE_root).toBeTruthy();
   });
+
+  it('shows empty state when no envelopes exist', () => {
+    const { getByTestId } = render(<BudgetScreen />);
+    expect(getByTestId('budget-empty-state')).toBeTruthy();
+  });
+
+  it('displays empty state message text', () => {
+    const { getByText } = render(<BudgetScreen />);
+    expect(getByText(/No envelopes yet/i)).toBeTruthy();
+  });
 });

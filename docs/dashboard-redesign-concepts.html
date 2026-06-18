@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Redesign — 3 Concepts</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,700;9..144,900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600;700&family=Cormorant+Garamond:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --stage-bg: #111318;
+    }
+
+    body {
+      background: var(--stage-bg);
+      min-height: 100vh;
+      font-family: 'DM Sans', sans-serif;
+      overflow-x: auto;
+    }
+
+    /* ===== STAGE ===== */
+    .stage-header {
+      text-align: center;
+      padding: 48px 24px 32px;
+      color: #fff;
+    }
+    .stage-header h1 {
+      font-family: 'Fraunces', serif;
+      font-size: 36px;
+      font-weight: 300;
+      letter-spacing: -0.5px;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .stage-header p {
+      color: #888;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+
+    .concepts-row {
+      display: flex;
+      gap: 48px;
+      padding: 0 48px 80px;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    .concept-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      flex-shrink: 0;
+    }
+
+    .concept-label {
+      text-align: center;
+    }
+    .concept-label h2 {
+      font-family: 'Syne', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+    .concept-label .tag {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 3px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .concept-label p {
+      color: #666;
+      font-size: 13px;
+      margin-top: 8px;
+      max-width: 300px;
+      line-height: 1.5;
+    }
+
+    /* ===== PHONE FRAME ===== */
+    .phone {
+      width: 390px;
+      height: 844px;
+      border-radius: 52px;
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 40px 80px rgba(0,0,0,0.6), 0 0 0 10px #1C1E24;
+      flex-shrink: 0;
+    }
+
+    .phone-screen {
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: none;
+    }
+    .phone-screen::-webkit-scrollbar { display: none; }
+
+    /* ===== STATUS BAR ===== */
+    .status-bar {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px 0 20px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .status-time { font-weight: 700; font-size: 15px; }
+    .status-icons { display: flex; gap: 6px; align-items: center; }
+    .status-icon { width: 18px; height: 12px; border-radius: 2px; }
+
+    /* ===== BOTTOM NAV ===== */
+    .bottom-nav {
+      height: 80px;
+      display: flex;
+      align-items: flex-start;
+      padding-top: 8px;
+      justify-content: space-around;
+      position: sticky;
+      bottom: 0;
+      z-index: 100;
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 16px;
+      border-radius: 12px;
+    }
+    .nav-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      margin-top: 2px;
+    }
+    .nav-icon {
+      font-size: 20px;
+      line-height: 1;
+    }
+    .nav-label {
+      font-size: 10px;
+      letter-spacing: 0.3px;
+      font-weight: 500;
+    }
+
+    /* ============================================================
+       CONCEPT A — "MONOLITH"
+       Deep dark, editorial, one hero number dominates everything
+       ============================================================ */
+    .concept-a {
+      background: #090C0B;
+      color: #E8EAE9;
+    }
+
+    .a-status {
+      background: #090C0B;
+      color: #8A9490;
+    }
+
+    .a-header {
+      padding: 4px 24px 0;
+    }
+    .a-period-label {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #4A6058;
+      margin-bottom: 4px;
+    }
+    .a-period-name {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 400;
+      color: #7A9088;
+    }
+
+    .a-hero {
+      padding: 24px 24px 0;
+    }
+    .a-hero-label {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #4A6058;
+      margin-bottom: 8px;
+    }
+    .a-hero-amount {
+      font-family: 'Fraunces', serif;
+      font-size: 72px;
+      font-weight: 300;
+      letter-spacing: -3px;
+      color: #E8F5E9;
+      line-height: 0.9;
+    }
+    .a-hero-amount span {
+      font-size: 36px;
+      letter-spacing: -1px;
+      color: #6A8A78;
+      vertical-align: top;
+      margin-top: 6px;
+      display: inline-block;
+    }
+    .a-hero-sub {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      color: #4A6058;
+      margin-top: 10px;
+    }
+    .a-hero-sub strong {
+      color: #7A9088;
+      font-weight: 500;
+    }
+
+    /* Score arc inline with hero */
+    .a-score-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 20px;
+      padding: 16px 24px;
+      border-top: 1px solid #151E1B;
+      border-bottom: 1px solid #151E1B;
+    }
+    .a-score-arc {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
+    }
+    .a-score-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .a-score-num {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      font-weight: 600;
+      color: #00D68F;
+    }
+    .a-score-info { flex: 1; }
+    .a-score-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: #A8C4BA;
+    }
+    .a-score-detail {
+      font-size: 11px;
+      color: #4A6058;
+      margin-top: 2px;
+    }
+    .a-score-badge {
+      padding: 4px 10px;
+      background: rgba(0, 214, 143, 0.1);
+      border: 1px solid rgba(0, 214, 143, 0.2);
+      border-radius: 100px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: #00D68F;
+    }
+
+    /* KPI strip */
+    .a-kpi {
+      display: flex;
+      padding: 16px 24px;
+      gap: 0;
+    }
+    .a-kpi-item {
+      flex: 1;
+      padding-right: 16px;
+    }
+    .a-kpi-item + .a-kpi-item {
+      padding-left: 16px;
+      padding-right: 0;
+      border-left: 1px solid #151E1B;
+    }
+    .a-kpi-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #3A5248;
+      margin-bottom: 4px;
+    }
+    .a-kpi-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 16px;
+      font-weight: 500;
+      color: #C8DDD8;
+    }
+    .a-kpi-value.negative { color: #FF6B6B; }
+
+    /* Quick links */
+    .a-quick {
+      display: flex;
+      gap: 8px;
+      padding: 8px 24px 16px;
+    }
+    .a-quick-btn {
+      flex: 1;
+      padding: 10px 12px;
+      background: #111A17;
+      border: 1px solid #1E2E28;
+      border-radius: 10px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      color: #6A8A78;
+      letter-spacing: 0.3px;
+    }
+    .a-quick-btn .q-icon { font-size: 16px; display: block; margin-bottom: 4px; }
+
+    /* Section header */
+    .a-section-head {
+      padding: 16px 24px 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .a-section-title {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #3A5248;
+      font-weight: 500;
+    }
+    .a-section-count {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: #2A3E38;
+    }
+
+    /* Envelope rows */
+    .a-env-list { padding: 0 24px 8px; }
+    .a-env-row {
+      display: flex;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #0F1714;
+      gap: 12px;
+    }
+    .a-env-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .a-env-dot.full { background: #00D68F; }
+    .a-env-dot.mid { background: #FFB300; }
+    .a-env-dot.warn { background: #FF6B35; }
+    .a-env-dot.danger { background: #FF4D4D; }
+    .a-env-name {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 400;
+      color: #8AA8A0;
+    }
+    .a-env-bar {
+      width: 60px;
+      height: 3px;
+      background: #151E1B;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .a-env-bar-fill { height: 100%; border-radius: 2px; }
+    .a-env-amount {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      font-weight: 500;
+      color: #C8DDD8;
+      text-align: right;
+      min-width: 80px;
+    }
+    .a-env-amount.negative { color: #FF6B6B; }
+
+    /* Baby steps inline */
+    .a-baby {
+      margin: 8px 24px 16px;
+      padding: 14px 16px;
+      background: #0F1714;
+      border: 1px solid #1A2820;
+      border-radius: 12px;
+    }
+    .a-baby-head {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .a-baby-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #3A5248;
+    }
+    .a-baby-progress-text {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: #4A6058;
+    }
+    .a-baby-dots {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .a-baby-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .a-baby-dot.done { background: #00D68F; color: #090C0B; }
+    .a-baby-dot.current { background: transparent; border: 2px solid #00D68F; color: #00D68F; }
+    .a-baby-dot.future { background: #151E1B; border: 1px solid #1E2E28; color: #2A3E38; }
+
+    .a-bottom-nav {
+      background: #090C0B;
+      border-top: 1px solid #151E1B;
+    }
+    .a-nav-icon { color: #3A5248; }
+    .a-nav-icon.active { color: #00D68F; }
+    .a-nav-label { color: #3A5248; }
+    .a-nav-label.active { color: #00D68F; }
+
+    /* FAB */
+    .a-fab {
+      position: fixed;
+      bottom: 90px;
+      right: 20px;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: #00D68F;
+      color: #090C0B;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 300;
+      box-shadow: 0 4px 20px rgba(0, 214, 143, 0.3);
+    }
+
+    /* ============================================================
+       CONCEPT B — "MERIDIAN"
+       Warm light, editorial white space, grouped envelopes
+       ============================================================ */
+    .concept-b {
+      background: #F7F3EE;
+      color: #1A1714;
+    }
+
+    .b-status {
+      background: #F7F3EE;
+      color: #B8A898;
+    }
+
+    .b-header {
+      padding: 0 20px 20px;
+    }
+
+    .b-eyebrow {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #C8B8A8;
+      margin-bottom: 4px;
+    }
+
+    .b-period {
+      font-family: 'Outfit', sans-serif;
+      font-size: 22px;
+      font-weight: 600;
+      color: #1A1714;
+      letter-spacing: -0.5px;
+    }
+
+    /* Summary card */
+    .b-summary {
+      margin: 0 20px 20px;
+      background: #1A2922;
+      border-radius: 20px;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .b-summary::before {
+      content: '';
+      position: absolute;
+      right: -20px;
+      top: -20px;
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      background: rgba(0, 180, 120, 0.08);
+    }
+    .b-summary-label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #4A7060;
+      margin-bottom: 6px;
+    }
+    .b-summary-amount {
+      font-family: 'Outfit', sans-serif;
+      font-size: 52px;
+      font-weight: 700;
+      color: #E8F5EE;
+      letter-spacing: -2px;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .b-summary-amount-prefix {
+      font-size: 28px;
+      font-weight: 400;
+      color: #4A7060;
+    }
+    .b-summary-sub {
+      font-size: 13px;
+      color: #3A5A4A;
+      margin-bottom: 20px;
+    }
+
+    /* Budget progress bar */
+    .b-budget-bar-track {
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .b-budget-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00B478, #00D68F);
+      border-radius: 3px;
+      width: 68%;
+    }
+    .b-budget-bar-fill.warning {
+      background: linear-gradient(90deg, #FFB300, #FFD000);
+      width: 85%;
+    }
+
+    .b-budget-stats {
+      display: flex;
+      justify-content: space-between;
+    }
+    .b-budget-stat-label { font-size: 11px; color: #3A5A4A; }
+    .b-budget-stat-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: #A8C8B8;
+    }
+
+    /* Score inline */
+    .b-score-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .b-score-label { font-size: 11px; color: #3A5A4A; }
+    .b-score-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .b-score-num {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 22px;
+      font-weight: 600;
+      color: #00D68F;
+    }
+    .b-score-badge {
+      padding: 4px 10px;
+      background: rgba(0, 214, 143, 0.12);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #00D68F;
+    }
+
+    /* Quick actions */
+    .b-quick-row {
+      display: flex;
+      gap: 8px;
+      padding: 0 20px 20px;
+    }
+    .b-quick-btn {
+      flex: 1;
+      padding: 12px 8px;
+      background: #fff;
+      border-radius: 14px;
+      border: 1px solid #EDE8E2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .b-quick-icon { font-size: 18px; }
+    .b-quick-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: #7A6A5A;
+      letter-spacing: 0.2px;
+    }
+
+    /* Grouped envelope sections */
+    .b-section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px 8px;
+    }
+    .b-section-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .b-section-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .b-section-dot.green { background: #00B478; }
+    .b-section-dot.amber { background: #FFB300; }
+    .b-section-dot.red { background: #E53935; }
+    .b-section-name {
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: #1A1714;
+    }
+    .b-section-count {
+      font-size: 11px;
+      color: #C8B8A8;
+    }
+
+    .b-env-card {
+      margin: 0 20px 8px;
+      background: #fff;
+      border-radius: 14px;
+      padding: 14px 16px;
+      border: 1px solid #EDE8E2;
+    }
+    .b-env-row1 {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .b-env-name {
+      font-family: 'Outfit', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      color: #1A1714;
+    }
+    .b-env-remaining {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 15px;
+      font-weight: 600;
+      color: #1A1714;
+    }
+    .b-env-remaining.red { color: #E53935; }
+    .b-env-bar-track {
+      height: 4px;
+      background: #F0EBE5;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .b-env-bar-fill { height: 100%; border-radius: 2px; }
+    .b-env-bar-fill.green { background: #00B478; }
+    .b-env-bar-fill.amber { background: #FFB300; }
+    .b-env-bar-fill.red { background: #E53935; }
+    .b-env-meta {
+      font-size: 11px;
+      color: #C8B8A8;
+    }
+
+    .b-bottom-nav {
+      background: #F7F3EE;
+      border-top: 1px solid #EDE8E2;
+    }
+    .b-nav-icon { color: #C8B8A8; }
+    .b-nav-icon.active { color: #1A2922; }
+    .b-nav-label { color: #C8B8A8; }
+    .b-nav-label.active { color: #1A2922; }
+
+    /* ============================================================
+       CONCEPT C — "PULSE"
+       Rich gradient, frosted glass, modern fintech energy
+       ============================================================ */
+    .concept-c {
+      background: linear-gradient(160deg, #071A16 0%, #0D1F2E 60%, #091522 100%);
+      color: #E2F0EC;
+    }
+
+    .c-status {
+      background: transparent;
+      color: rgba(200, 230, 220, 0.5);
+    }
+
+    .c-header {
+      padding: 4px 20px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .c-header-left {}
+    .c-greeting {
+      font-size: 12px;
+      color: rgba(160, 210, 190, 0.6);
+      margin-bottom: 2px;
+    }
+    .c-period {
+      font-family: 'Outfit', sans-serif;
+      font-size: 17px;
+      font-weight: 600;
+      color: rgba(220, 245, 235, 0.9);
+      letter-spacing: -0.3px;
+    }
+    .c-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #00B478, #005C3A);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    /* Hero glass card */
+    .c-hero-card {
+      margin: 0 16px 16px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px;
+      padding: 24px;
+      backdrop-filter: blur(20px);
+      position: relative;
+      overflow: hidden;
+    }
+    .c-hero-card::before {
+      content: '';
+      position: absolute;
+      top: -40px;
+      right: -40px;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0, 180, 120, 0.15) 0%, transparent 70%);
+    }
+    .c-hero-label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(160, 210, 190, 0.5);
+      margin-bottom: 6px;
+    }
+    .c-hero-amount {
+      font-family: 'Outfit', sans-serif;
+      font-size: 56px;
+      font-weight: 700;
+      letter-spacing: -2.5px;
+      color: #E2F5EC;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .c-hero-prefix {
+      font-size: 28px;
+      font-weight: 400;
+      color: rgba(160, 210, 190, 0.6);
+    }
+    .c-hero-sub {
+      font-size: 13px;
+      color: rgba(160, 210, 190, 0.5);
+      margin-bottom: 20px;
+    }
+
+    /* Arc gauge */
+    .c-arc-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .c-arc-gauge {
+      position: relative;
+      width: 60px;
+      height: 60px;
+      flex-shrink: 0;
+    }
+    .c-arc-inner {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .c-arc-pct {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: #00D68F;
+    }
+    .c-arc-pct-label {
+      font-size: 8px;
+      color: rgba(160, 210, 190, 0.4);
+      margin-top: -1px;
+    }
+    .c-arc-stats { flex: 1; }
+    .c-arc-stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 3px 0;
+    }
+    .c-arc-stat-label {
+      font-size: 11px;
+      color: rgba(160, 210, 190, 0.4);
+    }
+    .c-arc-stat-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(200, 235, 220, 0.8);
+    }
+    .c-score-badge {
+      flex-shrink: 0;
+      text-align: center;
+      padding: 8px 12px;
+      background: rgba(0, 214, 143, 0.08);
+      border: 1px solid rgba(0, 214, 143, 0.15);
+      border-radius: 12px;
+    }
+    .c-score-num {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 20px;
+      font-weight: 600;
+      color: #00D68F;
+    }
+    .c-score-lbl {
+      font-size: 9px;
+      color: rgba(0, 214, 143, 0.5);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    /* Quick actions row */
+    .c-actions {
+      display: flex;
+      gap: 8px;
+      padding: 0 16px 16px;
+    }
+    .c-action-btn {
+      flex: 1;
+      padding: 12px 8px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .c-action-icon { font-size: 20px; }
+    .c-action-label {
+      font-size: 10px;
+      font-weight: 500;
+      color: rgba(160, 210, 190, 0.5);
+      letter-spacing: 0.3px;
+    }
+
+    /* Envelope grid */
+    .c-envelopes-head {
+      padding: 0 16px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .c-envelopes-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      color: rgba(180, 225, 210, 0.7);
+    }
+    .c-envelopes-link {
+      font-size: 12px;
+      color: rgba(0, 214, 143, 0.6);
+    }
+
+    .c-env-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 0 16px 16px;
+    }
+    .c-env-tile {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+    }
+    .c-env-tile-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(160, 210, 190, 0.6);
+      margin-bottom: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .c-env-tile-amount {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 17px;
+      font-weight: 600;
+      color: #E2F5EC;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+    }
+    .c-env-tile-amount.amber { color: #FFD000; }
+    .c-env-tile-amount.red { color: #FF6B6B; }
+    .c-env-tile-bar {
+      height: 3px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .c-env-tile-fill { height: 100%; border-radius: 2px; }
+    .c-env-tile-fill.green { background: linear-gradient(90deg, #00B478, #00D68F); }
+    .c-env-tile-fill.amber { background: #FFB300; }
+    .c-env-tile-fill.red { background: #E53935; }
+    .c-env-tile-pct {
+      font-size: 10px;
+      color: rgba(160, 210, 190, 0.3);
+      margin-top: 5px;
+    }
+
+    /* Baby steps in c */
+    .c-baby {
+      margin: 0 16px 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .c-baby-head {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .c-baby-title {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(160, 210, 190, 0.4);
+    }
+    .c-baby-count {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: rgba(160, 210, 190, 0.3);
+    }
+    .c-baby-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .c-baby-dot {
+      flex: 1;
+      height: 4px;
+      border-radius: 2px;
+    }
+    .c-baby-dot.done { background: #00D68F; }
+    .c-baby-dot.current { background: rgba(0, 214, 143, 0.3); }
+    .c-baby-dot.future { background: rgba(255,255,255,0.06); }
+    .c-baby-step-name {
+      font-size: 12px;
+      color: rgba(160, 210, 190, 0.6);
+      margin-top: 10px;
+    }
+    .c-baby-step-detail {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: rgba(0, 214, 143, 0.5);
+      margin-top: 2px;
+    }
+
+    .c-bottom-nav {
+      background: rgba(7, 26, 22, 0.95);
+      backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .c-nav-icon { color: rgba(160, 210, 190, 0.3); }
+    .c-nav-icon.active { color: #00D68F; }
+    .c-nav-label { color: rgba(160, 210, 190, 0.3); }
+    .c-nav-label.active { color: #00D68F; }
+
+    /* FAB concept C */
+    .c-fab-row {
+      display: flex;
+      justify-content: center;
+      padding: 0 16px 8px;
+    }
+    .c-fab {
+      width: 200px;
+      height: 48px;
+      border-radius: 24px;
+      background: linear-gradient(135deg, #00B478, #009060);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      box-shadow: 0 4px 20px rgba(0, 180, 120, 0.3);
+    }
+
+    /* ===== SELECTOR TABS ===== */
+    .concept-notes {
+      max-width: 310px;
+      padding: 16px 20px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+    }
+    .concept-notes h3 {
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 10px;
+      letter-spacing: 0.5px;
+    }
+    .concept-notes ul {
+      list-style: none;
+      padding: 0;
+    }
+    .concept-notes ul li {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.6;
+      padding: 2px 0;
+    }
+    .concept-notes ul li::before {
+      content: '→ ';
+      color: #444;
+    }
+
+    .tag-a { background: rgba(0,214,143,0.1); color: #00D68F; border: 1px solid rgba(0,214,143,0.2); }
+    .tag-b { background: rgba(255,179,0,0.1); color: #FFB300; border: 1px solid rgba(255,179,0,0.2); }
+    .tag-c { background: rgba(100,160,255,0.1); color: #64A0FF; border: 1px solid rgba(100,160,255,0.2); }
+  </style>
+</head>
+<body>
+
+<div class="stage-header">
+  <h1>Dashboard Redesign</h1>
+  <p>3 CONCEPTS — AccountingV2 · South African Envelope Budgeting</p>
+</div>
+
+<div class="concepts-row">
+
+  <!-- ============================================================
+       CONCEPT A — MONOLITH
+       ============================================================ -->
+  <div class="concept-wrapper">
+    <div class="concept-label">
+      <h2>A — MONOLITH</h2>
+      <span class="tag tag-a">Dark · Editorial · Focused</span>
+      <p>One hero number. Everything else steps back. The remaining budget owns the screen. Envelopes become a scannable list — no cards, no clutter.</p>
+    </div>
+
+    <div class="phone">
+      <div class="phone-screen concept-a">
+
+        <!-- Status bar -->
+        <div class="status-bar a-status">
+          <span class="status-time">9:41</span>
+          <div class="status-icons">
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect x="0" y="3" width="3" height="9" rx="1" fill="#4A6058"/>
+              <rect x="4" y="2" width="3" height="10" rx="1" fill="#4A6058"/>
+              <rect x="8" y="0" width="3" height="12" rx="1" fill="#4A6058"/>
+              <rect x="12" y="0" width="3" height="12" rx="1" fill="#4A6058"/>
+            </svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect x="1" y="1" width="12" height="10" rx="2" stroke="#4A6058" stroke-width="1.5" fill="none"/>
+              <rect x="13" y="4" width="2" height="4" rx="1" fill="#4A6058"/>
+              <rect x="2.5" y="2.5" width="8" height="7" rx="1" fill="#4A6058"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Header -->
+        <div class="a-header">
+          <div class="a-period-label">Budget Period</div>
+          <div class="a-period-name">1 April — 30 April 2026</div>
+        </div>
+
+        <!-- Hero amount -->
+        <div class="a-hero">
+          <div class="a-hero-label">Remaining</div>
+          <div class="a-hero-amount">
+            <span>R</span>4,280
+          </div>
+          <div class="a-hero-sub">of <strong>R12,500</strong> budgeted this period</div>
+        </div>
+
+        <!-- Score row -->
+        <div class="a-score-row">
+          <div class="a-score-arc">
+            <svg width="52" height="52" viewBox="0 0 52 52">
+              <circle cx="26" cy="26" r="20" fill="none" stroke="#151E1B" stroke-width="4"/>
+              <circle cx="26" cy="26" r="20" fill="none" stroke="#00D68F" stroke-width="4"
+                stroke-dasharray="75.4 125.6" stroke-dashoffset="31.4" stroke-linecap="round"/>
+            </svg>
+            <div class="a-score-text">
+              <span class="a-score-num">74</span>
+            </div>
+          </div>
+          <div class="a-score-info">
+            <div class="a-score-title">Ramsey Score</div>
+            <div class="a-score-detail">3 of 7 baby steps done</div>
+          </div>
+          <span class="a-score-badge">GOOD</span>
+        </div>
+
+        <!-- KPI strip -->
+        <div class="a-kpi">
+          <div class="a-kpi-item">
+            <div class="a-kpi-label">Allocated</div>
+            <div class="a-kpi-value">R12,500</div>
+          </div>
+          <div class="a-kpi-item">
+            <div class="a-kpi-label">Spent</div>
+            <div class="a-kpi-value">R8,220</div>
+          </div>
+          <div class="a-kpi-item">
+            <div class="a-kpi-label">Forecast</div>
+            <div class="a-kpi-value">R11,840</div>
+          </div>
+        </div>
+
+        <!-- Quick links -->
+        <div class="a-quick">
+          <div class="a-quick-btn">
+            <span class="q-icon">💰</span>
+            Sinking Funds
+          </div>
+          <div class="a-quick-btn">
+            <span class="q-icon">📈</span>
+            90-Day Forecast
+          </div>
+          <div class="a-quick-btn">
+            <span class="q-icon">🎯</span>
+            Baby Steps
+          </div>
+        </div>
+
+        <!-- Baby steps compact -->
+        <div class="a-baby">
+          <div class="a-baby-head">
+            <span class="a-baby-label">Baby Steps</span>
+            <span class="a-baby-progress-text">3 / 7</span>
+          </div>
+          <div class="a-baby-dots">
+            <div class="a-baby-dot done">✓</div>
+            <div class="a-baby-dot done">✓</div>
+            <div class="a-baby-dot done">✓</div>
+            <div class="a-baby-dot current">4</div>
+            <div class="a-baby-dot future">5</div>
+            <div class="a-baby-dot future">6</div>
+            <div class="a-baby-dot future">7</div>
+          </div>
+        </div>
+
+        <!-- Envelope list -->
+        <div class="a-section-head">
+          <span class="a-section-title">Envelopes</span>
+          <span class="a-section-count">8 active</span>
+        </div>
+
+        <div class="a-env-list">
+          <div class="a-env-row">
+            <div class="a-env-dot full"></div>
+            <div class="a-env-name">Groceries</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:72%;background:#00D68F"></div></div>
+            <div class="a-env-amount">R1,440</div>
+          </div>
+          <div class="a-env-row">
+            <div class="a-env-dot full"></div>
+            <div class="a-env-name">Rent</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:100%;background:#00D68F"></div></div>
+            <div class="a-env-amount">R0</div>
+          </div>
+          <div class="a-env-row">
+            <div class="a-env-dot mid"></div>
+            <div class="a-env-name">Transport</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:35%;background:#FFB300"></div></div>
+            <div class="a-env-amount">R420</div>
+          </div>
+          <div class="a-env-row">
+            <div class="a-env-dot warn"></div>
+            <div class="a-env-name">Eating Out</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:18%;background:#FF6B35"></div></div>
+            <div class="a-env-amount">R180</div>
+          </div>
+          <div class="a-env-row">
+            <div class="a-env-dot danger"></div>
+            <div class="a-env-name">Entertainment</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:5%;background:#FF4D4D"></div></div>
+            <div class="a-env-amount negative">-R50</div>
+          </div>
+          <div class="a-env-row">
+            <div class="a-env-dot full"></div>
+            <div class="a-env-name">Clothing</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:80%;background:#00D68F"></div></div>
+            <div class="a-env-amount">R800</div>
+          </div>
+          <div class="a-env-row">
+            <div class="a-env-dot mid"></div>
+            <div class="a-env-name">Medical</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:40%;background:#FFB300"></div></div>
+            <div class="a-env-amount">R500</div>
+          </div>
+          <div class="a-env-row">
+            <div class="a-env-dot full"></div>
+            <div class="a-env-name">Savings</div>
+            <div class="a-env-bar"><div class="a-env-bar-fill" style="width:100%;background:#00D68F"></div></div>
+            <div class="a-env-amount">R990</div>
+          </div>
+        </div>
+
+        <!-- Bottom nav -->
+        <div class="bottom-nav a-bottom-nav">
+          <div class="nav-item">
+            <span class="nav-icon a-nav-icon active">◉</span>
+            <span class="nav-label a-nav-label active">Budget</span>
+            <div class="nav-dot" style="background:#00D68F"></div>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon a-nav-icon">⇄</span>
+            <span class="nav-label a-nav-label">Txns</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon a-nav-icon">◎</span>
+            <span class="nav-label a-nav-label">Meters</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon a-nav-icon">❄</span>
+            <span class="nav-label a-nav-label">Snowball</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon a-nav-icon">⚙</span>
+            <span class="nav-label a-nav-label">Settings</span>
+          </div>
+        </div>
+
+      </div><!-- /concept-a -->
+    </div><!-- /phone -->
+
+    <div class="concept-notes">
+      <h3>Key UX Decisions</h3>
+      <ul>
+        <li>No cards — rows breathe with 12px padding</li>
+        <li>Hero R4,280 answers "can I spend?" instantly</li>
+        <li>8px status dot replaces the busy fill-bar in the list</li>
+        <li>Fraunces serif makes the number feel weighty, important</li>
+        <li>IBM Plex Mono for all figures — tabular alignment</li>
+        <li>Single green accent (#00D68F) — no competing colors</li>
+        <li>Baby steps collapsed to 7-dot row, not a card</li>
+        <li>Score demoted to a side-row, not a badge</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       CONCEPT B — MERIDIAN
+       ============================================================ -->
+  <div class="concept-wrapper">
+    <div class="concept-label">
+      <h2>B — MERIDIAN</h2>
+      <span class="tag tag-b">Light · Grouped · Scannable</span>
+      <p>Warm cream background, one dark summary card, then envelopes grouped by health. Instantly see what needs attention without scrolling.</p>
+    </div>
+
+    <div class="phone">
+      <div class="phone-screen concept-b">
+
+        <!-- Status bar -->
+        <div class="status-bar b-status">
+          <span class="status-time">9:41</span>
+          <div class="status-icons">
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect x="0" y="3" width="3" height="9" rx="1" fill="#C8B8A8"/>
+              <rect x="4" y="2" width="3" height="10" rx="1" fill="#C8B8A8"/>
+              <rect x="8" y="0" width="3" height="12" rx="1" fill="#C8B8A8"/>
+              <rect x="12" y="0" width="3" height="12" rx="1" fill="#C8B8A8"/>
+            </svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect x="1" y="1" width="12" height="10" rx="2" stroke="#C8B8A8" stroke-width="1.5" fill="none"/>
+              <rect x="13" y="4" width="2" height="4" rx="1" fill="#C8B8A8"/>
+              <rect x="2.5" y="2.5" width="8" height="7" rx="1" fill="#C8B8A8"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Header -->
+        <div class="b-header">
+          <div class="b-eyebrow">Budget Period</div>
+          <div class="b-period">April 2026</div>
+        </div>
+
+        <!-- Summary card -->
+        <div class="b-summary">
+          <div class="b-summary-label">Remaining to spend</div>
+          <div class="b-summary-amount">
+            <span class="b-summary-amount-prefix">R</span>4,280
+          </div>
+          <div class="b-summary-sub">R8,220 spent of R12,500 budget</div>
+
+          <div class="b-budget-bar-track">
+            <div class="b-budget-bar-fill"></div>
+          </div>
+          <div class="b-budget-stats">
+            <span class="b-budget-stat-label">68% of budget used</span>
+            <span class="b-budget-stat-value">13 days left</span>
+          </div>
+
+          <div class="b-score-row">
+            <span class="b-score-label">Ramsey Score</span>
+            <div class="b-score-pill">
+              <span class="b-score-num">74</span>
+              <span class="b-score-badge">GOOD</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="b-quick-row">
+          <div class="b-quick-btn">
+            <span class="b-quick-icon">+</span>
+            <span class="b-quick-label">Transaction</span>
+          </div>
+          <div class="b-quick-btn">
+            <span class="b-quick-icon">💰</span>
+            <span class="b-quick-label">Sinking</span>
+          </div>
+          <div class="b-quick-btn">
+            <span class="b-quick-icon">📈</span>
+            <span class="b-quick-label">Forecast</span>
+          </div>
+          <div class="b-quick-btn">
+            <span class="b-quick-icon">🎯</span>
+            <span class="b-quick-label">Steps</span>
+          </div>
+        </div>
+
+        <!-- Watch Out section -->
+        <div class="b-section-head">
+          <div class="b-section-title-row">
+            <div class="b-section-dot red"></div>
+            <span class="b-section-name">Needs Attention</span>
+          </div>
+          <span class="b-section-count">2 envelopes</span>
+        </div>
+
+        <div class="b-env-card">
+          <div class="b-env-row1">
+            <span class="b-env-name">Entertainment</span>
+            <span class="b-env-remaining red">-R50</span>
+          </div>
+          <div class="b-env-bar-track">
+            <div class="b-env-bar-fill red" style="width:103%"></div>
+          </div>
+          <div class="b-env-meta">Overspent by R50 · R1,000 budget</div>
+        </div>
+
+        <div class="b-env-card">
+          <div class="b-env-row1">
+            <span class="b-env-name">Eating Out</span>
+            <span class="b-env-remaining" style="color:#E65100">R180</span>
+          </div>
+          <div class="b-env-bar-track">
+            <div class="b-env-bar-fill amber" style="width:82%"></div>
+          </div>
+          <div class="b-env-meta">R180 left · R1,000 budget · 18%</div>
+        </div>
+
+        <!-- On Track section -->
+        <div class="b-section-head" style="margin-top:8px">
+          <div class="b-section-title-row">
+            <div class="b-section-dot green"></div>
+            <span class="b-section-name">On Track</span>
+          </div>
+          <span class="b-section-count">6 envelopes</span>
+        </div>
+
+        <div class="b-env-card">
+          <div class="b-env-row1">
+            <span class="b-env-name">Groceries</span>
+            <span class="b-env-remaining">R1,440</span>
+          </div>
+          <div class="b-env-bar-track">
+            <div class="b-env-bar-fill green" style="width:72%"></div>
+          </div>
+          <div class="b-env-meta">R1,440 left · R5,200 budget · 72%</div>
+        </div>
+
+        <div class="b-env-card">
+          <div class="b-env-row1">
+            <span class="b-env-name">Transport</span>
+            <span class="b-env-remaining">R420</span>
+          </div>
+          <div class="b-env-bar-track">
+            <div class="b-env-bar-fill amber" style="width:35%"></div>
+          </div>
+          <div class="b-env-meta">R420 left · R1,200 budget · 35%</div>
+        </div>
+
+        <div class="b-env-card">
+          <div class="b-env-row1">
+            <span class="b-env-name">Savings</span>
+            <span class="b-env-remaining">R990</span>
+          </div>
+          <div class="b-env-bar-track">
+            <div class="b-env-bar-fill green" style="width:99%"></div>
+          </div>
+          <div class="b-env-meta">Fully funded · R1,000 budget</div>
+        </div>
+
+        <div class="b-env-card">
+          <div class="b-env-row1">
+            <span class="b-env-name">Clothing</span>
+            <span class="b-env-remaining">R800</span>
+          </div>
+          <div class="b-env-bar-track">
+            <div class="b-env-bar-fill green" style="width:80%"></div>
+          </div>
+          <div class="b-env-meta">R800 left · R1,000 budget · 80%</div>
+        </div>
+
+        <!-- Bottom nav -->
+        <div class="bottom-nav b-bottom-nav">
+          <div class="nav-item">
+            <span class="nav-icon b-nav-icon active">◉</span>
+            <span class="nav-label b-nav-label active">Budget</span>
+            <div class="nav-dot" style="background:#1A2922"></div>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon b-nav-icon">⇄</span>
+            <span class="nav-label b-nav-label">Txns</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon b-nav-icon">◎</span>
+            <span class="nav-label b-nav-label">Meters</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon b-nav-icon">❄</span>
+            <span class="nav-label b-nav-label">Snowball</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon b-nav-icon">⚙</span>
+            <span class="nav-label b-nav-label">Settings</span>
+          </div>
+        </div>
+
+      </div><!-- /concept-b -->
+    </div><!-- /phone -->
+
+    <div class="concept-notes">
+      <h3>Key UX Decisions</h3>
+      <ul>
+        <li>Grouped by health: red section first (actionable urgency)</li>
+        <li>Dark summary card breaks up the warm cream — contrast anchor</li>
+        <li>4 quick-action buttons above the fold — no buried FAB</li>
+        <li>Progress bar inside summary shows period burn rate</li>
+        <li>Score moved inside the summary card (one card, not two)</li>
+        <li>Outfit font — geometric warmth, more personality than sans-serif</li>
+        <li>Cards have 20px border-radius — friendly, not clinical</li>
+        <li>Baby steps hidden (3 clicks away) — not a primary concern</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       CONCEPT C — PULSE
+       ============================================================ -->
+  <div class="concept-wrapper">
+    <div class="concept-label">
+      <h2>C — PULSE</h2>
+      <span class="tag tag-c">Dark Gradient · Glass · Grid</span>
+      <p>Deep teal-midnight gradient. Frosted glass card at the top. Envelopes in a 2-column grid for fast spatial scanning. Premium fintech feel.</p>
+    </div>
+
+    <div class="phone">
+      <div class="phone-screen concept-c">
+
+        <!-- Status bar -->
+        <div class="status-bar c-status">
+          <span class="status-time">9:41</span>
+          <div class="status-icons">
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect x="0" y="3" width="3" height="9" rx="1" fill="rgba(200,230,220,0.4)"/>
+              <rect x="4" y="2" width="3" height="10" rx="1" fill="rgba(200,230,220,0.4)"/>
+              <rect x="8" y="0" width="3" height="12" rx="1" fill="rgba(200,230,220,0.4)"/>
+              <rect x="12" y="0" width="3" height="12" rx="1" fill="rgba(200,230,220,0.4)"/>
+            </svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect x="1" y="1" width="12" height="10" rx="2" stroke="rgba(200,230,220,0.4)" stroke-width="1.5" fill="none"/>
+              <rect x="13" y="4" width="2" height="4" rx="1" fill="rgba(200,230,220,0.4)"/>
+              <rect x="2.5" y="2.5" width="8" height="7" rx="1" fill="rgba(200,230,220,0.4)"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Header -->
+        <div class="c-header">
+          <div class="c-header-left">
+            <div class="c-greeting">Good morning, Henza</div>
+            <div class="c-period">April 2026</div>
+          </div>
+          <div class="c-avatar">H</div>
+        </div>
+
+        <!-- Hero glass card -->
+        <div class="c-hero-card">
+          <div class="c-hero-label">Remaining this period</div>
+          <div class="c-hero-amount">
+            <span class="c-hero-prefix">R</span>4,280
+          </div>
+          <div class="c-hero-sub">R8,220 spent · 13 days remaining</div>
+
+          <div class="c-arc-row">
+            <!-- Arc gauge SVG -->
+            <div class="c-arc-gauge">
+              <svg width="60" height="60" viewBox="0 0 60 60">
+                <!-- Track -->
+                <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="5"/>
+                <!-- Fill: 68% spent (good) -->
+                <circle cx="30" cy="30" r="24" fill="none" stroke="#00D68F" stroke-width="5"
+                  stroke-dasharray="102 151" stroke-dashoffset="37.7" stroke-linecap="round"
+                  transform="rotate(-90 30 30)"/>
+              </svg>
+              <div class="c-arc-inner">
+                <div class="c-arc-pct">68%</div>
+                <div class="c-arc-pct-label">used</div>
+              </div>
+            </div>
+
+            <div class="c-arc-stats">
+              <div class="c-arc-stat-row">
+                <span class="c-arc-stat-label">Allocated</span>
+                <span class="c-arc-stat-value">R12,500</span>
+              </div>
+              <div class="c-arc-stat-row">
+                <span class="c-arc-stat-label">Spent</span>
+                <span class="c-arc-stat-value">R8,220</span>
+              </div>
+              <div class="c-arc-stat-row">
+                <span class="c-arc-stat-label">Forecast</span>
+                <span class="c-arc-stat-value">R11,840</span>
+              </div>
+            </div>
+
+            <div class="c-score-badge">
+              <div class="c-score-num">74</div>
+              <div class="c-score-lbl">Score</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="c-actions">
+          <div class="c-action-btn">
+            <span class="c-action-icon">＋</span>
+            <span class="c-action-label">Add Txn</span>
+          </div>
+          <div class="c-action-btn">
+            <span class="c-action-icon">💰</span>
+            <span class="c-action-label">Sinking</span>
+          </div>
+          <div class="c-action-btn">
+            <span class="c-action-icon">📈</span>
+            <span class="c-action-label">Forecast</span>
+          </div>
+          <div class="c-action-btn">
+            <span class="c-action-icon">🎯</span>
+            <span class="c-action-label">Steps</span>
+          </div>
+        </div>
+
+        <!-- Envelope grid -->
+        <div class="c-envelopes-head">
+          <span class="c-envelopes-title">Envelopes</span>
+          <span class="c-envelopes-link">See all →</span>
+        </div>
+
+        <div class="c-env-grid">
+          <div class="c-env-tile">
+            <div class="c-env-tile-name">Groceries</div>
+            <div class="c-env-tile-amount">R1,440</div>
+            <div class="c-env-tile-bar"><div class="c-env-tile-fill green" style="width:72%"></div></div>
+            <div class="c-env-tile-pct">72% left</div>
+          </div>
+          <div class="c-env-tile">
+            <div class="c-env-tile-name">Rent</div>
+            <div class="c-env-tile-amount">R0</div>
+            <div class="c-env-tile-bar"><div class="c-env-tile-fill green" style="width:100%"></div></div>
+            <div class="c-env-tile-pct">Fully funded</div>
+          </div>
+          <div class="c-env-tile">
+            <div class="c-env-tile-name">Transport</div>
+            <div class="c-env-tile-amount amber">R420</div>
+            <div class="c-env-tile-bar"><div class="c-env-tile-fill amber" style="width:35%"></div></div>
+            <div class="c-env-tile-pct">35% left</div>
+          </div>
+          <div class="c-env-tile">
+            <div class="c-env-tile-name">Eating Out</div>
+            <div class="c-env-tile-amount amber">R180</div>
+            <div class="c-env-tile-bar"><div class="c-env-tile-fill amber" style="width:18%"></div></div>
+            <div class="c-env-tile-pct">18% left ⚠</div>
+          </div>
+          <div class="c-env-tile">
+            <div class="c-env-tile-name">Entertainment</div>
+            <div class="c-env-tile-amount red">-R50</div>
+            <div class="c-env-tile-bar"><div class="c-env-tile-fill red" style="width:100%"></div></div>
+            <div class="c-env-tile-pct">Overspent ✕</div>
+          </div>
+          <div class="c-env-tile">
+            <div class="c-env-tile-name">Savings</div>
+            <div class="c-env-tile-amount">R990</div>
+            <div class="c-env-tile-bar"><div class="c-env-tile-fill green" style="width:99%"></div></div>
+            <div class="c-env-tile-pct">Funded ✓</div>
+          </div>
+        </div>
+
+        <!-- Baby steps -->
+        <div class="c-baby">
+          <div class="c-baby-head">
+            <span class="c-baby-title">Baby Steps</span>
+            <span class="c-baby-count">3 / 7</span>
+          </div>
+          <div class="c-baby-dots">
+            <div class="c-baby-dot done"></div>
+            <div class="c-baby-dot done"></div>
+            <div class="c-baby-dot done"></div>
+            <div class="c-baby-dot current"></div>
+            <div class="c-baby-dot future"></div>
+            <div class="c-baby-dot future"></div>
+            <div class="c-baby-dot future"></div>
+          </div>
+          <div class="c-baby-step-name">Step 4 — Invest 15% in Retirement</div>
+          <div class="c-baby-step-detail">R0 / R1,875 this month</div>
+        </div>
+
+        <!-- FAB row -->
+        <div class="c-fab-row">
+          <div class="c-fab">
+            <span>+</span> Add Transaction
+          </div>
+        </div>
+
+        <!-- Bottom nav -->
+        <div class="bottom-nav c-bottom-nav">
+          <div class="nav-item">
+            <span class="nav-icon c-nav-icon active">◉</span>
+            <span class="nav-label c-nav-label active">Budget</span>
+            <div class="nav-dot" style="background:#00D68F"></div>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon c-nav-icon">⇄</span>
+            <span class="nav-label c-nav-label">Txns</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon c-nav-icon">◎</span>
+            <span class="nav-label c-nav-label">Meters</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon c-nav-icon">❄</span>
+            <span class="nav-label c-nav-label">Snowball</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon c-nav-icon">⚙</span>
+            <span class="nav-label c-nav-label">Settings</span>
+          </div>
+        </div>
+
+      </div><!-- /concept-c -->
+    </div><!-- /phone -->
+
+    <div class="concept-notes">
+      <h3>Key UX Decisions</h3>
+      <ul>
+        <li>2-column tile grid → eyes scan faster than a list</li>
+        <li>Arc gauge shows % spent at a glance (not just a number)</li>
+        <li>Gradient background creates depth without surface noise</li>
+        <li>Glass card (backdrop-filter) feels premium on AMOLED</li>
+        <li>Personalised greeting — "Good morning, Henza" — warmth</li>
+        <li>Pill FAB replaces corner FAB — easier thumb reach</li>
+        <li>Score demoted to a badge inside the glass card</li>
+        <li>Baby steps as segmented bar — compact but visible</li>
+      </ul>
+    </div>
+  </div>
+
+</div><!-- /concepts-row -->
+
+</body>
+</html>

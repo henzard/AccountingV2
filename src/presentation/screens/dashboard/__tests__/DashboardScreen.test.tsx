@@ -64,11 +64,60 @@ jest.mock('react-native-paper', () => {
 
 jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 
+jest.mock('expo-linear-gradient', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  return {
+    LinearGradient: ({ children, style }: { children?: React.ReactNode; style?: unknown }) =>
+      React.createElement('View', { style }, children),
+  };
+});
+
+jest.mock('react-native-svg', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  return {
+    __esModule: true,
+    default: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement('View', null, children),
+    Circle: () => React.createElement('View'),
+  };
+});
+
+import { useEnvelopes } from '../../../hooks/useEnvelopes';
 import { DashboardScreen } from '../DashboardScreen';
+
+const mockEnvelopes = [
+  {
+    id: 'e1',
+    householdId: 'hh-1',
+    name: 'Groceries',
+    type: 'expense',
+    allocatedCents: 500000,
+    spentCents: 200000,
+    periodStart: '2024-01-01',
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+    createdBy: 'u1',
+  },
+  {
+    id: 'e2',
+    householdId: 'hh-1',
+    name: 'Transport',
+    type: 'expense',
+    allocatedCents: 200000,
+    spentCents: 250000,
+    periodStart: '2024-01-01',
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+    createdBy: 'u1',
+  },
+];
 
 describe('DashboardScreen', () => {
   afterEach(() => {
     mockHouseholdId = 'hh-1';
+    jest.clearAllMocks();
   });
 
   it('shows loading splash when householdId is null', () => {
@@ -92,5 +141,99 @@ describe('DashboardScreen', () => {
     );
     fireEvent.press(getByTestId('add-transaction-fab'));
     expect(mockNavigate).toHaveBeenCalledWith('AddTransaction');
+  });
+
+  it('shows empty state when no envelopes', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('dashboard-empty-state')).toBeTruthy();
+  });
+
+  it('shows new envelope button in empty state', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('new-envelope-button')).toBeTruthy();
+  });
+
+  it('pressing new envelope button navigates to AddEditEnvelope', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByTestId('new-envelope-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', {});
+  });
+
+  it('renders envelope list when envelopes exist', () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('dashboard-kpi-row')).toBeTruthy();
+  });
+
+  it('shows view-budget link when envelopes exist', () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('view-budget-link')).toBeTruthy();
+  });
+
+  it('pressing view-budget link navigates to Budget', () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByTestId('view-budget-link'));
+    expect(mockNavigate).toHaveBeenCalledWith('Budget');
+  });
+
+  it('renders sinking funds entry point', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('sinking-funds-entry')).toBeTruthy();
+  });
+
+  it('pressing sinking funds navigates to SinkingFunds', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByTestId('sinking-funds-entry'));
+    expect(mockNavigate).toHaveBeenCalledWith('SinkingFunds');
+  });
+
+  it('pressing forecast navigates to Forecast', () => {
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByTestId('forecast-entry'));
+    expect(mockNavigate).toHaveBeenCalledWith('Forecast');
+  });
+
+  it('shows loading skeleton when loading is true', () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: [],
+      loading: true,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('dashboard-loading')).toBeTruthy();
   });
 });

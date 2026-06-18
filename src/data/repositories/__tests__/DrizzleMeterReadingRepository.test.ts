@@ -16,43 +16,83 @@ const reading: MeterReadingEntity = {
 };
 
 describe('DrizzleMeterReadingRepository', () => {
-  it('insert calls db.insert with isSynced:false', async () => {
-    const insertValues = jest.fn().mockResolvedValue(undefined);
-    const db = { insert: jest.fn().mockReturnValue({ values: insertValues }) } as any;
+  it('insert calls db.insert with correct data shape and isSynced:false', async () => {
+    const valuesFn = jest.fn().mockResolvedValue(undefined);
+    const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
+    const db = { insert: insertFn } as any;
     const repo = new DrizzleMeterReadingRepository(db);
+
     await repo.insert(reading);
-    expect(db.insert).toHaveBeenCalled();
-    expect(insertValues).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'mr1', isSynced: false }),
+
+    expect(insertFn).toHaveBeenCalled();
+    expect(valuesFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'mr1',
+        householdId: 'h1',
+        meterType: 'electricity',
+        readingValue: 1234.5,
+        readingDate: '2024-06-01',
+        costCents: 45000,
+        isSynced: false,
+      }),
     );
   });
 
   it('findById returns null when no row found', async () => {
-    const db = {
-      select: jest.fn().mockReturnValue({
-        from: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([]),
-      }),
-    } as any;
+    const limitFn = jest.fn().mockResolvedValue([]);
+    const whereFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
     const repo = new DrizzleMeterReadingRepository(db);
+
     const result = await repo.findById('mr1', 'h1');
+
     expect(result).toBeNull();
   });
 
   it('findById maps row to entity with nullable fields', async () => {
     const row = { ...reading, costCents: null, vehicleId: null, notes: null };
-    const db = {
-      select: jest.fn().mockReturnValue({
-        from: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([row]),
-      }),
-    } as any;
+    const limitFn = jest.fn().mockResolvedValue([row]);
+    const whereFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
     const repo = new DrizzleMeterReadingRepository(db);
+
     const result = await repo.findById('mr1', 'h1');
+
     expect(result?.id).toBe('mr1');
     expect(result?.costCents).toBeNull();
     expect(result?.meterType).toBe('electricity');
+  });
+
+  it('findByHousehold returns readings ordered by date', async () => {
+    const rows = [reading, { ...reading, id: 'mr2', readingDate: '2024-05-01' }];
+    const orderByFn = jest.fn().mockResolvedValue(rows);
+    const whereFn = jest.fn().mockReturnValue({ orderBy: orderByFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
+    const repo = new DrizzleMeterReadingRepository(db);
+
+    const result = await repo.findByHousehold('h1');
+
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe('mr1');
+  });
+
+  it('findByHousehold filters by meterType when provided', async () => {
+    const orderByFn = jest.fn().mockResolvedValue([reading]);
+    const whereFn = jest.fn().mockReturnValue({ orderBy: orderByFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
+    const repo = new DrizzleMeterReadingRepository(db);
+
+    const result = await repo.findByHousehold('h1', 'electricity');
+
+    expect(result).toHaveLength(1);
+    expect(whereFn).toHaveBeenCalled();
   });
 });

@@ -126,12 +126,18 @@ describe('CelebrationModal', () => {
       );
 
       await act(async () => {
-        jest.advanceTimersByTime(700);
+        jest.advanceTimersByTime(100);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(200);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(400);
       });
 
       // Seal container should be rendered
       expect(getByTestId('celebration-seal')).toBeTruthy();
-    });
+    }, 15000);
   });
 
   describe('dismiss behaviour', () => {

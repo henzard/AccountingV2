@@ -1,0 +1,26 @@
+# Issue-template chooser config (installed by repo-review).
+# TAILOR ME: replace OWNER/REPO in the URLs below with this repo's slug, and
+# drop any contact_link whose template you don't ship (e.g. the data-loss one
+# if the project has no sync/replication surface).
+#
+# blank_issues_enabled stays true: the structured templates cover the common
+# cases, but contributors must still be able to open a free-form issue for
+# anything that doesn't fit (a question, a docs nit, a one-off).
+blank_issues_enabled: true
+
+contact_links:
+  - name: Security vulnerability (private disclosure)
+    url: https://github.com/henzard/AccountingV2/security/advisories/new
+    about: >-
+      Do NOT open a public issue for a vulnerability. Report it privately via a
+      GitHub Security Advisory. The public "Security" issue template is only for
+      already-public, low-sensitivity hardening notes.
+
+  # Keep this link ONLY if the project replicates / syncs data and ships the
+  # sync-data-loss template; otherwise delete it.
+  - name: Data-loss / replication correctness
+    url: https://github.com/henzard/AccountingV2/issues/new?template=sync-data-loss.md
+    about: >-
+      Lost / un-replicated writes, divergence between replicas, resurrected
+      deletes, sync churn. Use the data-loss template and describe the failing
+      interleaving.
