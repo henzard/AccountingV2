@@ -318,18 +318,19 @@ describe('DebtDetailScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('LogPayment', { debtId: 'debt-1' });
   });
 
-  it('shows loading state when debt is null (no data)', () => {
-    (db.select as jest.Mock).mockReturnValue({
-      from: jest.fn(() => ({
-        where: jest.fn(() => new Promise(() => {})),
-      })),
-    });
+  it('shows loading indicator when debt is not found', async () => {
+    // Known limitation: DebtDetailScreen uses `if (loading || !debt)` so a
+    // resolved-but-empty query leaves the user on the loading spinner rather
+    // than showing an explicit "not found" error state.
+    setupDbEmpty();
     const { getByTestId } = render(
       <DebtDetailScreen
         route={{ params: { debtId: 'nonexistent' } } as never}
         navigation={mockNavigation}
       />,
     );
-    expect(getByTestId('loading')).toBeTruthy();
+    await waitFor(() => {
+      expect(getByTestId('loading')).toBeTruthy();
+    });
   });
 });

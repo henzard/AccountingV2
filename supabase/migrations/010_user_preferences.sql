@@ -1,4 +1,4 @@
--- supabase/migrations/008_user_preferences.sql
+-- supabase/migrations/010_user_preferences.sql
 -- Stores cross-device user preferences (currently: theme appearance).
 
 CREATE TABLE IF NOT EXISTS public.user_preferences (

@@ -88,6 +88,10 @@ describe('Household Data Isolation — CreateTransactionUseCase', () => {
 
     expect(db.select).toHaveBeenCalled();
     expect(whereTracker.selectWheres.length).toBeGreaterThan(0);
+    // The mock captures the WHERE condition function but cannot evaluate it against
+    // real data. The assertion above confirms a WHERE clause was applied; true
+    // isolation semantics (household-A data invisible to household-B) require an
+    // integration test with a real database.
   });
 
   it('returns ENVELOPE_NOT_FOUND when envelope belongs to a different household', async () => {
@@ -153,6 +157,9 @@ describe('Household Data Isolation — CreateTransactionUseCase', () => {
 
     expect(db.update).toHaveBeenCalled();
     expect(whereTracker.updateWheres.length).toBeGreaterThan(0);
+    // Limitation: the mock DB records that a WHERE was passed but cannot verify it
+    // contains the correct householdId predicate. Full cross-household isolation
+    // (household-A envelope invisible to household-B) needs integration tests.
   });
 });
 
@@ -181,6 +188,8 @@ describe('Household Data Isolation — DeleteTransactionUseCase', () => {
 
     expect(db.delete).toHaveBeenCalled();
     expect(whereTracker.deleteWheres.length).toBeGreaterThan(0);
+    // See note in CreateTransactionUseCase tests: mock DB cannot evaluate the WHERE
+    // predicate, so true cross-household isolation requires integration tests.
   });
 
   it('scopes envelope spentCents decrement to householdId', async () => {

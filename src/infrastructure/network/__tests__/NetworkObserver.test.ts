@@ -75,7 +75,8 @@ describe('NetworkObserver', () => {
       const handler = mockAddEventListener.mock.calls[0][0];
       handler({ isConnected: true, isInternetReachable: true });
 
-      await new Promise((r) => setTimeout(r, 10));
+      await Promise.resolve();
+      await Promise.resolve();
       expect(logger.warn).toHaveBeenCalledWith(
         'NetworkObserver: callback error',
         expect.objectContaining({ err: expect.any(Error) }),
