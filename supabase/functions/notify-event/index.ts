@@ -3,24 +3,73 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 interface NotifyPayload {
   userId: string;
+  householdId: string;
   title: string;
   body: string;
 }
 
 serve(async (req: Request) => {
-  const { userId, title, body }: NotifyPayload = await req.json();
+  if (req.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405 });
+  }
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  );
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
-  const { data: tokens, error } = await supabase
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await userClient.auth.getUser();
+  if (userErr || !user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { userId, householdId, title, body }: NotifyPayload = await req.json();
+
+  const serviceClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+  const { data: membership } = await serviceClient
+    .from('household_members')
+    .select('user_id')
+    .eq('household_id', householdId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!membership) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { data: tokens, error } = await serviceClient
     .from('user_fcm_tokens')
     .select('token')
     .eq('user_id', userId);
 
-  if (error || !tokens || tokens.length === 0) {
+  if (error) {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!tokens || tokens.length === 0) {
     return new Response(JSON.stringify({ sent: 0 }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

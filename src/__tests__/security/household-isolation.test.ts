@@ -248,17 +248,16 @@ describe('Role Escalation Prevention', () => {
     expect(enforcedRole).toBe('member');
   });
 
-  // TODO: FIX - migration 016 drops the role escalation guard from merge_household_member
-  it.failing('016 regression: role escalation guard is present in merge_household_member', () => {
+  it('017 fix: role escalation guard is present in merge_household_member', () => {
     const fs = require('fs');
-    const migration016 = fs.readFileSync(
-      'supabase/migrations/016_lww_direction_independent_tiebreaker.sql',
+    const migration017 = fs.readFileSync(
+      'supabase/migrations/017_fix_merge_regressions.sql',
       'utf-8',
     );
 
-    const mergeHouseholdMemberSection = migration016.slice(
-      migration016.indexOf('CREATE OR REPLACE FUNCTION public.merge_household_member'),
-      migration016.indexOf('GRANT EXECUTE ON FUNCTION public.merge_household_member'),
+    const mergeHouseholdMemberSection = migration017.slice(
+      migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_household_member'),
+      migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_household_member'),
     );
 
     expect(mergeHouseholdMemberSection).toContain("r.role := 'member'");

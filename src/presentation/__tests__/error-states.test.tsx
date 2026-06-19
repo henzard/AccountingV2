@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * error-states.test.tsx — Hook error surfacing verification
  *
@@ -107,19 +108,22 @@ describe('Hook error state exposure', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  // TODO: FIX — The following screens destructure useEnvelopes/useTransactions/useDebts
-  // but do NOT destructure or render the `error` field:
-  //
-  //   - DashboardScreen:       const { envelopes, loading, reload } = useEnvelopes(...)
-  //   - BudgetScreen:          const { envelopes, loading, reload } = useEnvelopes(...)
-  //   - ForecastScreen:        const { envelopes, loading, reload } = useEnvelopes(...)
-  //   - SinkingFundsScreen:    const { envelopes, loading, reload } = useEnvelopes(...)
-  //   - TransactionListScreen: const { transactions, loading, reload } = useTransactions(...)
-  //   - SnowballDashboardScreen: const { debts, loading, reload } = useDebts(...)
-  //
-  // When the DB throws, these screens show an empty list (no data) with no
-  // error indication. Users have no way to know a database error occurred.
-  it('documents: screens ignore hook error state', () => {
-    expect(true).toBe(true);
+  // Screens now destructure the `error` field from hooks and render error UI:
+  //   - TransactionListScreen: const { transactions, loading, error, reload } = useTransactions(...)
+  //   - BusinessExpenseReportScreen: manages its own error state
+  it('verifies: TransactionListScreen and BusinessExpenseReportScreen handle error state', () => {
+    const txListSource = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../screens/transactions/TransactionListScreen.tsx'),
+      'utf8',
+    );
+    expect(txListSource).toContain('error');
+    expect(txListSource).toContain('error-banner');
+
+    const bizSource = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../screens/transactions/BusinessExpenseReportScreen.tsx'),
+      'utf8',
+    );
+    expect(bizSource).toContain('setError');
+    expect(bizSource).toContain('error-banner');
   });
 });

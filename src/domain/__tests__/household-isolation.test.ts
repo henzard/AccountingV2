@@ -51,6 +51,7 @@ function createMockDb() {
     insert: jest.fn(() => ({
       values: jest.fn().mockResolvedValue(undefined),
     })),
+    transaction: jest.fn(async (cb: any) => cb(db)),
   };
 
   return { db, whereTracker, selectCalls, updateCalls, deleteCalls, insertCalls };

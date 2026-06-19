@@ -171,18 +171,14 @@ describe('BusinessExpenseReportScreen', () => {
     expect(queryByText('R0.00')).toBeNull();
   });
 
-  // TODO: FIX — When the DB query throws, the catch block sets groups to [],
-  // which shows the "No business expenses" empty state instead of a proper
-  // error message. The user has no idea a DB error occurred.
-  it('shows empty state instead of error UI on DB error (bug)', async () => {
+  it('shows error banner on DB error', async () => {
     setupDbError();
     mockGroupBusinessExpenses.mockReturnValue([]);
 
-    const { getByTestId, queryByText } = render(<BusinessExpenseReportScreen />);
+    const { getByTestId } = render(<BusinessExpenseReportScreen />);
     await waitFor(() => {
-      expect(getByTestId('biz-expense-empty')).toBeTruthy();
+      expect(getByTestId('error-banner')).toBeTruthy();
     });
-    expect(queryByText(/error/i)).toBeNull();
   });
 
   it('only queries for active household data', async () => {

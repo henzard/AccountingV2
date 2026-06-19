@@ -181,9 +181,21 @@ describe('Auth Edge Cases', () => {
       const restoreService = new RestoreService(db, supabase);
       await restoreService.restore(HENZARD.id);
 
-      // The household insert should set isSynced: true in the conflict update
       const insertCall = db.insert.mock.calls[0];
       expect(insertCall).toBeDefined();
+
+      const insertResult = db.insert(insertCall[0]);
+      const valuesResult = insertResult.values(db.insertedRows[0]?.values);
+      const onConflict = valuesResult.onConflictDoUpdate;
+      expect(onConflict).toBeDefined();
+
+      if (db.insertedRows.length > 0) {
+        const insertedValues = db.insertedRows[0].values;
+        const hasIsSynced = Array.isArray(insertedValues)
+          ? insertedValues.some((v: any) => v.isSynced === true)
+          : insertedValues?.isSynced === true;
+        expect(hasIsSynced).toBe(true);
+      }
     });
 
     it('returns empty array when user has no memberships', async () => {

@@ -34,15 +34,17 @@ describe('useAppTheme logic', () => {
 
   it('preference=system + OS dark -> effective dark', () => {
     useThemeStore.setState({ preference: 'system' });
+    const pref = useThemeStore.getState().preference;
     const osScheme = 'dark';
-    const effective = 'system' === 'system' ? osScheme : 'system';
+    const effective = pref === 'system' ? osScheme : pref;
     expect(effective).toBe('dark');
   });
 
   it('preference=system + OS light -> effective light', () => {
     useThemeStore.setState({ preference: 'system' });
+    const pref = useThemeStore.getState().preference;
     const osScheme = 'light';
-    const effective = 'system' === 'system' ? osScheme : 'system';
+    const effective = pref === 'system' ? osScheme : pref;
     expect(effective).toBe('light');
   });
 

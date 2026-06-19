@@ -219,29 +219,34 @@ describe('extract-slip Edge Function Auth Behavior', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('notify-event Edge Function Auth', () => {
-  // TODO: FIX - notify-event has NO authentication/authorization check.
-  // Any caller can send push notifications to any user without a JWT.
-  // This is a security vulnerability that should be addressed.
-  it('VULNERABILITY: notify-event has no auth check — any caller can trigger notifications', () => {
-    const hasIncomingAuthCheck =
+  it('checks for Authorization header', () => {
+    const hasAuthCheck =
       NOTIFY_EVENT_SOURCE.includes("req.headers.get('Authorization')") ||
-      NOTIFY_EVENT_SOURCE.includes('req.headers.get("Authorization")') ||
-      NOTIFY_EVENT_SOURCE.includes('auth.getUser');
+      NOTIFY_EVENT_SOURCE.includes('req.headers.get("Authorization")');
 
-    expect(hasIncomingAuthCheck).toBe(false);
+    expect(hasAuthCheck).toBe(true);
   });
 
-  it('VULNERABILITY: notify-event accepts arbitrary userId without validation', () => {
-    const hasUserIdValidation =
-      NOTIFY_EVENT_SOURCE.includes('auth.uid()') || NOTIFY_EVENT_SOURCE.includes('caller');
-
-    expect(hasUserIdValidation).toBe(false);
+  it('validates user via auth.getUser()', () => {
+    expect(NOTIFY_EVENT_SOURCE).toContain('auth.getUser()');
   });
 
-  it('VULNERABILITY: notify-event does not verify caller is in the same household as target user', () => {
-    const hasHouseholdCheck =
-      NOTIFY_EVENT_SOURCE.includes('household') || NOTIFY_EVENT_SOURCE.includes('user_households');
+  it('verifies caller is a member of the target household', () => {
+    expect(NOTIFY_EVENT_SOURCE).toContain('household_members');
+    expect(NOTIFY_EVENT_SOURCE).toContain('household');
+  });
 
-    expect(hasHouseholdCheck).toBe(false);
+  it('returns 401 if no Authorization header is present', () => {
+    expect(NOTIFY_EVENT_SOURCE).toContain('status: 401');
+  });
+
+  it('returns 403 if caller is not in the household', () => {
+    expect(NOTIFY_EVENT_SOURCE).toContain('status: 403');
+    expect(NOTIFY_EVENT_SOURCE).toContain('Forbidden');
+  });
+
+  it('rejects non-POST methods', () => {
+    expect(NOTIFY_EVENT_SOURCE).toContain("req.method !== 'POST'");
+    expect(NOTIFY_EVENT_SOURCE).toContain('status: 405');
   });
 });

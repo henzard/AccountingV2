@@ -35,7 +35,11 @@ async function handleNotifyEvent(
     .select('token')
     .eq('user_id', payload.userId);
 
-  if (error || !tokens || tokens.length === 0) {
+  if (error) {
+    return { status: 500, body: { error: 'Internal server error' } };
+  }
+
+  if (!tokens || tokens.length === 0) {
     return { status: 200, body: { sent: 0 } };
   }
 
@@ -118,8 +122,8 @@ describe('notify-event handler', () => {
     expect(result.body).toEqual({ sent: 0 });
   });
 
-  it('null tokens (query error) returns {sent: 0}', async () => {
-    const supabase = mockSupabase(null);
+  it('null tokens (no error) returns {sent: 0}', async () => {
+    const supabase = mockSupabase(null, null);
 
     const result = await handleNotifyEvent(VALID_PAYLOAD, supabase, 'fcm-key-123', jest.fn());
 
@@ -127,13 +131,13 @@ describe('notify-event handler', () => {
     expect(result.body).toEqual({ sent: 0 });
   });
 
-  it('supabase query error returns {sent: 0}', async () => {
+  it('supabase query error returns 500', async () => {
     const supabase = mockSupabase(null, { message: 'DB error' });
 
     const result = await handleNotifyEvent(VALID_PAYLOAD, supabase, 'fcm-key-123', jest.fn());
 
-    expect(result.status).toBe(200);
-    expect(result.body).toEqual({ sent: 0 });
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'Internal server error' });
   });
 
   it('missing FCM_SERVER_KEY returns 500', async () => {

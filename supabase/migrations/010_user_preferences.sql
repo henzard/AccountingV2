@@ -19,3 +19,6 @@ CREATE POLICY up_insert ON public.user_preferences
 CREATE POLICY up_update ON public.user_preferences
   FOR UPDATE USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
+
+-- No DELETE policy: preferences are upserted, never deleted by the client.
+-- Rows are cascade-deleted when the auth.users row is removed.

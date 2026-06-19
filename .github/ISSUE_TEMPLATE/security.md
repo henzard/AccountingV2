@@ -7,8 +7,7 @@ assignees: ''
 ---
 
 <!--
-TAILOR ME — generic security hardening-note template installed by repo-review.
-Adjust the "Affected surface" checkboxes and the audit doc paths to THIS repo.
+Security hardening-note template for AccountingV2.
 
 ⚠ STOP if this is a live, exploitable vulnerability.
 
@@ -48,14 +47,13 @@ discuss here.
 
 ## Affected surface
 
-<!-- TAILOR: replace with the security-relevant surfaces this repo actually has. -->
-
-- [ ] Auth / session tokens
-- [ ] Credentials / secrets handling
-- [ ] Server / API endpoints
-- [ ] Outbound requests / proxy (SSRF surface)
-- [ ] Update / install transport
-- [ ] Logging / data exposure
+- [ ] Supabase Auth / session tokens
+- [ ] API keys / service-role secrets
+- [ ] Supabase Edge Functions (extract-slip, notify-event)
+- [ ] RLS policies / merge RPCs
+- [ ] Local SQLite database / AsyncStorage
+- [ ] Sync orchestrator (push/pull)
+- [ ] Logging / data exposure (POPIA)
 - [ ] Other:
 
 ## Suggested remediation

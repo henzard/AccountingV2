@@ -366,6 +366,7 @@ describe('RestoreService.restoreUserConsent — data rows', () => {
       },
     ];
 
+    const insertedTables: string[] = [];
     const onConflictDoUpdateMock = jest.fn().mockResolvedValue({});
     const supabase = {
       from: (table: string) => ({
@@ -387,17 +388,21 @@ describe('RestoreService.restoreUserConsent — data rows', () => {
     } as any;
 
     const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: onConflictDoUpdateMock,
-          onConflictDoNothing: jest.fn().mockResolvedValue({}),
-        }),
-      }),
+      insert: (tableRef: unknown) => {
+        insertedTables.push(String(tableRef));
+        return {
+          values: () => ({
+            onConflictDoUpdate: onConflictDoUpdateMock,
+            onConflictDoNothing: jest.fn().mockResolvedValue({}),
+          }),
+        };
+      },
     } as any;
 
     const svc = new RestoreService(db, supabase);
     await svc.restoreHousehold('hh-1', 'owner', 'user-1');
     expect(onConflictDoUpdateMock).toHaveBeenCalled();
+    expect(insertedTables.length).toBeGreaterThan(0);
   });
 
   it('skips user_consent when Supabase returns an error', async () => {

@@ -227,17 +227,7 @@ describe('AddTransactionScreen — error paths', () => {
     expect(getByText('Record Transaction')).toBeTruthy();
   });
 
-  // TODO: FIX — unhandled rejection: doSave has try/finally but no catch block.
-  // When CreateTransactionUseCase.execute() throws (network/DB crash), the
-  // rejection propagates as an unhandled promise rejection because doSave is
-  // invoked with `void doSave(amountCents)` (no .catch()).
-  //
-  // The finally block still runs (clears loading + isSaving), but the user
-  // sees no error feedback — no snackbar, no toast, nothing.
-  //
-  // Cannot trigger the throw in a Jest test because the unhandled rejection
-  // crashes the test runner itself — this IS the bug: there's no catch.
-  it('doSave has no catch block (documented gap)', () => {
+  it('doSave has a catch block that handles thrown errors', () => {
     const source = require('fs').readFileSync(
       require('path').resolve(__dirname, '../AddTransactionScreen.tsx'),
       'utf-8',
@@ -248,7 +238,22 @@ describe('AddTransactionScreen — error paths', () => {
     );
 
     expect(hasTryFinally).toBe(true);
-    expect(hasCatchBlock).toBe(false);
+    expect(hasCatchBlock).toBe(true);
+  });
+
+  it('doSave catch block shows error snackbar when execute() throws', async () => {
+    mockExecute.mockRejectedValue(new Error('Network timeout'));
+
+    const { getByText, getByTestId, queryByTestId } = render(
+      <AddTransactionScreen {...makeNavProps()} />,
+    );
+
+    fireEvent.changeText(getByTestId('Amount (R)'), '50');
+    fireEvent.press(getByText('Record Transaction'));
+
+    await waitFor(() => {
+      expect(queryByTestId('snackbar-error')).toBeTruthy();
+    });
   });
 
   it('doSave returning error result shows snackbar correctly', async () => {

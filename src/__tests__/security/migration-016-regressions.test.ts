@@ -7,8 +7,7 @@
  * - 006: slip_id in merge_transaction, new slip_queue schema
  * - 012: role escalation guard in merge_household_member
  *
- * These tests DOCUMENT known regressions. They use it.failing() because
- * the assertions correctly identify missing functionality.
+ * Migration 017 fixes all 5 regressions.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -25,12 +24,14 @@ function readMigration(filename: string): string {
 
 describe('Migration 016 Regressions', () => {
   let migration016: string;
+  let migration017: string;
   let migration009: string;
   let migration006: string;
   let migration012: string;
 
   beforeAll(() => {
     migration016 = readMigration('016_lww_direction_independent_tiebreaker.sql');
+    migration017 = readMigration('017_fix_merge_regressions.sql');
     migration009 = readMigration('009_sinking_funds.sql');
     migration006 = readMigration('006_slip_scanning.sql');
     migration012 = readMigration('012_fix_role_escalation.sql');
@@ -45,26 +46,19 @@ describe('Migration 016 Regressions', () => {
       expect(mergeEnvSection).toContain('target_date');
     });
 
-    // REGRESSION: 016 drops target_amount_cents and target_date from merge_envelope
-    // TODO: FIX in migration 017
-    it.failing(
-      'should include target_amount_cents in merge_envelope (REGRESSION: 016 drops this)',
-      () => {
-        const mergeEnvSection = migration016.slice(
-          migration016.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
-          migration016.indexOf('GRANT EXECUTE ON FUNCTION public.merge_envelope'),
-        );
+    it('should include target_amount_cents in merge_envelope (fixed in 017)', () => {
+      const mergeEnvSection = migration017.slice(
+        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
+        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_envelope'),
+      );
 
-        expect(mergeEnvSection).toContain('target_amount_cents');
-      },
-    );
+      expect(mergeEnvSection).toContain('target_amount_cents');
+    });
 
-    // REGRESSION: 016 drops target_date from merge_envelope
-    // TODO: FIX in migration 017
-    it.failing('should include target_date in merge_envelope (REGRESSION: 016 drops this)', () => {
-      const mergeEnvSection = migration016.slice(
-        migration016.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
-        migration016.indexOf('GRANT EXECUTE ON FUNCTION public.merge_envelope'),
+    it('should include target_date in merge_envelope (fixed in 017)', () => {
+      const mergeEnvSection = migration017.slice(
+        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
+        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_envelope'),
       );
 
       expect(mergeEnvSection).toContain('target_date');
@@ -79,12 +73,10 @@ describe('Migration 016 Regressions', () => {
       expect(mergeTxSection).toContain('slip_id');
     });
 
-    // REGRESSION: 016 drops slip_id from merge_transaction
-    // TODO: FIX in migration 017
-    it.failing('should include slip_id in merge_transaction (REGRESSION: 016 drops this)', () => {
-      const mergeTxSection = migration016.slice(
-        migration016.indexOf('CREATE OR REPLACE FUNCTION public.merge_transaction'),
-        migration016.indexOf('GRANT EXECUTE ON FUNCTION public.merge_transaction'),
+    it('should include slip_id in merge_transaction (fixed in 017)', () => {
+      const mergeTxSection = migration017.slice(
+        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_transaction'),
+        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_transaction'),
       );
 
       expect(mergeTxSection).toContain('slip_id');
@@ -96,19 +88,14 @@ describe('Migration 016 Regressions', () => {
       expect(migration012).toContain("r.role := 'member'");
     });
 
-    // REGRESSION: 016 drops the role escalation guard from merge_household_member
-    // TODO: FIX in migration 017
-    it.failing(
-      'should include role escalation guard in merge_household_member (REGRESSION: 016 drops this)',
-      () => {
-        const mergeHmSection = migration016.slice(
-          migration016.indexOf('CREATE OR REPLACE FUNCTION public.merge_household_member'),
-          migration016.indexOf('GRANT EXECUTE ON FUNCTION public.merge_household_member'),
-        );
+    it('should include role escalation guard in merge_household_member (fixed in 017)', () => {
+      const mergeHmSection = migration017.slice(
+        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_household_member'),
+        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_household_member'),
+      );
 
-        expect(mergeHmSection).toContain("r.role := 'member'");
-      },
-    );
+      expect(mergeHmSection).toContain("r.role := 'member'");
+    });
   });
 
   describe('merge_slip_queue: column schema (migration 006)', () => {
@@ -118,22 +105,16 @@ describe('Migration 016 Regressions', () => {
       expect(migration006).toContain('openai_cost_cents');
     });
 
-    // REGRESSION: 016 merge_slip_queue uses pre-006 columns (image_base64, extracted_json)
-    // instead of the current schema (image_uris, created_by, merchant, etc.)
-    // TODO: FIX in migration 017
-    it.failing(
-      'merge_slip_queue should use current table schema (REGRESSION: 016 uses pre-006 columns)',
-      () => {
-        const mergeSlipSection = migration016.slice(
-          migration016.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
-          migration016.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
-        );
+    it('merge_slip_queue should use current table schema (fixed in 017)', () => {
+      const mergeSlipSection = migration017.slice(
+        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
+        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
+      );
 
-        expect(mergeSlipSection).toContain('created_by');
-        expect(mergeSlipSection).not.toContain('image_base64');
-        expect(mergeSlipSection).not.toContain('extracted_json');
-      },
-    );
+      expect(mergeSlipSection).toContain('created_by');
+      expect(mergeSlipSection).not.toContain('image_base64');
+      expect(mergeSlipSection).not.toContain('extracted_json');
+    });
   });
 
   describe('LWW operator change documentation', () => {

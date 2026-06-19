@@ -105,13 +105,13 @@ describe('Concurrent User Sync — spentCents Drift Detection', () => {
     } as any;
 
     jest.resetModules();
-    jest.mock('expo-crypto', () => ({
+    jest.doMock('expo-crypto', () => ({
       randomUUID: () => 'mock-uuid-' + Math.random().toString(36).slice(2),
     }));
-    jest.mock('../../infrastructure/logging/Logger', () => ({
+    jest.doMock('../../infrastructure/logging/Logger', () => ({
       logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
     }));
-    jest.mock('../../domain/babySteps/ReconcileEmergencyFundTypeUseCase', () => ({
+    jest.doMock('../../domain/babySteps/ReconcileEmergencyFundTypeUseCase', () => ({
       ReconcileEmergencyFundTypeUseCase: jest.fn().mockImplementation(() => ({
         execute: jest.fn().mockResolvedValue({ success: true, data: { flipped: 0 } }),
       })),
@@ -128,9 +128,13 @@ describe('Concurrent User Sync — spentCents Drift Detection', () => {
     const syncedRowB = rpcMockB.mock.calls[0][1] as { r: Record<string, unknown> };
     expect(syncedRowB.r.spent_cents).toBe(103000);
 
-    // TODO: FIX — LWW means the server either has 105000 or 103000.
-    // The correct value should be 108000 (base + 5000 + 3000).
-    // Neither device's RPC payload sums both increments.
+    // KNOWN-GAP: LWW-001 — merge_envelope uses Last-Write-Wins on spentCents.
+    // The server holds whichever device had the newer updated_at timestamp.
+    // Correct behavior: server should SUM increments (108000 = base + 5000 + 3000).
+    // Actual behavior: server holds either 105000 or 103000, losing one increment.
+    // Severity: HIGH — silent data loss on concurrent spending in shared households.
+    // Proposed fix: Replace absolute spentCents write with delta-based SQL increment
+    // in merge_envelope RPC, or adopt CRDT counter for spentCents.
     const correctSum = baseSpentCents + 5000 + 3000; // 108000
     expect(syncedRow.r.spent_cents).not.toBe(correctSum);
     expect(syncedRowB.r.spent_cents).not.toBe(correctSum);
@@ -145,8 +149,10 @@ describe('Concurrent User Sync — spentCents Drift Detection', () => {
     const aliciaSpent = groceries.spentCents + 14200;
     const correctTotal = groceries.spentCents + 18500 + 14200;
 
-    // TODO: FIX — With LWW, the server will hold whichever timestamp wins.
-    // The losing device's increment is permanently lost.
+    // KNOWN-GAP: LWW-002 — Same issue as LWW-001 demonstrated with Kruger household data.
+    // With LWW, the server holds whichever timestamp wins; the losing device's
+    // spending increment is permanently lost with no conflict notification.
+    // Severity: HIGH — real-world scenario with Henzard & Alicia shopping concurrently.
     expect(henzardSpent).not.toBe(correctTotal);
     expect(aliciaSpent).not.toBe(correctTotal);
   });
@@ -182,7 +188,12 @@ describe('Concurrent User Sync — Debt Payment Lost Update', () => {
 
     // If Alicia's write lands last, server has 310000 (wrong — Henzard's payment lost)
     // If Henzard's write lands last, server has 305000 (wrong — Alicia's payment lost)
-    // TODO: FIX — outstandingBalanceCents should use SQL - (atomic decrement) like totalPaidCents
+    // KNOWN-GAP: LWW-003 — outstandingBalanceCents uses absolute LWW overwrite instead
+    // of atomic SQL decrement. totalPaidCents correctly uses SQL + on server, but
+    // outstandingBalanceCents is set as an absolute value, causing lost updates.
+    // Severity: HIGH — debt payments from one user silently disappear.
+    // Proposed fix: Change merge_debt RPC to compute outstandingBalanceCents server-side
+    // as (originalBalance - totalPaidCents) rather than accepting client-computed value.
     expect(henzardOutstanding).not.toBe(correctOutstanding);
     expect(aliciaOutstanding).not.toBe(correctOutstanding);
 
@@ -262,8 +273,14 @@ describe('Concurrent User Sync — Same-Record Field Conflicts', () => {
     // Server merge_envelope compares updated_at: Device A (10:00:05) > Device B (10:00:03)
     // Server keeps Device A's row entirely. Device B's allocatedCents=900000 is DROPPED.
 
-    // TODO: FIX — No field-level merge means Device B's allocatedCents change is silently lost.
-    // The user who changed the allocation gets no notification that their edit was discarded.
+    // KNOWN-GAP: LWW-004 — No field-level merge. merge_envelope compares updated_at
+    // at the ROW level and takes the entire winning row. Device B's allocatedCents=900000
+    // is silently dropped because Device A has a newer timestamp. The user who changed
+    // the allocation gets no error, no conflict notification.
+    // Severity: MEDIUM — non-additive fields (names, flags) are less critical than
+    // counters, but still cause silent data loss in multi-device households.
+    // Proposed fix: Implement field-level merge with per-column updated_at tracking,
+    // or use operational transform for non-counter fields.
     expect(deviceBRow.allocatedCents).toBe(900000);
     expect(deviceARow.allocatedCents).toBe(800000);
     // Server will hold 800000, not 900000 — Device B's edit is dropped silently
@@ -316,8 +333,12 @@ describe('Concurrent User Sync — Same-Record Field Conflicts', () => {
 
     const result = await orch.syncPending();
 
-    // merge_envelope RPC returns success even when the row is rejected by LWW
-    // TODO: FIX — No mechanism to notify the user that their edit was silently dropped
+    // KNOWN-GAP: LWW-005 — merge_envelope RPC returns success even when the row is
+    // rejected by LWW on the server side. The client receives no indication that its
+    // data was discarded. syncPending() reports synced=1, failed=0.
+    // Severity: MEDIUM — UX gap. Users believe their edit saved when it was silently dropped.
+    // Proposed fix: merge RPCs should return a `conflict: true` flag when LWW rejects
+    // the incoming row, allowing the client to surface a conflict resolution UI.
     expect(result.synced).toBe(1);
     expect(result.failed).toBe(0);
     expect(rpcMock).toHaveBeenCalledTimes(1);

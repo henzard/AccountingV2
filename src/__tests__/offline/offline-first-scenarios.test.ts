@@ -67,7 +67,7 @@ function createMockDb(envelopeRows: unknown[] = []) {
     where: jest.fn().mockReturnValue(whereClause),
   };
 
-  return {
+  const db: any = {
     inserted,
     updated,
     insert: jest.fn().mockImplementation((_table: any) => ({
@@ -85,7 +85,10 @@ function createMockDb(envelopeRows: unknown[] = []) {
     select: jest.fn().mockReturnValue({
       from: jest.fn().mockReturnValue(chainable),
     }),
-  } as any;
+    transaction: jest.fn(async (cb: any) => cb(db)),
+  };
+
+  return db;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

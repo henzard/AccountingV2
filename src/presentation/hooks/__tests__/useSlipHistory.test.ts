@@ -124,22 +124,34 @@ describe('useSlipHistory', () => {
     });
   });
 
-  it('ignores stale response after unmount (cleanup cancellation)', async () => {
-    let resolvePromise: (rows: SlipQueueRow[]) => void;
+  it('ignores stale response when householdId changes (stale-race)', async () => {
+    let resolveStale: (rows: SlipQueueRow[]) => void;
     const repo = createMockRepo();
-    (repo.listByHousehold as jest.Mock).mockReturnValue(
-      new Promise<SlipQueueRow[]>((r) => {
-        resolvePromise = r;
-      }),
-    );
+    const freshRow = makeRow({ id: 'slip-fresh', householdId: 'hh-2' });
 
-    const { result, unmount } = renderHook(() => useSlipHistory(repo, 'hh-1'));
+    (repo.listByHousehold as jest.Mock).mockImplementation((hhId: string) => {
+      if (hhId === 'hh-1') {
+        return new Promise<SlipQueueRow[]>((r) => {
+          resolveStale = r;
+        });
+      }
+      return Promise.resolve([freshRow]);
+    });
 
-    unmount();
-    resolvePromise!([makeRow()]);
+    const { result, rerender } = renderHook(({ hh }: { hh: string }) => useSlipHistory(repo, hh), {
+      initialProps: { hh: 'hh-1' },
+    });
 
-    // Should still be empty because the effect was cancelled
-    expect(result.current).toEqual([]);
+    rerender({ hh: 'hh-2' });
+
+    await waitFor(() => {
+      expect(result.current).toEqual([freshRow]);
+    });
+
+    resolveStale!([makeRow()]);
+    await Promise.resolve();
+
+    expect(result.current).toEqual([freshRow]);
   });
 
   it('returns empty when repository returns empty list', async () => {

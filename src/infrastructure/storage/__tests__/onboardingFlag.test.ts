@@ -74,6 +74,14 @@ describe('onboardingFlag', () => {
     });
   });
 
+  describe('read-failure propagation', () => {
+    it('propagates storage read errors from isOnboardingComplete', async () => {
+      (AsyncStorage.getItem as jest.Mock).mockRejectedValueOnce(new Error('Read failed'));
+
+      await expect(isOnboardingComplete('u', 'h')).rejects.toThrow('Read failed');
+    });
+  });
+
   describe('key format', () => {
     it('uses correct key format with special characters in ids', async () => {
       await markOnboardingComplete('user@email.com', 'hh-with-dashes');

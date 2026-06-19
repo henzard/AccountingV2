@@ -104,7 +104,7 @@ describe('Sync Integrity — Sync Latch', () => {
     // Immediately start second sync — should bounce
     const second = await orch.syncPending();
 
-    expect(second).toEqual({ synced: 0, failed: 0, emfFlipped: 0 });
+    expect(second).toEqual({ synced: 0, failed: 0, deadLettered: 0, emfFlipped: 0 });
 
     await first; // let first finish
   });
@@ -232,6 +232,7 @@ describe('Sync Integrity — DLQ (Dead Letter Queue)', () => {
 });
 
 describe('Sync Integrity — Exponential Backoff', () => {
+  // Tests local backoff math only; does not exercise the SyncOrchestrator's scheduling.
   it.each([
     [0, 1000],
     [1, 2000],

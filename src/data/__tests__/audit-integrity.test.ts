@@ -23,8 +23,16 @@ function makeMockDb() {
     }),
   });
 
+  const db = {
+    insert: mockInsert,
+    update: mockUpdate,
+    delete: mockDelete,
+    select: mockSelect,
+  } as any;
+  db.transaction = jest.fn(async (cb: any) => cb(db));
+
   return {
-    db: { insert: mockInsert, update: mockUpdate, delete: mockDelete, select: mockSelect } as any,
+    db,
     insertValues,
     mockInsert,
   };

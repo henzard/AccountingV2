@@ -56,7 +56,7 @@ Authorization headers, credentials, or secrets before pasting — they must
 never appear in a public issue.
 -->
 
-```
+```text
 <paste here>
 ```
 

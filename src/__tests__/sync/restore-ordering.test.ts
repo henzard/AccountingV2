@@ -139,11 +139,14 @@ describe('RestoreService — Restore-Before-Push Ordering', () => {
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('Kruger');
 
-    // TODO: FIX — The restore overwrites ALL non-id, non-isSynced columns.
-    // Local dirty data (name: 'Groceries - Updated Offline', allocatedCents: 950000)
-    // is replaced with stale remote data (name: 'Groceries', allocatedCents: 800000).
-    // Rows with isSynced=false SHOULD be protected but AREN'T — only isSynced
-    // itself is excluded from the conflict-update set.
+    // KNOWN-GAP: RESTORE-001 — restoreTable() overwrites ALL non-id, non-isSynced columns
+    // via onConflictDoUpdate. Local dirty data (e.g. name: 'Groceries - Updated Offline',
+    // allocatedCents: 950000) is replaced with stale remote values.
+    // The isSynced column is excluded from the conflict set, but the actual DATA columns
+    // (name, allocatedCents, spentCents, etc.) are all overwritten.
+    // Severity: HIGH — offline edits silently lost on next app open.
+    // Proposed fix: restoreTable should skip onConflictDoUpdate for rows where the
+    // local isSynced=false, or compare updatedAt and keep newer local values.
     expect(db.insert).toHaveBeenCalled();
   });
 
@@ -166,10 +169,14 @@ describe('RestoreService — Restore-Before-Push Ordering', () => {
     expect(pendingSyncItem.tableName).toBe('envelopes');
     expect(pendingSyncItem.recordId).toBe(KRUGER_ENVELOPES[0].id);
 
-    // TODO: FIX — RestoreService does not check or clear pending_sync entries.
-    // After restore, the pending_sync entry points to a row whose values have
-    // been overwritten with remote data. SyncPending will then push stale data
-    // back to the server, creating a useless round-trip with no user benefit.
+    // KNOWN-GAP: RESTORE-002 — RestoreService does not check or clear pending_sync entries.
+    // After restore overwrites local data, pending_sync still references the record.
+    // SyncPending will then read the (now stale) local row and push it back to server,
+    // creating a useless round-trip that may also overwrite newer server data.
+    // Severity: MEDIUM — no data loss beyond what RESTORE-001 already caused, but
+    // wastes bandwidth and risks writing stale data back to server.
+    // Proposed fix: RestoreService should either (a) delete pending_sync entries for
+    // records it overwrites, or (b) skip conflict-update for records with pending entries.
     expect(pendingSyncItem.operation).toBe('UPDATE');
   });
 
@@ -241,18 +248,22 @@ describe('RestoreService — Restore-Before-Push Ordering', () => {
     await service.restore(USERS.henzard.id);
 
     // The set clause for envelope restore includes all columns EXCEPT id and isSynced
-    // TODO: FIX — Columns like name, allocatedCents, spentCents, updatedAt are all
-    // overwritten with remote values. A dirty local row (isSynced=false) has its
-    // DATA overwritten even though isSynced stays false.
-    // Find the envelope-specific conflict set (has spentCents, unlike household)
+    // KNOWN-GAP: RESTORE-003 — The onConflictDoUpdate set includes ALL data columns
+    // (name, allocatedCents, spentCents, updatedAt, etc.). Only `id` and `isSynced`
+    // are excluded. This means a dirty local row keeps isSynced=false but has all
+    // its data replaced with remote values — a contradictory state.
+    // Severity: HIGH — the row claims it needs syncing (isSynced=false) but contains
+    // stale remote data, not the user's offline edit. Combined with RESTORE-002,
+    // this pushes stale data back to server.
+    // Proposed fix: Add updatedAt comparison in onConflictDoUpdate WHERE clause:
+    // only overwrite columns when remote.updated_at > local.updated_at.
     const envelopeConflictSet = conflictSets.find(
       (s: Record<string, unknown>) => s && typeof s === 'object' && 'spentCents' in s,
     );
     if (envelopeConflictSet) {
       expect(envelopeConflictSet).not.toHaveProperty('id');
-      // isSynced IS excluded from entity-table restoreTable — the dynamic column filter
-      // removes it. But the household restore hardcodes isSynced: true in its set.
       expect(envelopeConflictSet).not.toHaveProperty('isSynced');
+      // These data columns ARE present in the conflict set — confirming the gap:
       expect(envelopeConflictSet).toHaveProperty('name');
       expect(envelopeConflictSet).toHaveProperty('allocatedCents');
       expect(envelopeConflictSet).toHaveProperty('spentCents');

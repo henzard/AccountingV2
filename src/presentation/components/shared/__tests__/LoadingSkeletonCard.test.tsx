@@ -10,6 +10,8 @@ describe('LoadingSkeletonCard', () => {
 
   it('renders multiple skeleton lines', () => {
     const tree = render(<LoadingSkeletonCard />);
-    expect(tree.toJSON()).toBeTruthy();
+    const json = tree.toJSON() as { children?: unknown[] };
+    expect(json).toBeTruthy();
+    expect(json.children?.length).toBe(3);
   });
 });

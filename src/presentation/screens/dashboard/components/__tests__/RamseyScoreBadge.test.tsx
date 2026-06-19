@@ -57,8 +57,9 @@ describe('RamseyScoreBadge', () => {
   });
 
   it('clamps score at 0', () => {
-    const { getByText } = render(<RamseyScoreBadge score={-5} />);
-    expect(getByText('-5')).toBeTruthy();
+    const { UNSAFE_root } = render(<RamseyScoreBadge score={-5} />);
+    const progressBar = UNSAFE_root.findByProps({ accessibilityRole: 'progressbar' });
+    expect(progressBar.props.accessibilityValue.now).toBe(0);
   });
 
   it('renders at boundary score 100', () => {

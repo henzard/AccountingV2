@@ -202,9 +202,7 @@ describe('TransactionListScreen', () => {
     alertSpy.mockRestore();
   });
 
-  // TODO: FIX — hook error state is not handled by the screen; it renders empty
-  // state even when an error occurs because useTransactions returns transactions: []
-  it('shows empty state when hook returns error (no explicit error UI)', () => {
+  it('shows error banner when hook returns error', () => {
     mockUseTransactions.mockReturnValue({
       transactions: [],
       loading: false,
@@ -217,6 +215,6 @@ describe('TransactionListScreen', () => {
         navigation={{ navigate: mockNavigate } as never}
       />,
     );
-    expect(getByTestId('transaction-list-empty-state')).toBeTruthy();
+    expect(getByTestId('error-banner')).toBeTruthy();
   });
 });

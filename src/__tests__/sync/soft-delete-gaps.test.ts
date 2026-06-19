@@ -31,12 +31,7 @@ describe('Soft-Delete Gaps — Migration 0009 Not Registered', () => {
    * `deleted_at` columns to all domain tables. However, it is NOT registered
    * in migrations.js, so it never runs on the device.
    */
-  it('documents that migration 0009 is NOT listed in migrations.js', () => {
-    // migrations.js imports m0000 through m0008 — no m0009
-    // The file src/data/local/migrations/0009_soft_delete_tombstones.sql exists
-    // but is not imported or registered.
-
-    // Read the source file directly (the module is stubbed in test env)
+  it('verifies that migration 0009 IS registered in migrations.js', () => {
     const fs = require('fs');
     const path = require('path');
     const migrationsSource = fs.readFileSync(
@@ -44,16 +39,17 @@ describe('Soft-Delete Gaps — Migration 0009 Not Registered', () => {
       'utf8',
     );
 
-    // m0008 is the last registered migration
     expect(migrationsSource).toContain('m0008');
-    // TODO: FIX — m0009 is NOT registered. The soft-delete migration never runs.
-    expect(migrationsSource).not.toContain('m0009');
+    expect(migrationsSource).toContain('m0009');
   });
 
-  it('documents that 0009 SQL file adds deleted_at to all domain tables', () => {
-    // The SQL file exists and would add deleted_at TEXT columns to:
-    // envelopes, transactions, debts, meter_readings, baby_steps, households, household_members
-    // But since it's not in migrations.js, the columns don't exist at runtime.
+  it('verifies that 0009 SQL file adds deleted_at to all domain tables', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const sql = fs.readFileSync(
+      path.resolve(__dirname, '../../data/local/migrations/0009_soft_delete_tombstones.sql'),
+      'utf8',
+    );
 
     const expectedTables = [
       'envelopes',
@@ -65,9 +61,8 @@ describe('Soft-Delete Gaps — Migration 0009 Not Registered', () => {
       'household_members',
     ];
 
-    // TODO: FIX — Register migration 0009 in migrations.js to enable soft-delete
     expectedTables.forEach((table) => {
-      expect(table).toBeTruthy();
+      expect(sql).toContain(`\`${table}\` ADD \`deleted_at\``);
     });
   });
 });

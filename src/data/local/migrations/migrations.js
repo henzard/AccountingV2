@@ -10,6 +10,7 @@ import m0005 from './0005_pending_sync_dlq.sql';
 import m0006 from './0006_round_betty_brant.sql';
 import m0007 from './0007_household_members_updated_at.sql';
 import m0008 from './0008_slip_scanning.sql';
+import m0009 from './0009_soft_delete_tombstones.sql';
 
 export default {
   journal,
@@ -23,5 +24,6 @@ export default {
     m0006,
     m0007,
     m0008,
+    m0009,
   },
 };

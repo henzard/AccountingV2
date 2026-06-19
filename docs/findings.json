@@ -6,8 +6,8 @@
   "tags": ["AccountingV2", "Android", "Supabase", "Offline-first"],
   "remediatedNote": "Post-remediation score. All Critical and High findings addressed. Remaining items are Medium/Low hardening.",
   "metrics": [
-    { "n": "127+", "l": "test suites" },
-    { "n": "1208", "l": "tests (new harness + repo tests)" },
+    { "n": "155+", "l": "test suites" },
+    { "n": "1982", "l": "tests (new harness + repo tests)" },
     { "n": "4", "l": "Criticals fixed" },
     { "n": "12", "l": "Highs fixed" },
     { "n": "6", "l": "new Supabase migrations" },
@@ -48,7 +48,7 @@
       "name": "Testing & verifiability",
       "weight": 10,
       "score": 68,
-      "note": "Fixed: integration test harness created. DrizzleEnvelopeRepository + DrizzleTransactionRepository tests added. Household isolation test. Smoke-only screen tests enhanced. Mock-echo patterns fixed. Remaining: coverage at 80.04% lines with 1208 tests, E2E for financial flows missing, not all mutations have integration-edge tests."
+      "note": "Fixed: integration test harness created. DrizzleEnvelopeRepository + DrizzleTransactionRepository tests added. Household isolation test. Smoke-only screen tests enhanced. Mock-echo patterns fixed. Remaining: coverage at 80.04% lines with 1982 tests, E2E for financial flows missing, not all mutations have integration-edge tests."
     },
     {
       "name": "UX & accessibility",

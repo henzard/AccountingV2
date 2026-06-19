@@ -1,14 +1,10 @@
 <!--
-TAILOR ME — generic PR template installed by repo-review (Phase 7).
-Adjust the wording below to THIS repo: the default/integration branch name,
-the real test runner + commands, the dirs tests live in, and which test layers
-actually apply (drop the ones with no surface).
+PR template for AccountingV2 (React Native / Expo / Supabase).
 
-Process baseline (keep, adapt to your branch model): keep PRs small, branch off
-the integration branch (e.g. `main`/`master`/`dev`), never commit straight to a
-protected branch, no orphan branches, delete the branch after merge. If this PR
-contradicts a committed audit/decision doc (e.g. `docs/*-AUDIT-*.md`, an ADR),
-update that doc in the same PR.
+Branch off `main`, keep PRs small, never commit straight to `main`, no orphan
+branches, delete the branch after merge. If this PR contradicts a committed
+audit/decision doc (e.g. `docs/*-AUDIT-*.md`, an ADR), update that doc in the
+same PR.
 -->
 
 ## What & why
@@ -20,9 +16,8 @@ Linked issue: <!-- #123, or "none" -->
 ## Test checklist
 
 Tick the layers this PR adds or updates. Mark `n/a` with a one-line reason
-(e.g. "docs only", "no UI surface"). <!-- TAILOR: state where tests live and the
-runner, e.g. "next to source as `*.test.ts` under Vitest" / "in `tests/` under
-pytest" / "`*_test.go` under `go test`". -->
+(e.g. "docs only", "no UI surface"). Tests live next to source as `*.test.ts(x)`
+and run under Jest (`npx jest`).
 
 - [ ] **Unit — happy path** (pure logic, no DB/network)
 - [ ] **Unit — edge/error** (boundaries, zero/NaN, malformed input, thrown errors)
@@ -42,8 +37,8 @@ Keep the suite authentic. Confirm this PR does not regress it:
 
 ## Verification
 
-- [ ] Ran the test suite — **green**. <!-- TAILOR the command, e.g. `npm test` / `pytest` / `go test ./...` -->
-- [ ] **If user-facing:** ran the app and exercised the change, and it behaves as described. <!-- TAILOR the run command. -->
+- [ ] Ran the test suite — **green** (`npx jest --forceExit`).
+- [ ] **If user-facing:** ran the app (`npx expo start`) and exercised the change, and it behaves as described.
 
 ## Notes for reviewer
 

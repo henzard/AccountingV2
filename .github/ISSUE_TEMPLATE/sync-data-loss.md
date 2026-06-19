@@ -48,7 +48,7 @@ window (replace with YOUR sequence):
     Result: hub + every other replica keep v1; v2 lives only on Replica A. Divergence.
 -->
 
-```
+```text
 t0  <participant>: <operation>  (row id / table / value)
 t1  ...
 t2  ...
@@ -89,7 +89,7 @@ here. Otherwise leave blank. -->
 
 <!-- Redact tokens / credentials before pasting. -->
 
-```
+```text
 <paste sync logs / skip counts / skew warnings here>
 ```
 

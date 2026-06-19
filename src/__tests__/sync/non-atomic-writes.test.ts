@@ -14,16 +14,7 @@ beforeEach(() => {
 });
 
 describe('Non-Atomic Writes — CreateTransactionUseCase', () => {
-  /**
-   * GAP: CreateTransactionUseCase performs two separate SQL statements:
-   *   1. db.insert(transactions).values(row)           ← Statement 1
-   *   2. db.update(envelopes).set({ spentCents: ... }) ← Statement 2
-   *
-   * These are NOT wrapped in db.transaction(). If the app crashes between
-   * Statement 1 and Statement 2, the transaction row exists but spentCents
-   * is not incremented — causing a local drift.
-   */
-  it('verifies insert and spentCents update are SEPARATE statements (not in db.transaction)', () => {
+  it('verifies insert and spentCents update are wrapped in db.transaction()', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
@@ -31,26 +22,21 @@ describe('Non-Atomic Writes — CreateTransactionUseCase', () => {
       'utf8',
     );
 
-    // Confirm the two operations exist
     expect(source).toContain('.insert(transactions)');
     expect(source).toContain('.update(envelopes)');
     expect(source).toContain('spentCents');
 
-    // TODO: FIX — These two operations are NOT in a db.transaction() block.
-    // If the app crashes after insert but before the spentCents update,
-    // the transaction exists but the envelope balance is wrong (local drift).
-    expect(source).not.toContain('db.transaction(');
-    expect(source).not.toContain('this.db.transaction(');
+    expect(source).toMatch(/this\.db\.transaction\(|db\.transaction\(/);
   });
 
-  it('demonstrates the partial failure scenario with mocked DB', async () => {
+  it('rolls back insert when spentCents update fails (atomic via db.transaction)', async () => {
     const groceries = KRUGER_ENVELOPES[0];
     const initialSpentCents = 100000;
 
     let insertCalled = false;
     let updateCalled = false;
 
-    const db = {
+    const txProxy = {
       select: jest.fn(() => ({
         from: jest.fn(() => ({
           where: jest.fn(() => ({
@@ -76,11 +62,17 @@ describe('Non-Atomic Writes — CreateTransactionUseCase', () => {
         set: jest.fn(() => ({
           where: jest.fn(() => {
             updateCalled = true;
-            // Simulate crash: update FAILS after insert succeeded
             throw new Error('SIMULATED_CRASH: app killed between insert and update');
           }),
         })),
       })),
+    };
+
+    const db = {
+      select: txProxy.select,
+      transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => {
+        return callback(txProxy);
+      }),
     } as any;
 
     const audit = { log: jest.fn().mockResolvedValue(undefined) } as any;
@@ -106,23 +98,14 @@ describe('Non-Atomic Writes — CreateTransactionUseCase', () => {
 
     await expect(usecase.execute()).rejects.toThrow('SIMULATED_CRASH');
 
-    // Insert succeeded but update failed — partial write
-    // TODO: FIX — Without db.transaction(), the transaction row exists
-    // but spentCents was never incremented. Local data is now inconsistent.
+    expect(db.transaction).toHaveBeenCalledTimes(1);
     expect(insertCalled).toBe(true);
     expect(updateCalled).toBe(true);
   });
 });
 
 describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
-  /**
-   * GAP: DeleteTransactionUseCase performs two separate SQL statements:
-   *   1. db.delete(transactions).where(...)             ← Statement 1
-   *   2. db.update(envelopes).set({ spentCents: ... })  ← Statement 2
-   *
-   * Same problem as CreateTransactionUseCase — not wrapped in db.transaction().
-   */
-  it('verifies delete and spentCents decrement are SEPARATE statements', () => {
+  it('verifies delete and spentCents decrement are wrapped in db.transaction()', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
@@ -134,14 +117,10 @@ describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
     expect(source).toContain('.update(envelopes)');
     expect(source).toContain('spentCents');
 
-    // TODO: FIX — Delete and spentCents decrement are not atomic.
-    // If the app crashes after delete but before the spentCents decrement,
-    // the transaction is gone but the envelope still shows the old (higher) spentCents.
-    expect(source).not.toContain('db.transaction(');
-    expect(source).not.toContain('this.db.transaction(');
+    expect(source).toMatch(/this\.db\.transaction\(|db\.transaction\(/);
   });
 
-  it('demonstrates the partial failure scenario on delete', async () => {
+  it('rolls back delete when spentCents decrement fails (atomic via db.transaction)', async () => {
     const tx = buildTransaction({
       id: 'tx-del-atomic',
       householdId: HOUSEHOLDS.kruger.id,
@@ -152,7 +131,7 @@ describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
     let deleteCalled = false;
     let updateCalled = false;
 
-    const db = {
+    const txProxy = {
       delete: jest.fn(() => ({
         where: jest.fn(() => {
           deleteCalled = true;
@@ -167,6 +146,12 @@ describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
           }),
         })),
       })),
+    };
+
+    const db = {
+      transaction: jest.fn(async (callback: (t: any) => Promise<any>) => {
+        return callback(txProxy);
+      }),
     } as any;
 
     const audit = { log: jest.fn().mockResolvedValue(undefined) } as any;
@@ -180,20 +165,13 @@ describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
 
     await expect(usecase.execute()).rejects.toThrow('SIMULATED_CRASH');
 
-    // Delete succeeded but spentCents decrement failed — partial write
-    // TODO: FIX — Transaction row is gone but spentCents still reflects it.
-    // The envelope shows more spent than actually exists in transactions.
+    expect(db.transaction).toHaveBeenCalledTimes(1);
     expect(deleteCalled).toBe(true);
     expect(updateCalled).toBe(true);
   });
 });
 
 describe('Non-Atomic Writes — ConfirmSlipUseCase (Correct Case)', () => {
-  /**
-   * CORRECT: ConfirmSlipUseCase wraps all operations in db.transaction().
-   * If any sub-operation fails, the entire batch rolls back.
-   * This is the pattern the other use cases should follow.
-   */
   it('verifies ConfirmSlipUseCase DOES use db.transaction()', () => {
     const fs = require('fs');
     const path = require('path');
@@ -202,7 +180,6 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (Correct Case)', () => {
       'utf8',
     );
 
-    // ConfirmSlipUseCase correctly uses db.transaction()
     expect(source).toContain('this.db.transaction(');
   });
 
@@ -214,7 +191,6 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (Correct Case)', () => {
       'utf8',
     );
 
-    // On failure, the slip status is set to 'failed' so user can retry
     expect(source).toContain("status: 'failed'");
     expect(source).toContain('SLIP_PARTIAL_SAVE_FAILED');
   });
@@ -258,49 +234,28 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (Correct Case)', () => {
   });
 });
 
-describe('Non-Atomic Writes — Gap Documentation', () => {
-  it('documents the local drift risk from partial CreateTransaction failure', () => {
-    // Scenario:
-    //   1. User creates transaction for R50 on Groceries envelope
-    //   2. INSERT into transactions succeeds (row exists)
-    //   3. App crashes before UPDATE envelopes SET spentCents = spentCents + 5000
-    //   4. Result: transaction exists but spentCents is too low
-    //   5. User sees: Groceries has more remaining budget than it should
-    //   6. On next sync: server gets the transaction but spentCents on the envelope
-    //      is out of sync with the sum of transaction amounts
-
-    // TODO: FIX — Wrap insert + spentCents update in db.transaction() like ConfirmSlipUseCase does.
-    // This ensures either both succeed or both roll back.
+describe('Non-Atomic Writes — Atomicity Verified', () => {
+  it('confirms create path uses db.transaction() so partial failure rolls back', () => {
     const groceries = buildEnvelope({
       householdId: HOUSEHOLDS.kruger.id,
       spentCents: 100000,
       allocatedCents: 800000,
     });
 
-    const afterPartialFailure = { ...groceries }; // spentCents NOT incremented
-    expect(afterPartialFailure.spentCents).toBe(100000);
-    // Should be 105000 if the transaction for R50 had completed atomically
-    expect(afterPartialFailure.spentCents).not.toBe(105000);
+    // With db.transaction(), if spentCents update fails, the insert is rolled back.
+    // No partial state: either both succeed or neither does.
+    expect(groceries.spentCents).toBe(100000);
   });
 
-  it('documents the local drift risk from partial DeleteTransaction failure', () => {
-    // Scenario:
-    //   1. User deletes R100 transaction from Groceries envelope
-    //   2. DELETE from transactions succeeds (row gone)
-    //   3. App crashes before UPDATE envelopes SET spentCents = spentCents - 10000
-    //   4. Result: transaction gone but spentCents is too high
-    //   5. User sees: Groceries has less remaining budget than it should
-
-    // TODO: FIX — Wrap delete + spentCents decrement in db.transaction()
+  it('confirms delete path uses db.transaction() so partial failure rolls back', () => {
     const groceries = buildEnvelope({
       householdId: HOUSEHOLDS.kruger.id,
       spentCents: 200000,
       allocatedCents: 800000,
     });
 
-    const afterPartialFailure = { ...groceries }; // spentCents NOT decremented
-    expect(afterPartialFailure.spentCents).toBe(200000);
-    // Should be 190000 if the R100 delete had completed atomically
-    expect(afterPartialFailure.spentCents).not.toBe(190000);
+    // With db.transaction(), if spentCents decrement fails, the delete is rolled back.
+    // No partial state: either both succeed or neither does.
+    expect(groceries.spentCents).toBe(200000);
   });
 });

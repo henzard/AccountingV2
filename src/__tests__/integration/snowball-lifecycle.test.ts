@@ -270,9 +270,9 @@ describe('SnowballPayoffProjector', () => {
     const noExtraLast = noExtra.projections[noExtra.projections.length - 1]!;
     const withExtraLast = withExtra.projections[withExtra.projections.length - 1]!;
 
-    if (noExtraLast.monthsToPayoff !== -1 && withExtraLast.monthsToPayoff !== -1) {
-      expect(withExtraLast.monthsToPayoff).toBeLessThan(noExtraLast.monthsToPayoff);
-    }
+    expect(noExtraLast.monthsToPayoff).not.toBe(-1);
+    expect(withExtraLast.monthsToPayoff).not.toBe(-1);
+    expect(withExtraLast.monthsToPayoff).toBeLessThan(noExtraLast.monthsToPayoff);
   });
 
   it('smallest debt (Woolworths) pays off first', () => {

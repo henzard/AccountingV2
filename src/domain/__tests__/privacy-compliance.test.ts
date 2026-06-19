@@ -184,7 +184,7 @@ describe('Privacy Compliance — POPIA & Data Retention', () => {
         }),
       );
       const updateArg = (repo.update as jest.Mock).mock.calls[0][1];
-      expect(() => new Date(updateArg.imagesDeletedAt)).not.toThrow();
+      expect(Number.isNaN(Date.parse(updateArg.imagesDeletedAt))).toBe(false);
     });
 
     it('returns cleanedCount matching expired slip count', async () => {

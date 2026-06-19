@@ -749,7 +749,7 @@ describe('SyncOrchestrator — DLQ after max retries', () => {
 
     // Second call must return 0s WITHOUT calling db.select again (latch short-circuits)
     const second = await orch.syncPending();
-    expect(second).toEqual({ synced: 0, failed: 0, emfFlipped: 0 });
+    expect(second).toEqual({ synced: 0, failed: 0, deadLettered: 0, emfFlipped: 0 });
     // The latch means select was only called once (for the first sync)
     expect(selectMock).toHaveBeenCalledTimes(1);
 

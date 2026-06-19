@@ -80,6 +80,8 @@ describe('DrizzleMeterReadingRepository', () => {
 
     expect(result).toHaveLength(2);
     expect(result[0].id).toBe('mr1');
+    expect(orderByFn).toHaveBeenCalled();
+    expect(whereFn).toHaveBeenCalled();
   });
 
   it('findByHousehold filters by meterType when provided', async () => {
@@ -93,6 +95,8 @@ describe('DrizzleMeterReadingRepository', () => {
     const result = await repo.findByHousehold('h1', 'electricity');
 
     expect(result).toHaveLength(1);
-    expect(whereFn).toHaveBeenCalled();
+    expect(whereFn).toHaveBeenCalledTimes(1);
+    const filterPredicate = whereFn.mock.calls[0][0];
+    expect(filterPredicate).toBeDefined();
   });
 });

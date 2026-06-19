@@ -330,12 +330,10 @@ describe('DLQ Behavior — No User Notification', () => {
     const setArg = updateSetMock.mock.calls[0][0];
     expect(setArg.deadLetteredAt).toBeTruthy();
 
-    // TODO: FIX — syncPending() returns { synced, failed, emfFlipped } but the caller
-    // has no way to distinguish "failed and will retry" from "failed and dead-lettered".
-    // The user gets no notification that their data is permanently stuck.
-    // The result should include a `deadLettered` count or the failed items' IDs
-    // so the UI can alert the user.
-    expect(result).not.toHaveProperty('deadLettered');
-    expect(result).not.toHaveProperty('deadLetteredIds');
+    // FIXED: syncPending() now returns { synced, failed, deadLettered, emfFlipped }.
+    // Callers can distinguish retryable failures from permanently dead-lettered items
+    // and surface appropriate UI notifications.
+    expect(result).toHaveProperty('deadLettered');
+    expect(result.deadLettered).toBe(1);
   });
 });
