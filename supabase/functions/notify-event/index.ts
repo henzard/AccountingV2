@@ -68,28 +68,6 @@ serve(async (req: Request) => {
 
   const serviceClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count: recentSends, error: rateErr } = await serviceClient
-    .from('notify_send_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('sender_id', user.id)
-    .gte('sent_at', oneHourAgo);
-
-  if (rateErr) {
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const MAX_SENDS_PER_HOUR = 20;
-  if ((recentSends ?? 0) >= MAX_SENDS_PER_HOUR) {
-    return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
-      status: 429,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
   const { data: membership } = await serviceClient
     .from('household_members')
     .select('user_id')
@@ -140,6 +118,26 @@ serve(async (req: Request) => {
     });
   }
 
+  const MAX_SENDS_PER_HOUR = 20;
+  const { data: allowed, error: rateErr } = await serviceClient.rpc(
+    'check_and_reserve_notify_send',
+    { p_sender_id: user.id, p_max_per_hour: MAX_SENDS_PER_HOUR },
+  );
+
+  if (rateErr) {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const fcmKey = Deno.env.get('FCM_SERVER_KEY');
   if (!fcmKey) {
     return new Response(JSON.stringify({ error: 'Server misconfigured' }), { status: 500 });
@@ -161,10 +159,6 @@ serve(async (req: Request) => {
       }),
     });
     if (res.ok) sent++;
-  }
-
-  if (sent > 0) {
-    await serviceClient.from('notify_send_log').insert({ sender_id: user.id });
   }
 
   return new Response(JSON.stringify({ sent }), {

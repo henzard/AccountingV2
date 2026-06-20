@@ -274,6 +274,32 @@ describe('extract-slip edge-case gaps', () => {
       expect(resp.status).toBe(400);
       expect(await resp.text()).toBe('Invalid image count');
     });
+
+    it('exactly 1 image passes count guard', async () => {
+      const deps = makeBaseDeps();
+      const req = makeRequest(
+        'POST',
+        { slip_id: 's1', household_id: 'h1', images_base64: ['a'] },
+        'Bearer tok',
+      );
+      const resp = await handle(req, deps);
+      expect(resp.status).toBe(200);
+    });
+
+    it('exactly 5 images passes count guard', async () => {
+      const deps = makeBaseDeps();
+      const req = makeRequest(
+        'POST',
+        {
+          slip_id: 's1',
+          household_id: 'h1',
+          images_base64: ['a', 'b', 'c', 'd', 'e'],
+        },
+        'Bearer tok',
+      );
+      const resp = await handle(req, deps);
+      expect(resp.status).toBe(200);
+    });
   });
 
   describe('Missing OPENAI_API_KEY → 500', () => {

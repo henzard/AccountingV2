@@ -205,6 +205,14 @@ export default function App(): React.JSX.Element {
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError || !userData.user) {
         setSession(null);
+        useAppStore.getState().reset();
+        useSyncStore.getState().reset();
+        resetThemeStore();
+        useToastStore.getState().clear();
+        useCelebrationStore.getState().clear();
+        crashlytics()
+          .setUserId('')
+          .catch(() => {});
         setSessionRestored(true);
         return;
       }

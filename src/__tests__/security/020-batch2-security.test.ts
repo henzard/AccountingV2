@@ -32,5 +32,8 @@ describe('020 batch2 security migration', () => {
   it('SEC-RT-007: notify_send_log table for rate limiting', () => {
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS public.notify_send_log');
     expect(sql).toContain('idx_notify_send_log_sender_sent');
+    expect(sql).toContain('ENABLE ROW LEVEL SECURITY');
+    expect(sql).toContain('REVOKE ALL ON public.notify_send_log FROM authenticated, anon');
+    expect(sql).toContain('check_and_reserve_notify_send');
   });
 });

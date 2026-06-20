@@ -253,7 +253,7 @@ describe('notify-event Edge Function Auth', () => {
   it('SEC-RT-007: validates payload and enforces rate limit', () => {
     expect(NOTIFY_EVENT_SOURCE).toContain('Invalid payload');
     expect(NOTIFY_EVENT_SOURCE).toContain('Payload too large');
-    expect(NOTIFY_EVENT_SOURCE).toContain('notify_send_log');
+    expect(NOTIFY_EVENT_SOURCE).toContain('check_and_reserve_notify_send');
     expect(NOTIFY_EVENT_SOURCE).toContain('Rate limit exceeded');
     expect(NOTIFY_EVENT_SOURCE).toContain('status: 429');
   });

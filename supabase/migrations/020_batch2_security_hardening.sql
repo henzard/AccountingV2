@@ -19,6 +19,36 @@ CREATE INDEX IF NOT EXISTS idx_notify_send_log_sender_sent
 ALTER TABLE public.notify_send_log ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.notify_send_log FROM authenticated, anon;
 
+-- Atomic rate-limit reserve (check + insert in one transaction — avoids TOCTOU).
+CREATE OR REPLACE FUNCTION public.check_and_reserve_notify_send(
+  p_sender_id text,
+  p_max_per_hour int DEFAULT 20
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  recent_count int;
+BEGIN
+  SELECT COUNT(*)::int INTO recent_count
+  FROM public.notify_send_log
+  WHERE sender_id = p_sender_id
+    AND sent_at >= NOW() - interval '1 hour';
+
+  IF recent_count >= p_max_per_hour THEN
+    RETURN false;
+  END IF;
+
+  INSERT INTO public.notify_send_log (sender_id) VALUES (p_sender_id);
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.check_and_reserve_notify_send(text, int) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.check_and_reserve_notify_send(text, int) TO service_role;
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SEC-RT-006: invite lookup — only valid, unused, unexpired codes
 -- ═══════════════════════════════════════════════════════════════════════════════

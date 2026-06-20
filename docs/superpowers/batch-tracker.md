@@ -2,15 +2,15 @@
 
 **Total issues:** 65 (#41–#105)  
 **Batch size:** 5  
-**QA baseline:** 239 suites · 2023 tests · all green (2026-06-20)
+**QA baseline:** 240 suites · 2032 tests · all green (2026-06-20)
 
 ## Issue closure status
 
-| Status     | Count  | Notes                                |
-| ---------- | ------ | ------------------------------------ |
-| **Closed** | **5**  | Batch 1: #88–#92 (SEC-RT-001–005)    |
-| **Open**   | **60** | Batch 2 in PR; #97 HUMAN (SQLCipher) |
-| **HUMAN**  | **1**  | #97 SEC-RT-010 — local DB encryption |
+| Status     | Count  | Notes                                  |
+| ---------- | ------ | -------------------------------------- |
+| **Closed** | **5**  | Batch 1: #88–#92 (SEC-RT-001–005)      |
+| **Open**   | **59** | Batch 2 in PR; #97 tracked under HUMAN |
+| **HUMAN**  | **1**  | #97 SEC-RT-010 — local DB encryption   |
 
 ## PR / CI / CodeRabbit
 
@@ -26,7 +26,8 @@
 | 1     | SEC-RT-001–005         | #88–#92      | **Done** (migration 019) |
 | 2     | SEC-RT-006–009, 011    | #93–#96, #98 | **In PR** — #97 → HUMAN  |
 | 3     | SEC-RT-012–014 + 2 TBD | #99–#101     | queued                   |
-| …     | 13 batches total       |              |                          |
+
+_13 batches planned total._
 
 ## HUMAN escalations
 

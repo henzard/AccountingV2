@@ -44,7 +44,7 @@ Local DB encryption needs: SQLCipher-compatible driver, Keystore-derived key, mi
 
 - [ ] Expired/used invite codes return empty from lookup RPC
 - [ ] Sync cannot elevate `user_level` on existing household
-- [ ] notify-event rejects oversize payload and enforces hourly cap
+- [ ] notify-event rejects oversize payload (title ≤120, body ≤500) and enforces 20 sends/hour cap
 - [ ] App cold start clears session when `getUser()` fails
-- [ ] extract-slip rejects 0 or >5 images
+- [ ] extract-slip accepts 1–5 images and rejects 0 or >5
 - [ ] Issues #93–#97, #98 closed on merge; #97 left open as HUMAN
