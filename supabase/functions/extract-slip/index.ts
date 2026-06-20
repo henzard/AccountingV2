@@ -81,6 +81,9 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   if (!slip_id || !household_id || !Array.isArray(images_base64)) {
     return new Response('Missing required fields', { status: 400 });
   }
+  if (images_base64.length < 1 || images_base64.length > 5) {
+    return new Response('Invalid image count', { status: 400 });
+  }
 
   const adminSupabase = deps.createAdminClient();
 

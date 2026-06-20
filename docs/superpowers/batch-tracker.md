@@ -2,24 +2,48 @@
 
 **Total issues:** 65 (#41–#105)  
 **Batch size:** 5  
-**Current batch:** 1 — **in progress** (implementation on `fix/batch1-security-membership-dml`)  
-**QA baseline:** 237 suites · 2016 tests · all green (2026-06-20)
+**QA baseline:** 240 suites · 2032 tests · all green (2026-06-20)
 
-## PR babysit status
+## Issue closure status
 
-| PR                                                                                      | CI                     | CodeRabbit | Unresolved threads |
-| --------------------------------------------------------------------------------------- | ---------------------- | ---------- | ------------------ |
-| [#40](https://github.com/henzard/AccountingV2/pull/40) feat/comprehensive-qa-test-suite | check ✅ · e2e skipped | pass       | **11**             |
-| [#39](https://github.com/henzard/AccountingV2/pull/39) remediation/deep-review-grade-b  | check ✅ · e2e skipped | pass       | **9**              |
+| Status     | Count  | Notes                                  |
+| ---------- | ------ | -------------------------------------- |
+| **Closed** | **5**  | Batch 1: #88–#92 (SEC-RT-001–005)      |
+| **Open**   | **59** | Batch 2 in PR; #97 tracked under HUMAN |
+| **HUMAN**  | **1**  | #97 SEC-RT-010 — local DB encryption   |
+
+## PR / CI / CodeRabbit
+
+| PR             | Status                                    |
+| -------------- | ----------------------------------------- |
+| #39, #40, #106 | **Merged** — CI green, 0 CR threads       |
+| Batch 2        | `fix/batch2-security-hardening` — pending |
 
 ## Batches
 
-| Batch | Issues                                                              | Status          | PR         |
-| ----- | ------------------------------------------------------------------- | --------------- | ---------- |
-| 1     | SEC-RT-001, SEC-RT-002, SEC-RT-003, SEC-RT-004, SEC-RT-005 (#88–92) | **in progress** | PR pending |
-| 2     | SEC-RT-006 + next 4 TBD                                             | queued          | —          |
-| …     | 13 batches total                                                    |                 |            |
+| Batch | Issues                 | GitHub       | Status                   |
+| ----- | ---------------------- | ------------ | ------------------------ |
+| 1     | SEC-RT-001–005         | #88–#92      | **Done** (migration 019) |
+| 2     | SEC-RT-006–009, 011    | #93–#96, #98 | **In PR** — #97 → HUMAN  |
+| 3     | SEC-RT-012–014 + 2 TBD | #99–#101     | queued                   |
+
+_13 batches planned total._
 
 ## HUMAN escalations
 
-_None yet._
+| Issue          | Reason                                                                          |
+| -------------- | ------------------------------------------------------------------------------- |
+| #97 SEC-RT-010 | SQLCipher + Android Keystore + DB migration path — needs native/security review |
+
+## Process (each batch)
+
+1. Brainstorm → spec in `docs/superpowers/specs/`
+2. writing-plans → plan in `docs/superpowers/plans/`
+3. Implement on `fix/batchN-*` branch
+4. `npm test` green (qa-lead gate)
+5. Open PR → CI green → CR threads 0 → merge
+6. **Close all 5 GitHub issues** with migration/PR evidence (batch 1 gap fixed retroactively)
+
+## PM loop
+
+Every 15m: open PR CI, CR thread count, batch progress, test suite, next batch readiness.

@@ -4,6 +4,7 @@ function makeMockSupabase(overrides?: {
   signInWithPassword?: jest.Mock;
   signOut?: jest.Mock;
   getSession?: jest.Mock;
+  getUser?: jest.Mock;
 }) {
   return {
     auth: {
@@ -18,6 +19,12 @@ function makeMockSupabase(overrides?: {
         overrides?.getSession ??
         jest.fn().mockResolvedValue({
           data: { session: { access_token: 'tok', user: { id: 'u1' } } },
+          error: null,
+        }),
+      getUser:
+        overrides?.getUser ??
+        jest.fn().mockResolvedValue({
+          data: { user: { id: 'u1' } },
           error: null,
         }),
     },
@@ -121,6 +128,39 @@ describe('SupabaseAuthService', () => {
         expect(result.error.code).toBe('AUTH_GET_SESSION_FAILED');
         expect(result.error.message).toBe('Token expired');
       }
+    });
+  });
+
+  describe('validateSession (SEC-RT-009)', () => {
+    it('returns session when getUser succeeds', async () => {
+      const mock = makeMockSupabase();
+      const service = new SupabaseAuthService(mock as any);
+      const result = await service.validateSession();
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data?.access_token).toBe('tok');
+      expect(mock.auth.getUser).toHaveBeenCalled();
+    });
+
+    it('returns null when getUser has no user', async () => {
+      const mock = makeMockSupabase({
+        getUser: jest.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      });
+      const service = new SupabaseAuthService(mock as any);
+      const result = await service.validateSession();
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data).toBeNull();
+    });
+
+    it('returns failure when getUser errors', async () => {
+      const mock = makeMockSupabase({
+        getUser: jest
+          .fn()
+          .mockResolvedValue({ data: { user: null }, error: { message: 'revoked' } }),
+      });
+      const service = new SupabaseAuthService(mock as any);
+      const result = await service.validateSession();
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('AUTH_VALIDATE_SESSION_FAILED');
     });
   });
 });
