@@ -1,0 +1,324 @@
+﻿<!doctype html>
+<!--
+  ⚠ STATIC SAMPLE — NOT the source of truth.
+  This is a filled-in EXAMPLE report from a real review (NutSync) so you can see
+  the intended look and depth. Do NOT hand-edit it for your repo. The actual
+  report is produced by `scripts/generate-report.mjs findings.json > docs/audit-report.html`
+  (see HOW-TO.md §4). All the NutSync-specific content below is illustrative.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NutSync — Security &amp; Engineering Audit Report</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --card:#ffffff; --ink:#0f172a; --muted:#475569;
+    --line:#e2e8f0; --primary:#2563eb; --crit:#b60205; --high:#d93f0b; --med:#d97706;
+    --low:#16a34a; --info:#0ea5e9; --ok:#16a34a;
+    --bgpage:#f8fafc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bgpage)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px 64px}
+  header{background:linear-gradient(135deg,#0f172a,#1e3a8a);color:#fff;padding:40px 0 32px;margin-bottom:28px}
+  header .wrap{padding-top:0;padding-bottom:0}
+  h1{margin:0 0 6px;font-size:30px;letter-spacing:-.5px}
+  .sub{color:#cbd5e1;font-size:15px}
+  .tag{display:inline-block;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:2px 10px;font-size:12px;margin-right:6px;margin-top:10px}
+  h2{font-size:20px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:-44px}
+  .metric{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .metric .n{font-size:30px;font-weight:700;color:var(--primary);line-height:1}
+  .metric .l{color:var(--muted);font-size:13px;margin-top:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:6px 0}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600;color:#fff;white-space:nowrap}
+  .b-crit{background:var(--crit)} .b-high{background:var(--high)} .b-med{background:var(--med)} .b-low{background:var(--low)} .b-info{background:var(--info)}
+  .pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600}
+  .p-fixed{background:#dcfce7;color:#166534} .p-open{background:#fee2e2;color:#991b1b} .p-partial{background:#fef3c7;color:#92400e}
+  .crit-box{border-left:5px solid var(--crit);background:#fef2f2}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}.metrics{margin-top:14px}}
+  .bar{height:10px;border-radius:5px;background:var(--primary);display:inline-block;vertical-align:middle}
+  .bartrack{display:flex;align-items:center;gap:8px}
+  .muted{color:var(--muted)} .small{font-size:13px}
+  code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:13px}
+  a{color:var(--primary)}
+  ul{margin:6px 0 6px 0;padding-left:20px} li{margin:3px 0}
+  .foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+  .legend span{margin-right:14px;font-size:12px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  /* scoring */
+  .scores{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:8px}
+  @media(max-width:720px){.scores{grid-template-columns:1fr}}
+  .scorecard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);position:relative;overflow:hidden}
+  .scorecard.system{background:#0f172a;color:#fff;border-color:#0f172a}
+  .scorecard .label{font-size:13px;color:var(--muted);font-weight:600}
+  .scorecard.system .label{color:#cbd5e1}
+  .scorecard .score{font-size:52px;font-weight:800;line-height:1;margin:6px 0}
+  .scorecard .grade{display:inline-block;font-size:15px;font-weight:700;border-radius:8px;padding:2px 12px;color:#fff}
+  .scorecard .verdict{font-size:12px;margin-top:10px;color:var(--muted)}
+  .scorecard.system .verdict{color:#cbd5e1}
+  .g-a{background:#16a34a}.g-b{background:#65a30d}.g-c{background:#d97706}.g-d{background:#d93f0b}.g-f{background:#b60205}
+  .sc-table td .bartrack{min-width:120px}
+  .sc-bar{height:8px;border-radius:4px;display:inline-block}
+  .num{font-variant-numeric:tabular-nums;font-weight:700}
+  .rubric td:first-child{font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>NutSync — Security &amp; Engineering Audit Report</h1>
+    <div class="sub">Full-stack review of the client app + Node-RED sync hub, with remediation and engineering scaffolding.</div>
+    <div>
+      <span class="tag">2026-06-15</span>
+      <span class="tag">NutSync (Expo RN + Electron)</span>
+      <span class="tag">NutSyncNodeRed (Node-RED hub)</span>
+      <span class="tag">branch: henzard/review</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="metrics">
+    <div class="metric"><div class="n">2</div><div class="l">repositories audited</div></div>
+    <div class="metric"><div class="n">15</div><div class="l">audit documents</div></div>
+    <div class="metric"><div class="n">116</div><div class="l">GitHub issues filed</div></div>
+    <div class="metric"><div class="n">9</div><div class="l">closed (fixed &amp; verified)</div></div>
+    <div class="metric"><div class="n">2</div><div class="l">pull requests open</div></div>
+  </div>
+
+  <h2>Overall score</h2>
+  <div class="card scorecard system" style="text-align:left">
+    <div style="display:flex;align-items:center;gap:26px;flex-wrap:wrap">
+      <div style="text-align:center;min-width:150px">
+        <div class="label">NutSync (client + hub = one system)</div>
+        <div class="score">48<span style="font-size:22px;color:#94a3b8">/100</span></div>
+        <span class="grade g-d">Grade D</span>
+      </div>
+      <div style="flex:1;min-width:240px">
+        <div style="font-size:17px;font-weight:700;margin-bottom:4px">Not production-ready — significant defects</div>
+        <div class="verdict" style="font-size:13px;line-height:1.5">
+          Pockets of genuinely solid engineering (client architecture, the DB layer, authentic tests) are
+          undercut by <strong>3 Critical security findings</strong> and a <strong>core sync that can silently
+          lose committed writes</strong>. Score is <strong>as-built</strong> (what the system was when audited).
+          This turn's fixes (auto-update, backdoor, SQLi) lift it to ~<strong>53</strong>; clearing the open
+          backlog targets a <strong>B</strong>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Scorecard (weighted)</h2>
+  <div class="card">
+    <table class="sc-table">
+      <tr><th>Dimension</th><th>Weight</th><th style="min-width:170px">As-built score</th><th>Where the weakness is</th></tr>
+      <tr><td>Security &amp; secrets</td><td>25%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">35</span><span class="sc-bar g-f" style="width:35%"></span></span></td>
+        <td class="small muted">Hub backdoor + unauthenticated admin API + client auto-update RCE; cleartext transport. Weakest-link dominates.</td></tr>
+      <tr><td>Data integrity &amp; sync</td><td>20%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">38</span><span class="sc-bar g-f" style="width:38%"></span></span></td>
+        <td class="small muted">Convergence fails; 2 Critical silent-write-loss paths; wall-clock LWW; non-idempotent hub apply.</td></tr>
+      <tr><td>Architecture &amp; code quality</td><td>15%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">58</span><span class="sc-bar g-c" style="width:58%"></span></span></td>
+        <td class="small muted">Client clean (repo layer, typed); hub poor (4.3/10 — god function-nodes, deployed≠tested, 15× dup).</td></tr>
+      <tr><td>Data layer (schema/index/migrations)</td><td>10%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">64</span><span class="sc-bar g-c" style="width:64%"></span></span></td>
+        <td class="small muted">Client B+ (FK on, transactional migrations); hub C (untyped EAV blob, no FK/migrations).</td></tr>
+      <tr><td>API &amp; contracts</td><td>10%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">52</span><span class="sc-bar g-d" style="width:52%"></span></span></td>
+        <td class="small muted">No versioning/OpenAPI; race-prone invoice allocation; RPC verbs; inconsistent envelopes.</td></tr>
+      <tr><td>Testing &amp; verifiability</td><td>10%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">45</span><span class="sc-bar g-d" style="width:45%"></span></span></td>
+        <td class="small muted">Tests authentic where present, but ~19% line coverage; hub's tested lib isn't the deployed code.</td></tr>
+      <tr><td>UX &amp; accessibility</td><td>5%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">64</span><span class="sc-bar g-c" style="width:64%"></span></span></td>
+        <td class="small muted">Strong IA + design system; WCAG gaps (contrast, label association, dialog focus).</td></tr>
+      <tr><td>UI / code consistency</td><td>5%</td>
+        <td><span class="bartrack"><span class="num" style="width:34px;display:inline-block">62</span><span class="sc-bar g-c" style="width:62%"></span></span></td>
+        <td class="small muted">Client token system solid; hub flow has heavy duplication / drift.</td></tr>
+      <tr style="border-top:2px solid var(--line)"><td><strong>Weighted total</strong></td><td><strong>100%</strong></td>
+        <td><span class="num" style="font-size:18px">48 / 100</span> &nbsp;<span class="grade g-d" style="font-size:12px">D</span></td>
+        <td class="small muted">Single system score (client + hub).</td></tr>
+    </table>
+  </div>
+
+  <h2>Executive summary</h2>
+  <div class="card">
+    <p>A white-box review of both halves of NutSync — the offline-first Expo/Electron client and its Node-RED
+    sync hub — covering <strong>security (red &amp; blue team), replication correctness, API design, database,
+    backend code quality, UX/accessibility, design-system consistency, and test quality</strong>. Findings were
+    documented as audit reports, filed as 116 tracked issues, and the Critical/High security defects were fixed
+    and verified. Finally, the team's enterprise engineering discipline (six-layer test matrix, anti-pattern
+    catalogue, branch hygiene, CI, review skills) was adapted into both repos.</p>
+    <p class="small muted">Honest caveat: an LLM-assisted review plus scanners substantially reduces risk but
+    cannot prove a system is unhackable or bug-free. Treat this as one strong layer; keep a human reviewer on
+    anything touching auth, crypto, and the sync conflict resolution.</p>
+  </div>
+
+  <h2>Critical findings</h2>
+  <div class="card crit-box">
+    <table>
+      <tr><th>Finding</th><th>Repo</th><th>Impact</th><th>Status</th></tr>
+      <tr>
+        <td><strong>Auto-updater RCE</strong> — unsigned installer, no integrity check, HTTP allowed <span class="badge b-crit">CRIT</span></td>
+        <td>client</td>
+        <td>Remote code execution on every updating desktop</td>
+        <td><span class="pill p-fixed">Fixed — HTTPS + SHA-256 pinned + verified</span></td>
+      </tr>
+      <tr>
+        <td><strong>Hardcoded backdoor</strong> <code>NutSync2026!</code> — any default-provisioned account loginable <span class="badge b-crit">CRIT</span></td>
+        <td>hub</td>
+        <td>Full admin takeover</td>
+        <td><span class="pill p-fixed">Fixed</span> <span class="pill p-partial">rotate existing accounts</span></td>
+      </tr>
+      <tr>
+        <td><strong>Unauthenticated admin API</strong> — Node-RED <code>/flows</code> deploy &amp; editor open <span class="badge b-crit">CRIT</span></td>
+        <td>hub</td>
+        <td>Flow overwrite = RCE + secret theft</td>
+        <td><span class="pill p-open">Open — adminAuth template added; operator must enable</span></td>
+      </tr>
+      <tr>
+        <td><strong>Silent sync data loss</strong> — un-retried skips (C1) + markSynced lost-update (C2) <span class="badge b-crit">CRIT</span></td>
+        <td>client</td>
+        <td>A committed write can vanish / never replicate</td>
+        <td><span class="pill p-open">Open — fix designed (#58, #59)</span></td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>Findings by repository</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>NutSync — client</h3>
+      <table>
+        <tr><th>Domain</th><th>Issues</th></tr>
+        <tr><td>Security</td><td>13</td></tr>
+        <tr><td>Sync / replication</td><td>4</td></tr>
+        <tr><td>API</td><td>8</td></tr>
+        <tr><td>Database</td><td>4</td></tr>
+        <tr><td>UX / accessibility</td><td>12</td></tr>
+        <tr><td>Design-system</td><td>11</td></tr>
+        <tr><td>Test quality</td><td>10</td></tr>
+        <tr><td><strong>Total</strong></td><td><strong>61</strong> (6 closed)</td></tr>
+      </table>
+      <p class="small muted">9 audit docs · PR <a href="https://github.com/Kruger-Web-Solutions/NutSync/pull/62">#62</a> (53 files, +5,256/-46)</p>
+    </div>
+    <div class="card">
+      <h3>NutSyncNodeRed — hub</h3>
+      <table>
+        <tr><th>Domain</th><th>Issues</th></tr>
+        <tr><td>Security</td><td>12</td></tr>
+        <tr><td>API</td><td>13</td></tr>
+        <tr><td>Backend code-quality</td><td>7</td></tr>
+        <tr><td>Database (+Supabase)</td><td>6</td></tr>
+        <tr><td>UX / operability</td><td>6</td></tr>
+        <tr><td>Flow consistency</td><td>10</td></tr>
+        <tr><td>Sync / replication</td><td>2</td></tr>
+        <tr><td><strong>Total</strong></td><td><strong>55</strong> (3 closed)</td></tr>
+      </table>
+      <p class="small muted">7 audit docs · PR <a href="https://github.com/Kruger-Web-Solutions/NutSyncNodeRed/pull/56">#56</a> (25 files, +3,134/-33)</p>
+    </div>
+  </div>
+
+  <h2>Fixes shipped &amp; verified</h2>
+  <div class="card">
+    <table>
+      <tr><th>Fix</th><th>Severity</th><th>Repo</th><th>Evidence</th></tr>
+      <tr><td>Auto-update: HTTPS-only + pinned SHA-256 verification</td><td><span class="badge b-crit">CRIT</span></td><td>client</td><td><code>updater.test.ts</code></td></tr>
+      <tr><td>Removed <code>NutSync2026!</code> backdoor (require explicit password)</td><td><span class="badge b-crit">CRIT</span></td><td>hub</td><td>flow re-serialized, 22 tests green</td></tr>
+      <tr><td>SQL-injection on <code>role/userTypeId</code> escaped</td><td><span class="badge b-high">HIGH</span></td><td>hub</td><td>node syntax-validated</td></tr>
+      <tr><td>Salted/iterated offline password hashing</td><td><span class="badge b-high">HIGH</span></td><td>client</td><td><code>offline-credential.test.ts</code></td></tr>
+      <tr><td>WeighSoft proxy SSRF allowlist (LAN-only)</td><td><span class="badge b-med">MED</span></td><td>client</td><td><code>weighsoft-proxy-url.test.ts</code></td></tr>
+      <tr><td>Offline-login lockout · PDF JS-off+CSP · log redaction · SQL-identifier guard</td><td><span class="badge b-med">MED</span></td><td>client</td><td>34 new regression assertions</td></tr>
+      <tr><td>Disabled 13 debug nodes leaking password hashes / auth SQL</td><td><span class="badge b-low">LOW</span></td><td>hub</td><td>flow diff</td></tr>
+    </table>
+    <p class="small muted">Full suites green: client 246 passed · hub 22 passed · flow files byte-identical.</p>
+  </div>
+
+  <h2>Replication correctness (offline-first)</h2>
+  <div class="card">
+    <p>Audited as a distributed system. <strong>Convergence does not hold in general</strong>; conflict
+    resolution is wall-clock last-write-wins at one-second resolution with direction-dependent ties.</p>
+    <table>
+      <tr><th>Property</th><th>Holds?</th><th>Note</th></tr>
+      <tr><td>Atomicity (per-merge transaction)</td><td><span class="pill p-fixed">Yes</span></td><td>BEGIN/COMMIT/ROLLBACK both sides — the one strong property</td></tr>
+      <tr><td>Convergence</td><td><span class="pill p-open">No</span></td><td>broken by silent skips + clock-skew LWW</td></tr>
+      <tr><td>No lost committed write</td><td><span class="pill p-open">No</span></td><td>C1 (un-retried skip) + C2 (markSynced race) — both Critical</td></tr>
+      <tr><td>Idempotent apply</td><td><span class="pill p-partial">Edge yes / hub no</span></td><td>hub re-stamps <code>updatedAt</code> on apply</td></tr>
+      <tr><td>Delete safety</td><td><span class="pill p-partial">Partial</span></td><td>tombstones propagate, but delete-update can resurrect</td></tr>
+    </table>
+    <p class="small muted">Recommended: monotonic <code>row_version</code> + hub sequence, only-if-unchanged <code>markSynced</code>,
+    a durable dead-letter table, and a fault-injection property-test harness.</p>
+  </div>
+
+  <h2>Engineering discipline ported in</h2>
+  <div class="card">
+    <p>Adapted from the team's enterprise repo (Weighsoft.Enterprise.V4) and <code>~/xero-gateway</code>,
+    filtered to value (not the claude-flow tooling), into <em>both</em> repos:</p>
+    <ul>
+      <li><strong>Conventions:</strong> root + scoped <code>CLAUDE.md</code>, <code>AGENTS.md</code>, ADRs, <code>docs/audit/INDEX.md</code></li>
+      <li><strong>Testing:</strong> the six-layer matrix (unit/UI/integration × happy/edge) + a sync property-test harness; anti-pattern catalogue (flicker, post-action gap, fix-without-backfill, deploy-time blind spot + NutSync-native)</li>
+      <li><strong>Process:</strong> never-lose-work / branch-hygiene conventions, hub operations runbook</li>
+      <li><strong>Automation:</strong> CI (tests + typecheck + flow-invariant + advisory <code>npm audit</code>), PR &amp; issue templates, protect-branch commit-guard hooks</li>
+      <li><strong>Skills:</strong> <code>quality-review</code>, <code>security-review</code>, <code>sync-safety</code>, <code>verification-quality</code>, <code>branch-hygiene</code>, <code>release</code>, hub <code>flow-edit</code></li>
+    </ul>
+  </div>
+
+  <h2>Recommended next steps</h2>
+  <div class="card">
+    <ol>
+      <li><span class="badge b-crit">CRIT</span> &nbsp;Fix the two sync data-loss paths — dead-letter for skipped rows (#58) + guarded <code>markSynced</code> (#59).</li>
+      <li><span class="badge b-crit">CRIT</span> &nbsp;Enable <code>adminAuth</code> on the hub Node-RED editor/API; rotate any <code>NutSync2026!</code> account.</li>
+      <li><span class="badge b-high">HIGH</span> &nbsp;TLS on the hub (#2) + reject Bearer over plaintext; bump vulnerable dependencies (#12 / HUB-SEC-08).</li>
+      <li><span class="badge b-med">MED</span> &nbsp;Server-side authorization on the hub (#5); add a deterministic sync fault-injection test harness.</li>
+    </ol>
+  </div>
+
+  <h2>Scoring methodology (reusable across systems)</h2>
+  <div class="card">
+    <p class="small">Apply the same rubric to every system you review for an apples-to-apples comparison.
+    Each dimension is scored <strong>0–100 as-built</strong>, then weighted. For <strong>security</strong> and
+    <strong>data integrity</strong> the system inherits its <strong>weakest component</strong> (a system is only
+    as safe as its weakest half) rather than an average.</p>
+    <table class="rubric">
+      <tr><th>Dimension</th><th>Weight</th><th>What it measures</th></tr>
+      <tr><td>Security &amp; secrets</td><td>25%</td><td>Auth, injection, secrets handling, transport, access control — weighted highest because it's where vibe-coded systems fail hardest.</td></tr>
+      <tr><td>Data integrity &amp; sync</td><td>20%</td><td>Can a committed write be silently lost/corrupted? Convergence, idempotency, conflict resolution, transactions.</td></tr>
+      <tr><td>Architecture &amp; code quality</td><td>15%</td><td>SOLID, layering, duplication, complexity, deployed==tested.</td></tr>
+      <tr><td>Data layer</td><td>10%</td><td>Schema/types/constraints, indexing, migrations, query quality.</td></tr>
+      <tr><td>API &amp; contracts</td><td>10%</td><td>REST correctness, status codes, validation, versioning, idempotency, docs.</td></tr>
+      <tr><td>Testing &amp; verifiability</td><td>10%</td><td>Real coverage + test authenticity (not mock-echo theatre); CI gates.</td></tr>
+      <tr><td>UX &amp; accessibility</td><td>5%</td><td>Heuristics, WCAG, error/loading states, flows.</td></tr>
+      <tr><td>UI / code consistency</td><td>5%</td><td>Design tokens vs magic values, reuse vs duplication, naming.</td></tr>
+    </table>
+    <h3>Grade bands (production-readiness)</h3>
+    <table>
+      <tr><th>Score</th><th>Grade</th><th>Meaning</th></tr>
+      <tr><td>85–100</td><td><span class="grade g-a">A</span></td><td>Production-grade. No material findings; ship.</td></tr>
+      <tr><td>70–84</td><td><span class="grade g-b">B</span></td><td>Solid. Ship after clearing a short, known list.</td></tr>
+      <tr><td>55–69</td><td><span class="grade g-c">C</span></td><td>Works, but notable gaps. Not production-safe without targeted work.</td></tr>
+      <tr><td>40–54</td><td><span class="grade g-d">D</span></td><td>Significant defects. Substantial rework before deploy. <strong>← NutSync (48)</strong></td></tr>
+      <tr><td>0–39</td><td><span class="grade g-f">F</span></td><td>Critical/systemic failures. Do not deploy.</td></tr>
+    </table>
+    <p class="small muted">Scoring basis: the documented findings in each repo's <code>docs/*-AUDIT-2026-06.md</code>
+    (per-domain grades — e.g. UX 6.4/10, hub maintainability 4.3/10, DB B+/C, API D+, sync "convergence fails").
+    Report <strong>as-built</strong> as the comparable number; track a separate <strong>remediated</strong> score
+    as fixes land.</p>
+  </div>
+
+  <div class="foot">
+    Generated 2026-06-15 · Audit docs live in each repo under <code>docs/</code> (index: <code>docs/audit/INDEX.md</code>) ·
+    Counts reflect GitHub issues at report time. This report summarizes automated + LLM-assisted review and is not a substitute for human sign-off on Critical findings.
+  </div>
+</div>
+</body>
+</html>
+

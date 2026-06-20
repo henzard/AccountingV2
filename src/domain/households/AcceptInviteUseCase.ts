@@ -1,4 +1,3 @@
-import { randomUUID } from 'expo-crypto';
 import type { InferInsertModel } from 'drizzle-orm';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
@@ -16,11 +15,23 @@ interface AcceptInviteInput {
   userId: string;
 }
 
-interface InviteRow {
-  id: string;
+interface JoinHouseholdRpcResult {
+  member_id: string;
   household_id: string;
-  expires_at: string;
-  used_by: string | null;
+}
+
+function mapJoinError(message: string): { code: string; message: string } {
+  const lower = message.toLowerCase();
+  if (lower.includes('expired')) {
+    return { code: 'INVITE_EXPIRED', message: 'This invite code has expired' };
+  }
+  if (lower.includes('already used') || lower.includes('already a member')) {
+    return { code: 'INVITE_ALREADY_USED', message: 'This invite code has already been used' };
+  }
+  if (lower.includes('not found') || lower.includes('invite not found')) {
+    return { code: 'INVITE_NOT_FOUND', message: 'Invite code not found' };
+  }
+  return { code: 'JOIN_FAILED', message };
 }
 
 export class AcceptInviteUseCase {
@@ -37,56 +48,24 @@ export class AcceptInviteUseCase {
   }
 
   async execute(): Promise<Result<HouseholdSummary>> {
-    // 1. Fetch the invitation via SECURITY DEFINER RPC (bypasses RLS so acceptors
-    //    never need SELECT on the invitations table directly).
-    const { data: invite, error: inviteError } = await (this.supabase
-      .rpc('lookup_invite_by_code', { invite_code: this.input.code.toUpperCase() })
-      .single() as unknown as Promise<{ data: InviteRow | null; error: unknown }>);
+    const { data, error } = await this.supabase.rpc('join_household_via_invite', {
+      invite_code: this.input.code.toUpperCase(),
+    });
 
-    if (inviteError || !invite) {
-      return createFailure({ code: 'INVITE_NOT_FOUND', message: 'Invite code not found' });
+    if (error) {
+      const mapped = mapJoinError(error.message ?? 'Join failed');
+      return createFailure(mapped);
     }
 
-    const expiry = new Date(invite.expires_at as string);
-    if (isNaN(expiry.getTime()) || expiry < new Date()) {
-      return createFailure({ code: 'INVITE_EXPIRED', message: 'This invite code has expired' });
+    const join = data as JoinHouseholdRpcResult | null;
+    if (!join?.member_id || !join?.household_id) {
+      return createFailure({ code: 'JOIN_FAILED', message: 'Invalid join response from server' });
     }
 
-    if (invite.used_by) {
-      return createFailure({
-        code: 'INVITE_ALREADY_USED',
-        message: 'This invite code has already been used',
-      });
-    }
-
-    const householdId = invite.household_id;
-
-    // 2. Add user to household_members in Supabase
-    const memberId = randomUUID();
+    const memberId = join.member_id;
+    const householdId = join.household_id;
     const now = new Date().toISOString();
 
-    const { error: insertError } = await this.supabase.from('household_members').insert({
-      id: memberId,
-      household_id: householdId,
-      user_id: this.input.userId,
-      role: 'member',
-      joined_at: now,
-    });
-
-    if (insertError) {
-      return createFailure({ code: 'JOIN_FAILED', message: insertError.message });
-    }
-
-    // 3. Mark invitation as used via SECURITY DEFINER RPC (validates caller owns the claim)
-    const { error: markUsedError } = await this.supabase.rpc('claim_invite', {
-      invite_id: invite.id,
-    });
-
-    if (markUsedError) {
-      return createFailure({ code: 'INVITE_MARK_FAILED', message: markUsedError.message });
-    }
-
-    // 4. Insert member row locally
     const localMember: InferInsertModel<typeof householdMembers> = {
       id: memberId,
       householdId,
@@ -98,15 +77,11 @@ export class AcceptInviteUseCase {
     await this.db.insert(householdMembers).values(localMember);
     await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
 
-    // 5. Restore the household data locally.
-    // Non-fatal: user is already a member in Supabase even if local restore fails.
-    // We retry once then proceed with a minimal summary so the navigator can route correctly.
     let restored = await this.restoreService
       .restoreHousehold(householdId, 'member', this.input.userId)
       .catch(() => null);
 
     if (!restored) {
-      // One retry after a short wait (accounts for RLS propagation delay)
       await new Promise((resolve) => setTimeout(resolve, 1500));
       restored = await this.restoreService
         .restoreHousehold(householdId, 'member', this.input.userId)

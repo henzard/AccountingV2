@@ -1,6 +1,7 @@
 import { useAppStore } from '../appStore';
 import type { Session } from '@supabase/supabase-js';
 import type { BudgetPeriod } from '../../../domain/shared/types';
+import type { HouseholdSummary } from '../../../domain/households/EnsureHouseholdUseCase';
 
 const DEFAULT_PAYDAY_DAY = 25;
 
@@ -144,16 +145,18 @@ describe('appStore', () => {
 
   describe('setAvailableHouseholds', () => {
     it('stores household summaries', () => {
-      const households = [
-        { id: 'hh-1', name: 'Home' },
-        { id: 'hh-2', name: 'Work' },
+      const households: HouseholdSummary[] = [
+        { id: 'hh-1', name: 'Home', paydayDay: 25, userLevel: 1 },
+        { id: 'hh-2', name: 'Work', paydayDay: 1, userLevel: 2 },
       ];
-      useAppStore.getState().setAvailableHouseholds(households as never);
+      useAppStore.getState().setAvailableHouseholds(households);
       expect(useAppStore.getState().availableHouseholds).toEqual(households);
     });
 
     it('can be set to empty array', () => {
-      useAppStore.getState().setAvailableHouseholds([{ id: 'hh-1', name: 'X' }] as never);
+      useAppStore
+        .getState()
+        .setAvailableHouseholds([{ id: 'hh-1', name: 'X', paydayDay: 25, userLevel: 1 }]);
       useAppStore.getState().setAvailableHouseholds([]);
       expect(useAppStore.getState().availableHouseholds).toEqual([]);
     });
@@ -202,7 +205,9 @@ describe('appStore', () => {
       useAppStore.getState().setCurrentPeriod(PERIOD);
       useAppStore.getState().setHouseholdId('hh-1');
       useAppStore.getState().setPaydayDay(15);
-      useAppStore.getState().setAvailableHouseholds([{ id: 'hh-1', name: 'X' }] as never);
+      useAppStore
+        .getState()
+        .setAvailableHouseholds([{ id: 'hh-1', name: 'X', paydayDay: 25, userLevel: 1 }]);
       useAppStore.getState().setOnboardingCompleted(true);
       useAppStore.getState().setMonthlyIncomeCents(5000000);
 

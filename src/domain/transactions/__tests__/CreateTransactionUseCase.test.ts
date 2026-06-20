@@ -26,7 +26,12 @@ function makeSelectMock(envelopeRows: unknown[]) {
   });
 }
 const mockSelect = makeSelectMock([{ id: 'e1', envelopeType: 'spending' }]);
-const mockDb = { insert: mockInsert, update: mockUpdate, select: mockSelect } as any;
+const mockDb = {
+  insert: mockInsert,
+  update: mockUpdate,
+  select: mockSelect,
+  transaction: jest.fn(async (cb: any) => cb({ insert: mockDb.insert, update: mockDb.update })),
+} as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
 const input = {

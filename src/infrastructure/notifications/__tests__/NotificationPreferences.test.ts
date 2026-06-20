@@ -35,7 +35,16 @@ describe('NotificationPreferences', () => {
 
     it('satisfies NotificationPreferences interface shape', () => {
       const prefs: NotificationPreferences = DEFAULT_NOTIFICATION_PREFERENCES;
-      expect(Object.keys(prefs)).toHaveLength(7);
+      const expectedKeys = [
+        'eveningLogPromptEnabled',
+        'eveningLogPromptHour',
+        'eveningLogPromptMinute',
+        'meterReadingReminderEnabled',
+        'meterReadingReminderDay',
+        'monthStartPreflightEnabled',
+        'envelopeWarningEnabled',
+      ];
+      expect(Object.keys(prefs).sort()).toEqual(expectedKeys.sort());
     });
   });
 });

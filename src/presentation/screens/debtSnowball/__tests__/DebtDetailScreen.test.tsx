@@ -318,18 +318,17 @@ describe('DebtDetailScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('LogPayment', { debtId: 'debt-1' });
   });
 
-  it('shows loading state when debt is null (no data)', () => {
-    (db.select as jest.Mock).mockReturnValue({
-      from: jest.fn(() => ({
-        where: jest.fn(() => new Promise(() => {})),
-      })),
-    });
-    const { getByTestId } = render(
+  it('shows not-found message when debt does not exist', async () => {
+    setupDbEmpty();
+    const result = render(
       <DebtDetailScreen
         route={{ params: { debtId: 'nonexistent' } } as never}
         navigation={mockNavigation}
       />,
     );
-    expect(getByTestId('loading')).toBeTruthy();
+    await waitFor(() => {
+      expect(result.getByText('Debt not found')).toBeTruthy();
+    });
+    expect(result.queryByTestId('loading')).toBeNull();
   });
 });

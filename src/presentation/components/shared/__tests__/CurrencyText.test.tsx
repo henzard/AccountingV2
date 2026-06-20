@@ -31,6 +31,6 @@ describe('CurrencyText', () => {
   it('applies custom style prop', () => {
     const { getByText } = render(<CurrencyText amountCents={100} style={{ color: 'red' }} />);
     const el = getByText(/R.*1[.,]00/);
-    expect(el).toBeTruthy();
+    expect(el).toHaveStyle({ color: 'red' });
   });
 });

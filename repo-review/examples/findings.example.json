@@ -1,0 +1,119 @@
+{
+  "project": "NutSync",
+  "subtitle": "Offline-first weighing app (Expo/Electron client + Node-RED hub) — one system.",
+  "scopeNote": "client + hub = one system",
+  "date": "2026-06-15",
+  "tags": ["NutSync (client)", "NutSyncNodeRed (hub)"],
+  "remediatedNote": "This review's fixes (auto-update, backdoor, SQLi) lift it to ~53; clearing the backlog targets a B.",
+  "metrics": [
+    { "n": "2", "l": "repos (one system)" },
+    { "n": "15", "l": "audit documents" },
+    { "n": "116", "l": "issues filed" },
+    { "n": "9", "l": "closed (verified)" },
+    { "n": "2", "l": "PRs open" }
+  ],
+  "dimensions": [
+    {
+      "name": "Security & secrets",
+      "weight": 25,
+      "score": 35,
+      "note": "Hub backdoor + unauthenticated admin API + client auto-update RCE; cleartext transport. Weakest-link dominates."
+    },
+    {
+      "name": "Data integrity & sync",
+      "weight": 20,
+      "score": 38,
+      "note": "Convergence fails; 2 Critical silent-write-loss paths; wall-clock LWW; non-idempotent hub apply. Weakest-link: scored as the failing half, not averaged."
+    },
+    {
+      "name": "Architecture & code quality",
+      "weight": 15,
+      "score": 58,
+      "note": "Client clean (repo layer, typed); hub poor (4.3/10 — god function-nodes, deployed!=tested, 15x dup)."
+    },
+    {
+      "name": "Data layer",
+      "weight": 10,
+      "score": 64,
+      "note": "Client B+ (FK on, transactional migrations); hub C (untyped EAV blob, no FK/migrations)."
+    },
+    {
+      "name": "API & contracts",
+      "weight": 10,
+      "score": 52,
+      "note": "No versioning/OpenAPI; race-prone invoice allocation; RPC verbs; inconsistent envelopes."
+    },
+    {
+      "name": "Testing & verifiability",
+      "weight": 10,
+      "score": 45,
+      "note": "Tests authentic where present, but ~19% line coverage; hub's tested lib isn't the deployed code."
+    },
+    {
+      "name": "UX & accessibility",
+      "weight": 5,
+      "score": 64,
+      "note": "Strong IA + design system; WCAG gaps (contrast, label association, dialog focus)."
+    },
+    {
+      "name": "UI / code consistency",
+      "weight": 5,
+      "score": 62,
+      "note": "Client token system solid; hub flow has heavy duplication / drift."
+    }
+  ],
+  "critical": [
+    {
+      "title": "Auto-updater RCE — unsigned installer, no integrity check, HTTP allowed",
+      "area": "client",
+      "impact": "RCE on every updating desktop",
+      "status": "fixed"
+    },
+    {
+      "title": "Hardcoded backdoor NutSync2026!",
+      "area": "hub",
+      "impact": "Full admin takeover",
+      "status": "fixed"
+    },
+    {
+      "title": "Unauthenticated Node-RED admin/flows API",
+      "area": "hub",
+      "impact": "Flow overwrite = RCE + secret theft",
+      "status": "open"
+    },
+    {
+      "title": "Silent sync data loss (un-retried skip C1 + markSynced race C2)",
+      "area": "client",
+      "impact": "A committed write can vanish / never replicate",
+      "status": "open"
+    }
+  ],
+  "fixes": [
+    {
+      "title": "Auto-update: HTTPS-only + pinned SHA-256 verification",
+      "sev": "crit",
+      "evidence": "updater.test.ts"
+    },
+    {
+      "title": "Removed NutSync2026! backdoor (require explicit password)",
+      "sev": "crit",
+      "evidence": "flow re-serialized; 22 tests green"
+    },
+    {
+      "title": "SQL-injection on role/userTypeId escaped",
+      "sev": "high",
+      "evidence": "node syntax-validated"
+    },
+    {
+      "title": "Salted/iterated offline password hashing",
+      "sev": "high",
+      "evidence": "offline-credential.test.ts"
+    }
+  ],
+  "next": [
+    "Fix the two sync data-loss paths — dead-letter for skipped rows + guarded markSynced.",
+    "Enable adminAuth on the hub; rotate any NutSync2026! account.",
+    "TLS on the hub + reject Bearer over plaintext; bump vulnerable dependencies.",
+    "Add a deterministic sync fault-injection test harness."
+  ]
+}

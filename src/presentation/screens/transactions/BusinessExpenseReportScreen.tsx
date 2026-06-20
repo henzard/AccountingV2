@@ -18,9 +18,11 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
   const householdId = useAppStore((s) => s.householdId) ?? '';
   const [groups, setGroups] = useState<ReturnType<typeof groupBusinessExpenses>>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
+    setError(null);
     try {
       const rows = await db
         .select()
@@ -41,8 +43,9 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
         updatedAt: r.updatedAt,
       }));
       setGroups(groupBusinessExpenses(entities));
-    } catch {
+    } catch (err: unknown) {
       setGroups([]);
+      setError(err instanceof Error ? err.message : 'Failed to load expenses');
     } finally {
       setLoading(false);
     }
@@ -58,6 +61,16 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Text variant="bodyMedium" style={{ color: colors.error }} testID="error-banner">
+          {error}
+        </Text>
       </View>
     );
   }

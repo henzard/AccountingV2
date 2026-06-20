@@ -29,7 +29,7 @@ describe('SyncOrchestrator.syncPending', () => {
     expect(result).toMatchObject({ synced: 0, failed: 0 });
   });
 
-  it('baby_steps DELETE uses plain .delete() path, not rpc()', async () => {
+  it('DELETE uses delete_sync_row RPC, not merge RPC or direct table delete', async () => {
     const pending = [
       {
         id: 'p1',
@@ -45,7 +45,7 @@ describe('SyncOrchestrator.syncPending', () => {
       delete: () => ({ where: () => Promise.resolve() }),
     } as any;
 
-    const rpcMock = jest.fn();
+    const rpcMock = jest.fn().mockResolvedValue({ error: null });
     const deleteMock = jest.fn().mockReturnValue({ eq: () => Promise.resolve({ error: null }) });
     const supabase = {
       rpc: rpcMock,
@@ -57,10 +57,11 @@ describe('SyncOrchestrator.syncPending', () => {
 
     expect(result.synced).toBe(1);
     expect(result.failed).toBe(0);
-    // DELETE must NOT go through the merge_baby_step RPC
-    expect(rpcMock).not.toHaveBeenCalled();
-    // Plain .delete() must have been called
-    expect(deleteMock).toHaveBeenCalled();
+    expect(rpcMock).toHaveBeenCalledWith('delete_sync_row', {
+      p_table: 'baby_steps',
+      p_id: 'bs-del-1',
+    });
+    expect(deleteMock).not.toHaveBeenCalled();
   });
 
   it('increments failed count when Supabase upsert throws', async () => {
@@ -749,7 +750,7 @@ describe('SyncOrchestrator — DLQ after max retries', () => {
 
     // Second call must return 0s WITHOUT calling db.select again (latch short-circuits)
     const second = await orch.syncPending();
-    expect(second).toEqual({ synced: 0, failed: 0, emfFlipped: 0 });
+    expect(second).toEqual({ synced: 0, failed: 0, deadLettered: 0, emfFlipped: 0 });
     // The latch means select was only called once (for the first sync)
     expect(selectMock).toHaveBeenCalledTimes(1);
 

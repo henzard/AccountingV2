@@ -81,13 +81,14 @@ describe('DrizzleTransactionRepository', () => {
     it('returns transactions ordered by date with default limit', async () => {
       const entities = [makeEntity(), makeEntity({ id: 'tx-2', payee: 'Woolworths' })];
       const rows = entities.map(makeRow);
-      const { selectFn, limitFn } = buildSelectOrderedMock(rows);
+      const { selectFn, orderByFn, limitFn } = buildSelectOrderedMock(rows);
       const db = { select: selectFn } as any;
       const repo = new DrizzleTransactionRepository(db);
 
       const result = await repo.findByHousehold('hh-1');
 
       expect(result).toHaveLength(2);
+      expect(orderByFn).toHaveBeenCalled();
       expect(limitFn).toHaveBeenCalledWith(100);
     });
 
@@ -148,7 +149,9 @@ describe('DrizzleTransactionRepository', () => {
       await repo.delete('tx-1', 'hh-1');
 
       expect(deleteFn).toHaveBeenCalled();
-      expect(whereFn).toHaveBeenCalled();
+      expect(whereFn).toHaveBeenCalledTimes(1);
+      const filterPredicate = whereFn.mock.calls[0][0];
+      expect(filterPredicate).toBeDefined();
     });
 
     it('propagates database errors on delete', async () => {

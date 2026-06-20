@@ -15,11 +15,11 @@ describe('DateText', () => {
 
   it('applies custom style prop', () => {
     const { getByText } = render(<DateText isoDate="2024-01-10" style={{ fontSize: 20 }} />);
-    expect(getByText('10 Jan 2024')).toBeTruthy();
+    expect(getByText('10 Jan 2024')).toHaveStyle({ fontSize: 20 });
   });
 
   it('handles ISO datetime string', () => {
-    const { getByText } = render(<DateText isoDate="2024-06-20T15:30:00Z" />);
+    const { getByText } = render(<DateText isoDate="2024-06-20T15:30:00" />);
     expect(getByText('20 Jun 2024')).toBeTruthy();
   });
 });

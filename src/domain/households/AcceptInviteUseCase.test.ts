@@ -3,32 +3,22 @@ import { AcceptInviteUseCase } from './AcceptInviteUseCase';
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 
 const makeSupabase = ({
-  inviteData = null as unknown,
-  inviteError = null as unknown,
-  insertError = null as unknown,
+  joinData = null as unknown,
+  joinError = null as { message: string } | null,
 } = {}) => ({
-  from: jest.fn().mockImplementation((table: string) => {
-    if (table === 'household_members') {
-      return {
-        insert: () => Promise.resolve({ error: insertError }),
-      };
-    }
-    return {};
-  }),
   rpc: jest.fn().mockImplementation((name: string) => {
-    if (name === 'lookup_invite_by_code') {
-      return { single: () => Promise.resolve({ data: inviteData, error: inviteError }) };
+    if (name === 'join_household_via_invite') {
+      return Promise.resolve({ data: joinData, error: joinError });
     }
-    return Promise.resolve({ error: null });
+    return Promise.resolve({ data: null, error: null });
   }),
+  from: jest.fn(),
 });
 
 describe('AcceptInviteUseCase', () => {
-  it('returns INVITE_NOT_FOUND when code does not exist', async () => {
-    const supabase = makeSupabase({ inviteData: null, inviteError: { message: 'not found' } });
-    const db = {} as any;
-    const restoreSvc = {} as any;
-    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, {
+  it('returns INVITE_NOT_FOUND when RPC reports invite not found', async () => {
+    const supabase = makeSupabase({ joinError: { message: 'invite not found' } });
+    const uc = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
       code: 'ZZZ999',
       userId: 'u-1',
     });
@@ -37,17 +27,9 @@ describe('AcceptInviteUseCase', () => {
     if (!result.success) expect(result.error.code).toBe('INVITE_NOT_FOUND');
   });
 
-  it('returns INVITE_EXPIRED when expiry is in the past', async () => {
-    const supabase = makeSupabase({
-      inviteData: {
-        household_id: 'hh-1',
-        expires_at: new Date(Date.now() - 1000).toISOString(),
-        used_by: null,
-      },
-    });
-    const db = {} as any;
-    const restoreSvc = {} as any;
-    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, {
+  it('returns INVITE_EXPIRED when RPC reports expired', async () => {
+    const supabase = makeSupabase({ joinError: { message: 'invite expired' } });
+    const uc = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
       code: 'ABC123',
       userId: 'u-1',
     });
@@ -56,17 +38,9 @@ describe('AcceptInviteUseCase', () => {
     if (!result.success) expect(result.error.code).toBe('INVITE_EXPIRED');
   });
 
-  it('returns INVITE_ALREADY_USED when used_by is set', async () => {
-    const supabase = makeSupabase({
-      inviteData: {
-        household_id: 'hh-1',
-        expires_at: new Date(Date.now() + 3600000).toISOString(),
-        used_by: 'someone-else',
-      },
-    });
-    const db = {} as any;
-    const restoreSvc = {} as any;
-    const uc = new AcceptInviteUseCase(supabase as any, db, restoreSvc, {
+  it('returns INVITE_ALREADY_USED when RPC reports already used', async () => {
+    const supabase = makeSupabase({ joinError: { message: 'invite already used' } });
+    const uc = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
       code: 'ABC123',
       userId: 'u-1',
     });
@@ -77,45 +51,15 @@ describe('AcceptInviteUseCase', () => {
 });
 
 describe('AcceptInviteUseCase — success path', () => {
-  it('inserts household_members locally, enqueues sync, and triggers restore', async () => {
-    const mockInvite = {
-      id: 'inv-1',
-      household_id: 'h1',
-      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
-      used_by: null,
-    };
-
-    const supabase = {
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'household_members') {
-          return {
-            insert: jest.fn().mockResolvedValue({ error: null }),
-          };
-        }
-        return {};
-      }),
-      rpc: jest.fn().mockImplementation((name: string) => {
-        if (name === 'lookup_invite_by_code') {
-          return { single: jest.fn().mockResolvedValue({ data: mockInvite, error: null }) };
-        }
-        return Promise.resolve({ error: null });
-      }),
-    };
+  it('calls join_household_via_invite, inserts locally, enqueues sync, and triggers restore', async () => {
+    const supabase = makeSupabase({
+      joinData: { member_id: 'member-1', household_id: 'h1' },
+    });
 
     const dbInsertMock = jest.fn().mockReturnValue({
       values: jest.fn().mockResolvedValue(undefined),
     });
-    const db = {
-      select: jest.fn().mockReturnValue({
-        from: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([]),
-      }),
-      insert: dbInsertMock,
-      update: jest.fn().mockReturnValue({
-        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
-      }),
-    };
+    const db = { insert: dbInsertMock };
 
     const restoreService = {
       restoreHousehold: jest.fn().mockResolvedValue({
@@ -126,14 +70,23 @@ describe('AcceptInviteUseCase — success path', () => {
       }),
     };
 
-    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
-      userId: 'user-b',
-      code: 'ABC123',
-    });
+    const enqueuer = { enqueue: jest.fn() };
+
+    const uc = new AcceptInviteUseCase(
+      supabase as any,
+      db as any,
+      restoreService as any,
+      { userId: 'user-b', code: 'abc123' },
+      enqueuer as any,
+    );
     const result = await uc.execute();
 
+    expect(supabase.rpc).toHaveBeenCalledWith('join_household_via_invite', {
+      invite_code: 'ABC123',
+    });
     expect(result.success).toBe(true);
     expect(dbInsertMock).toHaveBeenCalled();
+    expect(enqueuer.enqueue).toHaveBeenCalledWith('household_members', 'member-1', 'INSERT');
     expect(restoreService.restoreHousehold).toHaveBeenCalledWith('h1', 'member', 'user-b');
   });
 });
@@ -141,31 +94,11 @@ describe('AcceptInviteUseCase — success path', () => {
 describe('AcceptInviteUseCase — restore failure graceful degradation', () => {
   it('still succeeds with fallback summary when restoreHousehold returns null', async () => {
     jest.useFakeTimers();
-    const mockInvite = {
-      id: 'inv-1',
-      household_id: 'hh-fallback',
-      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
-      used_by: null,
-    };
-
-    const supabase = {
-      from: jest.fn().mockReturnValue({ insert: jest.fn().mockResolvedValue({ error: null }) }),
-      rpc: jest.fn().mockImplementation((name: string) => {
-        if (name === 'lookup_invite_by_code')
-          return { single: jest.fn().mockResolvedValue({ data: mockInvite, error: null }) };
-        return Promise.resolve({ error: null });
-      }),
-    };
+    const supabase = makeSupabase({
+      joinData: { member_id: 'member-2', household_id: 'hh-fallback' },
+    });
     const db = {
-      select: jest.fn().mockReturnValue({
-        from: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([]),
-      }),
       insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
-      update: jest.fn().mockReturnValue({
-        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
-      }),
     };
     const restoreService = { restoreHousehold: jest.fn().mockResolvedValue(null) };
     const enqueuer = { enqueue: jest.fn() };
@@ -179,56 +112,29 @@ describe('AcceptInviteUseCase — restore failure graceful degradation', () => {
     );
 
     const resultPromise = uc.execute();
-    // Fast-forward the 1500ms retry delay
     await jest.runAllTimersAsync();
     const result = await resultPromise;
 
     expect(result.success).toBe(true);
     if (result.success) {
-      // Falls back to householdId as id, default name/paydayDay
       expect(result.data.id).toBe('hh-fallback');
     }
     jest.useRealTimers();
   });
 });
 
-describe('AcceptInviteUseCase — uses lookup_invite_by_code RPC', () => {
-  it('calls supabase.rpc("lookup_invite_by_code") not a direct table SELECT', async () => {
-    const mockInvite = {
-      id: 'inv1',
-      household_id: 'h1',
-      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
-      used_by: null,
-    };
-
-    const rpcSingleMock = jest.fn().mockResolvedValue({ data: mockInvite, error: null });
-    const rpcClaimMock = jest.fn().mockResolvedValue({ error: null });
-
-    const supabase = {
-      rpc: jest.fn().mockImplementation((name: string) => {
-        if (name === 'lookup_invite_by_code') return { single: rpcSingleMock };
-        if (name === 'claim_invite') return rpcClaimMock();
-        return { error: null };
-      }),
-      from: jest.fn().mockReturnValue({
-        insert: jest.fn().mockResolvedValue({ data: null, error: null }),
-      }),
-    };
+describe('AcceptInviteUseCase — uses join_household_via_invite RPC only', () => {
+  it('does not call direct household_members insert on Supabase', async () => {
+    const supabase = makeSupabase({
+      joinData: { member_id: 'member-3', household_id: 'h1' },
+    });
 
     const db = {
-      insert: jest.fn().mockReturnValue({
-        values: jest.fn().mockResolvedValue(undefined),
-      }),
+      insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
     };
-
     const restoreService = {
-      restoreHousehold: jest.fn().mockResolvedValue({
-        id: 'h1',
-        name: 'My House',
-        paydayDay: 25,
-      }),
+      restoreHousehold: jest.fn().mockResolvedValue({ id: 'h1', name: 'My House', paydayDay: 25 }),
     };
-
     const enqueuer = { enqueue: jest.fn() };
 
     const useCase = new AcceptInviteUseCase(
@@ -240,55 +146,7 @@ describe('AcceptInviteUseCase — uses lookup_invite_by_code RPC', () => {
     );
 
     const result = await useCase.execute();
-
     expect(result.success).toBe(true);
-    expect(supabase.rpc).toHaveBeenCalledWith('lookup_invite_by_code', { invite_code: 'ABC123' });
-    // Must NOT call supabase.from('invitations') for SELECT
-    const fromCalls: string[] = (supabase.from as jest.Mock).mock.calls.map((c: [string]) => c[0]);
-    expect(fromCalls).not.toContain('invitations');
-  });
-
-  it('returns INVITE_NOT_FOUND when RPC returns null data', async () => {
-    const supabase = {
-      rpc: jest.fn().mockReturnValue({
-        single: jest.fn().mockResolvedValue({ data: null, error: { message: 'not found' } }),
-      }),
-      from: jest.fn(),
-    };
-
-    const useCase = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
-      code: 'BAD',
-      userId: 'u1',
-    });
-
-    const result = await useCase.execute();
-    expect(result.success).toBe(false);
-    expect((result as any).error.code).toBe('INVITE_NOT_FOUND');
-  });
-
-  it('returns INVITE_EXPIRED when expires_at is in the past', async () => {
-    const supabase = {
-      rpc: jest.fn().mockReturnValue({
-        single: jest.fn().mockResolvedValue({
-          data: {
-            id: 'i1',
-            household_id: 'h1',
-            expires_at: new Date(Date.now() - 1000).toISOString(),
-            used_by: null,
-          },
-          error: null,
-        }),
-      }),
-      from: jest.fn(),
-    };
-
-    const useCase = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
-      code: 'EXP',
-      userId: 'u1',
-    });
-
-    const result = await useCase.execute();
-    expect(result.success).toBe(false);
-    expect((result as any).error.code).toBe('INVITE_EXPIRED');
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 });

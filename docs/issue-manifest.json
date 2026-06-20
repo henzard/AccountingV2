@@ -1,0 +1,266 @@
+{
+  "createdAt": "2026-06-20T12:16:01.269Z",
+  "count": 65,
+  "issues": [
+    {
+      "id": "LWW-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/41"
+    },
+    {
+      "id": "LWW-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/42"
+    },
+    {
+      "id": "LWW-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/43"
+    },
+    {
+      "id": "LWW-004",
+      "url": "https://github.com/henzard/AccountingV2/issues/44"
+    },
+    {
+      "id": "LWW-005",
+      "url": "https://github.com/henzard/AccountingV2/issues/45"
+    },
+    {
+      "id": "RESTORE-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/46"
+    },
+    {
+      "id": "RESTORE-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/47"
+    },
+    {
+      "id": "RESTORE-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/48"
+    },
+    {
+      "id": "SOFTDEL-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/49"
+    },
+    {
+      "id": "SOFTDEL-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/50"
+    },
+    {
+      "id": "SOFTDEL-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/51"
+    },
+    {
+      "id": "SOFTDEL-004",
+      "url": "https://github.com/henzard/AccountingV2/issues/52"
+    },
+    {
+      "id": "QR-SYNC-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/53"
+    },
+    {
+      "id": "QR-SYNC-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/54"
+    },
+    {
+      "id": "QR-SYNC-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/55"
+    },
+    {
+      "id": "QR-SYNC-004",
+      "url": "https://github.com/henzard/AccountingV2/issues/56"
+    },
+    {
+      "id": "QR-SYNC-005",
+      "url": "https://github.com/henzard/AccountingV2/issues/57"
+    },
+    {
+      "id": "QR-SYNC-006",
+      "url": "https://github.com/henzard/AccountingV2/issues/58"
+    },
+    {
+      "id": "QR-SYNC-007",
+      "url": "https://github.com/henzard/AccountingV2/issues/59"
+    },
+    {
+      "id": "QR-TEST-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/60"
+    },
+    {
+      "id": "QR-TEST-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/61"
+    },
+    {
+      "id": "QR-TEST-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/62"
+    },
+    {
+      "id": "QR-TEST-004",
+      "url": "https://github.com/henzard/AccountingV2/issues/63"
+    },
+    {
+      "id": "QR-TEST-005",
+      "url": "https://github.com/henzard/AccountingV2/issues/64"
+    },
+    {
+      "id": "QR-TEST-006",
+      "url": "https://github.com/henzard/AccountingV2/issues/65"
+    },
+    {
+      "id": "QR-TEST-007",
+      "url": "https://github.com/henzard/AccountingV2/issues/66"
+    },
+    {
+      "id": "QR-TEST-008",
+      "url": "https://github.com/henzard/AccountingV2/issues/67"
+    },
+    {
+      "id": "QR-TEST-009",
+      "url": "https://github.com/henzard/AccountingV2/issues/68"
+    },
+    {
+      "id": "QR-TEST-010",
+      "url": "https://github.com/henzard/AccountingV2/issues/69"
+    },
+    {
+      "id": "QR-TEST-011",
+      "url": "https://github.com/henzard/AccountingV2/issues/70"
+    },
+    {
+      "id": "QR-TEST-012",
+      "url": "https://github.com/henzard/AccountingV2/issues/71"
+    },
+    {
+      "id": "QR-TEST-013",
+      "url": "https://github.com/henzard/AccountingV2/issues/72"
+    },
+    {
+      "id": "QR-UX-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/73"
+    },
+    {
+      "id": "QR-UX-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/74"
+    },
+    {
+      "id": "QR-UX-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/75"
+    },
+    {
+      "id": "QR-UX-004",
+      "url": "https://github.com/henzard/AccountingV2/issues/76"
+    },
+    {
+      "id": "QR-UX-005",
+      "url": "https://github.com/henzard/AccountingV2/issues/77"
+    },
+    {
+      "id": "QR-UX-006",
+      "url": "https://github.com/henzard/AccountingV2/issues/78"
+    },
+    {
+      "id": "QR-UX-007",
+      "url": "https://github.com/henzard/AccountingV2/issues/79"
+    },
+    {
+      "id": "QR-UX-008",
+      "url": "https://github.com/henzard/AccountingV2/issues/80"
+    },
+    {
+      "id": "QR-API-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/81"
+    },
+    {
+      "id": "QR-API-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/82"
+    },
+    {
+      "id": "QR-DB-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/83"
+    },
+    {
+      "id": "QR-DB-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/84"
+    },
+    {
+      "id": "QR-DB-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/85"
+    },
+    {
+      "id": "QR-CODE-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/86"
+    },
+    {
+      "id": "QR-CODE-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/87"
+    },
+    {
+      "id": "SEC-RT-001",
+      "url": "https://github.com/henzard/AccountingV2/issues/88"
+    },
+    {
+      "id": "SEC-RT-002",
+      "url": "https://github.com/henzard/AccountingV2/issues/89"
+    },
+    {
+      "id": "SEC-RT-003",
+      "url": "https://github.com/henzard/AccountingV2/issues/90"
+    },
+    {
+      "id": "SEC-RT-004",
+      "url": "https://github.com/henzard/AccountingV2/issues/91"
+    },
+    {
+      "id": "SEC-RT-005",
+      "url": "https://github.com/henzard/AccountingV2/issues/92"
+    },
+    {
+      "id": "SEC-RT-006",
+      "url": "https://github.com/henzard/AccountingV2/issues/93"
+    },
+    {
+      "id": "SEC-RT-007",
+      "url": "https://github.com/henzard/AccountingV2/issues/94"
+    },
+    {
+      "id": "SEC-RT-008",
+      "url": "https://github.com/henzard/AccountingV2/issues/95"
+    },
+    {
+      "id": "SEC-RT-009",
+      "url": "https://github.com/henzard/AccountingV2/issues/96"
+    },
+    {
+      "id": "SEC-RT-010",
+      "url": "https://github.com/henzard/AccountingV2/issues/97"
+    },
+    {
+      "id": "SEC-RT-011",
+      "url": "https://github.com/henzard/AccountingV2/issues/98"
+    },
+    {
+      "id": "SEC-RT-012",
+      "url": "https://github.com/henzard/AccountingV2/issues/99"
+    },
+    {
+      "id": "SEC-RT-013",
+      "url": "https://github.com/henzard/AccountingV2/issues/100"
+    },
+    {
+      "id": "SEC-RT-014",
+      "url": "https://github.com/henzard/AccountingV2/issues/101"
+    },
+    {
+      "id": "SEC-RT-015",
+      "url": "https://github.com/henzard/AccountingV2/issues/102"
+    },
+    {
+      "id": "SEC-RT-016",
+      "url": "https://github.com/henzard/AccountingV2/issues/103"
+    },
+    {
+      "id": "SEC-RT-017",
+      "url": "https://github.com/henzard/AccountingV2/issues/104"
+    },
+    {
+      "id": "SEC-RT-018",
+      "url": "https://github.com/henzard/AccountingV2/issues/105"
+    }
+  ]
+}

@@ -7,4 +7,5 @@ export const householdMembers = sqliteTable('household_members', {
   role: text('role').notNull().default('member'), // 'owner' | 'member'
   joinedAt: text('joined_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
 });

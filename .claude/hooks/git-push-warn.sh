@@ -19,7 +19,7 @@ if [ -z "$cmd" ]; then
 fi
 [ -z "$cmd" ] && cmd="$payload"
 
-printf '%s' "$cmd" | grep -Eq '(^|[;&|"'"'"']|\s)git\s+(-[^ ]+\s+|[^ ]+=[^ ]+\s+)*push(\s|$|")' || exit 0
+printf '%s' "$cmd" | grep -Eq '(^|[;&|"'"'"']|[[:space:]])git[[:space:]]+(-[^ ]+[[:space:]]+|[^ ]+=[^ ]+[[:space:]]+)*push([[:space:]]|$|")' || exit 0
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
 

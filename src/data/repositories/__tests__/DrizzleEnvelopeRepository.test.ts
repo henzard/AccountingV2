@@ -81,7 +81,7 @@ describe('DrizzleEnvelopeRepository', () => {
     it('returns all envelopes for a household', async () => {
       const entities = [makeEntity(), makeEntity({ id: 'env-2', name: 'Transport' })];
       const rows = entities.map(makeRow);
-      const { selectFn } = buildSelectNoLimitMock(rows);
+      const { selectFn, whereFn } = buildSelectNoLimitMock(rows);
       const db = { select: selectFn } as any;
       const repo = new DrizzleEnvelopeRepository(db);
 
@@ -90,16 +90,18 @@ describe('DrizzleEnvelopeRepository', () => {
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Groceries');
       expect(result[1].name).toBe('Transport');
+      expect(whereFn).toHaveBeenCalledTimes(1);
     });
 
     it('returns empty array when no envelopes exist', async () => {
-      const { selectFn } = buildSelectNoLimitMock([]);
+      const { selectFn, whereFn } = buildSelectNoLimitMock([]);
       const db = { select: selectFn } as any;
       const repo = new DrizzleEnvelopeRepository(db);
 
       const result = await repo.findByHousehold('hh-1');
 
       expect(result).toEqual([]);
+      expect(whereFn).toHaveBeenCalledTimes(1);
     });
   });
 

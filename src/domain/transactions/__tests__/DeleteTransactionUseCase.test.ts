@@ -18,6 +18,7 @@ const mockDb = {
   update: mockUpdate,
   insert: mockInsert,
   select: mockSelect,
+  transaction: jest.fn(async (cb: any) => cb({ delete: mockDb.delete, update: mockDb.update })),
 } as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 

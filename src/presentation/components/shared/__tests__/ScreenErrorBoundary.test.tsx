@@ -19,12 +19,9 @@ function ThrowingChild(): React.JSX.Element {
 }
 
 function GoodChild(): React.JSX.Element {
-  return (
-    <>
-      {}
-      <></>
-    </>
-  );
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const RN = require('react-native');
+  return <RN.Text>Hello</RN.Text>;
 }
 
 describe('ScreenErrorBoundary', () => {
@@ -37,12 +34,12 @@ describe('ScreenErrorBoundary', () => {
   });
 
   it('renders children when no error', () => {
-    render(
+    const { getByText } = render(
       <ScreenErrorBoundary>
         <GoodChild />
       </ScreenErrorBoundary>,
     );
-    expect(true).toBe(true);
+    expect(getByText('Hello')).toBeTruthy();
   });
 
   it('renders fallback UI when child throws', () => {

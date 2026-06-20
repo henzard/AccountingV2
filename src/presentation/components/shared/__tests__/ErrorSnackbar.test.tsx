@@ -25,7 +25,7 @@ jest.mock('react-native-paper', () => {
               ? React.createElement(
                   'Pressable',
                   { testID: 'snackbar-action', onPress: action.onPress },
-                  action.label,
+                  React.createElement('Text', null, action.label),
                 )
               : null,
           )
@@ -76,7 +76,11 @@ describe('ErrorSnackbar', () => {
   });
 
   it('uses custom actionLabel', () => {
-    const { getByTestId } = render(<ErrorSnackbar {...defaultProps} actionLabel="Retry" />);
-    expect(getByTestId('snackbar-action')).toBeTruthy();
+    const { getByTestId, getByText } = render(
+      <ErrorSnackbar {...defaultProps} actionLabel="Retry" />,
+    );
+    const action = getByTestId('snackbar-action');
+    expect(action).toBeTruthy();
+    expect(getByText('Retry')).toBeTruthy();
   });
 });

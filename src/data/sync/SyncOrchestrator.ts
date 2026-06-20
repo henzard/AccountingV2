@@ -72,8 +72,8 @@ export class SyncOrchestrator {
 
   async syncPending(
     householdId?: string,
-  ): Promise<{ synced: number; failed: number; emfFlipped: number }> {
-    if (isSyncRunning) return { synced: 0, failed: 0, emfFlipped: 0 };
+  ): Promise<{ synced: number; failed: number; deadLettered: number; emfFlipped: number }> {
+    if (isSyncRunning) return { synced: 0, failed: 0, deadLettered: 0, emfFlipped: 0 };
     isSyncRunning = true;
     try {
       // Only fetch items whose backoff window has elapsed.
@@ -127,6 +127,7 @@ export class SyncOrchestrator {
 
       let synced = 0;
       let failed = 0;
+      let deadLettered = 0;
 
       for (const item of pending) {
         try {
@@ -147,6 +148,7 @@ export class SyncOrchestrator {
               .update(pendingSync)
               .set({ retryCount: newRetryCount, lastAttemptedAt: now, deadLetteredAt: now })
               .where(eq(pendingSync.id, item.id));
+            deadLettered++;
           } else {
             const backoffMs = Math.min(60_000, 1000 * 2 ** item.retryCount);
             const nextAttempt = new Date(Date.now() + backoffMs).toISOString();
@@ -170,7 +172,7 @@ export class SyncOrchestrator {
         }
       }
 
-      return { synced, failed, emfFlipped };
+      return { synced, failed, deadLettered, emfFlipped };
     } finally {
       isSyncRunning = false;
     }
@@ -181,7 +183,10 @@ export class SyncOrchestrator {
     tableRowCache?: Record<string, Record<string, unknown>>,
   ): Promise<void> {
     if (item.operation === 'DELETE') {
-      const { error } = await this.supabase.from(item.tableName).delete().eq('id', item.recordId);
+      const { error } = await this.supabase.rpc('delete_sync_row', {
+        p_table: item.tableName,
+        p_id: item.recordId,
+      });
       if (error) throw new Error(error.message);
       return;
     }

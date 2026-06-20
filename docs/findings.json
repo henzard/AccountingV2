@@ -1,85 +1,109 @@
 {
   "project": "AccountingV2",
   "subtitle": "React Native (Expo) personal finance app — envelope budgeting, debt snowball, slip scanning, multi-household sync to Supabase.",
-  "scopeNote": "whole system (mobile + Supabase)",
-  "date": "2026-06-18",
-  "tags": ["AccountingV2", "Android", "Supabase", "Offline-first"],
-  "remediatedNote": "Post-remediation score. All Critical and High findings addressed. Remaining items are Medium/Low hardening.",
+  "scopeNote": "whole system (mobile + Supabase) · as-built 2026-06-20",
+  "date": "2026-06-20",
+  "tags": [
+    "AccountingV2",
+    "Android",
+    "Supabase",
+    "Offline-first",
+    "feat/comprehensive-qa-test-suite"
+  ],
+  "remediatedNote": "As-built score after QA Lead cycles + batch 1 security merge (019: SEC-RT-001–005). Prior Jun-18 score (82/B) assumed fixes that red team disproved (R2 snapshot guard, tombstone pipeline). Remaining Critical/High items tracked in docs/queue.md (#41–#105).",
   "metrics": [
-    { "n": "127+", "l": "test suites" },
-    { "n": "640+", "l": "tests (new harness + repo tests)" },
-    { "n": "4", "l": "Criticals fixed" },
-    { "n": "12", "l": "Highs fixed" },
-    { "n": "6", "l": "new Supabase migrations" },
-    { "n": "7", "l": "schema tables with tombstones" }
+    { "n": "239", "l": "test suites (all green)" },
+    { "n": "2023", "l": "automated tests" },
+    { "n": "89.4%", "l": "line coverage" },
+    { "n": "0", "l": "Critical security (open)" },
+    { "n": "12", "l": "Tier 0 architectural gaps" },
+    { "n": "53", "l": "open queue items (Tier 1–2)" }
   ],
   "dimensions": [
     {
       "name": "Security & secrets",
       "weight": 25,
-      "score": 82,
-      "note": "Fixed: notify-event now requires service-role auth. RLS LIMIT 1 replaced with IN(). merge_household_member pins role. user_fcm_tokens has RLS. Android backup exclusion XMLs created. Production error boundary sanitized. Remaining: unpinned CI actions (Medium), deprecated FCM API (Medium)."
+      "score": 55,
+      "note": "Batch 1 merged (019): invite-only join via join_household_via_invite; household_members/user_households INSERT revoked; delete_sync_row RPC; slip completed guard restored. Remaining High: invite brute-force hardening, PostgREST read paths, FCM legacy API (SEC-RT-015)."
     },
     {
       "name": "Data integrity & sync",
       "weight": 20,
-      "score": 78,
-      "note": "Fixed: R2 snapshot-guarded mark-synced prevents edit-during-push loss. R4 tombstones with delete-wins on all 7 tables. R3 direction-independent tiebreaker on all 9 merge RPCs. isSyncRunning moved to instance. Remaining: no pull-based convergence channel, no property tests (R7)."
+      "score": 42,
+      "note": "Weakest-link: push-only sync with no PullService (QR-SYNC-001 Critical); LWW silent loss on counters (LWW-001–005); restore overwrites dirty rows (RESTORE-001–003); hard DELETE on push with no tombstone propagation (SOFTDEL-001–004, SyncOrchestrator:186). R2 snapshot guard NOT present — isSynced set without updated_at check (224-229). Overlapping sync dropped (QR-SYNC-002); batch limit 100 (QR-SYNC-003); DLQ silent (QR-SYNC-004)."
     },
     {
       "name": "Architecture & code quality",
       "weight": 15,
-      "score": 82,
-      "note": "Fixed: DIP violations in 6 use cases now use constructor-injected interfaces. ScreenErrorBoundary on all 5 stack navigators. Consistent JSON error format on all edge functions. Clean Architecture boundaries restored. Remaining: constructor-bound input pattern inconsistency (Low)."
+      "score": 80,
+      "note": "Clean Architecture boundaries; DIP on use cases; db.transaction() on create/delete transactions; ScreenErrorBoundary on navigators; instance-scoped sync orchestrator. Remaining: sync layer debt concentrated in RestoreService + SyncOrchestrator; constructor input pattern inconsistency (Low)."
     },
     {
       "name": "Data layer",
       "weight": 10,
-      "score": 80,
-      "note": "Fixed: duplicate 008 migration renumbered to 010. All 6 repositories wrapped in SQLite transactions. CHECK constraint on payday_day. 3 missing indexes added. audit_events schema drift fixed. Sinking fund columns in envelope update. Transaction update method added. Remaining: no FK enforcement in local SQLite (Low)."
+      "score": 60,
+      "note": "Supabase: merge RPCs + RLS broadly present but membership policies broken (Critical). Missing restore indexes on transactions/envelopes (QR-DB-001); pending_sync queue index (QR-DB-002). Local SQLite: PRAGMA foreign_keys off (QR-DB-003). Migrations 016–018 shipped; 018 regressed slip overwrite guard."
     },
     {
       "name": "API & contracts",
       "weight": 10,
-      "score": 78,
-      "note": "Fixed: notify-event authenticated + batched FCM sends. Consistent JSON error format on all responses. Remaining: deprecated FCM legacy API (Medium), no OpenAPI spec."
+      "score": 70,
+      "note": "Edge functions require auth; notify-event household + target-user checks. Gaps: notify-event payload validation (QR-API-001); Jest handler replicas drift from Deno prod (QR-API-002); direct table DML bypasses merge contracts (SEC-RT-003); deprecated FCM legacy API (SEC-RT-015)."
     },
     {
       "name": "Testing & verifiability",
       "weight": 10,
-      "score": 68,
-      "note": "Fixed: integration test harness created. DrizzleEnvelopeRepository + DrizzleTransactionRepository tests added. Household isolation test. Smoke-only screen tests enhanced. Mock-echo patterns fixed. Remaining: coverage still ~65%, E2E for financial flows missing, not all mutations have integration-edge tests."
+      "score": 78,
+      "note": "239 suites / 2,023 tests; 89.4% lines / 78.2% branches. Strong unit breadth. Gaps: merge-rpc-contracts never exercises SyncOrchestrator (QR-TEST-001); notify-event replica skips auth paths (QR-TEST-002); mock-only babySteps integration (QR-TEST-005); no Detox on PR branches (QR-TEST-011); no sync property tests (QR-TEST-012)."
     },
     {
       "name": "UX & accessibility",
       "weight": 5,
-      "score": 84,
-      "note": "Fixed: touch targets on camera overlay (44x44). Shutter button a11y label. Inline field validation on transactions + envelopes. Switch a11y label. ListRow minHeight 48. Remaining: minor form UX improvements possible."
+      "score": 74,
+      "note": "Error banners on TransactionList, BusinessExpense, AddTransaction catch. Remaining: Budget/Dashboard/Forecast/SinkingFunds show empty state on hook error (QR-UX-001–004); MeterDashboard blank on failure (QR-UX-005); EnvelopeCard a11y labels (QR-UX-007); delete button below 24×24 (QR-UX-008)."
     },
     {
       "name": "UI / code consistency",
       "weight": 5,
-      "score": 82,
-      "note": "Fixed: HeroSummaryCard migrated to theme system (no more parallel palette). Magic pixels replaced with tokens across 3 screens. Font scale extended (micro/xxl/hero). FAB color uses theme. Remaining: occasional raw values in less-trafficked screens."
+      "score": 80,
+      "note": "Theme tokens adopted on primary flows; HeroSummaryCard migrated; FAB uses theme. Slip capture flow and less-trafficked screens still have occasional raw values."
     }
   ],
   "critical": [
     {
-      "title": "Unauthenticated notify-event — arbitrary push notifications to any user",
+      "title": "Any user can join any household via household_members INSERT (no invite check)",
+      "area": "security (Supabase RLS)",
+      "impact": "Full read/write access to any household's financial data",
+      "status": "fixed"
+    },
+    {
+      "title": "Direct user_households INSERT grants access to any household",
+      "area": "security (Supabase RLS)",
+      "impact": "Bypasses membership model; enables unauthorized tenant access",
+      "status": "fixed"
+    },
+    {
+      "title": "No incremental pull — multi-device / multi-member convergence fails",
+      "area": "data integrity (sync)",
+      "impact": "Other members' changes never reach local replicas after initial restore",
+      "status": "open"
+    },
+    {
+      "title": "Sync R2: isSynced=true without updated_at snapshot guard",
+      "area": "data integrity (sync)",
+      "impact": "Edit-during-push can be marked synced and never retried",
+      "status": "open"
+    },
+    {
+      "title": "Hard DELETE on sync push — no tombstone propagation",
+      "area": "data integrity (sync)",
+      "impact": "Deletes don't propagate; deleted rows can resurrect on restore",
+      "status": "open"
+    },
+    {
+      "title": "Unauthenticated notify-event — arbitrary push to any user",
       "area": "security (edge function)",
-      "impact": "Phishing, social engineering, notification spam to any user",
-      "status": "fixed"
-    },
-    {
-      "title": "Sync R2: edit-during-push silently loses committed writes",
-      "area": "data integrity (sync)",
-      "impact": "User edits during sync are permanently lost",
-      "status": "fixed"
-    },
-    {
-      "title": "Sync R4: hard deletes with no tombstones — delete resurrection",
-      "area": "data integrity (sync)",
-      "impact": "Concurrent update on another device resurrects deleted rows",
+      "impact": "Phishing / notification spam",
       "status": "fixed"
     },
     {
@@ -91,94 +115,66 @@
   ],
   "fixes": [
     {
-      "title": "notify-event: service-role Bearer token auth + batched FCM sends",
+      "title": "notify-event: JWT auth + target user household membership (IDOR fix)",
       "sev": "crit",
-      "evidence": "supabase/functions/notify-event/index.ts"
+      "evidence": "supabase/functions/notify-event/index.ts:16-75"
     },
     {
-      "title": "Snapshot-guarded mark-synced (R2): WHERE updated_at = <snapshot>",
+      "title": "Migration 019 — batch 1 security: invite-only join, DML revoke, delete_sync_row, slip guard",
       "sev": "crit",
-      "evidence": "src/data/sync/SyncOrchestrator.ts"
+      "evidence": "supabase/migrations/019_batch1_security_hardening.sql"
     },
     {
-      "title": "Tombstones on 7 tables + delete-wins semantics (R4)",
-      "sev": "crit",
-      "evidence": "0009_soft_delete_tombstones.sql + all repositories"
+      "title": "Local SQLite tombstone columns aligned in Drizzle schema (0009 deleted_at)",
+      "sev": "med",
+      "evidence": "src/data/local/schema/*.ts, 0009_soft_delete_tombstones.sql"
     },
     {
-      "title": "Migration 008 renumbered to 010",
-      "sev": "crit",
-      "evidence": "supabase/migrations/010_user_preferences.sql"
-    },
-    {
-      "title": "RLS LIMIT 1 → IN() on households",
+      "title": "Migration 018 — slip_queue schema, user_households columns, notify hardening",
       "sev": "high",
-      "evidence": "011_fix_households_rls.sql"
+      "evidence": "supabase/migrations/018_security_fixes.sql"
     },
     {
-      "title": "merge_household_member pins role (no self-escalation)",
+      "title": "Atomic transaction create/delete via db.transaction()",
       "sev": "high",
-      "evidence": "012_fix_role_escalation.sql"
+      "evidence": "CreateTransactionUseCase.ts, DeleteTransactionUseCase.ts"
     },
     {
-      "title": "user_fcm_tokens table created with RLS",
+      "title": "Direction-independent LWW tiebreaker on merge RPCs (R3)",
       "sev": "high",
-      "evidence": "013_user_fcm_tokens_rls.sql"
+      "evidence": "016_lww_direction_independent_tiebreaker.sql"
+    },
+    {
+      "title": "Comprehensive test suite +772 tests (236 suites, 89% coverage)",
+      "sev": "med",
+      "evidence": "src/__tests__/, commit 1c6022a"
+    },
+    {
+      "title": "QA Cycle 1: 8 defects fixed; Cycle 2: zero new defects",
+      "sev": "med",
+      "evidence": "commits 09df8ba, 43c71f5; docs/queue.md"
+    },
+    {
+      "title": "Screen error handling + AddTransaction doSave catch",
+      "sev": "med",
+      "evidence": "TransactionListScreen, BusinessExpenseReportScreen, AddTransactionScreen"
+    },
+    {
+      "title": "Snowball projector rewrite + meter duplicate-date guard",
+      "sev": "med",
+      "evidence": "SnowballPayoffProjector.ts, LogMeterReadingUseCase.ts"
     },
     {
       "title": "Android backup exclusion XMLs prevent D2D data leak",
       "sev": "high",
       "evidence": "android/app/src/main/res/xml/"
-    },
-    {
-      "title": "DIP fixed in 6 use cases (constructor-injected interfaces)",
-      "sev": "high",
-      "evidence": "src/domain/transactions/, envelopes/, households/"
-    },
-    {
-      "title": "SQLite transactions around all multi-step writes (6 repos)",
-      "sev": "high",
-      "evidence": "src/data/repositories/*"
-    },
-    {
-      "title": "Direction-independent LWW tiebreaker on 9 merge RPCs (R3)",
-      "sev": "high",
-      "evidence": "016_lww_direction_independent_tiebreaker.sql"
-    },
-    {
-      "title": "ScreenErrorBoundary on all 5 stack navigators",
-      "sev": "med",
-      "evidence": "src/presentation/components/shared/ScreenErrorBoundary.tsx"
-    },
-    {
-      "title": "Consistent JSON error format on all edge function responses",
-      "sev": "med",
-      "evidence": "supabase/functions/extract-slip/ + notify-event/"
-    },
-    {
-      "title": "Production BootErrorBoundary hides stack traces",
-      "sev": "med",
-      "evidence": "src/presentation/boot/BootErrorBoundary.tsx"
-    },
-    {
-      "title": "Integration test harness + core repo tests + household isolation",
-      "sev": "med",
-      "evidence": "src/__test-utils__/ + repositories/__tests__/"
-    },
-    {
-      "title": "Touch targets 44x44, a11y labels, inline validation, theme migration",
-      "sev": "med",
-      "evidence": "SlipCaptureScreen, AddTransactionScreen, HeroSummaryCard, tokens.ts"
     }
   ],
   "next": [
-    "Pin all GitHub Actions to commit SHAs (Medium — supply chain hardening).",
-    "Migrate from deprecated FCM legacy API to FCM HTTP v1 with OAuth2 (Medium).",
-    "Add deterministic sync property tests per R7 (convergence, crash-resume, idempotency).",
-    "Build E2E Detox tests for core financial flows (add envelope, create transaction, sync round-trip).",
-    "Push statement coverage from 65% to 80% — focus on remaining 0% screens and repositories.",
-    "Enable PRAGMA foreign_keys = ON in local SQLite and add FK declarations to Drizzle schema.",
-    "Add rate limiting on lookup_invite_by_code RPC to prevent brute-force.",
-    "Add a pull-based convergence channel for full bidirectional sync."
+    "Tier 0 sync sprint: RESTORE-001 → SOFTDEL tombstones (wire deleted_at through use cases) → LWW deltas → QR-SYNC-001 PullService.",
+    "Surface dead-letter queue to users (QR-SYNC-004); fix sync mutex + batch loop (QR-SYNC-002/003).",
+    "UX error sweep on Budget/Dashboard/Forecast/SinkingFunds (QR-UX-001–004).",
+    "Test hardening: shared edge-function handlers + Detox smoke on PR (QR-TEST-002/011).",
+    "Pin GitHub Actions to commit SHAs (QR-CODE-001); migrate FCM to HTTP v1 (SEC-RT-015)."
   ]
 }

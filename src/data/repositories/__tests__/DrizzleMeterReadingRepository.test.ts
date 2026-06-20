@@ -80,6 +80,8 @@ describe('DrizzleMeterReadingRepository', () => {
 
     expect(result).toHaveLength(2);
     expect(result[0].id).toBe('mr1');
+    expect(orderByFn).toHaveBeenCalled();
+    expect(whereFn).toHaveBeenCalled();
   });
 
   it('findByHousehold filters by meterType when provided', async () => {
@@ -93,6 +95,39 @@ describe('DrizzleMeterReadingRepository', () => {
     const result = await repo.findByHousehold('h1', 'electricity');
 
     expect(result).toHaveLength(1);
-    expect(whereFn).toHaveBeenCalled();
+    expect(whereFn).toHaveBeenCalledTimes(1);
+    const filterPredicate = whereFn.mock.calls[0][0];
+    expect(filterPredicate).toBeDefined();
+  });
+
+  it('findByDate returns null when no matching reading exists', async () => {
+    const limitFn = jest.fn().mockResolvedValue([]);
+    const orderByFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const whereFn = jest.fn().mockReturnValue({ orderBy: orderByFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
+    const repo = new DrizzleMeterReadingRepository(db);
+
+    const result = await repo.findByDate('h1', 'electricity', '2024-06-01');
+
+    expect(result).toBeNull();
+    expect(orderByFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('findByDate returns entity when matching reading exists', async () => {
+    const limitFn = jest.fn().mockResolvedValue([reading]);
+    const orderByFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const whereFn = jest.fn().mockReturnValue({ orderBy: orderByFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
+    const repo = new DrizzleMeterReadingRepository(db);
+
+    const result = await repo.findByDate('h1', 'electricity', '2024-06-01');
+
+    expect(result).not.toBeNull();
+    expect(result?.id).toBe('mr1');
+    expect(result?.readingDate).toBe('2024-06-01');
   });
 });
