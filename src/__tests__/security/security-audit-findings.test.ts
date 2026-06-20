@@ -252,13 +252,15 @@ describe('Finding 5: user_households must have role + created_at for trigger', (
 
   it('018 fix: adds role and created_at columns to user_households', () => {
     const migration018 = readSource(path.join(MIGRATIONS_DIR, '018_security_fixes.sql'));
+    const alterSection = sliceMigrationSection(
+      migration018,
+      'ALTER TABLE public.user_households',
+      '-- ═══════════════════════════════════════════════════════════════════════════════',
+    );
 
-    expect(migration018).toContain(
-      'ALTER TABLE public.user_households\n  ADD COLUMN IF NOT EXISTS role TEXT',
-    );
-    expect(migration018).toContain(
-      'ALTER TABLE public.user_households\n  ADD COLUMN IF NOT EXISTS created_at TEXT',
-    );
+    expect(alterSection).toContain('ADD COLUMN IF NOT EXISTS role TEXT');
+    expect(alterSection).toContain("DEFAULT 'member'");
+    expect(alterSection).toContain('ADD COLUMN IF NOT EXISTS created_at TEXT');
   });
 });
 

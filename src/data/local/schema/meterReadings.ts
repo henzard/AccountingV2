@@ -14,6 +14,7 @@ export const meterReadings = sqliteTable(
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
     isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
+    deletedAt: text('deleted_at'),
   },
   (t) => ({
     householdMeterIdx: index('meter_readings_household_meter_idx').on(t.householdId, t.meterType),

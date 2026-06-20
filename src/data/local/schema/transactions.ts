@@ -16,6 +16,7 @@ export const transactions = sqliteTable(
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
     isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
+    deletedAt: text('deleted_at'),
   },
   (t) => ({
     householdDateIdx: index('transactions_household_date_idx').on(t.householdId, t.transactionDate),

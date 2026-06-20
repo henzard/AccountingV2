@@ -10,12 +10,12 @@
     "Offline-first",
     "feat/comprehensive-qa-test-suite"
   ],
-  "remediatedNote": "As-built score after QA Lead cycles + quality/security subagent reviews. Prior Jun-18 score (82/B) assumed fixes that red team disproved (RLS join-any-household, R2 snapshot guard, tombstone pipeline). Open Critical/High items remain in docs/queue.md (#41–#105); batch 1 (SEC-RT-001–005) in PR #106 targets first security tier.",
+  "remediatedNote": "As-built score after QA Lead cycles + batch 1 security merge (019: SEC-RT-001–005). Prior Jun-18 score (82/B) assumed fixes that red team disproved (R2 snapshot guard, tombstone pipeline). Remaining Critical/High items tracked in docs/queue.md (#41–#105).",
   "metrics": [
-    { "n": "238", "l": "test suites (all green)" },
-    { "n": "2021", "l": "automated tests" },
+    { "n": "239", "l": "test suites (all green)" },
+    { "n": "2023", "l": "automated tests" },
     { "n": "89.4%", "l": "line coverage" },
-    { "n": "2", "l": "Critical security (open)" },
+    { "n": "0", "l": "Critical security (open)" },
     { "n": "12", "l": "Tier 0 architectural gaps" },
     { "n": "53", "l": "open queue items (Tier 1–2)" }
   ],
@@ -23,8 +23,8 @@
     {
       "name": "Security & secrets",
       "weight": 25,
-      "score": 38,
-      "note": "Weakest-link: SEC-RT-001/002 — any authenticated user can INSERT into household_members or user_households for any household (005:173-175, 002:17-18). Also High: PostgREST PATCH bypasses merge RPC guards (SEC-RT-003), invite abuse/brute-force (005/006), 018 completed-slip regression (SEC-RT-004). Fixed: notify-event IDOR, extract-slip auth, merge_slip_queue 017/018."
+      "score": 55,
+      "note": "Batch 1 merged (019): invite-only join via join_household_via_invite; household_members/user_households INSERT revoked; delete_sync_row RPC; slip completed guard restored. Remaining High: invite brute-force hardening, PostgREST read paths, FCM legacy API (SEC-RT-015)."
     },
     {
       "name": "Data integrity & sync",
@@ -54,7 +54,7 @@
       "name": "Testing & verifiability",
       "weight": 10,
       "score": 78,
-      "note": "236 suites / 2,013 tests; 89.4% lines / 78.2% branches. Strong unit breadth. Gaps: merge-rpc-contracts never exercises SyncOrchestrator (QR-TEST-001); notify-event replica skips auth paths (QR-TEST-002); mock-only babySteps integration (QR-TEST-005); no Detox on PR branches (QR-TEST-011); no sync property tests (QR-TEST-012)."
+      "note": "239 suites / 2,023 tests; 89.4% lines / 78.2% branches. Strong unit breadth. Gaps: merge-rpc-contracts never exercises SyncOrchestrator (QR-TEST-001); notify-event replica skips auth paths (QR-TEST-002); mock-only babySteps integration (QR-TEST-005); no Detox on PR branches (QR-TEST-011); no sync property tests (QR-TEST-012)."
     },
     {
       "name": "UX & accessibility",
@@ -74,13 +74,13 @@
       "title": "Any user can join any household via household_members INSERT (no invite check)",
       "area": "security (Supabase RLS)",
       "impact": "Full read/write access to any household's financial data",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "title": "Direct user_households INSERT grants access to any household",
       "area": "security (Supabase RLS)",
       "impact": "Bypasses membership model; enables unauthorized tenant access",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "title": "No incremental pull — multi-device / multi-member convergence fails",
@@ -120,9 +120,14 @@
       "evidence": "supabase/functions/notify-event/index.ts:16-75"
     },
     {
-      "title": "Migration 017 — restore merge_envelope columns, role guard, slip_queue schema",
+      "title": "Migration 019 — batch 1 security: invite-only join, DML revoke, delete_sync_row, slip guard",
       "sev": "crit",
-      "evidence": "supabase/migrations/017_fix_016_regressions.sql"
+      "evidence": "supabase/migrations/019_batch1_security_hardening.sql"
+    },
+    {
+      "title": "Local SQLite tombstone columns aligned in Drizzle schema (0009 deleted_at)",
+      "sev": "med",
+      "evidence": "src/data/local/schema/*.ts, 0009_soft_delete_tombstones.sql"
     },
     {
       "title": "Migration 018 — slip_queue schema, user_households columns, notify hardening",
@@ -166,10 +171,7 @@
     }
   ],
   "next": [
-    "Block SEC-RT-001 + SEC-RT-002 immediately — restrict household_members/user_households INSERT to invite RPC path only.",
-    "SEC-RT-003 — REVOKE direct table DML for authenticated; route all writes through merge_* RPCs.",
-    "SEC-RT-004 — restore migration 007 completed-slip overwrite guard dropped in 018.",
-    "Tier 0 sync sprint: RESTORE-001 → SOFTDEL tombstones → LWW deltas → QR-SYNC-001 PullService.",
+    "Tier 0 sync sprint: RESTORE-001 → SOFTDEL tombstones (wire deleted_at through use cases) → LWW deltas → QR-SYNC-001 PullService.",
     "Surface dead-letter queue to users (QR-SYNC-004); fix sync mutex + batch loop (QR-SYNC-002/003).",
     "UX error sweep on Budget/Dashboard/Forecast/SinkingFunds (QR-UX-001–004).",
     "Test hardening: shared edge-function handlers + Detox smoke on PR (QR-TEST-002/011).",

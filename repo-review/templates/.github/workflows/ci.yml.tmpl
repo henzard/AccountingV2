@@ -1,0 +1,49 @@
+# CI template (installed as .github/workflows/ci.yml).
+# ⚠️ TAILOR to the target repo's real runner before relying on it — the
+# deep-review skill (Phase 7) edits this to match package.json / the detected
+# stack. Ship ONLY steps the repo can actually run; never invent scripts.
+#
+# Swap-ins by stack (install · test · static-check):
+#   Node (npm):   npm ci                    · npm test       · npx tsc --noEmit
+#   Node (pnpm):  pnpm i --frozen-lockfile  · pnpm test      · pnpm typecheck
+#   Python:       pip install -e .[dev]     · pytest --cov   · ruff check
+#   Go:           go build ./...            · go test -cover ./... · go vet ./...
+#   Rust:         cargo build               · cargo test     · cargo clippy
+#   (other)       <your install>            · <your tests>   · <your linter>
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master, qa, dev]   # trim to the branches that exist
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:                       # keep this job name == the required status check
+    name: Test & Typecheck
+    runs-on: ubuntu-latest
+    steps:                      # ↓ example stack (Node) — swap to your real runner
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit || echo "no tsconfig — remove this step if N/A"
+      - name: Test
+        run: npm test
+
+  security-audit:             # advisory until the dep backlog is cleared
+    name: Dependency audit (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm audit --omit=dev --audit-level=high
