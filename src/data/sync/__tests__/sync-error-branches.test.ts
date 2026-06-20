@@ -255,19 +255,20 @@ describe('SyncOrchestrator error branches', () => {
       update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
     } as any;
 
-    const deleteMock = jest.fn().mockReturnValue({
-      eq: jest.fn().mockResolvedValue({ error: null }),
-    });
+    const rpcMock = jest.fn().mockResolvedValue({ error: null });
     const supabase = {
-      from: () => ({ delete: () => deleteMock() }),
+      rpc: rpcMock,
+      from: () => ({ delete: jest.fn() }),
     } as any;
 
     const orch = new SyncOrchestrator(db, supabase);
     const result = await orch.syncPending();
 
-    // Only 1 select call (the pending queue), batch prefetch for DELETE items
-    // returns early (0 upsert IDs)
     expect(result.synced).toBe(1);
+    expect(rpcMock).toHaveBeenCalledWith('delete_sync_row', {
+      p_table: 'envelopes',
+      p_id: 'e1',
+    });
   });
 });
 

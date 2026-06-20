@@ -102,7 +102,8 @@ describe('DrizzleMeterReadingRepository', () => {
 
   it('findByDate returns null when no matching reading exists', async () => {
     const limitFn = jest.fn().mockResolvedValue([]);
-    const whereFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const orderByFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const whereFn = jest.fn().mockReturnValue({ orderBy: orderByFn });
     const fromFn = jest.fn().mockReturnValue({ where: whereFn });
     const selectFn = jest.fn().mockReturnValue({ from: fromFn });
     const db = { select: selectFn } as any;
@@ -111,11 +112,13 @@ describe('DrizzleMeterReadingRepository', () => {
     const result = await repo.findByDate('h1', 'electricity', '2024-06-01');
 
     expect(result).toBeNull();
+    expect(orderByFn).toHaveBeenCalledTimes(1);
   });
 
   it('findByDate returns entity when matching reading exists', async () => {
     const limitFn = jest.fn().mockResolvedValue([reading]);
-    const whereFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const orderByFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const whereFn = jest.fn().mockReturnValue({ orderBy: orderByFn });
     const fromFn = jest.fn().mockReturnValue({ where: whereFn });
     const selectFn = jest.fn().mockReturnValue({ from: fromFn });
     const db = { select: selectFn } as any;

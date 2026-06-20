@@ -183,7 +183,10 @@ export class SyncOrchestrator {
     tableRowCache?: Record<string, Record<string, unknown>>,
   ): Promise<void> {
     if (item.operation === 'DELETE') {
-      const { error } = await this.supabase.from(item.tableName).delete().eq('id', item.recordId);
+      const { error } = await this.supabase.rpc('delete_sync_row', {
+        p_table: item.tableName,
+        p_id: item.recordId,
+      });
       if (error) throw new Error(error.message);
       return;
     }

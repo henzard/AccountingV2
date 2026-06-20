@@ -46,6 +46,7 @@ export class DrizzleMeterReadingRepository implements IMeterReadingRepository {
           eq(meterReadings.readingDate, readingDate),
         ),
       )
+      .orderBy(desc(meterReadings.updatedAt))
       .limit(1);
     if (!row) return null;
     return this.rowToEntity(row);
