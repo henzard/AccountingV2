@@ -51,6 +51,9 @@ async function handle(req: Request, deps: HandleDeps): Promise<Response> {
   if (!slip_id || !household_id || !Array.isArray(images_base64)) {
     return new Response('Missing required fields', { status: 400 });
   }
+  if (images_base64.length < 1 || images_base64.length > 5) {
+    return new Response('Invalid image count', { status: 400 });
+  }
 
   const adminSupabase = deps.createAdminClient();
 
@@ -243,6 +246,36 @@ describe('extract-slip edge-case gaps', () => {
     });
   });
 
+  describe('SEC-RT-011: invalid image count → 400', () => {
+    it('empty images_base64 array returns 400', async () => {
+      const deps = makeBaseDeps();
+      const req = makeRequest(
+        'POST',
+        { slip_id: 's1', household_id: 'h1', images_base64: [] },
+        'Bearer tok',
+      );
+      const resp = await handle(req, deps);
+      expect(resp.status).toBe(400);
+      expect(await resp.text()).toBe('Invalid image count');
+    });
+
+    it('more than 5 images returns 400', async () => {
+      const deps = makeBaseDeps();
+      const req = makeRequest(
+        'POST',
+        {
+          slip_id: 's1',
+          household_id: 'h1',
+          images_base64: ['a', 'b', 'c', 'd', 'e', 'f'],
+        },
+        'Bearer tok',
+      );
+      const resp = await handle(req, deps);
+      expect(resp.status).toBe(400);
+      expect(await resp.text()).toBe('Invalid image count');
+    });
+  });
+
   describe('Missing OPENAI_API_KEY → 500', () => {
     it('empty OPENAI_API_KEY returns 500', async () => {
       const deps = makeBaseDeps({
@@ -255,7 +288,7 @@ describe('extract-slip edge-case gaps', () => {
       });
       const req = makeRequest(
         'POST',
-        { slip_id: 's1', household_id: 'h1', images_base64: [] },
+        { slip_id: 's1', household_id: 'h1', images_base64: ['aaa'] },
         'Bearer tok',
       );
       const resp = await handle(req, deps);

@@ -201,7 +201,14 @@ export default function App(): React.JSX.Element {
   }, [bindCelebrationStore]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data }) => {
+    void (async () => {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData.user) {
+        setSession(null);
+        setSessionRestored(true);
+        return;
+      }
+      const { data } = await supabase.auth.getSession();
       const session = data.session ?? null;
       setSession(session);
       if (session?.user?.id) {
@@ -220,7 +227,7 @@ export default function App(): React.JSX.Element {
         bindCelebrationStore();
       }
       setSessionRestored(true);
-    });
+    })();
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session ?? null);

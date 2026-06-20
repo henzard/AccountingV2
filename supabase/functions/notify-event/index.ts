@@ -41,7 +41,54 @@ serve(async (req: Request) => {
 
   const { userId, householdId, title, body }: NotifyPayload = await req.json();
 
+  if (
+    typeof userId !== 'string' ||
+    typeof householdId !== 'string' ||
+    typeof title !== 'string' ||
+    typeof body !== 'string' ||
+    !userId.trim() ||
+    !householdId.trim() ||
+    !title.trim() ||
+    !body.trim()
+  ) {
+    return new Response(JSON.stringify({ error: 'Invalid payload' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const MAX_TITLE = 120;
+  const MAX_BODY = 500;
+  if (title.length > MAX_TITLE || body.length > MAX_BODY) {
+    return new Response(JSON.stringify({ error: 'Payload too large' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const serviceClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count: recentSends, error: rateErr } = await serviceClient
+    .from('notify_send_log')
+    .select('id', { count: 'exact', head: true })
+    .eq('sender_id', user.id)
+    .gte('sent_at', oneHourAgo);
+
+  if (rateErr) {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const MAX_SENDS_PER_HOUR = 20;
+  if ((recentSends ?? 0) >= MAX_SENDS_PER_HOUR) {
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
   const { data: membership } = await serviceClient
     .from('household_members')
@@ -114,6 +161,10 @@ serve(async (req: Request) => {
       }),
     });
     if (res.ok) sent++;
+  }
+
+  if (sent > 0) {
+    await serviceClient.from('notify_send_log').insert({ sender_id: user.id });
   }
 
   return new Response(JSON.stringify({ sent }), {
