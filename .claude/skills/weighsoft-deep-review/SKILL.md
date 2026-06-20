@@ -1,11 +1,14 @@
 ---
-name: deep-review
+name: weighsoft-deep-review
+formerly: deep-review
 description: One-command enterprise-grade deep review of any repo — inventory + real coverage, multi-agent security (red/blue/verify) and quality (6 specialists) review, files every finding as a GitHub issue, scores the system 0-100 against a fixed rubric, authors the engineering scaffolding (CLAUDE.md/AGENTS.md/testing-strategy/anti-patterns/conventions/ADRs), installs CI + PR/issue templates + protect-branch hooks, creates dev/qa branches with branch-protection policies, and emits a self-contained HTML scorecard report. Use when asked to "deep review", "audit this repo", "score this system", or to onboard a vibe-coded project to enterprise discipline.
 version: 1.0.0
 category: review
 ---
 
-# /deep-review — portable enterprise deep-review pipeline
+> 🔁 **Renamed:** this skill is now **weighsoft-deep-review** (formerly **deep-review**). Update any references.
+
+# /weighsoft-deep-review — portable enterprise deep-review pipeline
 
 Drop the `repo-review/` folder into any project (or run from it) and execute this
 end-to-end. It turns a raw / "vibe-coded" repo into a reviewed, scored, scaffolded,
@@ -18,11 +21,11 @@ issues** so nothing is lost to chat.
 
 ## Orchestration model
 
-- **Preferred:** if the **Workflow tool** is available, run `workflows/deep-review.workflow.js`
+- **Preferred:** if the **Workflow tool** is available, run `workflows/weighsoft-deep-review.workflow.js`
   (it fans the specialists out in parallel with adversarial review passes and a
   completeness loop). The user must have opted into multi-agent orchestration.
 - **Fallback (parallel):** spawn the specialists as background agents (Task tool,
-  `run_in_background: true`) per the `security-review` and `quality-review` skills.
+  `run_in_background: true`) per the `weighsoft-security-review` and `weighsoft-quality-review` skills.
 - **Fallback (always works):** with no Workflow tool and no background agents, run the
   specialist passes **sequentially in the main thread** — RT1–RT5 (+ extended when the
   subsystem exists), then the six quality specialists, then verify → file → author. Same
@@ -45,7 +48,7 @@ and pass the numbers in as `args.coverage`), Phase 5 (score via `rubric.md`), Ph
   (languages, test runner, DB, API style, frontend, deploy target).
 - Scope: whole repo (default), or a PR/branch diff for a lighter pass.
 
-## Phase 0 — Preflight (use the `branch-hygiene` + `verification-quality` skills)
+## Phase 0 — Preflight (use the `weighsoft-branch-hygiene` + `weighsoft-verification-quality` skills)
 
 1. `scripts/bootstrap-labels.sh <owner/repo>` — create severity + domain labels.
 2. Create the review branch off the default: `git checkout -b review/deep-review-$(date +%Y%m%d)`.
@@ -64,16 +67,18 @@ npx vitest run --coverage    # Node (Vitest); or: npm test -- --coverage (Jest)
 Feed the real numbers to the Test specialist. If the runner needs a native rebuild
 or services, note what was excluded.
 
-## Phase 2 — Security review (skill: `security-review`)
+## Phase 2 — Security review (skill: `weighsoft-security-review`)
 
 Red team (RT1 injection · RT2 authN/authZ · RT3 web/client · RT4 secrets/crypto/supply-chain
 · RT5 infra/deploy · + RT6 auth deep-dive · RT7 integrations/multi-tenant · RT8 CI/CD —
 only when those subsystems exist) → Blue team (root cause + minimal fix + regression test +
-defense-in-depth) → Verify (re-attack, mark CLOSED/PARTIAL/OPEN). Fold in scanners:
+defense-in-depth) → Verify (re-attack, mark CLOSED/PARTIAL/OPEN). Categorise findings against
+**OWASP Top 10:2025** (note the new A03 Software Supply Chain Failures and A10 Mishandling of
+Exceptional Conditions, and that SSRF folded into A01). Fold in scanners:
 the stack's dependency-CVE audit (Node `npm audit` · Python `pip-audit` · Go `govulncheck ./...`
 · Rust `cargo audit`), plus `gitleaks`, `semgrep --config auto`, secret-in-history grep.
 
-## Phase 3 — Quality review (skill: `quality-review`)
+## Phase 3 — Quality review (skill: `weighsoft-quality-review`)
 
 Six specialists in parallel — **A Test** (coverage + authenticity), **B UX**
 (Nielsen + WCAG 2.2 AA), **C UI/design-system**, **D API**, **E Backend**
@@ -96,7 +101,7 @@ integration-happy · integration-edge` (mark each present / missing / weak). **A
   rows while the existing data stays broken); (4) **deploy-time blind spot** (a
   health/smoke check that returns OK regardless of real runtime state).
 
-(Distinct from the four _verification_ anti-patterns in `verification-quality` — orphan
+(Distinct from the four _verification_ anti-patterns in `weighsoft-verification-quality` — orphan
 test, mocked-away subject, "tests pass ⇒ done" for UI, pre-existing-failure-as-blanket —
 which guard the audit's own evidence. Apply both sets.)
 

@@ -5,7 +5,7 @@
 **Baseline:** 236 suites · 2,013 tests · all green  
 **Coverage:** 89.38% lines · 78.23% branches · 84.30% functions · 88.91% statements
 
-**Sources:** QA Lead cycles (Jun 2026), [`/quality-review` subagent](83c5e57f-a1b7-4c34-9ba7-92163b5f4ee4), [`/security-review` Red Team](fd042b87-566d-4f9c-8d03-5e6ea8c66947), `docs/known-gaps/*`, `docs/findings.json`.
+**Sources:** QA Lead cycles (Jun 2026), [`/weighsoft-quality-review` subagent](83c5e57f-a1b7-4c34-9ba7-92163b5f4ee4), [`/weighsoft-security-review` Red Team](fd042b87-566d-4f9c-8d03-5e6ea8c66947), `docs/known-gaps/*`, `docs/findings.json`.
 
 **Totals:** Tier 0 = 12 · Tier 1 (quality) = 35 · Tier 2 (security) = 18 open + 5 verified-fixed · Tier 3 = 8 backlog refs
 
@@ -46,7 +46,7 @@ Documented in tests with `KNOWN-GAP` markers. Full write-ups: [`docs/known-gaps/
 
 ---
 
-## Tier 1 — Quality review (`/quality-review` 2026-06-20)
+## Tier 1 — Quality review (`/weighsoft-quality-review` 2026-06-20)
 
 **Health scores (from coverage + [quality subagent](83c5e57f-a1b7-4c34-9ba7-92163b5f4ee4)):**
 
@@ -119,7 +119,7 @@ Excludes Tier 0 IDs (LWW/RESTORE/SOFTDEL). See also Tier 2 for security overlap 
 
 ---
 
-## Tier 2 — Security review (`/security-review` Red Team 2026-06-20)
+## Tier 2 — Security review (`/weighsoft-security-review` Red Team 2026-06-20)
 
 > **Caveat:** Automated + LLM review reduces risk but cannot prove the system unhackable. Human review required for auth, money, and multi-tenant isolation.
 
@@ -209,4 +209,4 @@ Excludes Tier 0 IDs (LWW/RESTORE/SOFTDEL). See also Tier 2 for security overlap 
 - [`docs/audit-report.html`](audit-report.html) — visual audit report
 - [`docs/known-gaps/lww-data-loss.md`](known-gaps/lww-data-loss.md)
 - [`docs/known-gaps/restore-ordering.md`](known-gaps/restore-ordering.md)
-- [`.claude/skills/qa-lead/SKILL.md`](../.claude/skills/qa-lead/SKILL.md) — QA Lead protocol used for cycles
+- [`.claude/skills/weighsoft-qa-lead/SKILL.md`](../.claude/skills/weighsoft-qa-lead/SKILL.md) — QA Lead protocol used for cycles
