@@ -1,5 +1,6 @@
 ---
-name: sync-safety
+name: weighsoft-sync-safety
+formerly: sync-safety
 description: >-
   Use when touching ANY replication / offline-first / multi-writer sync code —
   push/pull, apply-merge, the "what's unsynced" cursor, mark-synced, conflict
@@ -11,7 +12,9 @@ description: >-
   handling, or idempotent-apply paths.
 ---
 
-# sync-safety — replication-correctness guard
+# weighsoft-sync-safety — replication-correctness guard
+
+> 🔁 **Renamed:** this skill is now **weighsoft-sync-safety** (formerly **sync-safety**). Update any references; other systems keying off the old name should rename to match.
 
 Use this skill whenever your change moves a **committed write between replicas**:
 offline-first edge ⇄ hub, client ⇄ server, device ⇄ device, or any system that
@@ -90,10 +93,17 @@ a concurrent edit on the other replica is silently lost.
 Rule: don't deepen a wall-clock dependency. Move ordering toward a **monotonic
 per-row version** (bumped on every local write; an authoritative side may assign a
 global sequence) and resolve by `(version, then a stable tiebreaker like
-replica_id)` for a total order — keep the timestamp as a display value only. The
-minimum acceptable fix for a small change: add a **direction-independent**
-tiebreaker and sub-second (or counter-based) precision so identical inputs always
-pick the same winner on every replica.
+replica_id)` for a total order — keep the timestamp as a display value only. Where
+you genuinely need "newest" to track real time _and_ survive skew, a **Hybrid
+Logical Clock (HLC)** — physical time fused with a Lamport counter — gives a
+monotonic, causality-respecting timestamp that never goes backwards under skew;
+this is what production LWW systems (e.g. CockroachDB) use instead of raw
+wall-clock. The minimum acceptable fix for a small change: add a
+**direction-independent** tiebreaker and sub-second (or counter-based) precision so
+identical inputs always pick the same winner on every replica. (Plain LWW silently
+drops a genuinely concurrent edit — if losing the other writer's work is
+unacceptable, the correct structure is a CRDT or sibling-keeping merge, not a
+cleverer timestamp. [LWW pitfalls][lww], [HLC][hlc])
 
 ### R4 — Delete-wins on delete-vs-update; tombstones are monotonic
 
@@ -121,7 +131,10 @@ Rule: applying the same incoming change twice must yield **identical state and n
 timestamp/version churn**. Drive the stored timestamp from the incoming row's own
 value (don't re-stamp to "now"), and make apply a no-op when
 `incoming.version <= stored.version`. Never bump a version/timestamp on an apply
-that didn't change content.
+that didn't change content. This is the **idempotent-consumer** pattern: real links
+deliver **at-least-once**, so "exactly-once effect" is only ever achieved by a
+receiver that dedupes — key apply by `(row_id, version)` (or an event/idempotency
+key) and treat a re-delivery as a no-op. ([idempotent consumer][idem])
 
 ### R6 — Preserve atomicity; never silently swallow non-constraint errors
 
@@ -207,3 +220,10 @@ add the idempotency/tie assertion to that runtime's own test harness.
 > with a two-replica property test as the deliverable. **Your system's specifics will
 > differ — find its audit, map its code to R1–R7, and prove the fix with the matching
 > property test.**
+
+---
+
+Sources / further reading:
+[lww]: https://oneuptime.com/blog/post/2026-01-30-last-write-wins/view "Last-Write-Wins — why raw wall-clock LWW loses concurrent writes"
+[hlc]: https://www.cockroachlabs.com/blog/living-without-atomic-clocks/ "Hybrid Logical Clocks — monotonic, skew-tolerant ordering (CockroachDB)"
+[idem]: https://microservices.io/patterns/communication-style/idempotent-consumer.html "Idempotent Consumer — dedupe under at-least-once delivery"

@@ -1,7 +1,10 @@
 ---
-name: branch-hygiene
+name: weighsoft-branch-hygiene
+formerly: branch-hygiene
 description: Keep a repo free of orphaned work — branch off the default branch, make sure every pushed commit is tracked by an open or merged PR, and never leave un-merged commits stranded. Use as the FIRST action when joining a session (git status + gh pr list), before opening a new branch, or when you spot a pushed branch with no PR. A proportionate, script-free never-lose-work discipline that scales from a single small repo to a multi-repo project.
 ---
+
+> 🔁 **Renamed:** this skill is now **weighsoft-branch-hygiene** (formerly **branch-hygiene**). Update any references.
 
 # Branch hygiene
 
@@ -35,7 +38,7 @@ If `git status` shows uncommitted work, deal with it before switching context (n
 
 ## The four rules (proportionate set)
 
-1. **Branch off the default branch.** `git checkout -b <type>/<topic> origin/<default>`. No feature work on the default branch directly.
+1. **Branch off the default branch, and keep it short-lived.** `git checkout -b <type>/<topic> origin/<default>`. No feature work on the default branch directly. DORA's research is explicit here: high performers keep branches to **hours, a day or two at most**, integrate to trunk **at least daily**, and run with **three or fewer active branches** — long-lived branches are where work rots and merges turn painful. ([DORA — trunk-based development][dora])
 2. **Every pushed commit is tracked by a PR.** If you `git push` a branch, open a PR for it the same session — open it as a draft if it's not ready: `gh pr create --draft`.
 3. **No orphan branches.** A pushed branch with commits that aren't on the default branch and aren't in any open/merged PR is an orphan. Don't delete it if it carries real un-merged work — rescue it.
 4. **Commit + push every step.** Small, frequent commits beat one big drop. Pushing often is the backup; a local-only commit is not safe.
@@ -87,4 +90,9 @@ Keep one line per repo recording its default branch, test command, and where aud
 
 ## When to scale up (and when not to)
 
-For a small repo the manual `git status` + `gh pr list` check is proportionate — there is intentionally **no** `branch-hygiene.sh`, no `MAX_OPEN_PRS_PER_AUTHOR` tuning, no `.github/workflows/branch-hygiene.yml` nightly issue filing, and no enforced `dev`→`qa`→`main` multi-tier base. If branch/PR count ever grows past what a human can eyeball, **then** reintroduce automation — a nightly orphan-detector workflow and/or the multi-tier protected branches from the `deep-review` kit's `setup-branches.sh` — not before.
+For a small repo the manual `git status` + `gh pr list` check is proportionate — there is intentionally **no** `branch-hygiene.sh`, no `MAX_OPEN_PRS_PER_AUTHOR` tuning, no `.github/workflows/weighsoft-branch-hygiene.yml` nightly issue filing, and no enforced `dev`→`qa`→`main` multi-tier base. If branch/PR count ever grows past what a human can eyeball, **then** reintroduce automation — a nightly orphan-detector workflow and/or the multi-tier protected branches from the `weighsoft-deep-review` kit's `setup-branches.sh` — not before.
+
+---
+
+Sources / further reading:
+[dora]: https://dora.dev/capabilities/trunk-based-development/ "DORA — trunk-based development (short-lived branches, daily integration, ≤3 active branches)"

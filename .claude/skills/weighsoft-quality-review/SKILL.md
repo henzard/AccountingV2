@@ -1,5 +1,6 @@
 ---
-name: quality-review
+name: weighsoft-quality-review
+formerly: quality-review
 description: Multi-agent code quality + test audit — an orchestrator dispatches six specialists (test coverage & authenticity, UX, UI components, API, backend SOLID/code-smells, database) over their layers and merges findings into one report with per-domain health scores and a prioritized backlog
 version: 1.0.0
 category: quality
@@ -15,7 +16,9 @@ tags:
   - review
 ---
 
-# /quality-review — Multi-Agent Code Quality & Test Review
+> 🔁 **Renamed:** this skill is now **weighsoft-quality-review** (formerly **quality-review**). Update any references.
+
+# /weighsoft-quality-review — Multi-Agent Code Quality & Test Review
 
 An orchestrator maps the repo, runs **real** coverage, dispatches six specialist
 agents in parallel (each scoped to its layer so they don't all re-scan the
@@ -60,6 +63,10 @@ Reject vague findings.
   rubber-stamps, missing edge/error/boundary cases, and "integration" tests that
   mock the very integration they claim to cover (e.g. mocking the DB in a DB test).
   For each weak test: `file:line`, why it's weak, what it should assert, fixed version.
+  The modern bar (RTL/MSW-era): tests assert **observable behavior/outcomes, not
+  implementation details**, and mock only at true boundaries (network/clock/fs) — a
+  test that mocks the subject or its core collaborators proves nothing. Coverage % is
+  a floor, not the goal: a high number with assertion-free tests is coverage theatre.
 - **Gaps:** untested critical paths (auth, payments, mutations, RLS), missing
   negative/error/concurrency tests → prioritized list of tests to add.
 - **Layer matrix (if the project defines one):** enumerate every route and every
@@ -229,7 +236,7 @@ Flag any issue multiple agents raised — those are the highest-signal.
 When asked, file each finding as an issue. Use the kit's canonical label scheme —
 `sev:<level>` + the finding's domain label (`tests`/`ux`/`design-system`/`api`/
 `code-quality`/`database`) — so issues match `bootstrap-labels.sh` and the
-`deep-review` pipeline. (After `bootstrap-labels.sh` the labels exist; the
+`weighsoft-deep-review` pipeline. (After `bootstrap-labels.sh` the labels exist; the
 `--force` upserts keep this snippet self-contained.)
 
 ```bash
@@ -253,5 +260,12 @@ gh issue create --title "[high][code-quality] <title>" --label "code-quality,sev
   SonarQube/SonarCloud and Semgrep.
 - Scope each agent to its directories (frontend vs backend vs db vs tests) to
   avoid redundant full-tree scans and keep findings sharp.
-- Portable — copy `.claude/skills/quality-review/` into any repo; it adapts to
+- Portable — copy `.claude/skills/weighsoft-quality-review/` into any repo; it adapts to
   the detected stack and test runner.
+
+---
+
+Sources / further reading:
+[rtl]: https://testing-library.com/docs/guiding-principles/ "Testing Library — test behavior, not implementation details"
+[wcag]: https://www.w3.org/TR/WCAG22/ "WCAG 2.2 (W3C Recommendation) — AA success criteria"
+[solid]: https://www.digitalocean.com/community/conceptual-articles/s-o-l-i-d-the-first-five-principles-of-object-oriented-design "SOLID — the five OO design principles"
