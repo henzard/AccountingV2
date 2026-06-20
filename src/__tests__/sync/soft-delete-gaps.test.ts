@@ -85,7 +85,10 @@ describe('Soft-Delete Gaps — Hard Delete on Local', () => {
       'utf8',
     );
 
-    // TODO: FIX — Should use soft delete: .update().set({ deletedAt: now })
+    // KNOWN-GAP: SOFTDEL-001 — DeleteTransactionUseCase uses hard DELETE instead of
+    // soft delete (UPDATE SET deleted_at = now()). Fixing requires: updating schema
+    // entity types, adding deleted_at filters to all queries, and coordinating with
+    // SyncOrchestrator and RestoreService. See also SOFTDEL-002, SOFTDEL-003, SOFTDEL-004.
     expect(sourceCode).toContain('.delete(transactions)');
     expect(sourceCode).not.toContain('deletedAt');
     expect(sourceCode).not.toContain('deleted_at');
@@ -127,9 +130,9 @@ describe('Soft-Delete Gaps — Hard Delete on Server', () => {
 
     expect(result.synced).toBe(1);
 
-    // TODO: FIX — supabase.from(tableName).delete() performs a hard delete on the server.
-    // No tombstone record is preserved. Other devices have no way to know the record
-    // was deleted — they only discover it's missing on full restore.
+    // KNOWN-GAP: SOFTDEL-002 — supabase.from(tableName).delete() performs a hard delete
+    // on the server. No tombstone record is preserved. Other devices have no way to know
+    // the record was deleted — they only discover it's missing on full restore.
     expect(fromMock).toHaveBeenCalledWith('transactions');
     expect(deleteMock).toHaveBeenCalled();
   });
@@ -191,12 +194,12 @@ describe('Soft-Delete Gaps — Cross-Device Data Resurrection Risk', () => {
     // Device A deletes tx → server hard-deletes tx
     // Device B still has tx locally. RestoreService does not purge orphans.
 
-    // TODO: FIX — Without tombstones, there is no mechanism to propagate deletes.
-    // Solutions:
-    // 1. Register migration 0009 to add deleted_at columns
-    // 2. Use soft-delete in DeleteTransactionUseCase
-    // 3. Use soft-delete in SyncOrchestrator (update deleted_at instead of .delete())
-    // 4. Add orphan purge to RestoreService (delete local rows not in remote set)
+    // KNOWN-GAP: SOFTDEL-003 — Without tombstones, there is no mechanism to propagate
+    // deletes across devices. Full solution requires:
+    // 1. Soft-delete in DeleteTransactionUseCase (SOFTDEL-001)
+    // 2. Soft-delete in SyncOrchestrator server push (SOFTDEL-002)
+    // 3. Orphan purge in RestoreService (SOFTDEL-004)
+    // Until all three are implemented, deleted records can resurrect on offline devices.
 
     // Assert current behavior: no deleted_at column in the entity type
     expect(tx).not.toHaveProperty('deletedAt');
@@ -215,7 +218,9 @@ describe('Soft-Delete Gaps — Cross-Device Data Resurrection Risk', () => {
     );
 
     // No purge/delete logic in restoreTable
-    // TODO: FIX — restoreTable should delete local rows whose IDs are not in the remote set
+    // KNOWN-GAP: SOFTDEL-004 — restoreTable should delete local rows whose IDs are not
+    // in the remote set (orphan purge). Currently it only UPSERTs rows the server sends;
+    // rows deleted from the server remain as ghost records locally.
     expect(sourceCode).not.toContain('.delete(');
     expect(sourceCode).toContain('onConflictDoUpdate');
   });

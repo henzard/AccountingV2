@@ -265,7 +265,10 @@ describe('groupBusinessExpenses', () => {
 // ---------------------------------------------------------------------------
 
 describe('LogMeterReadingUseCase', () => {
-  const mockRepo = { insert: jest.fn().mockResolvedValue(undefined) };
+  const mockRepo = {
+    insert: jest.fn().mockResolvedValue(undefined),
+    findByDate: jest.fn().mockResolvedValue(null),
+  };
   const mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
   const mockEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
 

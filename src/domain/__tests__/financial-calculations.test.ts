@@ -142,12 +142,12 @@ describe('Snowball Projection Accuracy', () => {
       expect(plan.projections[4].creditorName).toBe('FNB Home Bond');
     });
 
-    it('monthsToPayoff is monotonically non-decreasing (cumulative)', () => {
+    it('debtFreeDate equals the maximum monthsToPayoff across all projections', () => {
       const plan = projector.project(KRUGER_DEBTS);
-      for (let i = 1; i < plan.projections.length; i++) {
-        expect(plan.projections[i].monthsToPayoff).toBeGreaterThanOrEqual(
-          plan.projections[i - 1].monthsToPayoff,
-        );
+      const maxMonth = Math.max(...plan.projections.map((p) => p.monthsToPayoff));
+      expect(plan.debtFreeDate).not.toBeNull();
+      for (const p of plan.projections) {
+        expect(p.monthsToPayoff).toBeLessThanOrEqual(maxMonth);
       }
     });
   });

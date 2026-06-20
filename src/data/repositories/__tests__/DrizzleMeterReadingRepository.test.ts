@@ -99,4 +99,32 @@ describe('DrizzleMeterReadingRepository', () => {
     const filterPredicate = whereFn.mock.calls[0][0];
     expect(filterPredicate).toBeDefined();
   });
+
+  it('findByDate returns null when no matching reading exists', async () => {
+    const limitFn = jest.fn().mockResolvedValue([]);
+    const whereFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
+    const repo = new DrizzleMeterReadingRepository(db);
+
+    const result = await repo.findByDate('h1', 'electricity', '2024-06-01');
+
+    expect(result).toBeNull();
+  });
+
+  it('findByDate returns entity when matching reading exists', async () => {
+    const limitFn = jest.fn().mockResolvedValue([reading]);
+    const whereFn = jest.fn().mockReturnValue({ limit: limitFn });
+    const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+    const selectFn = jest.fn().mockReturnValue({ from: fromFn });
+    const db = { select: selectFn } as any;
+    const repo = new DrizzleMeterReadingRepository(db);
+
+    const result = await repo.findByDate('h1', 'electricity', '2024-06-01');
+
+    expect(result).not.toBeNull();
+    expect(result?.id).toBe('mr1');
+    expect(result?.readingDate).toBe('2024-06-01');
+  });
 });

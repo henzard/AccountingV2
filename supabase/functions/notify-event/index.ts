@@ -57,6 +57,23 @@ serve(async (req: Request) => {
     });
   }
 
+  // Verify the target userId is also a member of the same household.
+  // Without this check, an authenticated caller could send push
+  // notifications to any user in the system (IDOR).
+  const { data: targetMembership } = await serviceClient
+    .from('household_members')
+    .select('user_id')
+    .eq('household_id', householdId)
+    .eq('user_id', userId)
+    .single();
+
+  if (!targetMembership) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const { data: tokens, error } = await serviceClient
     .from('user_fcm_tokens')
     .select('token')
@@ -78,7 +95,7 @@ serve(async (req: Request) => {
 
   const fcmKey = Deno.env.get('FCM_SERVER_KEY');
   if (!fcmKey) {
-    return new Response(JSON.stringify({ error: 'FCM_SERVER_KEY not set' }), { status: 500 });
+    return new Response(JSON.stringify({ error: 'Server misconfigured' }), { status: 500 });
   }
 
   let sent = 0;

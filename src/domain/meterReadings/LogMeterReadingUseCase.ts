@@ -43,6 +43,18 @@ export class LogMeterReadingUseCase {
       });
     }
 
+    const existing = await this.repo.findByDate(
+      this.input.householdId,
+      this.input.meterType,
+      this.input.readingDate,
+    );
+    if (existing) {
+      return createFailure({
+        code: 'DUPLICATE_READING',
+        message: `A ${this.input.meterType} reading already exists for ${this.input.readingDate}`,
+      });
+    }
+
     const now = new Date().toISOString();
     const id = randomUUID();
 
