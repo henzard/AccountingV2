@@ -249,7 +249,7 @@ describe('Sync Integrity — Exponential Backoff', () => {
 });
 
 describe('Sync Integrity — DELETE operations', () => {
-  it('calls supabase.from().delete() for DELETE operations without reading local row', async () => {
+  it('calls delete_sync_row RPC for DELETE operations without reading local row', async () => {
     jest.resetModules();
     jest.mock('expo-crypto', () => ({ randomUUID: () => 'mock-uuid' }));
     jest.mock('../../infrastructure/logging/Logger', () => ({
@@ -290,15 +290,19 @@ describe('Sync Integrity — DELETE operations', () => {
       })),
     };
 
-    const { supabase, deleteCalls } = createMockSupabase();
+    const { supabase, deleteCalls, rpcCalls } = createMockSupabase();
     const { SyncOrchestrator: FreshOrchestrator } = require('../sync/SyncOrchestrator');
     const orch = new FreshOrchestrator(db, supabase);
 
     const result = await orch.syncPending();
 
     expect(result.synced).toBe(1);
-    expect(deleteCalls).toHaveLength(1);
-    expect(deleteCalls[0].table).toBe('transactions');
+    expect(deleteCalls).toHaveLength(0);
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0]).toEqual({
+      name: 'delete_sync_row',
+      params: { p_table: 'transactions', p_id: 'tx-del-1' },
+    });
   });
 });
 

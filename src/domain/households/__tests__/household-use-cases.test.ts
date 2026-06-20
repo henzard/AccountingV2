@@ -227,20 +227,15 @@ describe('CreateHouseholdUseCase', () => {
 // ---------------------------------------------------------------------------
 
 describe('AcceptInviteUseCase', () => {
-  function makeSupabase(rpcResult: any, insertResult: any = {}, claimResult: any = {}) {
+  function makeSupabase(joinResult: { data?: unknown; error?: { message: string } | null } = {}) {
     return {
       rpc: jest.fn().mockImplementation((name: string) => {
-        if (name === 'lookup_invite_by_code') {
-          return { single: jest.fn().mockResolvedValue(rpcResult) };
+        if (name === 'join_household_via_invite') {
+          return Promise.resolve(joinResult);
         }
-        if (name === 'claim_invite') {
-          return Promise.resolve(claimResult);
-        }
-        return { single: jest.fn().mockResolvedValue({ data: null, error: null }) };
+        return Promise.resolve({ data: null, error: null });
       }),
-      from: jest.fn().mockReturnValue({
-        insert: jest.fn().mockResolvedValue(insertResult),
-      }),
+      from: jest.fn(),
     };
   }
 
@@ -257,15 +252,10 @@ describe('AcceptInviteUseCase', () => {
   }
 
   it('succeeds with valid invite code', async () => {
-    const futureDate = new Date(Date.now() + 86400000).toISOString();
-    const supabase = makeSupabase(
-      {
-        data: { id: 'inv-1', household_id: 'hh-1', expires_at: futureDate, used_by: null },
-        error: null,
-      },
-      { error: null },
-      { error: null },
-    );
+    const supabase = makeSupabase({
+      data: { member_id: 'member-1', household_id: 'hh-1' },
+      error: null,
+    });
     const db = makeDb();
     const restore = makeRestoreService({ id: 'hh-1', name: 'Test House', paydayDay: 25 });
     const enqueuer = makeEnqueuer();
@@ -287,15 +277,10 @@ describe('AcceptInviteUseCase', () => {
   });
 
   it('uppercases the invite code before lookup', async () => {
-    const futureDate = new Date(Date.now() + 86400000).toISOString();
-    const supabase = makeSupabase(
-      {
-        data: { id: 'inv-1', household_id: 'hh-1', expires_at: futureDate, used_by: null },
-        error: null,
-      },
-      { error: null },
-      { error: null },
-    );
+    const supabase = makeSupabase({
+      data: { member_id: 'member-1', household_id: 'hh-1' },
+      error: null,
+    });
     const db = makeDb();
     const restore = makeRestoreService({ id: 'hh-1', name: 'House', paydayDay: 25 });
     const enqueuer = makeEnqueuer();
@@ -309,11 +294,13 @@ describe('AcceptInviteUseCase', () => {
     );
     await uc.execute();
 
-    expect(supabase.rpc).toHaveBeenCalledWith('lookup_invite_by_code', { invite_code: 'ABC123' });
+    expect(supabase.rpc).toHaveBeenCalledWith('join_household_via_invite', {
+      invite_code: 'ABC123',
+    });
   });
 
   it('returns INVITE_NOT_FOUND when code does not exist', async () => {
-    const supabase = makeSupabase({ data: null, error: { message: 'not found' } });
+    const supabase = makeSupabase({ data: null, error: { message: 'invite not found' } });
     const db = makeDb();
     const restore = makeRestoreService();
     const enqueuer = makeEnqueuer();
@@ -332,11 +319,7 @@ describe('AcceptInviteUseCase', () => {
   });
 
   it('returns INVITE_EXPIRED when invite is past expiry', async () => {
-    const pastDate = new Date(Date.now() - 86400000).toISOString();
-    const supabase = makeSupabase({
-      data: { id: 'inv-1', household_id: 'hh-1', expires_at: pastDate, used_by: null },
-      error: null,
-    });
+    const supabase = makeSupabase({ data: null, error: { message: 'invite expired' } });
     const db = makeDb();
     const restore = makeRestoreService();
     const enqueuer = makeEnqueuer();
@@ -355,11 +338,7 @@ describe('AcceptInviteUseCase', () => {
   });
 
   it('returns INVITE_ALREADY_USED when used_by is set', async () => {
-    const futureDate = new Date(Date.now() + 86400000).toISOString();
-    const supabase = makeSupabase({
-      data: { id: 'inv-1', household_id: 'hh-1', expires_at: futureDate, used_by: 'u-other' },
-      error: null,
-    });
+    const supabase = makeSupabase({ data: null, error: { message: 'invite already used' } });
     const db = makeDb();
     const restore = makeRestoreService();
     const enqueuer = makeEnqueuer();
@@ -379,15 +358,10 @@ describe('AcceptInviteUseCase', () => {
 
   it('returns fallback summary when restore fails', async () => {
     jest.useRealTimers();
-    const futureDate = new Date(Date.now() + 86400000).toISOString();
-    const supabase = makeSupabase(
-      {
-        data: { id: 'inv-1', household_id: 'hh-1', expires_at: futureDate, used_by: null },
-        error: null,
-      },
-      { error: null },
-      { error: null },
-    );
+    const supabase = makeSupabase({
+      data: { member_id: 'member-1', household_id: 'hh-1' },
+      error: null,
+    });
     const db = makeDb();
     const restore = {
       restoreHousehold: jest.fn().mockRejectedValue(new Error('network')),

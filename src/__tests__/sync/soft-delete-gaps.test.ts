@@ -97,11 +97,10 @@ describe('Soft-Delete Gaps — Hard Delete on Local', () => {
 
 describe('Soft-Delete Gaps — Hard Delete on Server', () => {
   /**
-   * GAP: SyncOrchestrator.processItem() for DELETE operations calls
-   * supabase.from(tableName).delete().eq('id', recordId) — a hard delete
-   * on the server. No tombstone row is preserved.
+   * DELETE now routes through delete_sync_row RPC (SEC-RT-003) with membership check.
+   * Still a hard delete on the server — no tombstone (SOFTDEL-002 remains open).
    */
-  it('documents that SyncOrchestrator DELETE uses supabase hard delete', async () => {
+  it('documents that SyncOrchestrator DELETE uses delete_sync_row RPC', async () => {
     const deleteItem = {
       id: 'del-1',
       tableName: 'transactions',
@@ -113,31 +112,28 @@ describe('Soft-Delete Gaps — Hard Delete on Server', () => {
       lastAttemptedAt: null,
     };
 
-    const deleteMock = jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error: null })),
-    });
-    const fromMock = jest.fn().mockReturnValue({ delete: deleteMock });
+    const rpcMock = jest.fn().mockResolvedValue({ error: null });
+    const fromMock = jest.fn();
 
     const db = {
       select: jest.fn().mockReturnValueOnce(makePendingQueueChain([deleteItem])),
       delete: () => ({ where: () => Promise.resolve() }),
     } as any;
 
-    const supabase = { from: fromMock, rpc: jest.fn() } as any;
+    const supabase = { from: fromMock, rpc: rpcMock } as any;
 
     const orch = new SyncOrchestrator(db, supabase);
     const result = await orch.syncPending();
 
     expect(result.synced).toBe(1);
-
-    // KNOWN-GAP: SOFTDEL-002 — supabase.from(tableName).delete() performs a hard delete
-    // on the server. No tombstone record is preserved. Other devices have no way to know
-    // the record was deleted — they only discover it's missing on full restore.
-    expect(fromMock).toHaveBeenCalledWith('transactions');
-    expect(deleteMock).toHaveBeenCalled();
+    expect(rpcMock).toHaveBeenCalledWith('delete_sync_row', {
+      p_table: 'transactions',
+      p_id: KRUGER_TRANSACTIONS[0].id,
+    });
+    expect(fromMock).not.toHaveBeenCalled();
   });
 
-  it('verifies the processItem DELETE path does NOT use RPC', async () => {
+  it('verifies the processItem DELETE path uses delete_sync_row not merge RPC', async () => {
     const deleteItem = {
       id: 'del-rpc-check',
       tableName: 'envelopes',
@@ -149,10 +145,8 @@ describe('Soft-Delete Gaps — Hard Delete on Server', () => {
       lastAttemptedAt: null,
     };
 
-    const rpcMock = jest.fn();
-    const deleteMock = jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error: null })),
-    });
+    const rpcMock = jest.fn().mockResolvedValue({ error: null });
+    const deleteMock = jest.fn();
 
     const db = {
       select: jest.fn().mockReturnValueOnce(makePendingQueueChain([deleteItem])),
@@ -167,9 +161,11 @@ describe('Soft-Delete Gaps — Hard Delete on Server', () => {
     const orch = new SyncOrchestrator(db, supabase);
     await orch.syncPending();
 
-    // DELETE bypasses merge RPCs entirely — goes straight to .delete()
-    expect(rpcMock).not.toHaveBeenCalled();
-    expect(deleteMock).toHaveBeenCalled();
+    expect(rpcMock).toHaveBeenCalledWith('delete_sync_row', {
+      p_table: 'envelopes',
+      p_id: 'env-del-1',
+    });
+    expect(deleteMock).not.toHaveBeenCalled();
   });
 });
 
