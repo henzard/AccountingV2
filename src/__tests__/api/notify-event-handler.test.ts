@@ -44,7 +44,7 @@ async function handleNotifyEvent(
   }
 
   if (!fcmKey) {
-    return { status: 500, body: { error: 'FCM_SERVER_KEY not set' } };
+    return { status: 500, body: { error: 'Server misconfigured' } };
   }
 
   let sent = 0;
@@ -140,22 +140,22 @@ describe('notify-event handler', () => {
     expect(result.body).toEqual({ error: 'Internal server error' });
   });
 
-  it('missing FCM_SERVER_KEY returns 500', async () => {
+  it('missing FCM key returns 500 without leaking env var name', async () => {
     const supabase = mockSupabase([{ token: 'tok-1' }]);
 
     const result = await handleNotifyEvent(VALID_PAYLOAD, supabase, undefined, jest.fn());
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: 'FCM_SERVER_KEY not set' });
+    expect(result.body).toEqual({ error: 'Server misconfigured' });
   });
 
-  it('empty string FCM_SERVER_KEY returns 500', async () => {
+  it('empty string FCM key returns 500 without leaking env var name', async () => {
     const supabase = mockSupabase([{ token: 'tok-1' }]);
 
     const result = await handleNotifyEvent(VALID_PAYLOAD, supabase, '', jest.fn());
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: 'FCM_SERVER_KEY not set' });
+    expect(result.body).toEqual({ error: 'Server misconfigured' });
   });
 
   it('partial send failure — sent count is accurate', async () => {
