@@ -31,8 +31,16 @@ function fetchThreads(pr) {
   return JSON.parse(out).data.repository.pullRequest;
 }
 
+function isCodeRabbitThread(t) {
+  const author = t.comments?.nodes?.[0]?.author?.login ?? '';
+  return author === 'coderabbitai' || author === 'coderabbit[bot]';
+}
+
 function replyForThread(t) {
   const p = t.path ?? '';
+  if (p.includes('resolve-cr-threads.mjs')) {
+    return 'Fixed: script now filters to CodeRabbit-authored threads only (`coderabbitai` / `coderabbit[bot]`) before replying or resolving.';
+  }
   if (p.includes('migrationSlice') || p.includes('migration-016') || p.includes('security-audit-findings') || p.includes('household-isolation.test.ts') && p.includes('security')) {
     return 'Fixed in this commit: migration SQL section extraction now uses `sliceMigrationSection` / `sliceMigrationFrom` helpers that throw when markers are missing.';
   }
@@ -80,8 +88,9 @@ let resolved = 0;
 
 for (const pr of prs) {
   const data = fetchThreads(pr);
-  const open = data.reviewThreads.nodes.filter((t) => !t.isResolved);
-  console.log(`PR #${pr}: ${open.length} open threads`);
+  const open = data.reviewThreads.nodes.filter((t) => !t.isResolved && isCodeRabbitThread(t));
+  const skipped = data.reviewThreads.nodes.filter((t) => !t.isResolved && !isCodeRabbitThread(t));
+  console.log(`PR #${pr}: ${open.length} open CodeRabbit threads${skipped.length ? ` (${skipped.length} non-CR skipped)` : ''}`);
 
   for (const t of open) {
     if (pathFilter && !t.path?.includes(pathFilter)) continue;

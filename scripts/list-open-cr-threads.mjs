@@ -3,6 +3,10 @@ import fs from 'fs';
 
 const query = fs.readFileSync('scripts/cr-threads.graphql', 'utf8');
 
+function isCodeRabbitAuthor(login) {
+  return login === 'coderabbitai' || login === 'coderabbit[bot]';
+}
+
 function fetchThreads(pr) {
   const payload = JSON.stringify({ query, variables: { pr } });
   const out = execSync('gh api graphql --input -', { input: payload, encoding: 'utf8' });
@@ -11,7 +15,7 @@ function fetchThreads(pr) {
 
 for (const pr of [39, 40, 106]) {
   const data = fetchThreads(pr);
-  const open = data.reviewThreads.nodes.filter((t) => !t.isResolved);
+  const open = data.reviewThreads.nodes.filter((t) => !t.isResolved && isCodeRabbitAuthor(t.comments?.nodes?.[0]?.author?.login));
   console.log(`\n=== PR #${data.number}: ${open.length} open ===`);
   for (const t of open) {
     const c = t.comments.nodes[0];
