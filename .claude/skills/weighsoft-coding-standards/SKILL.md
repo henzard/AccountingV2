@@ -50,7 +50,7 @@ months) and let the machine sort out the rest.
 ### Module structure
 
 - **Small modules, minimal public API** — export the least that callers need.
-- **Dependencies flow inward:** `domain → use cases → adapters` (see `weighsoft-architecture-and-design`).
+- **Dependencies flow inward:** `adapters → use cases → domain` (see `weighsoft-architecture-and-design`).
 - **Split a module if its description needs "and"** — that's two responsibilities wearing one
   filename.
 
