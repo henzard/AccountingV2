@@ -14,6 +14,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { sliceMigrationFrom, sliceMigrationSection } from '../../__test-utils__/migrationSlice';
 
 const FUNCTIONS_DIR = path.resolve(__dirname, '../../../supabase/functions');
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../../supabase/migrations');
@@ -120,9 +121,10 @@ describe('Finding 3: merge_slip_queue must match actual slip_queue DDL', () => {
 
   it('proves the bug: migration 017 references columns not in any DDL', () => {
     const migration017 = readSource(path.join(MIGRATIONS_DIR, '017_fix_merge_regressions.sql'));
-    const mergeSlipSection = migration017.slice(
-      migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
-      migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
+    const mergeSlipSection = sliceMigrationSection(
+      migration017,
+      'CREATE OR REPLACE FUNCTION public.merge_slip_queue',
+      'GRANT EXECUTE ON FUNCTION public.merge_slip_queue',
     );
 
     // These columns do NOT exist in the slip_queue table (created in 006)
@@ -140,9 +142,10 @@ describe('Finding 3: merge_slip_queue must match actual slip_queue DDL', () => {
 
   it('proves 017 omits real columns from the merge function', () => {
     const migration017 = readSource(path.join(MIGRATIONS_DIR, '017_fix_merge_regressions.sql'));
-    const mergeSlipSection = migration017.slice(
-      migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
-      migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
+    const mergeSlipSection = sliceMigrationSection(
+      migration017,
+      'CREATE OR REPLACE FUNCTION public.merge_slip_queue',
+      'GRANT EXECUTE ON FUNCTION public.merge_slip_queue',
     );
 
     // These columns ARE in the table (006) but missing from 017's merge
@@ -154,9 +157,10 @@ describe('Finding 3: merge_slip_queue must match actual slip_queue DDL', () => {
   });
 
   it('018 fix: merge_slip_queue uses correct column names from 006 DDL', () => {
-    const mergeSlipSection = migration018.slice(
-      migration018.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
-      migration018.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
+    const mergeSlipSection = sliceMigrationSection(
+      migration018,
+      'CREATE OR REPLACE FUNCTION public.merge_slip_queue',
+      'GRANT EXECUTE ON FUNCTION public.merge_slip_queue',
     );
 
     const ddlColumns = [
@@ -190,9 +194,10 @@ describe('Finding 3: merge_slip_queue must match actual slip_queue DDL', () => {
 describe('Finding 4: merge_slip_queue must enforce creator-only writes', () => {
   it('proves the regression: 017 replaced created_by check with household membership', () => {
     const migration017 = readSource(path.join(MIGRATIONS_DIR, '017_fix_merge_regressions.sql'));
-    const mergeSlipSection = migration017.slice(
-      migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
-      migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
+    const mergeSlipSection = sliceMigrationSection(
+      migration017,
+      'CREATE OR REPLACE FUNCTION public.merge_slip_queue',
+      'GRANT EXECUTE ON FUNCTION public.merge_slip_queue',
     );
 
     // 017 uses household membership check (weaker)
@@ -203,9 +208,10 @@ describe('Finding 4: merge_slip_queue must enforce creator-only writes', () => {
 
   it('018 fix: restores created_by ownership guard', () => {
     const migration018 = readSource(path.join(MIGRATIONS_DIR, '018_security_fixes.sql'));
-    const mergeSlipSection = migration018.slice(
-      migration018.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
-      migration018.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
+    const mergeSlipSection = sliceMigrationSection(
+      migration018,
+      'CREATE OR REPLACE FUNCTION public.merge_slip_queue',
+      'GRANT EXECUTE ON FUNCTION public.merge_slip_queue',
     );
 
     expect(mergeSlipSection).toContain('r.created_by != caller_id');
@@ -222,9 +228,10 @@ describe('Finding 5: user_households must have role + created_at for trigger', (
     const migration005 = readSource(
       path.join(MIGRATIONS_DIR, '005_security_and_sync_correctness.sql'),
     );
-    const triggerFn = migration005.slice(
-      migration005.indexOf('sync_household_member_to_user_households'),
-      migration005.indexOf('CREATE TRIGGER tr_household_members_sync_user_households'),
+    const triggerFn = sliceMigrationSection(
+      migration005,
+      'sync_household_member_to_user_households',
+      'CREATE TRIGGER tr_household_members_sync_user_households',
     );
 
     expect(triggerFn).toContain('role');
@@ -233,9 +240,10 @@ describe('Finding 5: user_households must have role + created_at for trigger', (
 
   it('proves the bug: 002 user_households table has NO role or created_at column', () => {
     const migration002 = readSource(path.join(MIGRATIONS_DIR, '002_rls_policies.sql'));
-    const tableSection = migration002.slice(
-      migration002.indexOf('CREATE TABLE user_households'),
-      migration002.indexOf('ALTER TABLE user_households'),
+    const tableSection = sliceMigrationSection(
+      migration002,
+      'CREATE TABLE user_households',
+      'ALTER TABLE user_households',
     );
 
     expect(tableSection).not.toContain('role');
@@ -309,9 +317,7 @@ describe('Audit: areas confirmed secure', () => {
 
       for (const rpc of rpcsWithMembershipCheck) {
         const combined = migration017 + migration016;
-        const section = combined.slice(
-          combined.indexOf(`CREATE OR REPLACE FUNCTION public.${rpc}`),
-        );
+        const section = sliceMigrationFrom(combined, `CREATE OR REPLACE FUNCTION public.${rpc}`);
         expect(section).toContain('user_households');
         expect(section).toContain('insufficient_privilege');
       }

@@ -1,0 +1,23 @@
+query($pr: Int!) {
+  repository(owner: "henzard", name: "AccountingV2") {
+    pullRequest(number: $pr) {
+      number
+      title
+      reviewThreads(first: 100) {
+        totalCount
+        nodes {
+          id
+          isResolved
+          path
+          line
+          comments(last: 1) {
+            nodes {
+              author { login }
+              body
+            }
+          }
+        }
+      }
+    }
+  }
+}

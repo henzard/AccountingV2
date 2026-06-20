@@ -13,7 +13,7 @@ jest.mock('expo-crypto', () => ({
 
 // ─── Navigation Guard Logic (extracted from RootNavigator) ───────────────────
 
-type NavigatorName = 'Auth' | 'CreateHouseholdFlow' | 'Onboarding' | 'Main' | 'Loading';
+type NavigatorName = 'Auth' | 'CreateHouseholdFlow' | 'Onboarding' | 'Main';
 
 interface NavigationState {
   session: { user: { id: string } } | null;
@@ -21,13 +21,14 @@ interface NavigationState {
   onboardingCompleted: boolean | null;
 }
 
+/** Mirrors RootNavigator: pending onboarding renders Auth stack + LoadingSplash. */
 function resolveNavigator(state: NavigationState): NavigatorName {
   const isAuthenticated = Boolean(state.session);
   const hasHousehold = Boolean(state.householdId);
 
   if (!isAuthenticated) return 'Auth';
   if (!hasHousehold) return 'CreateHouseholdFlow';
-  if (state.onboardingCompleted === null) return 'Loading';
+  if (state.onboardingCompleted === null) return 'Auth';
   if (!state.onboardingCompleted) return 'Onboarding';
   return 'Main';
 }
@@ -71,13 +72,13 @@ describe('Navigation Guard Logic', () => {
   });
 
   describe('Authenticated + household + onboarding pending', () => {
-    it('shows Loading while onboarding status is resolving (null)', () => {
+    it('shows Auth (LoadingSplash) while onboarding status is resolving (null)', () => {
       const result = resolveNavigator({
         session: { user: { id: 'user-1' } },
         householdId: 'hh-1',
         onboardingCompleted: null,
       });
-      expect(result).toBe('Loading');
+      expect(result).toBe('Auth');
     });
 
     it('shows Onboarding when onboardingCompleted is false', () => {
@@ -102,7 +103,7 @@ describe('Navigation Guard Logic', () => {
   });
 
   describe('State transition sequences', () => {
-    it('follows Auth -> CreateHouseholdFlow -> Loading -> Main flow', () => {
+    it('follows Auth -> CreateHouseholdFlow -> Auth (splash) -> Main flow', () => {
       const states: NavigationState[] = [
         { session: null, householdId: null, onboardingCompleted: null },
         { session: { user: { id: 'u1' } }, householdId: null, onboardingCompleted: null },
@@ -110,14 +111,14 @@ describe('Navigation Guard Logic', () => {
         { session: { user: { id: 'u1' } }, householdId: 'hh-1', onboardingCompleted: true },
       ];
 
-      const expected: NavigatorName[] = ['Auth', 'CreateHouseholdFlow', 'Loading', 'Main'];
+      const expected: NavigatorName[] = ['Auth', 'CreateHouseholdFlow', 'Auth', 'Main'];
 
       states.forEach((state, i) => {
         expect(resolveNavigator(state)).toBe(expected[i]);
       });
     });
 
-    it('follows Auth -> CreateHouseholdFlow -> Loading -> Onboarding -> Main flow', () => {
+    it('follows Auth -> CreateHouseholdFlow -> Auth (splash) -> Onboarding -> Main flow', () => {
       const states: NavigationState[] = [
         { session: null, householdId: null, onboardingCompleted: null },
         { session: { user: { id: 'u1' } }, householdId: null, onboardingCompleted: null },
@@ -129,7 +130,7 @@ describe('Navigation Guard Logic', () => {
       const expected: NavigatorName[] = [
         'Auth',
         'CreateHouseholdFlow',
-        'Loading',
+        'Auth',
         'Onboarding',
         'Main',
       ];

@@ -40,10 +40,23 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
     }, [load]),
   );
 
-  if (loading || !debt) {
+  if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator animating color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!debt) {
+    return (
+      <View style={styles.center}>
+        <Text variant="titleMedium" style={{ color: colors.onSurface, marginBottom: spacing.md }}>
+          Debt not found
+        </Text>
+        <Button mode="contained" onPress={() => navigation.goBack()}>
+          Go back
+        </Button>
       </View>
     );
   }

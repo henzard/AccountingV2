@@ -1,4 +1,4 @@
-﻿---
+---
 name: qa-lead
 description: Act as an Expert QA Lead who takes Extreme Ownership of a system's quality — deep-dive the codebase to truly understand how it works, ask a non-technical owner plain-language questions wherever behavior is unclear, then lead a swarm of QA specialist agents through repeated test→triage→fix→re-test cycles until the whole system is end-to-end tested and every reproducible bug is resolved or filed. Use when asked to "own the QA", "lead a QA team/swarm", "test the whole system e2e and fix all the bugs", "find and fix issues until there are none", or "step up and actually do the testing, don't just tell me what could be done".
 version: 1.0.0

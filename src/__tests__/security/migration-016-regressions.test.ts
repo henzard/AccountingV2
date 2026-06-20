@@ -11,6 +11,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { sliceMigrationFrom, sliceMigrationSection } from '../../__test-utils__/migrationSlice';
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../../supabase/migrations');
 
@@ -39,26 +40,29 @@ describe('Migration 016 Regressions', () => {
 
   describe('merge_envelope: sinking fund columns (migration 009)', () => {
     it('migration 009 DOES include target_amount_cents in merge_envelope', () => {
-      const mergeEnvSection = migration009.slice(
-        migration009.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
+      const mergeEnvSection = sliceMigrationFrom(
+        migration009,
+        'CREATE OR REPLACE FUNCTION public.merge_envelope',
       );
       expect(mergeEnvSection).toContain('target_amount_cents');
       expect(mergeEnvSection).toContain('target_date');
     });
 
     it('should include target_amount_cents in merge_envelope (fixed in 017)', () => {
-      const mergeEnvSection = migration017.slice(
-        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
-        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_envelope'),
+      const mergeEnvSection = sliceMigrationSection(
+        migration017,
+        'CREATE OR REPLACE FUNCTION public.merge_envelope',
+        'GRANT EXECUTE ON FUNCTION public.merge_envelope',
       );
 
       expect(mergeEnvSection).toContain('target_amount_cents');
     });
 
     it('should include target_date in merge_envelope (fixed in 017)', () => {
-      const mergeEnvSection = migration017.slice(
-        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
-        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_envelope'),
+      const mergeEnvSection = sliceMigrationSection(
+        migration017,
+        'CREATE OR REPLACE FUNCTION public.merge_envelope',
+        'GRANT EXECUTE ON FUNCTION public.merge_envelope',
       );
 
       expect(mergeEnvSection).toContain('target_date');
@@ -67,16 +71,18 @@ describe('Migration 016 Regressions', () => {
 
   describe('merge_transaction: slip_id column (migration 006)', () => {
     it('migration 006 DOES include slip_id in merge_transaction', () => {
-      const mergeTxSection = migration006.slice(
-        migration006.indexOf('CREATE OR REPLACE FUNCTION public.merge_transaction'),
+      const mergeTxSection = sliceMigrationFrom(
+        migration006,
+        'CREATE OR REPLACE FUNCTION public.merge_transaction',
       );
       expect(mergeTxSection).toContain('slip_id');
     });
 
     it('should include slip_id in merge_transaction (fixed in 017)', () => {
-      const mergeTxSection = migration017.slice(
-        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_transaction'),
-        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_transaction'),
+      const mergeTxSection = sliceMigrationSection(
+        migration017,
+        'CREATE OR REPLACE FUNCTION public.merge_transaction',
+        'GRANT EXECUTE ON FUNCTION public.merge_transaction',
       );
 
       expect(mergeTxSection).toContain('slip_id');
@@ -89,9 +95,10 @@ describe('Migration 016 Regressions', () => {
     });
 
     it('should include role escalation guard in merge_household_member (fixed in 017)', () => {
-      const mergeHmSection = migration017.slice(
-        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_household_member'),
-        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_household_member'),
+      const mergeHmSection = sliceMigrationSection(
+        migration017,
+        'CREATE OR REPLACE FUNCTION public.merge_household_member',
+        'GRANT EXECUTE ON FUNCTION public.merge_household_member',
       );
 
       expect(mergeHmSection).toContain("r.role := 'member'");
@@ -106,9 +113,10 @@ describe('Migration 016 Regressions', () => {
     });
 
     it('merge_slip_queue should use current table schema (fixed in 017)', () => {
-      const mergeSlipSection = migration017.slice(
-        migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_slip_queue'),
-        migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_slip_queue'),
+      const mergeSlipSection = sliceMigrationSection(
+        migration017,
+        'CREATE OR REPLACE FUNCTION public.merge_slip_queue',
+        'GRANT EXECUTE ON FUNCTION public.merge_slip_queue',
       );
 
       expect(mergeSlipSection).toContain('created_by');
@@ -119,13 +127,15 @@ describe('Migration 016 Regressions', () => {
 
   describe('LWW operator change documentation', () => {
     it('documents the >= to > operator change with direction-independent tiebreaker', () => {
-      const mergeEnvSection016 = migration016.slice(
-        migration016.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
-        migration016.indexOf('GRANT EXECUTE ON FUNCTION public.merge_envelope'),
+      const mergeEnvSection016 = sliceMigrationSection(
+        migration016,
+        'CREATE OR REPLACE FUNCTION public.merge_envelope',
+        'GRANT EXECUTE ON FUNCTION public.merge_envelope',
       );
 
-      const mergeEnvSection009 = migration009.slice(
-        migration009.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
+      const mergeEnvSection009 = sliceMigrationFrom(
+        migration009,
+        'CREATE OR REPLACE FUNCTION public.merge_envelope',
       );
 
       expect(mergeEnvSection009).toContain('>=');
@@ -146,8 +156,9 @@ describe('Migration 016 Regressions', () => {
     });
 
     it('migration 009 used >= operator (no tiebreaker)', () => {
-      const mergeEnvSection009 = migration009.slice(
-        migration009.indexOf('CREATE OR REPLACE FUNCTION public.merge_envelope'),
+      const mergeEnvSection009 = sliceMigrationFrom(
+        migration009,
+        'CREATE OR REPLACE FUNCTION public.merge_envelope',
       );
 
       expect(mergeEnvSection009).toContain('EXCLUDED.updated_at >= envelopes.updated_at');

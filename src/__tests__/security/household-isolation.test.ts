@@ -11,6 +11,7 @@ import {
   buildDebt,
   buildPendingSyncRow,
 } from '../../__test-utils__/factories';
+import { sliceMigrationSection } from '../../__test-utils__/migrationSlice';
 import {
   USERS,
   HOUSEHOLDS,
@@ -255,9 +256,10 @@ describe('Role Escalation Prevention', () => {
       'utf-8',
     );
 
-    const mergeHouseholdMemberSection = migration017.slice(
-      migration017.indexOf('CREATE OR REPLACE FUNCTION public.merge_household_member'),
-      migration017.indexOf('GRANT EXECUTE ON FUNCTION public.merge_household_member'),
+    const mergeHouseholdMemberSection = sliceMigrationSection(
+      migration017,
+      'CREATE OR REPLACE FUNCTION public.merge_household_member',
+      'GRANT EXECUTE ON FUNCTION public.merge_household_member',
     );
 
     expect(mergeHouseholdMemberSection).toContain("r.role := 'member'");
