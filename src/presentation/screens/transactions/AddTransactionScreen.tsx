@@ -117,6 +117,10 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         } else {
           setError(result.error.message);
         }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+        setError(message);
+        enqueue('Failed to save transaction', 'error');
       } finally {
         setLoading(false);
         isSaving.current = false;

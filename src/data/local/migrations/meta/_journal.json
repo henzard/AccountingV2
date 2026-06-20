@@ -63,6 +63,13 @@
       "when": 1744531200000,
       "tag": "0008_slip_scanning",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1744617600000,
+      "tag": "0009_soft_delete_tombstones",
+      "breakpoints": true
     }
   ]
 }

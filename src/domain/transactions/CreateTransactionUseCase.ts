@@ -85,19 +85,23 @@ export class CreateTransactionUseCase {
       slipId: this.input.slipId ?? null,
       isSynced: false,
     };
-    await this.db.insert(transactions).values(row);
 
-    // Atomically increment envelope spentCents without a read-modify-write race.
-    // Scope by householdId to prevent cross-household write (CRITICAL-2).
-    await this.db
-      .update(envelopes)
-      .set({ spentCents: sql`${envelopes.spentCents} + ${this.input.amountCents}`, updatedAt: now })
-      .where(
-        and(
-          eq(envelopes.id, this.input.envelopeId),
-          eq(envelopes.householdId, this.input.householdId),
-        ),
-      );
+    await this.db.transaction(async (dbTx) => {
+      await dbTx.insert(transactions).values(row);
+
+      await dbTx
+        .update(envelopes)
+        .set({
+          spentCents: sql`${envelopes.spentCents} + ${this.input.amountCents}`,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(envelopes.id, this.input.envelopeId),
+            eq(envelopes.householdId, this.input.householdId),
+          ),
+        );
+    });
 
     await this.audit.log({
       householdId: this.input.householdId,

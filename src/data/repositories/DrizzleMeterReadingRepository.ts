@@ -31,6 +31,26 @@ export class DrizzleMeterReadingRepository implements IMeterReadingRepository {
     return rows.map((r) => this.rowToEntity(r));
   }
 
+  async findByDate(
+    householdId: string,
+    meterType: MeterType,
+    readingDate: string,
+  ): Promise<MeterReadingEntity | null> {
+    const [row] = await this.db
+      .select()
+      .from(meterReadings)
+      .where(
+        and(
+          eq(meterReadings.householdId, householdId),
+          eq(meterReadings.meterType, meterType),
+          eq(meterReadings.readingDate, readingDate),
+        ),
+      )
+      .limit(1);
+    if (!row) return null;
+    return this.rowToEntity(row);
+  }
+
   async insert(reading: MeterReadingEntity): Promise<void> {
     await this.db.insert(meterReadings).values({ ...reading, isSynced: false });
   }

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   markOnboardingComplete,
   isOnboardingComplete,
@@ -6,40 +7,89 @@ import {
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   setItem: jest.fn().mockResolvedValue(undefined),
-  getItem: jest.fn(),
+  getItem: jest.fn().mockResolvedValue(null),
   removeItem: jest.fn().mockResolvedValue(undefined),
 }));
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 describe('onboardingFlag', () => {
-  const userId = 'user-abc';
-  const householdId = 'hh-123';
-  const key = `@onboarding_completed:${userId}:${householdId}`;
-
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('markOnboardingComplete stores "true" at the correct key', async () => {
-    await markOnboardingComplete(userId, householdId);
-    expect(AsyncStorage.setItem).toHaveBeenCalledWith(key, 'true');
+  describe('markOnboardingComplete', () => {
+    it('stores true with the correct key', async () => {
+      await markOnboardingComplete('user-1', 'hh-1');
+
+      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+        '@onboarding_completed:user-1:hh-1',
+        'true',
+      );
+    });
+
+    it('propagates storage errors', async () => {
+      (AsyncStorage.setItem as jest.Mock).mockRejectedValueOnce(new Error('Storage full'));
+
+      await expect(markOnboardingComplete('u', 'h')).rejects.toThrow('Storage full');
+    });
   });
 
-  it('isOnboardingComplete returns true when flag is set', async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('true');
-    const result = await isOnboardingComplete(userId, householdId);
-    expect(result).toBe(true);
+  describe('isOnboardingComplete', () => {
+    it('returns true when flag is set', async () => {
+      (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce('true');
+
+      const result = await isOnboardingComplete('user-1', 'hh-1');
+
+      expect(result).toBe(true);
+      expect(AsyncStorage.getItem).toHaveBeenCalledWith('@onboarding_completed:user-1:hh-1');
+    });
+
+    it('returns false when flag is null', async () => {
+      (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(null);
+
+      const result = await isOnboardingComplete('user-1', 'hh-1');
+
+      expect(result).toBe(false);
+    });
+
+    it('returns false when flag is unexpected value', async () => {
+      (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce('false');
+
+      const result = await isOnboardingComplete('user-1', 'hh-1');
+
+      expect(result).toBe(false);
+    });
   });
 
-  it('isOnboardingComplete returns false when flag is absent', async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
-    const result = await isOnboardingComplete(userId, householdId);
-    expect(result).toBe(false);
+  describe('clearOnboardingFlag', () => {
+    it('removes the correct key', async () => {
+      await clearOnboardingFlag('user-1', 'hh-1');
+
+      expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@onboarding_completed:user-1:hh-1');
+    });
+
+    it('propagates storage errors', async () => {
+      (AsyncStorage.removeItem as jest.Mock).mockRejectedValueOnce(new Error('Oops'));
+
+      await expect(clearOnboardingFlag('u', 'h')).rejects.toThrow('Oops');
+    });
   });
 
-  it('clearOnboardingFlag removes the correct key', async () => {
-    await clearOnboardingFlag(userId, householdId);
-    expect(AsyncStorage.removeItem).toHaveBeenCalledWith(key);
+  describe('read-failure propagation', () => {
+    it('propagates storage read errors from isOnboardingComplete', async () => {
+      (AsyncStorage.getItem as jest.Mock).mockRejectedValueOnce(new Error('Read failed'));
+
+      await expect(isOnboardingComplete('u', 'h')).rejects.toThrow('Read failed');
+    });
+  });
+
+  describe('key format', () => {
+    it('uses correct key format with special characters in ids', async () => {
+      await markOnboardingComplete('user@email.com', 'hh-with-dashes');
+
+      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+        '@onboarding_completed:user@email.com:hh-with-dashes',
+        'true',
+      );
+    });
   });
 });

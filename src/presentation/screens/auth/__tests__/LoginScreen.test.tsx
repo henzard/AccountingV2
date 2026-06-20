@@ -51,7 +51,7 @@ jest.mock('react-native-paper', () => {
 const mockSignIn = jest.fn();
 jest.mock('../../../../data/remote/SupabaseAuthService', () => ({
   SupabaseAuthService: jest.fn().mockImplementation(() => ({
-    signIn: mockSignIn,
+    signIn: (...args: unknown[]) => mockSignIn(...args),
   })),
 }));
 
@@ -119,5 +119,74 @@ describe('LoginScreen', () => {
     const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
     fireEvent.press(getByTestId('login-signup-link'));
     expect(mockNavigate).toHaveBeenCalledWith('SignUp');
+  });
+
+  it('shows validation error when password is empty but email is provided', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <LoginScreen route={{} as never} navigation={{} as never} />,
+    );
+    fireEvent.changeText(getByTestId('login-email'), 'user@example.com');
+    fireEvent.press(getByTestId('login-submit'));
+    await waitFor(() => {
+      expect(queryByTestId('snackbar')).toBeTruthy();
+    });
+    expect(mockSignIn).not.toHaveBeenCalled();
+  });
+
+  it('shows validation error when both email and password are empty', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <LoginScreen route={{} as never} navigation={{} as never} />,
+    );
+    fireEvent.press(getByTestId('login-submit'));
+    await waitFor(() => {
+      expect(queryByTestId('snackbar')).toBeTruthy();
+    });
+    expect(mockSignIn).not.toHaveBeenCalled();
+  });
+
+  it('displays error message from failed sign-in', async () => {
+    mockSignIn.mockResolvedValue({
+      success: false,
+      error: { message: 'Invalid login credentials' },
+    });
+    const { getByTestId, queryByTestId } = render(
+      <LoginScreen route={{} as never} navigation={{} as never} />,
+    );
+    fireEvent.changeText(getByTestId('login-email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('login-password'), 'wrongpassword');
+    fireEvent.press(getByTestId('login-submit'));
+    await waitFor(() => {
+      expect(queryByTestId('snackbar')).toBeTruthy();
+    });
+    expect(mockSignIn).toHaveBeenCalledWith('user@example.com', 'wrongpassword');
+  });
+
+  it('calls setSession on successful sign-in', async () => {
+    const sessionData = { user: { id: '1' }, access_token: 'tok' };
+    mockSignIn.mockResolvedValue({ success: true, data: sessionData });
+    const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
+    fireEvent.changeText(getByTestId('login-email'), 'user@example.com');
+    fireEvent.changeText(getByTestId('login-password'), 'correctpassword');
+    fireEvent.press(getByTestId('login-submit'));
+    await waitFor(() => {
+      expect(mockSetSession).toHaveBeenCalledWith(sessionData);
+    });
+  });
+
+  it('trims and lowercases email before sending', async () => {
+    mockSignIn.mockResolvedValue({ success: true, data: {} });
+    const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
+    fireEvent.changeText(getByTestId('login-email'), '  User@Example.COM  ');
+    fireEvent.changeText(getByTestId('login-password'), 'password');
+    fireEvent.press(getByTestId('login-submit'));
+    await waitFor(() => {
+      expect(mockSignIn).toHaveBeenCalledWith('user@example.com', 'password');
+    });
+  });
+
+  it('renders title and subtitle text', () => {
+    const { getAllByText } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
+    expect(getAllByText(/AccountingV2/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/Sign in/i).length).toBeGreaterThan(0);
   });
 });

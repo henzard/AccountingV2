@@ -2,9 +2,33 @@
  * AddEditEnvelopeScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { Alert } from 'react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-jest.mock('../../../../data/local/db', () => ({ db: {} }));
+const mockArchiveExecute = jest.fn();
+
+jest.mock('../../../../data/local/db', () => ({
+  db: {
+    select: jest.fn(() => ({
+      from: jest.fn(() => ({
+        where: jest.fn(() => ({
+          limit: jest.fn(() =>
+            Promise.resolve([
+              {
+                id: 'env-1',
+                name: 'Groceries',
+                allocatedCents: 500000,
+                envelopeType: 'spending',
+                targetAmountCents: null,
+                targetDate: null,
+              },
+            ]),
+          ),
+        })),
+      })),
+    })),
+  },
+}));
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
 }));
@@ -15,7 +39,9 @@ jest.mock('../../../../domain/envelopes/UpdateEnvelopeUseCase', () => ({
   UpdateEnvelopeUseCase: jest.fn().mockImplementation(() => ({ execute: jest.fn() })),
 }));
 jest.mock('../../../../domain/envelopes/ArchiveEnvelopeUseCase', () => ({
-  ArchiveEnvelopeUseCase: jest.fn().mockImplementation(() => ({ execute: jest.fn() })),
+  ArchiveEnvelopeUseCase: jest.fn().mockImplementation(() => ({
+    execute: mockArchiveExecute,
+  })),
 }));
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((sel: (s: { householdId: string; paydayDay: number }) => unknown) =>
@@ -56,7 +82,12 @@ jest.mock('react-native-paper', () => {
       children?: React.ReactNode;
       testID?: string;
       onPress?: () => void;
-    }) => React.createElement('Pressable', { testID, onPress }, children),
+    }) =>
+      React.createElement(
+        'Pressable',
+        { testID, onPress },
+        React.createElement('Text', null, children),
+      ),
     SegmentedButtons: () => React.createElement('View', null),
     Snackbar: ({ visible, children }: { visible?: boolean; children?: React.ReactNode }) =>
       visible ? React.createElement('Text', { testID: 'snackbar' }, children) : null,
@@ -71,6 +102,10 @@ const mockSetOptions = jest.fn();
 import { AddEditEnvelopeScreen } from '../AddEditEnvelopeScreen';
 
 describe('AddEditEnvelopeScreen', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('renders without crashing (create mode)', () => {
     const { UNSAFE_root } = render(
       <AddEditEnvelopeScreen
@@ -81,5 +116,29 @@ describe('AddEditEnvelopeScreen', () => {
       />,
     );
     expect(UNSAFE_root).toBeTruthy();
+  });
+
+  it('shows error when archive fails', async () => {
+    mockArchiveExecute.mockResolvedValueOnce({ success: false });
+    jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
+      const archiveBtn = buttons?.find((b) => b.text === 'Archive');
+      archiveBtn?.onPress?.();
+    });
+
+    const { findByTestId, getByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: { envelopeId: 'env-1' } } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+
+    const archiveButton = await findByTestId('archive-envelope-button');
+    fireEvent.press(archiveButton);
+
+    await waitFor(() => {
+      expect(getByTestId('snackbar')).toBeTruthy();
+    });
   });
 });

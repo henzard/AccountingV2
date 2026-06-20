@@ -53,6 +53,16 @@ describe('DrizzleSlipQueueRepository', () => {
     });
 
     expect(db.insert).toHaveBeenCalled();
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 's1',
+        householdId: 'h1',
+        createdBy: 'u1',
+        imageUris: '["a/b/0.jpg"]',
+        status: 'processing',
+        isSynced: false,
+      }),
+    );
     const row = await repo.get('s1');
     expect(row?.id).toBe('s1');
     expect(row?.imageUris).toEqual(['a/b/0.jpg']);

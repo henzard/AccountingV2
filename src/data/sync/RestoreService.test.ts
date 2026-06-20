@@ -197,6 +197,251 @@ describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () =>
   });
 });
 
+describe('RestoreService.restore — iterates over multiple memberships', () => {
+  it('calls restoreHousehold for each membership and returns summaries', async () => {
+    const hhRows: Record<string, Record<string, unknown>> = {
+      'hh-1': {
+        id: 'hh-1',
+        name: 'Home',
+        payday_day: 25,
+        user_level: 1,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+      'hh-2': {
+        id: 'hh-2',
+        name: 'Business',
+        payday_day: 1,
+        user_level: 2,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    const supabase = {
+      from: (table: string) => ({
+        select: () => ({
+          eq: (col: string, val: unknown) => {
+            if (table === 'household_members' && col === 'user_id') {
+              return Promise.resolve({
+                data: [
+                  { household_id: 'hh-1', role: 'owner' },
+                  { household_id: 'hh-2', role: 'member' },
+                ],
+                error: null,
+              });
+            }
+            if (table === 'households' && col === 'id') {
+              return {
+                single: () => Promise.resolve({ data: hhRows[val as string], error: null }),
+              };
+            }
+            if (table === 'household_members' && col === 'household_id') {
+              return Promise.resolve({ data: [], error: null });
+            }
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    } as any;
+
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
+          onConflictDoNothing: jest.fn().mockResolvedValue({}),
+        }),
+      }),
+    } as any;
+
+    const svc = new RestoreService(db, supabase);
+    const result = await svc.restore('user-1');
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ id: 'hh-1', name: 'Home', paydayDay: 25, role: 'owner' });
+    expect(result[1]).toEqual({ id: 'hh-2', name: 'Business', paydayDay: 1, role: 'member' });
+  });
+
+  it('skips households where restoreHousehold returns null', async () => {
+    const supabase = {
+      from: (table: string) => ({
+        select: () => ({
+          eq: (col: string, _val: unknown) => {
+            if (table === 'household_members' && col === 'user_id') {
+              return Promise.resolve({
+                data: [{ household_id: 'hh-bad', role: 'owner' }],
+                error: null,
+              });
+            }
+            if (table === 'households' && col === 'id') {
+              return {
+                single: () => Promise.resolve({ data: null, error: { message: 'not found' } }),
+              };
+            }
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    } as any;
+
+    const db = {} as any;
+    const svc = new RestoreService(db, supabase);
+    const result = await svc.restore('user-1');
+    expect(result).toEqual([]);
+  });
+});
+
+describe('RestoreService.restoreHousehold — household_members insert with error', () => {
+  const baseHhRow = {
+    id: 'hh-1',
+    name: 'Test Household',
+    payday_day: 1,
+    user_level: 1,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+
+  it('catches and logs duplicate household_members insert errors', async () => {
+    const memberRows = [
+      {
+        id: 'mem-1',
+        household_id: 'hh-1',
+        user_id: 'user-1',
+        role: 'owner',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ];
+
+    const supabase = {
+      from: (table: string) => ({
+        select: () => ({
+          eq: (col: string, _val: unknown) => {
+            if (table === 'households' && col === 'id') {
+              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
+            }
+            if (table === 'household_members' && col === 'household_id') {
+              return Promise.resolve({ data: memberRows, error: null });
+            }
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    } as any;
+
+    const onConflictDoNothing = jest.fn().mockRejectedValue(new Error('UNIQUE constraint'));
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
+          onConflictDoNothing,
+        }),
+      }),
+    } as any;
+
+    const svc = new RestoreService(db, supabase);
+    const result = await svc.restoreHousehold('hh-1', 'owner', 'user-1');
+    // Should not throw — error is caught and logged
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe('hh-1');
+  });
+});
+
+describe('RestoreService.restoreUserConsent — data rows', () => {
+  const baseHhRow = {
+    id: 'hh-1',
+    name: 'Test Household',
+    payday_day: 1,
+    user_level: 1,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+
+  it('upserts user_consent rows into local db', async () => {
+    const consentRows = [
+      {
+        user_id: 'user-1',
+        slip_scan_consent_at: '2026-01-15T00:00:00Z',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-15T00:00:00Z',
+      },
+    ];
+
+    const insertedTables: string[] = [];
+    const onConflictDoUpdateMock = jest.fn().mockResolvedValue({});
+    const supabase = {
+      from: (table: string) => ({
+        select: () => ({
+          eq: (col: string, _val: unknown) => {
+            if (table === 'households' && col === 'id') {
+              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
+            }
+            if (table === 'household_members' && col === 'household_id') {
+              return Promise.resolve({ data: [], error: null });
+            }
+            if (table === 'user_consent' && col === 'user_id') {
+              return Promise.resolve({ data: consentRows, error: null });
+            }
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    } as any;
+
+    const db = {
+      insert: (tableRef: unknown) => {
+        insertedTables.push(String(tableRef));
+        return {
+          values: () => ({
+            onConflictDoUpdate: onConflictDoUpdateMock,
+            onConflictDoNothing: jest.fn().mockResolvedValue({}),
+          }),
+        };
+      },
+    } as any;
+
+    const svc = new RestoreService(db, supabase);
+    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
+    expect(onConflictDoUpdateMock).toHaveBeenCalled();
+    expect(insertedTables.length).toBeGreaterThan(0);
+  });
+
+  it('skips user_consent when Supabase returns an error', async () => {
+    const onConflictDoUpdateMock = jest.fn().mockResolvedValue({});
+    const supabase = {
+      from: (table: string) => ({
+        select: () => ({
+          eq: (col: string, _val: unknown) => {
+            if (table === 'households' && col === 'id') {
+              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
+            }
+            if (table === 'household_members' && col === 'household_id') {
+              return Promise.resolve({ data: [], error: null });
+            }
+            if (table === 'user_consent' && col === 'user_id') {
+              return Promise.resolve({ data: null, error: { message: 'timeout' } });
+            }
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    } as any;
+
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: onConflictDoUpdateMock,
+          onConflictDoNothing: jest.fn().mockResolvedValue({}),
+        }),
+      }),
+    } as any;
+
+    const svc = new RestoreService(db, supabase);
+    // Should not throw
+    const result = await svc.restoreHousehold('hh-1', 'owner', 'user-1');
+    expect(result).not.toBeNull();
+  });
+});
+
 describe('RestoreService.restoreHousehold — slip_queue + user_consent in dispatch', () => {
   const baseHhRow = {
     id: 'hh-1',

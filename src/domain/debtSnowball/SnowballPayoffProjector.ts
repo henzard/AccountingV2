@@ -17,9 +17,11 @@ export class SnowballPayoffProjector {
   private static readonly MAX_MONTHS = 600; // 50-year safety cap
 
   /**
-   * Simulates the Dave Ramsey snowball method.
+   * Simulates the Dave Ramsey snowball method month-by-month.
    * Debts are processed in sortOrder ascending (smallest balance first by default).
-   * extraMonthlyPaymentCents is added to the first debt's payment and rolls forward.
+   * All debts receive minimum payments each month. The focus debt (smallest first)
+   * receives the extra snowball amount. When a debt is paid off, its minimum rolls
+   * into the snowball for the next focus debt.
    */
   project(debts: DebtEntity[], extraMonthlyPaymentCents = 0): SnowballPlan {
     const activeDebts = debts
@@ -31,46 +33,71 @@ export class SnowballPayoffProjector {
     }
 
     const today = new Date();
-    const projections: DebtProjection[] = [];
-    let snowballCents = extraMonthlyPaymentCents;
-    let cumulativeMonths = 0;
+    const balances = activeDebts.map((d) => d.outstandingBalanceCents);
+    const paidOff = activeDebts.map(() => false);
+    const paidOffMonth = activeDebts.map(() => 0);
+    let snowball = extraMonthlyPaymentCents;
+    let focusIdx = 0;
 
-    for (const debt of activeDebts) {
-      let balance = debt.outstandingBalanceCents;
-      const monthlyRate = debt.interestRatePercent / 100 / 12;
-      const payment = debt.minimumPaymentCents + snowballCents;
-      let months = 0;
+    // Advance focus to first unpaid debt (should be 0 initially)
+    while (focusIdx < activeDebts.length && paidOff[focusIdx]) {
+      focusIdx++;
+    }
 
-      while (balance > 0 && months < SnowballPayoffProjector.MAX_MONTHS) {
-        const interest = Math.round(balance * monthlyRate);
-        balance = balance + interest - payment;
-        if (balance < 0) balance = 0;
-        months++;
-      }
-
-      if (months >= SnowballPayoffProjector.MAX_MONTHS) {
-        projections.push({
-          debtId: debt.id,
-          creditorName: debt.creditorName,
+    // Short-circuit: if ALL debts have payment <= 0, they can never be paid off
+    const totalPayment = activeDebts.reduce((sum, d) => sum + d.minimumPaymentCents, 0) + snowball;
+    if (totalPayment <= 0) {
+      return {
+        projections: activeDebts.map((d) => ({
+          debtId: d.id,
+          creditorName: d.creditorName,
           monthsToPayoff: -1,
           payoffDate: addMonths(today, SnowballPayoffProjector.MAX_MONTHS),
-        });
-        snowballCents += debt.minimumPaymentCents;
-      } else {
-        cumulativeMonths += months;
-        projections.push({
-          debtId: debt.id,
-          creditorName: debt.creditorName,
-          monthsToPayoff: cumulativeMonths,
-          payoffDate: addMonths(today, cumulativeMonths),
-        });
-        snowballCents += debt.minimumPaymentCents;
+        })),
+        debtFreeDate: null,
+      };
+    }
+
+    let month = 0;
+    while (focusIdx < activeDebts.length && month < SnowballPayoffProjector.MAX_MONTHS) {
+      month++;
+
+      for (let i = 0; i < activeDebts.length; i++) {
+        if (paidOff[i]) continue;
+
+        const debt = activeDebts[i];
+        const monthlyRate = debt.interestRatePercent / 100 / 12;
+        const interest = Math.round(balances[i] * monthlyRate);
+        let payment = debt.minimumPaymentCents;
+        if (i === focusIdx) payment += snowball;
+
+        balances[i] = balances[i] + interest - payment;
+        if (balances[i] <= 0) {
+          balances[i] = 0;
+          paidOff[i] = true;
+          paidOffMonth[i] = month;
+          snowball += debt.minimumPaymentCents;
+        }
+      }
+
+      // Advance focus past any newly paid-off debts
+      while (focusIdx < activeDebts.length && paidOff[focusIdx]) {
+        focusIdx++;
       }
     }
 
-    const lastProjection = projections[projections.length - 1];
-    const debtFreeDate =
-      lastProjection && lastProjection.monthsToPayoff !== -1 ? lastProjection.payoffDate : null;
+    const projections: DebtProjection[] = activeDebts.map((debt, i) => ({
+      debtId: debt.id,
+      creditorName: debt.creditorName,
+      monthsToPayoff: paidOff[i] ? paidOffMonth[i] : -1,
+      payoffDate: paidOff[i]
+        ? addMonths(today, paidOffMonth[i])
+        : addMonths(today, SnowballPayoffProjector.MAX_MONTHS),
+    }));
+
+    const allPaidOff = paidOff.every((p) => p);
+    const lastMonth = Math.max(...paidOffMonth.filter((_, i) => paidOff[i]));
+    const debtFreeDate = allPaidOff ? addMonths(today, lastMonth) : null;
 
     return { projections, debtFreeDate };
   }

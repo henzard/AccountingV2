@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard PULSE — Light & Dark</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0E0F11;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 24px 80px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    h1 {
+      color: #fff;
+      font-family: 'Fraunces', serif;
+      font-size: 28px;
+      font-weight: 300;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .subtitle {
+      color: #555;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .row {
+      display: flex;
+      gap: 48px;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .col-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* ── Phone frame ── */
+    .phone {
+      width: 375px;
+      height: 812px;
+      border-radius: 50px;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.07), 0 0 0 10px #1A1C20, 0 32px 64px rgba(0,0,0,0.7);
+      position: relative;
+      flex-shrink: 0;
+    }
+    .screen {
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+    .screen::-webkit-scrollbar { display: none; }
+
+    /* ══════════════════════════════════════════════
+       DARK THEME
+    ══════════════════════════════════════════════ */
+    .dark-screen {
+      background: linear-gradient(168deg, #071A16 0%, #0C1D2B 55%, #081420 100%);
+    }
+
+    /* status bar */
+    .d-status {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px 0 20px;
+    }
+    .d-status-time {
+      font-size: 15px;
+      font-weight: 700;
+      color: rgba(200,235,220,0.6);
+    }
+    .d-status-icons { display: flex; gap: 5px; align-items: center; }
+
+    /* greeting header */
+    .d-header {
+      padding: 4px 20px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .d-greeting {
+      font-size: 12px;
+      color: rgba(160,210,190,0.45);
+      margin-bottom: 2px;
+    }
+    .d-period {
+      font-size: 18px;
+      font-weight: 700;
+      color: rgba(220,245,235,0.9);
+      letter-spacing: -0.3px;
+    }
+
+    /* hero glass card */
+    .d-card {
+      margin: 0 16px 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 24px;
+      padding: 22px;
+    }
+    .d-hero-lbl {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(160,210,190,0.45);
+      margin-bottom: 5px;
+    }
+    .d-hero-amt {
+      font-family: 'Fraunces', serif;
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -2.5px;
+      color: #E2F5EC;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .d-hero-prefix { font-size: 26px; font-weight: 300; color: rgba(160,210,190,0.5); }
+    .d-hero-sub {
+      font-size: 12px;
+      color: rgba(160,210,190,0.4);
+      margin-bottom: 16px;
+    }
+    .d-card-divider {
+      height: 1px;
+      background: rgba(255,255,255,0.06);
+      margin-bottom: 16px;
+    }
+    /* arc row */
+    .d-arc-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .d-gauge-wrap {
+      width: 60px;
+      height: 60px;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .d-gauge-inner {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .d-gauge-pct { font-size: 11px; font-weight: 700; color: #00D68F; line-height: 1; }
+    .d-gauge-lbl { font-size: 8px; color: rgba(160,210,190,0.35); margin-top: 1px; }
+    .d-stats { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+    .d-stat-row { display: flex; justify-content: space-between; align-items: center; }
+    .d-stat-lbl { font-size: 11px; color: rgba(160,210,190,0.38); }
+    .d-stat-val { font-size: 12px; font-weight: 500; color: rgba(200,235,220,0.85); }
+    .d-score-badge {
+      padding: 8px 11px;
+      background: rgba(0,214,143,0.08);
+      border: 1px solid rgba(0,214,143,0.15);
+      border-radius: 12px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .d-score-num { font-size: 20px; font-weight: 700; color: #00D68F; line-height: 1; }
+    .d-score-lbl { font-size: 8px; letter-spacing: 0.5px; color: rgba(0,214,143,0.45); margin-top: 2px; }
+
+    /* quick actions */
+    .d-actions {
+      display: flex;
+      gap: 8px;
+      padding: 0 16px 14px;
+    }
+    .d-action {
+      flex: 1;
+      padding: 11px 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+    }
+    .d-action-icon { font-size: 18px; line-height: 1; }
+    .d-action-lbl { font-size: 10px; font-weight: 500; color: rgba(160,210,190,0.45); }
+
+    /* section head */
+    .d-sec-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 16px 10px;
+    }
+    .d-sec-title { font-size: 14px; font-weight: 600; color: rgba(180,225,210,0.65); }
+    .d-sec-link { font-size: 12px; color: rgba(0,214,143,0.55); }
+
+    /* tile grid */
+    .d-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 0 16px 14px;
+    }
+    .d-tile {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 13px 13px 11px;
+    }
+    .d-tile-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(160,210,190,0.6);
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .d-tile-amt {
+      font-size: 17px;
+      font-weight: 700;
+      color: #E2F5EC;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .d-tile-amt.amber { color: #FFD000; }
+    .d-tile-amt.red { color: #FF6B6B; }
+    .d-tile-track {
+      height: 3px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .d-tile-fill { height: 100%; border-radius: 2px; }
+    .d-tile-fill.green { background: linear-gradient(90deg,#00B478,#00D68F); }
+    .d-tile-fill.amber { background: #FFB300; }
+    .d-tile-fill.red { background: #E53935; }
+    .d-tile-pct { font-size: 10px; color: rgba(160,210,190,0.3); margin-top: 4px; }
+
+    /* baby steps bar */
+    .d-baby {
+      margin: 0 16px 14px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+    }
+    .d-baby-head {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .d-baby-title { font-size: 10px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(160,210,190,0.38); }
+    .d-baby-count { font-size: 10px; color: rgba(160,210,190,0.28); }
+    .d-baby-segs { display: flex; gap: 5px; }
+    .d-baby-seg { flex: 1; height: 4px; border-radius: 2px; }
+    .d-baby-seg.done { background: #00D68F; }
+    .d-baby-seg.current { background: rgba(0,214,143,0.28); }
+    .d-baby-seg.future { background: rgba(255,255,255,0.06); }
+    .d-baby-step { font-size: 12px; color: rgba(160,210,190,0.55); margin-top: 8px; }
+    .d-baby-detail { font-size: 11px; color: rgba(0,214,143,0.45); margin-top: 2px; }
+
+    /* pill FAB */
+    .d-fab-row { padding: 0 16px 8px; display: flex; justify-content: center; }
+    .d-fab {
+      width: 200px;
+      height: 48px;
+      border-radius: 24px;
+      background: linear-gradient(135deg,#00B478,#008A58);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(0,180,120,0.28);
+    }
+
+    /* bottom nav */
+    .d-nav {
+      height: 72px;
+      background: rgba(6,20,16,0.95);
+      border-top: 1px solid rgba(255,255,255,0.05);
+      display: flex;
+      align-items: flex-start;
+      padding-top: 8px;
+      justify-content: space-around;
+    }
+    .d-nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 14px; }
+    .d-nav-icon { font-size: 20px; color: rgba(160,210,190,0.28); }
+    .d-nav-icon.active { color: #00D68F; }
+    .d-nav-lbl { font-size: 10px; color: rgba(160,210,190,0.28); }
+    .d-nav-lbl.active { color: #00D68F; }
+    .d-nav-dot { width: 4px; height: 4px; border-radius: 50%; background: #00D68F; }
+
+    /* ══════════════════════════════════════════════
+       LIGHT THEME
+    ══════════════════════════════════════════════ */
+    .light-screen {
+      background: #F2F5F3;
+    }
+
+    /* status bar */
+    .l-status {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px 0 20px;
+      background: #F2F5F3;
+    }
+    .l-status-time { font-size: 15px; font-weight: 700; color: #3D5248; }
+
+    /* header */
+    .l-header {
+      padding: 4px 20px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #F2F5F3;
+    }
+    .l-greeting { font-size: 12px; color: #8AA898; margin-bottom: 2px; }
+    .l-period { font-size: 18px; font-weight: 700; color: #1A2E28; letter-spacing: -0.3px; }
+
+    /* hero card — solid teal-dark, replaces gradient for light mode */
+    .l-card {
+      margin: 0 16px 14px;
+      background: #0E2B24;
+      border-radius: 24px;
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+    .l-card::before {
+      content: '';
+      position: absolute;
+      top: -30px; right: -30px;
+      width: 140px; height: 140px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,180,120,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .l-hero-lbl {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(160,210,190,0.5);
+      margin-bottom: 5px;
+    }
+    .l-hero-amt {
+      font-family: 'Fraunces', serif;
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -2.5px;
+      color: #E8F5EE;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .l-hero-prefix { font-size: 26px; font-weight: 300; color: rgba(160,210,190,0.55); }
+    .l-hero-sub { font-size: 12px; color: rgba(160,210,190,0.45); margin-bottom: 16px; }
+    .l-card-divider { height: 1px; background: rgba(255,255,255,0.07); margin-bottom: 16px; }
+
+    /* arc row — same layout as dark */
+    .l-arc-row { display: flex; align-items: center; gap: 14px; }
+    .l-gauge-wrap { width: 60px; height: 60px; position: relative; flex-shrink: 0; }
+    .l-gauge-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .l-gauge-pct { font-size: 11px; font-weight: 700; color: #00D68F; line-height: 1; }
+    .l-gauge-lbl { font-size: 8px; color: rgba(160,210,190,0.4); margin-top: 1px; }
+    .l-stats { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+    .l-stat-row { display: flex; justify-content: space-between; align-items: center; }
+    .l-stat-lbl { font-size: 11px; color: rgba(160,210,190,0.42); }
+    .l-stat-val { font-size: 12px; font-weight: 500; color: rgba(200,235,220,0.85); }
+    .l-score-badge {
+      padding: 8px 11px;
+      background: rgba(0,214,143,0.1);
+      border: 1px solid rgba(0,214,143,0.18);
+      border-radius: 12px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .l-score-num { font-size: 20px; font-weight: 700; color: #00D68F; line-height: 1; }
+    .l-score-lbl { font-size: 8px; letter-spacing: 0.5px; color: rgba(0,214,143,0.5); margin-top: 2px; }
+
+    /* quick actions */
+    .l-actions { display: flex; gap: 8px; padding: 0 16px 14px; }
+    .l-action {
+      flex: 1;
+      padding: 11px 6px;
+      background: #FFFFFF;
+      border: 1px solid #E2EBE8;
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .l-action-icon { font-size: 18px; line-height: 1; }
+    .l-action-lbl { font-size: 10px; font-weight: 500; color: #5A7A6E; }
+
+    /* section head */
+    .l-sec-head { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 10px; }
+    .l-sec-title { font-size: 14px; font-weight: 700; color: #1A2E28; }
+    .l-sec-link { font-size: 12px; color: #00695C; }
+
+    /* tile grid */
+    .l-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 14px; }
+    .l-tile {
+      background: #FFFFFF;
+      border: 1px solid #E2EBE8;
+      border-radius: 16px;
+      padding: 13px 13px 11px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .l-tile-name { font-size: 12px; font-weight: 500; color: #6A8A7E; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .l-tile-amt { font-size: 17px; font-weight: 700; color: #1A2E28; letter-spacing: -0.5px; margin-bottom: 8px; }
+    .l-tile-amt.amber { color: #B26000; }
+    .l-tile-amt.red { color: #C62828; }
+    .l-tile-track { height: 3px; background: #E2EBE8; border-radius: 2px; overflow: hidden; }
+    .l-tile-fill { height: 100%; border-radius: 2px; }
+    .l-tile-fill.green { background: #00B478; }
+    .l-tile-fill.amber { background: #FFB300; }
+    .l-tile-fill.red { background: #E53935; }
+    .l-tile-pct { font-size: 10px; color: #A8C4B8; margin-top: 4px; }
+
+    /* baby steps */
+    .l-baby {
+      margin: 0 16px 14px;
+      background: #FFFFFF;
+      border: 1px solid #E2EBE8;
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .l-baby-head { display: flex; justify-content: space-between; margin-bottom: 10px; }
+    .l-baby-title { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: #8AA898; }
+    .l-baby-count { font-size: 10px; color: #B0C8BE; }
+    .l-baby-segs { display: flex; gap: 5px; }
+    .l-baby-seg { flex: 1; height: 4px; border-radius: 2px; }
+    .l-baby-seg.done { background: #00B478; }
+    .l-baby-seg.current { background: rgba(0,180,120,0.25); }
+    .l-baby-seg.future { background: #E2EBE8; }
+    .l-baby-step { font-size: 12px; color: #3D5A50; margin-top: 8px; font-weight: 500; }
+    .l-baby-detail { font-size: 11px; color: #00695C; margin-top: 2px; }
+
+    /* pill FAB */
+    .l-fab-row { padding: 0 16px 8px; display: flex; justify-content: center; }
+    .l-fab {
+      width: 200px;
+      height: 48px;
+      border-radius: 24px;
+      background: #00695C;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(0,105,92,0.3);
+    }
+
+    /* bottom nav */
+    .l-nav {
+      height: 72px;
+      background: #FFFFFF;
+      border-top: 1px solid #E2EBE8;
+      display: flex;
+      align-items: flex-start;
+      padding-top: 8px;
+      justify-content: space-around;
+    }
+    .l-nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 14px; }
+    .l-nav-icon { font-size: 20px; color: #C4D8D0; }
+    .l-nav-icon.active { color: #00695C; }
+    .l-nav-lbl { font-size: 10px; color: #C4D8D0; }
+    .l-nav-lbl.active { color: #00695C; }
+    .l-nav-dot { width: 4px; height: 4px; border-radius: 50%; background: #00695C; }
+
+    /* ── annotations ── */
+    .annotation {
+      max-width: 320px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .annotation h3 {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    .annotation ul { list-style: none; }
+    .annotation li {
+      font-size: 12px;
+      color: #555;
+      line-height: 1.7;
+      padding-left: 12px;
+      position: relative;
+    }
+    .annotation li::before { content: '→'; position: absolute; left: 0; color: #333; }
+
+    .dark-label { color: #4DB6AC; }
+    .light-label { color: #00B478; }
+  </style>
+</head>
+<body>
+
+<h1>Dashboard Redesign — PULSE</h1>
+<p class="subtitle">PLANNED IMPLEMENTATION · Same layout, two themes · React Native</p>
+
+<div class="row">
+
+  <!-- ══ DARK ══ -->
+  <div class="col">
+    <span class="col-label dark-label">Dark Mode</span>
+
+    <div class="phone">
+      <div class="screen dark-screen">
+
+        <!-- status bar -->
+        <div class="d-status">
+          <span class="d-status-time">9:41</span>
+          <div class="d-status-icons">
+            <svg width="15" height="11"><rect x="0" y="2" width="3" height="9" rx="1" fill="rgba(200,235,220,0.4)"/><rect x="4" y="1" width="3" height="10" rx="1" fill="rgba(200,235,220,0.4)"/><rect x="8" y="0" width="3" height="11" rx="1" fill="rgba(200,235,220,0.4)"/><rect x="12" y="0" width="3" height="11" rx="1" fill="rgba(200,235,220,0.4)"/></svg>
+            <svg width="16" height="11"><rect x="1" y="1" width="12" height="9" rx="2" stroke="rgba(200,235,220,0.4)" stroke-width="1.5" fill="none"/><rect x="13" y="3" width="2" height="5" rx="1" fill="rgba(200,235,220,0.4)"/><rect x="2.5" y="2.5" width="8" height="6" rx="1" fill="rgba(200,235,220,0.4)"/></svg>
+          </div>
+        </div>
+
+        <!-- header -->
+        <div class="d-header">
+          <div>
+            <div class="d-greeting">Good morning</div>
+            <div class="d-period">April 2026</div>
+          </div>
+        </div>
+
+        <!-- HERO GLASS CARD -->
+        <div class="d-card">
+          <div class="d-hero-lbl">Remaining this period</div>
+          <div class="d-hero-amt"><span class="d-hero-prefix">R</span>4,280.00</div>
+          <div class="d-hero-sub">13 days remaining</div>
+          <div class="d-card-divider"></div>
+          <div class="d-arc-row">
+            <!-- arc gauge -->
+            <div class="d-gauge-wrap">
+              <svg width="60" height="60" viewBox="0 0 60 60">
+                <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="5"/>
+                <circle cx="30" cy="30" r="24" fill="none" stroke="#00D68F" stroke-width="5"
+                  stroke-dasharray="101.5 150.8" stroke-linecap="round"
+                  transform="rotate(-90 30 30)"/>
+              </svg>
+              <div class="d-gauge-inner">
+                <div class="d-gauge-pct">66%</div>
+                <div class="d-gauge-lbl">used</div>
+              </div>
+            </div>
+            <!-- stats -->
+            <div class="d-stats">
+              <div class="d-stat-row"><span class="d-stat-lbl">Allocated</span><span class="d-stat-val">R12,500</span></div>
+              <div class="d-stat-row"><span class="d-stat-lbl">Spent</span><span class="d-stat-val">R8,220</span></div>
+              <div class="d-stat-row"><span class="d-stat-lbl">Remaining</span><span class="d-stat-val">R4,280</span></div>
+            </div>
+            <!-- score -->
+            <div class="d-score-badge">
+              <div class="d-score-num">74</div>
+              <div class="d-score-lbl">GOOD</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUICK ACTIONS -->
+        <div class="d-actions">
+          <div class="d-action"><span class="d-action-icon">＋</span><span class="d-action-lbl">Add Txn</span></div>
+          <div class="d-action"><span class="d-action-icon">💰</span><span class="d-action-lbl">Sinking</span></div>
+          <div class="d-action"><span class="d-action-icon">📈</span><span class="d-action-lbl">Forecast</span></div>
+          <div class="d-action"><span class="d-action-icon">🎯</span><span class="d-action-lbl">Steps</span></div>
+        </div>
+
+        <!-- SECTION HEADER -->
+        <div class="d-sec-head">
+          <span class="d-sec-title">Envelopes</span>
+          <span class="d-sec-link">8 active</span>
+        </div>
+
+        <!-- 2-COLUMN TILE GRID -->
+        <div class="d-grid">
+          <div class="d-tile">
+            <div class="d-tile-name">Groceries</div>
+            <div class="d-tile-amt">R1,440</div>
+            <div class="d-tile-track"><div class="d-tile-fill green" style="width:72%"></div></div>
+            <div class="d-tile-pct">72% left</div>
+          </div>
+          <div class="d-tile">
+            <div class="d-tile-name">Rent</div>
+            <div class="d-tile-amt">R0</div>
+            <div class="d-tile-track"><div class="d-tile-fill green" style="width:100%"></div></div>
+            <div class="d-tile-pct">Funded ✓</div>
+          </div>
+          <div class="d-tile">
+            <div class="d-tile-name">Transport</div>
+            <div class="d-tile-amt amber">R420</div>
+            <div class="d-tile-track"><div class="d-tile-fill amber" style="width:35%"></div></div>
+            <div class="d-tile-pct">35% left ·  ⚠</div>
+          </div>
+          <div class="d-tile">
+            <div class="d-tile-name">Eating Out</div>
+            <div class="d-tile-amt amber">R180</div>
+            <div class="d-tile-track"><div class="d-tile-fill amber" style="width:18%"></div></div>
+            <div class="d-tile-pct">18% left · ⚠</div>
+          </div>
+          <div class="d-tile">
+            <div class="d-tile-name">Entertainment</div>
+            <div class="d-tile-amt red">-R50</div>
+            <div class="d-tile-track"><div class="d-tile-fill red" style="width:100%"></div></div>
+            <div class="d-tile-pct">Over budget ✕</div>
+          </div>
+          <div class="d-tile">
+            <div class="d-tile-name">Savings</div>
+            <div class="d-tile-amt">R990</div>
+            <div class="d-tile-track"><div class="d-tile-fill green" style="width:99%"></div></div>
+            <div class="d-tile-pct">99% left</div>
+          </div>
+        </div>
+
+        <!-- BABY STEPS BAR -->
+        <div class="d-baby">
+          <div class="d-baby-head">
+            <span class="d-baby-title">Baby Steps</span>
+            <span class="d-baby-count">3 / 7</span>
+          </div>
+          <div class="d-baby-segs">
+            <div class="d-baby-seg done"></div>
+            <div class="d-baby-seg done"></div>
+            <div class="d-baby-seg done"></div>
+            <div class="d-baby-seg current"></div>
+            <div class="d-baby-seg future"></div>
+            <div class="d-baby-seg future"></div>
+            <div class="d-baby-seg future"></div>
+          </div>
+          <div class="d-baby-step">Step 4 — Invest 15% in Retirement</div>
+          <div class="d-baby-detail">R0 of R1,875 this month</div>
+        </div>
+
+        <!-- PILL FAB -->
+        <div class="d-fab-row">
+          <div class="d-fab">＋ &nbsp;Add Transaction</div>
+        </div>
+
+        <!-- BOTTOM NAV -->
+        <div class="d-nav">
+          <div class="d-nav-item">
+            <span class="d-nav-icon active">◉</span>
+            <span class="d-nav-lbl active">Budget</span>
+            <div class="d-nav-dot"></div>
+          </div>
+          <div class="d-nav-item"><span class="d-nav-icon">⇄</span><span class="d-nav-lbl">Txns</span></div>
+          <div class="d-nav-item"><span class="d-nav-icon">◎</span><span class="d-nav-lbl">Meters</span></div>
+          <div class="d-nav-item"><span class="d-nav-icon">❄</span><span class="d-nav-lbl">Snowball</span></div>
+          <div class="d-nav-item"><span class="d-nav-icon">⚙</span><span class="d-nav-lbl">Settings</span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="annotation">
+      <h3>Dark specifics</h3>
+      <ul>
+        <li>3-stop gradient: deep teal → midnight blue → near-black</li>
+        <li>Hero card: frosted glass (5% white, 1px white border)</li>
+        <li>Tiles: 4% white bg, barely-visible borders</li>
+        <li>All text in green-white family for warmth on dark</li>
+        <li>Score badge glows faintly — teal ring</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══ LIGHT ══ -->
+  <div class="col">
+    <span class="col-label light-label">Light Mode</span>
+
+    <div class="phone">
+      <div class="screen light-screen">
+
+        <!-- status bar -->
+        <div class="l-status">
+          <span class="l-status-time">9:41</span>
+          <div class="d-status-icons">
+            <svg width="15" height="11"><rect x="0" y="2" width="3" height="9" rx="1" fill="#8AA898"/><rect x="4" y="1" width="3" height="10" rx="1" fill="#8AA898"/><rect x="8" y="0" width="3" height="11" rx="1" fill="#8AA898"/><rect x="12" y="0" width="3" height="11" rx="1" fill="#8AA898"/></svg>
+            <svg width="16" height="11"><rect x="1" y="1" width="12" height="9" rx="2" stroke="#8AA898" stroke-width="1.5" fill="none"/><rect x="13" y="3" width="2" height="5" rx="1" fill="#8AA898"/><rect x="2.5" y="2.5" width="8" height="6" rx="1" fill="#8AA898"/></svg>
+          </div>
+        </div>
+
+        <!-- header -->
+        <div class="l-header">
+          <div>
+            <div class="l-greeting">Good morning</div>
+            <div class="l-period">April 2026</div>
+          </div>
+        </div>
+
+        <!-- HERO DARK CARD (anchor on light background) -->
+        <div class="l-card">
+          <div class="l-hero-lbl">Remaining this period</div>
+          <div class="l-hero-amt"><span class="l-hero-prefix">R</span>4,280.00</div>
+          <div class="l-hero-sub">13 days remaining</div>
+          <div class="l-card-divider"></div>
+          <div class="l-arc-row">
+            <div class="l-gauge-wrap">
+              <svg width="60" height="60" viewBox="0 0 60 60">
+                <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="5"/>
+                <circle cx="30" cy="30" r="24" fill="none" stroke="#00D68F" stroke-width="5"
+                  stroke-dasharray="101.5 150.8" stroke-linecap="round"
+                  transform="rotate(-90 30 30)"/>
+              </svg>
+              <div class="l-gauge-inner">
+                <div class="l-gauge-pct">66%</div>
+                <div class="l-gauge-lbl">used</div>
+              </div>
+            </div>
+            <div class="l-stats">
+              <div class="l-stat-row"><span class="l-stat-lbl">Allocated</span><span class="l-stat-val">R12,500</span></div>
+              <div class="l-stat-row"><span class="l-stat-lbl">Spent</span><span class="l-stat-val">R8,220</span></div>
+              <div class="l-stat-row"><span class="l-stat-lbl">Remaining</span><span class="l-stat-val">R4,280</span></div>
+            </div>
+            <div class="l-score-badge">
+              <div class="l-score-num">74</div>
+              <div class="l-score-lbl">GOOD</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUICK ACTIONS -->
+        <div class="l-actions">
+          <div class="l-action"><span class="l-action-icon">＋</span><span class="l-action-lbl">Add Txn</span></div>
+          <div class="l-action"><span class="l-action-icon">💰</span><span class="l-action-lbl">Sinking</span></div>
+          <div class="l-action"><span class="l-action-icon">📈</span><span class="l-action-lbl">Forecast</span></div>
+          <div class="l-action"><span class="l-action-icon">🎯</span><span class="l-action-lbl">Steps</span></div>
+        </div>
+
+        <!-- SECTION HEADER -->
+        <div class="l-sec-head">
+          <span class="l-sec-title">Envelopes</span>
+          <span class="l-sec-link">8 active</span>
+        </div>
+
+        <!-- 2-COLUMN TILE GRID -->
+        <div class="l-grid">
+          <div class="l-tile">
+            <div class="l-tile-name">Groceries</div>
+            <div class="l-tile-amt">R1,440</div>
+            <div class="l-tile-track"><div class="l-tile-fill green" style="width:72%"></div></div>
+            <div class="l-tile-pct">72% left</div>
+          </div>
+          <div class="l-tile">
+            <div class="l-tile-name">Rent</div>
+            <div class="l-tile-amt">R0</div>
+            <div class="l-tile-track"><div class="l-tile-fill green" style="width:100%"></div></div>
+            <div class="l-tile-pct">Funded ✓</div>
+          </div>
+          <div class="l-tile">
+            <div class="l-tile-name">Transport</div>
+            <div class="l-tile-amt amber">R420</div>
+            <div class="l-tile-track"><div class="l-tile-fill amber" style="width:35%"></div></div>
+            <div class="l-tile-pct">35% left · ⚠</div>
+          </div>
+          <div class="l-tile">
+            <div class="l-tile-name">Eating Out</div>
+            <div class="l-tile-amt amber">R180</div>
+            <div class="l-tile-track"><div class="l-tile-fill amber" style="width:18%"></div></div>
+            <div class="l-tile-pct">18% left · ⚠</div>
+          </div>
+          <div class="l-tile">
+            <div class="l-tile-name">Entertainment</div>
+            <div class="l-tile-amt red">-R50</div>
+            <div class="l-tile-track"><div class="l-tile-fill red" style="width:100%"></div></div>
+            <div class="l-tile-pct">Over budget ✕</div>
+          </div>
+          <div class="l-tile">
+            <div class="l-tile-name">Savings</div>
+            <div class="l-tile-amt">R990</div>
+            <div class="l-tile-track"><div class="l-tile-fill green" style="width:99%"></div></div>
+            <div class="l-tile-pct">99% left</div>
+          </div>
+        </div>
+
+        <!-- BABY STEPS BAR -->
+        <div class="l-baby">
+          <div class="l-baby-head">
+            <span class="l-baby-title">Baby Steps</span>
+            <span class="l-baby-count">3 / 7</span>
+          </div>
+          <div class="l-baby-segs">
+            <div class="l-baby-seg done"></div>
+            <div class="l-baby-seg done"></div>
+            <div class="l-baby-seg done"></div>
+            <div class="l-baby-seg current"></div>
+            <div class="l-baby-seg future"></div>
+            <div class="l-baby-seg future"></div>
+            <div class="l-baby-seg future"></div>
+          </div>
+          <div class="l-baby-step">Step 4 — Invest 15% in Retirement</div>
+          <div class="l-baby-detail">R0 of R1,875 this month</div>
+        </div>
+
+        <!-- PILL FAB -->
+        <div class="l-fab-row">
+          <div class="l-fab">＋ &nbsp;Add Transaction</div>
+        </div>
+
+        <!-- BOTTOM NAV -->
+        <div class="l-nav">
+          <div class="l-nav-item">
+            <span class="l-nav-icon active">◉</span>
+            <span class="l-nav-lbl active">Budget</span>
+            <div class="l-nav-dot"></div>
+          </div>
+          <div class="l-nav-item"><span class="l-nav-icon">⇄</span><span class="l-nav-lbl">Txns</span></div>
+          <div class="l-nav-item"><span class="l-nav-icon">◎</span><span class="l-nav-lbl">Meters</span></div>
+          <div class="l-nav-item"><span class="l-nav-icon">❄</span><span class="l-nav-lbl">Snowball</span></div>
+          <div class="l-nav-item"><span class="l-nav-icon">⚙</span><span class="l-nav-lbl">Settings</span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="annotation">
+      <h3>Light specifics</h3>
+      <ul>
+        <li>Background: warm grey-green #F2F5F3 (not pure white)</li>
+        <li>Hero card: solid dark teal — high contrast anchor</li>
+        <li>Tiles: pure white cards with subtle green-tinted borders</li>
+        <li>Quick action buttons: white on grey-green, soft shadow</li>
+        <li>Amounts in dark green-black — readable, not harsh black</li>
+        <li>Pill FAB: solid primary teal #00695C</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

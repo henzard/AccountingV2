@@ -46,7 +46,12 @@ jest.mock('react-native-paper', () => {
       children?: React.ReactNode;
       onPress?: () => void;
       testID?: string;
-    }) => React.createElement('Pressable', { onPress, testID }, children),
+    }) =>
+      React.createElement(
+        'Pressable',
+        { onPress, testID },
+        React.createElement('Text', null, children),
+      ),
   };
 });
 
@@ -63,5 +68,25 @@ describe('HouseholdPickerScreen', () => {
       />,
     );
     expect(UNSAFE_root).toBeTruthy();
+  });
+
+  it('displays create new household button', () => {
+    const { getByText } = render(
+      <HouseholdPickerScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate, reset: mockReset } as never}
+      />,
+    );
+    expect(getByText('Create New Household')).toBeTruthy();
+  });
+
+  it('displays join with invite code button', () => {
+    const { getByText } = render(
+      <HouseholdPickerScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate, reset: mockReset } as never}
+      />,
+    );
+    expect(getByText('Join with Invite Code')).toBeTruthy();
   });
 });

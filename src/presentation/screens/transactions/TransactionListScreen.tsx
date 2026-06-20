@@ -50,7 +50,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
   const hid = householdId ?? '';
-  const { transactions, loading, reload } = useTransactions(hid, periodStart);
+  const { transactions, loading, error, reload } = useTransactions(hid, periodStart);
   const [envelopeNames, setEnvelopeNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -127,6 +127,12 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator animating color={colors.primary} />
+        </View>
+      ) : error ? (
+        <View style={styles.center}>
+          <Text variant="bodyMedium" style={{ color: colors.error }} testID="error-banner">
+            {typeof error === 'string' ? error : (error.message ?? 'Something went wrong')}
+          </Text>
         </View>
       ) : transactions.length === 0 ? (
         <EmptyState
