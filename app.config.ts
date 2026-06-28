@@ -27,6 +27,22 @@ const withFirebaseNotificationColorFix: ConfigPlugin = (config) => {
   });
 };
 
+/**
+ * expo-camera merges ML Kit barcode_ui metadata even when barcode scanning is
+ * disabled. Remove it so Play Services does not pull the barcode UI module.
+ */
+const withMlKitBarcodeMetadataRemoved: ConfigPlugin = (config) => {
+  return withAndroidManifest(config, (androidConfig) => {
+    const app = androidConfig.modResults.manifest.application?.[0];
+    if (app?.['meta-data']) {
+      app['meta-data'] = app['meta-data'].filter(
+        (metaData) => metaData.$['android:name'] !== 'com.google.mlkit.vision.DEPENDENCIES',
+      );
+    }
+    return androidConfig;
+  });
+};
+
 export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   name: 'AccountingV2',
   slug: 'accountingv2',
@@ -54,7 +70,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     '@config-plugins/detox', // must precede build-property-consuming plugins
     'expo-sqlite',
     'expo-secure-store',
-    'expo-camera',
+    ['expo-camera', { barcodeScannerEnabled: false }],
     '@react-native-community/datetimepicker',
     '@react-native-firebase/app',
     '@react-native-firebase/crashlytics',
@@ -62,6 +78,8 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     ['expo-notifications', { icon: './assets/icon.png', color: '#00695C' }],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     withFirebaseNotificationColorFix as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    withMlKitBarcodeMetadataRemoved as any,
   ],
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
