@@ -30,15 +30,39 @@ const withFirebaseNotificationColorFix: ConfigPlugin = (config) => {
 /**
  * expo-camera merges ML Kit barcode_ui metadata even when barcode scanning is
  * disabled. Remove it so Play Services does not pull the barcode UI module.
+ * Also strip merged ML Kit scanner activities and portrait lock for large screens.
  */
-const withMlKitBarcodeMetadataRemoved: ConfigPlugin = (config) => {
+const withAndroidPlayCompliance: ConfigPlugin = (config) => {
   return withAndroidManifest(config, (androidConfig) => {
     const app = androidConfig.modResults.manifest.application?.[0];
-    if (app?.['meta-data']) {
+    if (!app) {
+      return androidConfig;
+    }
+
+    if (app['meta-data']) {
       app['meta-data'] = app['meta-data'].filter(
         (metaData) => metaData.$['android:name'] !== 'com.google.mlkit.vision.DEPENDENCIES',
       );
     }
+
+    const mainActivity = app.activity?.find(
+      (activity) => activity.$['android:name'] === '.MainActivity',
+    );
+    if (mainActivity?.$['android:screenOrientation']) {
+      delete mainActivity.$['android:screenOrientation'];
+    }
+
+    app.activity = [
+      ...(app.activity ?? []),
+      {
+        $: {
+          'android:name':
+            'com.google.mlkit.vision.codescanner.internal.GmsBarcodeScanningDelegateActivity',
+          'tools:node': 'remove',
+        },
+      },
+    ];
+
     return androidConfig;
   });
 };
@@ -47,7 +71,6 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   name: 'AccountingV2',
   slug: 'accountingv2',
   version: '1.0.0',
-  orientation: 'portrait',
   icon: './assets/icon.png',
   newArchEnabled: false,
   splash: {
@@ -79,7 +102,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     withFirebaseNotificationColorFix as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    withMlKitBarcodeMetadataRemoved as any,
+    withAndroidPlayCompliance as any,
   ],
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
