@@ -257,8 +257,7 @@ CREATE TABLE public.user_consent (
     user_id text NOT NULL,
     slip_scan_consent_at timestamptz,
     created_at timestamptz NOT NULL,
-    updated_at timestamptz NOT NULL,
-    CONSTRAINT user_consent_slip_scan_consent_at_iso CHECK (((slip_scan_consent_at IS NULL) OR ((slip_scan_consent_at)::timestamp with time zone IS NOT NULL)))
+    updated_at timestamptz NOT NULL
 );
 
 ALTER TABLE ONLY public.user_consent
