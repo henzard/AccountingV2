@@ -1,4 +1,3 @@
-import * as Crypto from 'expo-crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
@@ -13,14 +12,10 @@ export interface InviteResult {
   expiresAt: string;
 }
 
-export function generateCode(): string {
-  const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars, no 0/O/1/I
-  const bytes = Crypto.getRandomBytes(6);
-  let out = '';
-  for (let i = 0; i < 6; i += 1) {
-    out += ALPHABET[bytes[i] % ALPHABET.length];
-  }
-  return out;
+interface CreateInvitationRpcResult {
+  id: string;
+  code: string;
+  expires_at: string;
 }
 
 export class CreateInviteUseCase {
@@ -30,19 +25,14 @@ export class CreateInviteUseCase {
   ) {}
 
   async execute(): Promise<Result<InviteResult>> {
-    const code = generateCode();
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(); // 48 hours
-
-    const { data, error } = await this.supabase
-      .from('invitations')
-      .insert({
-        code,
-        household_id: this.input.householdId,
-        created_by: this.input.createdByUserId,
-        expires_at: expiresAt,
-      })
-      .select()
-      .single();
+    // Code generation (unbiased 32-char alphabet, no 0/O/1/I) now lives
+    // server-side in the create_invitation RPC — the server also enforces
+    // that only a household owner may mint a code, which the client cannot
+    // safely verify on its own. Direct `insert` into invitations is
+    // permission-denied by design.
+    const { data, error } = await this.supabase.rpc('create_invitation', {
+      p_household_id: this.input.householdId,
+    });
 
     if (error || !data) {
       return createFailure({
@@ -51,6 +41,7 @@ export class CreateInviteUseCase {
       });
     }
 
-    return createSuccess({ code: data.code as string, expiresAt });
+    const result = data as CreateInvitationRpcResult;
+    return createSuccess({ code: result.code, expiresAt: result.expires_at });
   }
 }

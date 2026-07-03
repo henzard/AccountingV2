@@ -535,6 +535,74 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.join_household_via_invite(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.join_household_via_invite(text) TO authenticated;
+
+-- Task 4: public.create_invitation — owner-only invite creation. Direct
+-- `INSERT INTO invitations` from the client is permission-denied (no INSERT
+-- grant for authenticated); this SECURITY DEFINER RPC is the only way to
+-- mint a code. Code generation replicates CreateInviteUseCase's client-side
+-- algorithm (32-char alphabet excluding 0/O/1/I, byte % 32 — unbiased because
+-- 256 is an exact multiple of 32) but server-side, using pgcrypto's CSPRNG.
+CREATE OR REPLACE FUNCTION public.create_invitation(p_household_id text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = ''
+    AS $$
+DECLARE
+  caller_id text := (select auth.uid())::text;
+  c_alphabet constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; -- 32 chars, no 0/O/1/I
+  v_id uuid;
+  v_code text;
+  v_expires_at timestamptz := now() + interval '48 hours';
+  v_bytes bytea;
+  v_attempt int := 0;
+BEGIN
+  IF caller_id IS NULL THEN
+    RAISE EXCEPTION 'not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.household_members hm
+    WHERE hm.household_id = p_household_id
+      AND hm.user_id = caller_id
+      AND hm.role = 'owner'
+      AND hm.deleted_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'only an owner can create an invitation' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  LOOP
+    v_attempt := v_attempt + 1;
+    v_bytes := extensions.gen_random_bytes(6);
+    v_code := '';
+    FOR i IN 0..5 LOOP
+      v_code := v_code || substr(c_alphabet, (get_byte(v_bytes, i) % length(c_alphabet)) + 1, 1);
+    END LOOP;
+    v_id := gen_random_uuid();
+
+    BEGIN
+      INSERT INTO public.invitations (id, code, household_id, created_by, expires_at)
+      VALUES (v_id, v_code, p_household_id, caller_id, v_expires_at);
+      EXIT; -- inserted without a code collision
+    EXCEPTION WHEN unique_violation THEN
+      IF v_attempt >= 5 THEN
+        RAISE EXCEPTION 'failed to generate a unique invite code' USING ERRCODE = 'insufficient_privilege';
+      END IF;
+      -- retry with a freshly generated code
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'id', v_id,
+    'code', v_code,
+    'expires_at', v_expires_at
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.create_invitation(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.create_invitation(text) TO authenticated;
+
 -- ============================================================================
 -- 5. New tables
 -- ============================================================================

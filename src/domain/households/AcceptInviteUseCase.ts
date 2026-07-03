@@ -49,7 +49,7 @@ export class AcceptInviteUseCase {
 
   async execute(): Promise<Result<HouseholdSummary>> {
     const { data, error } = await this.supabase.rpc('join_household_via_invite', {
-      invite_code: this.input.code.toUpperCase(),
+      p_invite_code: this.input.code.toUpperCase(),
     });
 
     if (error) {
