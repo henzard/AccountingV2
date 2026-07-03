@@ -64,9 +64,48 @@ function resolveOpId(ctx: SyncedRepoCtx): string {
 
 function buildAssignments(fields: Record<string, unknown>): SQL {
   const columns = Object.keys(fields);
+  if (columns.length === 0) {
+    throw new Error('createSyncedRepo.update: requires at least one field');
+  }
   columns.forEach(assertSafeIdent);
   const assignments = columns.map((column) => sql`${sql.raw(column)} = ${fields[column]}`);
   return sql.join(assignments, sql.raw(', '));
+}
+
+/**
+ * Extracts the affected-row count from a `db.run()` result in a way that
+ * works across both `PortableDb` engines: better-sqlite3's `RunResult`
+ * (`{changes, lastInsertRowid}`) and expo-sqlite's `SQLiteRunResult`
+ * (`{changes, lastInsertRowId}`) both expose a numeric `changes` field, even
+ * though `PortableDb`'s `TRunResult` generic is `unknown` — so this is a
+ * runtime type-guard rather than a driver-specific cast.
+ */
+function extractChanges(result: unknown): number {
+  if (
+    typeof result === 'object' &&
+    result !== null &&
+    'changes' in result &&
+    typeof (result as { changes: unknown }).changes === 'number'
+  ) {
+    return (result as { changes: number }).changes;
+  }
+  throw new Error(
+    'createSyncedRepo: could not read an affected-row "changes" count from db.run() result',
+  );
+}
+
+/** Throws a clear not-found error for a write that matched zero rows, so no oplog op is appended for it. */
+function assertRowMatched(
+  tableName: string,
+  id: string,
+  householdId: string,
+  changes: number,
+): void {
+  if (changes === 0) {
+    throw new Error(
+      `createSyncedRepo: no row in "${tableName}" matched id=${id} household_id=${householdId} — 0 rows affected, refusing to append an oplog op`,
+    );
+  }
 }
 
 /**
@@ -118,9 +157,10 @@ export function createSyncedRepo(db: PortableDb, config: CreateSyncedRepoConfig)
 
     update(id, householdId, fields, ctx) {
       runInUnitOfWork(db, (uow) => {
-        uow.db.run(
+        const result = uow.db.run(
           sql`UPDATE ${sql.raw(tableName)} SET ${buildAssignments(fields)} WHERE id = ${id} AND household_id = ${householdId}`,
         );
+        assertRowMatched(tableName, id, householdId, extractChanges(result));
 
         uow.appendOp({
           opId: resolveOpId(ctx),
@@ -139,9 +179,10 @@ export function createSyncedRepo(db: PortableDb, config: CreateSyncedRepoConfig)
     softDelete(id, householdId, ctx) {
       runInUnitOfWork(db, (uow) => {
         const deletedAt = ctx.clock();
-        uow.db.run(
+        const result = uow.db.run(
           sql`UPDATE ${sql.raw(tableName)} SET deleted_at = ${deletedAt} WHERE id = ${id} AND household_id = ${householdId}`,
         );
+        assertRowMatched(tableName, id, householdId, extractChanges(result));
 
         uow.appendOp({
           opId: resolveOpId(ctx),
@@ -164,9 +205,10 @@ export function createSyncedRepo(db: PortableDb, config: CreateSyncedRepoConfig)
           clamp === 'floor_zero'
             ? sql`MAX(0, ${sql.raw(field)} + ${delta})`
             : sql`${sql.raw(field)} + ${delta}`;
-        uow.db.run(
+        const result = uow.db.run(
           sql`UPDATE ${sql.raw(tableName)} SET ${sql.raw(field)} = ${expression} WHERE id = ${id} AND household_id = ${householdId}`,
         );
+        assertRowMatched(tableName, id, householdId, extractChanges(result));
 
         uow.appendOp({
           opId: resolveOpId(ctx),

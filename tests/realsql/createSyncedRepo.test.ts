@@ -238,4 +238,124 @@ describe('createSyncedRepo (real SQLite)', () => {
 
     raw.close();
   });
+
+  it('update targeting a non-existent id throws and appends no oplog row (no phantom op)', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.update(
+        'no-such-envelope',
+        'hh-1',
+        { name: 'Rent' },
+        makeCtx({ genId: () => 'op-update-missing' }),
+      );
+    }).toThrow();
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+    const op = raw.prepare('SELECT * FROM oplog WHERE op_id = ?').get('op-update-missing');
+    expect(op).toBeUndefined();
+
+    raw.close();
+  });
+
+  it('update targeting the wrong household_id throws and appends no oplog row', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    seedHousehold(raw, 'hh-2');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    repo.insert(baseEnvelopeRow('env-wrong-hh', 'hh-1'), makeCtx({ genId: () => 'op-insert-wh' }));
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.update(
+        'env-wrong-hh',
+        'hh-2',
+        { name: 'Rent' },
+        makeCtx({ genId: () => 'op-update-wrong-hh' }),
+      );
+    }).toThrow();
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+    const envelope = raw
+      .prepare('SELECT * FROM envelopes WHERE id = ?')
+      .get('env-wrong-hh') as EnvelopeRow;
+    expect(envelope.name).toBe('Groceries'); // untouched
+
+    raw.close();
+  });
+
+  it('update called with an empty fields object throws a clear guard error (no broken SQL)', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    repo.insert(baseEnvelopeRow('env-empty', 'hh-1'), makeCtx({ genId: () => 'op-insert-empty' }));
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.update('env-empty', 'hh-1', {}, makeCtx({ genId: () => 'op-update-empty' }));
+    }).toThrow('createSyncedRepo.update: requires at least one field');
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+
+    raw.close();
+  });
+
+  it('softDelete targeting a non-existent id throws and appends no oplog row', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.softDelete('no-such-envelope', 'hh-1', makeCtx({ genId: () => 'op-delete-missing' }));
+    }).toThrow();
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+    const op = raw.prepare('SELECT * FROM oplog WHERE op_id = ?').get('op-delete-missing');
+    expect(op).toBeUndefined();
+
+    raw.close();
+  });
+
+  it('increment targeting a non-existent id throws and appends no oplog row', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.increment(
+        'no-such-envelope',
+        'hh-1',
+        'allocated_cents',
+        100,
+        'none',
+        makeCtx({ genId: () => 'op-increment-missing' }),
+      );
+    }).toThrow();
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+    const op = raw.prepare('SELECT * FROM oplog WHERE op_id = ?').get('op-increment-missing');
+    expect(op).toBeUndefined();
+
+    raw.close();
+  });
 });
