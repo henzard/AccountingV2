@@ -767,3 +767,331 @@ GRANT ALL ON public.user_preferences TO service_role;
 GRANT ALL ON public.user_fcm_tokens TO service_role;
 GRANT ALL ON public.job_log TO service_role;
 GRANT ALL ON public.notify_send_log TO service_role;
+
+-- ============================================================================
+-- 9. Task 3: oplog table + sync protocol
+--    (sync_push / sync_pull / sync_row_state / apply_server_op). Spec §6/§7.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------
+-- 9a. oplog — the per-household ordered operation log. `seq` (bigserial) is
+--     the server-assigned order; per-household writer serialization (the
+--     advisory lock taken by EVERY writer below) makes the per-household seq
+--     order equal commit order, closing the bigserial visibility race. The
+--     wire op's `table` field is stored in the `table_name` column.
+-- ----------------------------------------------------------------------
+
+CREATE TABLE public.oplog (
+    seq bigserial,
+    op_id uuid NOT NULL,
+    household_id text NOT NULL,
+    table_name text NOT NULL,
+    row_id text NOT NULL,
+    op_type text NOT NULL,
+    payload jsonb,
+    actor_user_id uuid,
+    device_id text NOT NULL,
+    client_created_at timestamptz,
+    applied_at timestamptz DEFAULT now(),
+    CONSTRAINT oplog_pkey PRIMARY KEY (op_id),
+    CONSTRAINT oplog_op_type_check CHECK (op_type IN ('insert', 'update', 'delete', 'increment')),
+    CONSTRAINT oplog_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id)
+);
+
+CREATE INDEX idx_oplog_household_seq ON public.oplog USING btree (household_id, seq);
+
+ALTER TABLE public.oplog ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY oplog_select ON public.oplog
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+-- Realtime fan-out: clients subscribe to their household's oplog stream.
+ALTER PUBLICATION supabase_realtime ADD TABLE public.oplog;
+
+-- RPC-only: SELECT for authenticated (RLS-scoped), no direct DML for anyone.
+-- service_role reaches the log solely through apply_server_op (a SECURITY
+-- DEFINER function that inserts as the owner), so it needs no table grant.
+REVOKE ALL ON public.oplog FROM anon, authenticated;
+GRANT SELECT ON public.oplog TO authenticated;
+
+-- ----------------------------------------------------------------------
+-- 9b. private.apply_one_op — shared per-op apply path (used by both
+--     sync_push and apply_server_op). Assumes the caller already holds the
+--     per-household advisory lock. Records the op in oplog, validates, and
+--     applies it. Each call runs inside its OWN savepoint (the inner
+--     BEGIN/EXCEPTION block): on any unexpected SQL error that savepoint is
+--     rolled back, removing this op's oplog row, so the surrounding batch is
+--     unaffected. Returns a single {op_id, status, code} object.
+-- ----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION private.apply_one_op(p_op jsonb)
+    RETURNS jsonb
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = ''
+    AS $fn$
+DECLARE
+  c_tables   constant text[] := array['households', 'household_members', 'envelopes', 'transactions', 'debts', 'meter_readings', 'baby_steps', 'slip_queue'];
+  v_op_id    text  := p_op->>'op_id';
+  v_hh       text  := p_op->>'household_id';
+  v_table    text  := p_op->>'table';
+  v_row_id   text  := p_op->>'row_id';
+  v_op_type  text  := p_op->>'op_type';
+  v_payload  jsonb := coalesce(p_op->'payload', '{}'::jsonb);
+  v_allowed  text[];
+  v_inserted boolean;
+  v_actual   text;
+  v_cols     text;
+  v_vals     text;
+  v_set      text;
+  v_field    text;
+  v_delta    text;
+  v_clamp    text;
+BEGIN
+  -- Validation (pre-oplog): v must be 1, table allowlisted, op_type known.
+  -- Rejected here => no oplog row is ever written.
+  IF (p_op->>'v') IS DISTINCT FROM '1'
+     OR NOT (v_table = ANY (c_tables))
+     OR v_op_type IS NULL
+     OR NOT (v_op_type = ANY (array['insert', 'update', 'delete', 'increment'])) THEN
+    RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'unsupported');
+  END IF;
+
+  -- Per-table payload column allowlist: every real column minus the
+  -- wire/server-owned id + household_id.
+  SELECT array_agg(a.attname)
+    INTO v_allowed
+  FROM pg_catalog.pg_attribute a
+  WHERE a.attrelid = ('public.' || quote_ident(v_table))::regclass
+    AND a.attnum > 0
+    AND NOT a.attisdropped
+    AND a.attname NOT IN ('id', 'household_id');
+
+  BEGIN  -- per-op savepoint
+    -- Record first so a duplicate op_id short-circuits to 'applied'
+    -- (duplicate-ack, spec §6.11) before any apply work happens.
+    INSERT INTO public.oplog (op_id, household_id, table_name, row_id, op_type, payload, actor_user_id, device_id, client_created_at)
+    VALUES (v_op_id::uuid, v_hh, v_table, v_row_id, v_op_type, v_payload,
+            (p_op->>'actor_user_id')::uuid, p_op->>'device_id', (p_op->>'client_created_at')::timestamptz)
+    ON CONFLICT (op_id) DO NOTHING
+    RETURNING true INTO v_inserted;
+
+    IF v_inserted IS NULL THEN
+      RETURN jsonb_build_object('op_id', v_op_id, 'status', 'applied', 'code', 'duplicate');
+    END IF;
+
+    IF v_op_type = 'increment' THEN
+      -- increment payload is {field, delta, clamp}; the target field is
+      -- validated like a settable column.
+      v_field := v_payload->>'field';
+      v_delta := v_payload->>'delta';
+      v_clamp := coalesce(v_payload->>'clamp', 'none');
+      IF v_field IS NULL OR NOT (v_field = ANY (v_allowed)) THEN
+        DELETE FROM public.oplog WHERE op_id = v_op_id::uuid;
+        RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'forbidden_column');
+      END IF;
+    ELSE
+      -- insert/update/delete payloads are column maps; any key outside the
+      -- allowlist (id/household_id or an unknown column) is forbidden.
+      IF EXISTS (SELECT 1 FROM jsonb_object_keys(v_payload) k WHERE NOT (k = ANY (v_allowed))) THEN
+        DELETE FROM public.oplog WHERE op_id = v_op_id::uuid;
+        RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'forbidden_column');
+      END IF;
+    END IF;
+
+    -- update/delete/increment must target a row whose ACTUAL household_id
+    -- equals the op's household_id.
+    IF v_op_type IN ('update', 'delete', 'increment') THEN
+      EXECUTE format('SELECT household_id FROM public.%I WHERE id = %L', v_table, v_row_id)
+        INTO v_actual;
+      IF v_actual IS DISTINCT FROM v_hh THEN
+        DELETE FROM public.oplog WHERE op_id = v_op_id::uuid;
+        RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'wrong_household');
+      END IF;
+    END IF;
+
+    -- Apply.
+    IF v_op_type = 'insert' THEN
+      SELECT string_agg(format('%I', e.key), ', '), string_agg(format('%L', e.value), ', ')
+        INTO v_cols, v_vals
+      FROM jsonb_each_text(v_payload) e;
+      -- Row already present with the same id => no-op applied (spec §6.6).
+      EXECUTE format(
+        'INSERT INTO public.%I (id, household_id%s) VALUES (%L, %L%s) ON CONFLICT (id) DO NOTHING',
+        v_table,
+        CASE WHEN v_cols IS NULL THEN '' ELSE ', ' || v_cols END,
+        v_row_id, v_hh,
+        CASE WHEN v_vals IS NULL THEN '' ELSE ', ' || v_vals END);
+    ELSIF v_op_type = 'update' THEN
+      SELECT string_agg(format('%I = %L', e.key, e.value), ', ')
+        INTO v_set
+      FROM jsonb_each_text(v_payload) e;
+      IF v_set IS NOT NULL THEN
+        EXECUTE format('UPDATE public.%I SET %s WHERE id = %L', v_table, v_set, v_row_id);
+      END IF;
+    ELSIF v_op_type = 'delete' THEN
+      EXECUTE format('UPDATE public.%I SET deleted_at = now() WHERE id = %L', v_table, v_row_id);
+    ELSIF v_op_type = 'increment' THEN
+      IF v_clamp = 'floor_zero' THEN
+        EXECUTE format('UPDATE public.%I SET %I = greatest(0, %I + (%L)::numeric) WHERE id = %L',
+                       v_table, v_field, v_field, v_delta, v_row_id);
+      ELSE
+        EXECUTE format('UPDATE public.%I SET %I = %I + (%L)::numeric WHERE id = %L',
+                       v_table, v_field, v_field, v_delta, v_row_id);
+      END IF;
+    END IF;
+
+    RETURN jsonb_build_object('op_id', v_op_id, 'status', 'applied', 'code', null);
+  EXCEPTION WHEN OTHERS THEN
+    -- Any other SQL error: the savepoint rollback already discarded this op's
+    -- oplog row; report the SQLSTATE as the rejection code.
+    RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', SQLSTATE);
+  END;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION private.apply_one_op(jsonb) FROM PUBLIC;
+
+-- ----------------------------------------------------------------------
+-- 9c. public.sync_push — client entry point. Groups ops by household
+--     (input order preserved in the response), validates membership per
+--     group (whole group rejected 'not_member' on failure), takes the
+--     per-household advisory lock, then applies each op in input order via
+--     apply_one_op. The batch is NOT atomic; the response is a jsonb array of
+--     {op_id, status, code} in input order.
+-- ----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.sync_push(p_ops jsonb)
+    RETURNS jsonb
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = ''
+    AS $fn$
+DECLARE
+  v_result     jsonb := '[]'::jsonb;
+  v_membership jsonb := '{}'::jsonb;  -- household_id -> boolean (cache)
+  v_hh         text;
+  v_is_member  boolean;
+  v_op         jsonb;
+BEGIN
+  -- Pass 1: resolve membership once per distinct household and, for member
+  -- households, take the per-household advisory lock (writer serialization,
+  -- spec §6.1). pg_advisory_xact_lock + hashtextextended is a pg_catalog
+  -- internal (stable since PG11; used by hash partitioning) and is NOT listed
+  -- in the public SQL reference docs.
+  FOR v_hh IN
+    SELECT DISTINCT e.value->>'household_id'
+    FROM jsonb_array_elements(p_ops) e
+  LOOP
+    IF v_hh IS NULL THEN
+      CONTINUE;
+    END IF;
+    v_is_member := private.is_household_member(v_hh);
+    v_membership := v_membership || jsonb_build_object(v_hh, v_is_member);
+    IF v_is_member THEN
+      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_hh, 0));
+    END IF;
+  END LOOP;
+
+  -- Pass 2: apply in input order.
+  FOR v_op IN SELECT e.value FROM jsonb_array_elements(p_ops) e
+  LOOP
+    v_hh := v_op->>'household_id';
+    v_is_member := coalesce((v_membership->>v_hh)::boolean, false);
+    IF NOT v_is_member THEN
+      v_result := v_result || jsonb_build_object('op_id', v_op->>'op_id', 'status', 'rejected', 'code', 'not_member');
+    ELSE
+      v_result := v_result || private.apply_one_op(v_op);
+    END IF;
+  END LOOP;
+
+  RETURN v_result;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.sync_push(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.sync_push(jsonb) TO authenticated;
+
+-- ----------------------------------------------------------------------
+-- 9d. public.sync_pull — ordered incremental fetch. SECURITY INVOKER: the
+--     oplog RLS SELECT policy scopes rows to the caller's households.
+--     p_limit is capped at 500, ordered by seq.
+-- ----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.sync_pull(p_household_id text, p_after_seq bigint, p_limit int DEFAULT 200)
+    RETURNS SETOF public.oplog
+    LANGUAGE sql
+    STABLE
+    SECURITY INVOKER
+    SET search_path = ''
+    AS $fn$
+  SELECT *
+  FROM public.oplog
+  WHERE household_id = p_household_id
+    AND seq > coalesce(p_after_seq, 0)
+  ORDER BY seq
+  LIMIT least(coalesce(p_limit, 200), 500);
+$fn$;
+
+REVOKE ALL ON FUNCTION public.sync_pull(text, bigint, int) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.sync_pull(text, bigint, int) TO authenticated;
+
+-- ----------------------------------------------------------------------
+-- 9e. public.sync_row_state — current server state of one row,
+--     membership-checked and table-allowlisted. Returns to_jsonb(row) or null.
+-- ----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.sync_row_state(p_household_id text, p_table text, p_row_id text)
+    RETURNS jsonb
+    LANGUAGE plpgsql
+    STABLE
+    SECURITY DEFINER
+    SET search_path = ''
+    AS $fn$
+DECLARE
+  c_tables constant text[] := array['households', 'household_members', 'envelopes', 'transactions', 'debts', 'meter_readings', 'baby_steps', 'slip_queue'];
+  v_row jsonb;
+BEGIN
+  IF NOT (p_table = ANY (c_tables)) THEN
+    RAISE EXCEPTION 'unsupported table: %', p_table USING ERRCODE = '22023';
+  END IF;
+  IF NOT private.is_household_member(p_household_id) THEN
+    RETURN NULL;
+  END IF;
+  EXECUTE format('SELECT to_jsonb(t) FROM public.%I t WHERE t.id = %L AND t.household_id = %L',
+                 p_table, p_row_id, p_household_id)
+    INTO v_row;
+  RETURN v_row;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.sync_row_state(text, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.sync_row_state(text, text, text) TO authenticated;
+
+-- ----------------------------------------------------------------------
+-- 9f. public.apply_server_op — service-role entry point for edge functions
+--     and crons. Takes the SAME per-household advisory lock and the SAME
+--     apply path as one sync_push op, and records the op in oplog like any
+--     other writer. No membership check (privileged caller).
+--     (hashtextextended: see the note on sync_push above.)
+-- ----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.apply_server_op(p_op jsonb)
+    RETURNS jsonb
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = ''
+    AS $fn$
+DECLARE
+  v_hh text := p_op->>'household_id';
+BEGIN
+  IF v_hh IS NOT NULL THEN
+    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_hh, 0));
+  END IF;
+  RETURN private.apply_one_op(p_op);
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.apply_server_op(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.apply_server_op(jsonb) TO service_role;
