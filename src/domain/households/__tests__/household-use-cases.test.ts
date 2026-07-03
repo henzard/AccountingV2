@@ -295,7 +295,7 @@ describe('AcceptInviteUseCase', () => {
     await uc.execute();
 
     expect(supabase.rpc).toHaveBeenCalledWith('join_household_via_invite', {
-      invite_code: 'ABC123',
+      p_invite_code: 'ABC123',
     });
   });
 
@@ -394,18 +394,11 @@ describe('AcceptInviteUseCase', () => {
 
 describe('CreateInviteUseCase', () => {
   it('returns success with code and expiresAt on happy path', async () => {
-    const supabase = {
-      from: jest.fn().mockReturnValue({
-        insert: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({
-              data: { code: 'ABC123', expires_at: '2026-06-21T10:00:00.000Z' },
-              error: null,
-            }),
-          }),
-        }),
-      }),
-    };
+    const rpc = jest.fn().mockResolvedValue({
+      data: { id: 'inv-1', code: 'ABC123', expires_at: '2026-06-21T10:00:00.000Z' },
+      error: null,
+    });
+    const supabase = { rpc };
 
     const uc = new CreateInviteUseCase(supabase as any, {
       householdId: 'hh-1',
@@ -413,6 +406,7 @@ describe('CreateInviteUseCase', () => {
     });
     const result = await uc.execute();
 
+    expect(rpc).toHaveBeenCalledWith('create_invitation', { p_household_id: 'hh-1' });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.code).toBe('ABC123');
@@ -421,18 +415,8 @@ describe('CreateInviteUseCase', () => {
   });
 
   it('returns INVITE_CREATE_FAILED on supabase error', async () => {
-    const supabase = {
-      from: jest.fn().mockReturnValue({
-        insert: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({
-              data: null,
-              error: { message: 'db error' },
-            }),
-          }),
-        }),
-      }),
-    };
+    const rpc = jest.fn().mockResolvedValue({ data: null, error: { message: 'db error' } });
+    const supabase = { rpc };
 
     const uc = new CreateInviteUseCase(supabase as any, {
       householdId: 'hh-1',
@@ -445,15 +429,8 @@ describe('CreateInviteUseCase', () => {
   });
 
   it('returns INVITE_CREATE_FAILED when data is null without error', async () => {
-    const supabase = {
-      from: jest.fn().mockReturnValue({
-        insert: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({ data: null, error: null }),
-          }),
-        }),
-      }),
-    };
+    const rpc = jest.fn().mockResolvedValue({ data: null, error: null });
+    const supabase = { rpc };
 
     const uc = new CreateInviteUseCase(supabase as any, {
       householdId: 'hh-1',

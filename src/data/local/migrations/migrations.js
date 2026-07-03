@@ -12,6 +12,7 @@ import m0007 from './0007_household_members_updated_at.sql';
 import m0008 from './0008_slip_scanning.sql';
 import m0009 from './0009_soft_delete_tombstones.sql';
 import m0010 from './0010_envelope_targets.sql';
+import m0011 from './0011_oplog_foundations.sql';
 
 export default {
   journal,
@@ -27,5 +28,6 @@ export default {
     m0008,
     m0009,
     m0010,
+    m0011,
   },
 };

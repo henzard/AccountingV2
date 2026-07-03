@@ -1,55 +1,26 @@
-// Mock expo-crypto to provide bytes for generateCode
-jest.mock('expo-crypto', () => ({
-  randomUUID: () => 'test-uuid',
-  getRandomBytes: (size: number) => {
-    // Use Math.random for test purposes — uniqueness test requires varied bytes per call
-    return new Uint8Array(Array.from({ length: size }, () => Math.floor(Math.random() * 256)));
-  },
-}));
-
-import { CreateInviteUseCase, generateCode } from './CreateInviteUseCase';
-
-describe('generateCode', () => {
-  it('produces codes of length 6 from the safe alphabet', () => {
-    const codes = new Set<string>();
-    for (let i = 0; i < 1000; i += 1) codes.add(generateCode());
-    expect(codes.size).toBeGreaterThan(990); // allow a tiny birthday collision
-    codes.forEach((c) => {
-      expect(c).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
-    });
-  });
-});
+import { CreateInviteUseCase } from './CreateInviteUseCase';
 
 describe('CreateInviteUseCase', () => {
-  it('returns the 6-character code on success', async () => {
-    const supabase = {
-      from: () => ({
-        insert: () => ({
-          select: () => ({
-            single: () => Promise.resolve({ data: { code: 'ABC123' }, error: null }),
-          }),
-        }),
-      }),
-    } as any;
+  it('calls create_invitation with p_household_id and returns the server-generated code', async () => {
+    const rpc = jest.fn().mockResolvedValue({
+      data: { id: 'inv-1', code: 'ABC123', expires_at: '2026-01-03T00:00:00.000Z' },
+      error: null,
+    });
+    const supabase = { rpc } as any;
     const uc = new CreateInviteUseCase(supabase, { householdId: 'hh-1', createdByUserId: 'u-1' });
     const result = await uc.execute();
+
+    expect(rpc).toHaveBeenCalledWith('create_invitation', { p_household_id: 'hh-1' });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.code).toHaveLength(6);
-      expect(result.data.code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(result.data.code).toBe('ABC123');
+      expect(result.data.expiresAt).toBe('2026-01-03T00:00:00.000Z');
     }
   });
 
-  it('returns INVITE_CREATE_FAILED when Supabase errors', async () => {
-    const supabase = {
-      from: () => ({
-        insert: () => ({
-          select: () => ({
-            single: () => Promise.resolve({ data: null, error: { message: 'fail' } }),
-          }),
-        }),
-      }),
-    } as any;
+  it('returns INVITE_CREATE_FAILED when the RPC errors', async () => {
+    const rpc = jest.fn().mockResolvedValue({ data: null, error: { message: 'fail' } });
+    const supabase = { rpc } as any;
     const uc = new CreateInviteUseCase(supabase, { householdId: 'hh-1', createdByUserId: 'u-1' });
     const result = await uc.execute();
     expect(result.success).toBe(false);

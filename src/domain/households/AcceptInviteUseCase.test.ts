@@ -82,7 +82,7 @@ describe('AcceptInviteUseCase — success path', () => {
     const result = await uc.execute();
 
     expect(supabase.rpc).toHaveBeenCalledWith('join_household_via_invite', {
-      invite_code: 'ABC123',
+      p_invite_code: 'ABC123',
     });
     expect(result.success).toBe(true);
     expect(dbInsertMock).toHaveBeenCalled();

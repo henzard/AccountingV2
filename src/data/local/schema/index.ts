@@ -9,3 +9,6 @@ export { slipQueue } from './slipQueue';
 export { auditEvents } from './auditEvents';
 export { pendingSync } from './pendingSync';
 export * from './userConsent';
+export { oplog } from './oplog';
+export { syncCursor } from './syncCursor';
+export { scoreHistory } from './scoreHistory';
