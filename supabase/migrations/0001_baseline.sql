@@ -979,10 +979,14 @@ BEGIN
   -- households, take the per-household advisory lock (writer serialization,
   -- spec §6.1). pg_advisory_xact_lock + hashtextextended is a pg_catalog
   -- internal (stable since PG11; used by hash partitioning) and is NOT listed
-  -- in the public SQL reference docs.
+  -- in the public SQL reference docs. ORDER BY 1 is required: two concurrent
+  -- pushes touching the same household set (e.g. {A,B}) must acquire the
+  -- locks in the same order, or they can deadlock AB/BA with one transaction
+  -- aborted by Postgres.
   FOR v_hh IN
     SELECT DISTINCT e.value->>'household_id'
     FROM jsonb_array_elements(p_ops) e
+    ORDER BY 1
   LOOP
     IF v_hh IS NULL THEN
       CONTINUE;
