@@ -266,15 +266,20 @@ git commit -m "test(realsql): real-SQLite migration harness; fix invalid non-con
 
 ---
 
-### Task 2: Drizzle-schema ↔ migrated-database conformance test
+### Task 2: Drizzle-schema ↔ migrated-database conformance test (catches the missing envelope target columns)
 
 **Files:**
 
 - Create: `tests/realsql/schemaConformance.test.ts`
+- Create: `src/data/local/migrations/0010_envelope_targets.sql`
+- Modify: `src/data/local/migrations/meta/_journal.json`
+- Modify: `src/data/local/migrations/migrations.js`
 
 **Interfaces:**
 
 - Consumes: `openMigratedDb()` from Task 1; the barrel export `src/data/local/schema/index.ts` (already exists).
+
+**Known drift this task fixes:** `src/data/local/schema/envelopes.ts` declares `targetAmountCents` (`target_amount_cents`) and `targetDate` (`target_date`), but no local migration 0000–0009 creates those columns (the server got them in `supabase/migrations/009_sinking_funds.sql`; the local chain never did). The conformance test exposes this; the fix is migration 0010 below.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -320,26 +325,65 @@ describe('Drizzle schema conformance (real SQLite)', () => {
 });
 ```
 
-- [ ] **Step 2: Run it**
+- [ ] **Step 2: Run it — expect the envelopes drift failure**
 
 Run: `npm run test:realsql`
-Expected: PASS if TS schema and SQL migrations agree. A FAIL here is a real drift finding (the review flagged convention drift, not missing columns) — if a column is genuinely missing from the migrations, STOP and report it rather than editing the schema to match; that fix belongs in Slice 2's baseline.
+Expected: FAIL on table `envelopes` — columns `target_amount_cents` and `target_date` are missing from the migrated database (see "Known drift" above). If any OTHER table/column also fails, STOP and report it to the user before proceeding — that would be a new, unreviewed drift.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Add local migration 0010 for the missing columns**
+
+Create `src/data/local/migrations/0010_envelope_targets.sql`:
+
+```sql
+ALTER TABLE `envelopes` ADD `target_amount_cents` integer;--> statement-breakpoint
+ALTER TABLE `envelopes` ADD `target_date` text;
+```
+
+Append to the `entries` array in `src/data/local/migrations/meta/_journal.json` (after the idx 9 entry):
+
+```json
+{
+  "idx": 10,
+  "version": "6",
+  "when": 1782000000000,
+  "tag": "0010_envelope_targets",
+  "breakpoints": true
+}
+```
+
+In `src/data/local/migrations/migrations.js`, add the import and map entry following the existing pattern:
+
+```js
+import m0010 from './0010_envelope_targets.sql';
+```
+
+and inside the `migrations` object, after `m0009,`:
+
+```js
+m0010,
+```
+
+- [ ] **Step 4: Run the realsql project — expect green**
+
+Run: `npm run test:realsql`
+Expected: PASS (all realsql tests, including Task 1's).
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/realsql/schemaConformance.test.ts
-git commit -m "test(realsql): assert Drizzle TS schema matches migrated SQLite schema"
+git add tests/realsql/schemaConformance.test.ts src/data/local/migrations/
+git commit -m "test(realsql): schema conformance test; add missing envelope target columns as 0010"
 ```
 
 ---
 
-### Task 3: Local Supabase stack — `db reset` green, duplicate 010 removed, CI wired
+### Task 3: Local Supabase stack — `db reset` green, duplicate migrations resolved, CI wired
 
 **Files:**
 
 - Create: `supabase/config.toml` (via `supabase init`)
 - Delete: `supabase/migrations/010_user_preferences.sql`
+- Rename: `supabase/migrations/008_user_preferences.sql` → `supabase/migrations/010_user_preferences.sql`
 - Modify: `.github/workflows/ci.yml`
 - Modify: `package.json` (devDependency `supabase`)
 
@@ -356,13 +400,21 @@ npx supabase init
 
 Expected: creates `supabase/config.toml` (accept defaults; answer "n" to VS Code/Deno settings prompts if asked). The existing `supabase/functions` and `supabase/migrations` directories are untouched.
 
-- [ ] **Step 2: Delete the duplicate migration 010**
+- [ ] **Step 2: Resolve BOTH duplicate-migration problems**
 
-`010_user_preferences.sql` re-creates the same `user_preferences` table and the same three policies as `008_user_preferences.sql` (verified: files differ only in header/trailing comments). `CREATE TABLE IF NOT EXISTS` survives re-application but the unguarded `CREATE POLICY up_select/up_insert/up_update` statements abort any fresh replay with `42710 duplicate_object`.
+There are two distinct landmines in the chain:
+
+1. **Content duplicate:** `010_user_preferences.sql` re-creates the same `user_preferences` table and the same three policies as `008_user_preferences.sql` (verified: files differ only in header/trailing comments). The unguarded `CREATE POLICY up_select/up_insert/up_update` statements abort any fresh replay with `42710 duplicate_object`.
+2. **Version-number collision:** TWO files share the numeric prefix `008` (`008_phase2_data_integrity.sql` and `008_user_preferences.sql`). The Supabase CLI records the leading digits as the migration version in `supabase_migrations.schema_migrations`, whose primary key is `version` — a fresh replay inserts version `008` twice and dies with a `schema_migrations_pkey` violation (supabase/cli issues #2564, #4417) even after fix 1.
+
+Fix both with one move — delete the content-duplicate and renumber the second 008 into the freed 010 slot (its content is unchanged; `user_preferences` is self-contained, so applying at position 010 instead of 008 is order-safe):
 
 ```bash
 git rm supabase/migrations/010_user_preferences.sql
+git mv supabase/migrations/008_user_preferences.sql supabase/migrations/010_user_preferences.sql
 ```
+
+Then update the header comment inside the moved file from `-- supabase/migrations/008_user_preferences.sql` to `-- supabase/migrations/010_user_preferences.sql`.
 
 - [ ] **Step 3: Replay the full chain locally (Docker must be running)**
 
@@ -371,7 +423,7 @@ npx supabase start
 npx supabase db reset
 ```
 
-Expected: `db reset` applies 001 → 019 and finishes with `Finished supabase db reset`. If another migration aborts with `duplicate_object`, apply the same idempotency pattern in that file — prepend a guard for each failing statement:
+Expected: `db reset` applies the full chain (001 → 019, now with unique version prefixes) and finishes with `Finished supabase db reset`. If another migration aborts with `duplicate_object`, apply the same idempotency pattern in that file — prepend a guard for each failing statement:
 
 ```sql
 DROP POLICY IF EXISTS <policy_name> ON <table>;
@@ -407,37 +459,38 @@ db:
 
     - name: Replay full migration chain
       run: supabase db reset
-
-    - name: Run pgTAP suite
-      run: supabase test db
 ```
 
-(`supabase test db` passes trivially until Task 4 adds tests.)
+(The `Run pgTAP suite` step is deliberately NOT added here — `supabase test db` behavior with a nonexistent `supabase/tests/` directory is CLI-version-dependent, and Task 4 adds the step together with the first test so the job can never be red in between.)
 
 - [ ] **Step 5: Verify locally, then commit**
 
-Run: `npx supabase test db`
-Expected: no failures (zero test files is OK at this point).
+Run: `npx supabase db reset`
+Expected: `Finished supabase db reset` with no errors.
 
 ```bash
 git add supabase/config.toml .github/workflows/ci.yml package.json package-lock.json
-git commit -m "ci(db): local Supabase stack in CI; remove duplicate migration 010; fix branch glob"
+git commit -m "ci(db): local Supabase stack in CI; dedupe migrations 008/010; fix branch glob"
 ```
 
 Push the branch and confirm the `db` job goes green in GitHub Actions before starting Task 4.
 
 ---
 
-### Task 4: pgTAP harness + first adversarial cross-household RLS probes
+### Task 4: pgTAP harness + first adversarial cross-household RLS probes (catches the broken membership trigger)
 
 **Files:**
 
 - Create: `supabase/tests/rls_cross_household.test.sql`
+- Create: `supabase/migrations/020_fix_member_sync_trigger.sql`
+- Modify: `.github/workflows/ci.yml` (add the pgTAP step to the `db` job)
 
 **Interfaces:**
 
 - Consumes: the local stack from Task 3.
 - Produces: the seed pattern (two auth users, two households, memberships, JWT-claim switching) that Slice 2's full per-table RLS suite will copy.
+
+**Known live bug this task exposes:** `005_security_and_sync_correctness.sql:79` — the `sync_household_member_to_user_households` trigger function reads `NEW.created_at`, but `household_members` has no `created_at` column (it has `joined_at`, 005:12; no later migration fixes the function — 018 only mentions it in a comment). On a fresh-replay database, EVERY insert into `household_members` raises `record "new" has no field "created_at"` — which also means `join_household_via_invite` and `merge_household_member` are broken on any fresh deployment. The pgTAP seed will hit this first; migration 020 below fixes it.
 
 - [ ] **Step 1: Write the pgTAP test**
 
@@ -496,16 +549,56 @@ select * from finish();
 rollback;
 ```
 
-- [ ] **Step 2: Run it**
+- [ ] **Step 2: Run it — expect the trigger failure**
 
 Run: `npx supabase test db`
-Expected: `rls_cross_household: ok 4/4`. If a probe FAILs, that is a live cross-household RLS hole: STOP, report it to the user, and file it against Slice 2 (RLS rebuild) rather than patching policies ad hoc here. If the seed itself errors (e.g., `auth.users` NOT NULL columns differ in the current CLI image), extend only the seed inserts — never the assertions.
+Expected: FAIL — the seed's `insert into public.household_members` aborts with `record "new" has no field "created_at"` (the known live bug described above). If it fails with a DIFFERENT error on `auth.users` (NOT NULL columns differ across CLI image versions), extend only the seed's `auth.users` insert columns — never the assertions — and re-run until the trigger failure appears.
 
-- [ ] **Step 3: Commit and confirm CI**
+- [ ] **Step 3: Fix the trigger with migration 020**
+
+Create `supabase/migrations/020_fix_member_sync_trigger.sql`:
+
+```sql
+-- 005's sync_household_member_to_user_households reads NEW.created_at, but
+-- household_members has no created_at column (only joined_at) — every INSERT
+-- into household_members fails on a fresh-replay database. Use joined_at.
+CREATE OR REPLACE FUNCTION public.sync_household_member_to_user_households()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.user_households (user_id, household_id, role, created_at)
+  VALUES (NEW.user_id::uuid, NEW.household_id, COALESCE(NEW.role, 'member'), NEW.joined_at)
+  ON CONFLICT (user_id, household_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+```
+
+Then re-apply the chain: `npx supabase db reset`
+Expected: `Finished supabase db reset` (now applying 020 at the end).
+
+- [ ] **Step 4: Run the suite again — expect green**
+
+Run: `npx supabase test db`
+Expected: `rls_cross_household: ok 4/4`. If an RLS probe (not the seed) FAILs, that is a live cross-household RLS hole: STOP, report it to the user, and file it against Slice 2 (RLS rebuild) rather than patching policies ad hoc here.
+
+- [ ] **Step 5: Add the pgTAP step to the CI `db` job**
+
+In `.github/workflows/ci.yml`, append to the `db` job's steps (after `Replay full migration chain`):
+
+```yaml
+- name: Run pgTAP suite
+  run: supabase test db
+```
+
+- [ ] **Step 6: Commit and confirm CI**
 
 ```bash
-git add supabase/tests/rls_cross_household.test.sql
-git commit -m "test(db): pgTAP adversarial cross-household RLS probes"
+git add supabase/tests/rls_cross_household.test.sql supabase/migrations/020_fix_member_sync_trigger.sql .github/workflows/ci.yml
+git commit -m "test(db): pgTAP cross-household RLS probes; fix broken user_households sync trigger"
 ```
 
 Push and confirm both `check` and `db` CI jobs are green.
@@ -516,5 +609,5 @@ Push and confirm both `check` and `db` CI jobs are green.
 
 - `npm run test:realsql` green locally and in CI (inside `npx jest --coverage`).
 - `supabase db reset` + `supabase test db` green locally and in the new `db` CI job.
-- Migration 0007 valid; duplicate 010 gone; CI triggers on slash-named branches.
-- Slice 2 (schema baselines) can now be planned against a proving ground that would catch its mistakes.
+- Migration 0007 valid; envelope target columns exist locally (0010); the 008 version collision and content-duplicate 010 resolved; the `user_households` sync trigger fixed (020); CI triggers on slash-named branches.
+- Slice 2 (schema baselines) can now be planned against a proving ground that already caught four real bugs.

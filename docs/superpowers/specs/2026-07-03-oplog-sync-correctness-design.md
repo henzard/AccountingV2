@@ -42,7 +42,7 @@ Mutations become facts in an append-only log; sync becomes log replication.
 
 ## 2. Schema baselines & fate of existing machinery
 
-### Local SQLite: one baseline migration (replaces 0001–0010)
+### Local SQLite: one baseline migration (replaces journal entries 0000–0010, incl. slice 1's 0010_envelope_targets)
 
 - All entity tables, minus `envelopes.spent_cents`, plus `deleted_at` on every user-data table.
 - `oplog` table: `(op_id PK, seq_local autoincrement, household_id, table_name, row_id, op_type, payload JSON, actor_user_id, device_id, client_created_at, pushed_at NULL, retry_count, next_attempt_at, dead_lettered_at)`, indexed `(pushed_at, next_attempt_at)`. Replaces `pending_sync` — the outbox is the unpushed tail of the log.
@@ -51,7 +51,7 @@ Mutations become facts in an append-only log; sync becomes log replication.
 - `audit_events` deleted: the oplog is the audit trail, actor-aware (fixes "audit records no actor"). The future household activity feed reads the oplog.
 - `score_history` table included now (written at rollover) so gamification revival needs no schema change later.
 
-### Supabase: one baseline migration (replaces 001–019)
+### Supabase: one baseline migration (replaces the full 001–020 chain as it stands after slice 1's dedupe and trigger fix)
 
 - Entity tables with `timestamptz` throughout and `deleted_at`; server `oplog` with `seq bigserial`, unique `op_id`, index `(household_id, seq)`.
 - RLS rebuilt once, correctly: `(select auth.uid())` pattern, `TO authenticated` on every policy, one `private.is_household_member(hid)` SECURITY DEFINER helper (pinned `search_path`) reading `household_members` directly. The `user_households` mirror table and its INSERT-only trigger are deleted — structurally fixing "removed member keeps access forever".
@@ -83,6 +83,7 @@ Backoff/DLQ retry logic (ported into the pusher), invite-code crypto, the slip-s
 
 - `scope: 'period'` (spending, income, utility): period-keyed as today.
 - `scope: 'persistent'` (sinking_fund, emergency_fund, savings): no period; balance derived from the envelope's all-time transaction ledger. Sinking-fund progress stops vanishing monthly; Baby Steps 1/3 reconcile against the persistent EMF — the monthly regression becomes impossible.
+- The legacy `baby_step` envelope type (allowed by the current CHECK constraint) is retired in the baseline: existing rows migrate to `emergency_fund` (persistent scope); the type is removed from the enum.
 
 ### Rollover engine
 
@@ -131,11 +132,11 @@ Use cases emit typed events (`PeriodRolled`, `DebtPaidOff`, `EnvelopeOverspent`,
 ### Build order — six independently-green slices
 
 1. Proving-ground scaffolding (tiers 1–2 in CI)
-2. Schema baselines, both sides, + contract tests
+2. Schema baselines, both sides, + contract tests (RPC signature contract tests land here, with the rebuilt RPCs)
 3. UnitOfWork, repo factory, ports, derived balances, envelope scopes — domain rewired
-4. Rollover engine + wizard
-5. SyncEngine + Realtime + DLQ inbox + boot rework — gated on the two-device harness
-6. One-off fixes batch + deletion of dead machinery + ADR documenting the protocol contract
+4. Rollover engine + wizard (with deterministic envelope ids — see §6)
+5. SyncEngine + Realtime + DLQ inbox + boot rework — **this slice builds test tier 3 (two-device harness) first** and is gated on it
+6. One-off fixes batch + deletion of dead machinery + **test tier 4 (authenticated e2e + CD gating)** + ADR documenting the protocol contract
 
 ### Risks & mitigations
 
@@ -147,3 +148,18 @@ Use cases emit typed events (`PeriodRolled`, `DebtPaidOff`, `EnvelopeOverspent`,
 ### Out of scope (later phases)
 
 Dashboard v2 / gamification / streaks / celebrations (Phase 2), household roles & activity feed & realtime-collaboration UX beyond data sync (Phase 3), monetization, on-device AI, meter OCR, EAS Update/MMKV/FlashList platform modernization (Phase 2 — except where a slice touches the same code anyway).
+
+## 6. Protocol contract — resolutions from the adversarial review (2026-07-03)
+
+These bind slice 2 (server contract) and slice 5 (engine) implementations.
+
+1. **Seq visibility race.** A naive bigserial + "pull after cursor" loses ops: seq N+1 can commit and be pulled while seq N's transaction is still open, advancing the cursor past N forever. Resolution: `sync_push` takes `pg_advisory_xact_lock(hashtextextended(p_household_id::text, 0))`, serializing pushes per household so per-household seq order equals commit order. `sync_pull` is per-household, so cursors can never skip an in-flight op.
+2. **Server-origin writes must produce ops.** Any server-side mutation of a synced table (edge functions, cron jobs) goes through a shared SQL helper `apply_server_op(...)` that updates the canonical table AND appends the oplog row (`device_id = 'server'`, `actor_user_id` = the affected user where known) in one transaction. `extract-slip`'s direct `.update()` calls on `slip_queue` are refactored onto this in slice 2; the slip-cleanup cron likewise. The `ask-advisor` and `process-slip` edge functions are audited in slice 2: `process-slip` is deleted if superseded by `extract-slip`; any direct writes in `ask-advisor` move to the helper.
+3. **`sync_push` batch semantics.** Ops apply in the client's `seq_local` order, each in its own savepoint; the batch is NOT atomic. The response is per-op: `[{op_id, status: 'applied' | 'rejected', code}]` — the client marks applied ops pushed and dead-letters exactly the rejected ones. A batch spanning multiple households is grouped per household server-side, with membership validated per group and the advisory lock taken per group.
+4. **Server-side op validation.** Before apply: (a) the target row's actual `household_id` must equal the op's `household_id` (closing the current `merge_transaction`-class hole); (b) a per-table column allowlist — payloads may never set `id`, `household_id`, `seq`, or actor/device fields; (c) type and CHECK validation. Violations reject that op with a permanent code.
+5. **Fresh-install pull & compaction.** Pre-launch, full op-history replay from seq 0 is the restore mechanism and is acceptable. Snapshot-plus-tail compaction (and oplog retention vs. its role as audit trail) is an explicitly deferred decision, recorded in the slice-6 ADR with a revisit trigger (~50k ops per household). Large payloads (e.g. slip `raw_response_json`) stay out of op payloads — ops reference storage objects instead.
+6. **Rollover idempotency across devices.** `StartNewPeriodUseCase` derives copied-envelope ids deterministically — UUIDv5 over `(householdId, periodStart, sourceEnvelopeId)` — so two devices rolling the same period offline generate identical inserts, and the server treats an insert op whose row already exists with the same id as an idempotent no-op.
+7. **Realtime authorization.** The server `oplog` table gets an RLS SELECT policy (`private.is_household_member(household_id)`) and joins the `supabase_realtime` publication so household members can subscribe to `postgres_changes`; all DML on it remains revoked (RPCs are the only writers).
+8. **Increment ops.** Payload is `{field, delta, clamp: 'none' | 'floor_zero'}`; server and local apply share the same clamp semantics. The puller commits `sync_cursor` advancement in the same local SQLite transaction as the batch it applied.
+9. **Protocol versioning.** The op shape carries `v: 1`. Ops with unknown `v`, `table`, or `op_type` are rejected with a permanent code; client-version upgrade paths are a named non-goal for v1 (ADR).
+10. **DLQ discard semantics.** Discarding a dead-lettered op also re-pulls the affected row's current server state and applies it locally, so a discarded local write cannot leave the row silently diverged forever.
