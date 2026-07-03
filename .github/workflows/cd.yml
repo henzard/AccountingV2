@@ -24,8 +24,11 @@ jobs:
       - name: ESLint
         run: npx eslint src/ --ext .ts,.tsx --max-warnings 0
 
-      - name: Jest
-        run: npx jest --coverage
+      - name: Jest (app, with coverage)
+        run: npx jest --selectProjects app --coverage
+
+      - name: Jest (realsql tier)
+        run: npx jest --selectProjects realsql
 
   build-and-publish:
     needs: ci-gate
