@@ -224,12 +224,12 @@ export class SyncOrchestrator {
     }
     if (syncError) throw new Error(syncError.message);
 
-    // Only update isSynced for tables that have the column (not household_members)
-    if (item.tableName !== 'household_members') {
-      await this.db
-        .update(table)
-        .set({ isSynced: true } as Partial<typeof table.$inferInsert>)
-        .where(eq((table as typeof envelopes).id, item.recordId));
-    }
+    // No post-upsert local write needed: migration 0012 dropped the `is_synced`
+    // column from every entity table (sync state now lives in the pending_sync
+    // outbox, not on the row itself). The caller (syncPending) already deletes
+    // this item's pending_sync row on success — that deletion is the dequeue
+    // mechanism. Do NOT reintroduce a `.set({ isSynced: ... })` here; the column
+    // no longer exists and drizzle's buildUpdateSet would filter it to an empty
+    // SET clause, producing an invalid `UPDATE ... SET  WHERE ...` statement.
   }
 }
