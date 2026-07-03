@@ -8,13 +8,37 @@ jest.mock('../../infrastructure/logging/Logger', () => ({
 
 import { buildEnvelope, buildTransaction } from '../../__test-utils__/factories';
 import { KRUGER_ENVELOPES, HOUSEHOLDS } from '../../__test-utils__/scenarioSeed';
+import type { SyncedRepo } from '../../data/uow/createSyncedRepo';
 
 beforeEach(() => {
   jest.clearAllMocks();
 });
 
-describe('Non-Atomic Writes — CreateTransactionUseCase', () => {
-  it('verifies insert and spentCents update are wrapped in db.transaction()', () => {
+function makeFakeRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
+}
+
+describe('Non-Atomic Writes — CreateTransactionUseCase (fixed: balance is derived)', () => {
+  /**
+   * FIXED (slice 3, task 3): CreateTransactionUseCase no longer mutates
+   * envelopes.spent_cents at all — balance is derived from the transactions
+   * ledger (EnvelopeBalanceQuery), so there is no second write to keep
+   * atomic with the insert. The single remaining write (the transaction row)
+   * is paired with exactly one oplog row inside ONE db.transaction() inside
+   * createSyncedRepo — see tests/realsql/createSyncedRepo.test.ts for the
+   * real-SQLite atomicity proof.
+   */
+  it('no longer references envelopes.spentCents or a second db.update() for the envelope', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
@@ -22,61 +46,25 @@ describe('Non-Atomic Writes — CreateTransactionUseCase', () => {
       'utf8',
     );
 
-    expect(source).toContain('.insert(transactions)');
-    expect(source).toContain('.update(envelopes)');
-    expect(source).toContain('spentCents');
-
-    expect(source).toMatch(/this\.db\.transaction\(|db\.transaction\(/);
+    expect(source).not.toContain('.update(envelopes)');
+    expect(source).not.toContain('spentCents');
   });
 
-  it('rolls back insert when spentCents update fails (atomic via db.transaction)', async () => {
+  it('writes only the transaction row via the injected synced repo; no envelope write happens', async () => {
     const groceries = KRUGER_ENVELOPES[0];
-    const initialSpentCents = 100000;
+    const repo = makeFakeRepo();
 
-    let insertCalled = false;
-    let updateCalled = false;
-
-    const txProxy = {
+    const db = {
       select: jest.fn(() => ({
         from: jest.fn(() => ({
           where: jest.fn(() => ({
-            limit: jest.fn(() =>
-              Promise.resolve([
-                {
-                  ...groceries,
-                  spentCents: initialSpentCents,
-                  envelopeType: 'spending',
-                },
-              ]),
-            ),
+            limit: jest.fn(() => Promise.resolve([{ ...groceries, envelopeType: 'spending' }])),
           })),
         })),
       })),
-      insert: jest.fn(() => ({
-        values: jest.fn(() => {
-          insertCalled = true;
-          return Promise.resolve();
-        }),
-      })),
-      update: jest.fn(() => ({
-        set: jest.fn(() => ({
-          where: jest.fn(() => {
-            updateCalled = true;
-            throw new Error('SIMULATED_CRASH: app killed between insert and update');
-          }),
-        })),
-      })),
-    };
-
-    const db = {
-      select: txProxy.select,
-      transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => {
-        return callback(txProxy);
-      }),
     } as any;
 
     const audit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-    const enqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) } as any;
 
     const {
       CreateTransactionUseCase,
@@ -93,19 +81,26 @@ describe('Non-Atomic Writes — CreateTransactionUseCase', () => {
         description: null,
         transactionDate: '2026-06-15',
       },
-      enqueuer,
+      { repo },
     );
 
-    await expect(usecase.execute()).rejects.toThrow('SIMULATED_CRASH');
+    const result = await usecase.execute();
 
-    expect(db.transaction).toHaveBeenCalledTimes(1);
-    expect(insertCalled).toBe(true);
-    expect(updateCalled).toBe(true);
+    expect(result.success).toBe(true);
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.increment).not.toHaveBeenCalled();
   });
 });
 
-describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
-  it('verifies delete and spentCents decrement are wrapped in db.transaction()', () => {
+describe('Non-Atomic Writes — DeleteTransactionUseCase (fixed: balance is derived)', () => {
+  /**
+   * FIXED (slice 3, task 3): DeleteTransactionUseCase no longer decrements
+   * envelopes.spent_cents — it soft-deletes the transaction row via the
+   * synced repo, which pairs that write with exactly one oplog row inside
+   * ONE db.transaction().
+   */
+  it('no longer references envelopes.spentCents or a second db.update() for the envelope', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
@@ -113,14 +108,11 @@ describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
       'utf8',
     );
 
-    expect(source).toContain('.delete(transactions)');
-    expect(source).toContain('.update(envelopes)');
-    expect(source).toContain('spentCents');
-
-    expect(source).toMatch(/this\.db\.transaction\(|db\.transaction\(/);
+    expect(source).not.toContain('.update(envelopes)');
+    expect(source).not.toContain('spentCents');
   });
 
-  it('rolls back delete when spentCents decrement fails (atomic via db.transaction)', async () => {
+  it('soft-deletes only the transaction row via the injected synced repo; no envelope write happens', async () => {
     const tx = buildTransaction({
       id: 'tx-del-atomic',
       householdId: HOUSEHOLDS.kruger.id,
@@ -128,46 +120,22 @@ describe('Non-Atomic Writes — DeleteTransactionUseCase', () => {
       amountCents: 10000,
     });
 
-    let deleteCalled = false;
-    let updateCalled = false;
-
-    const txProxy = {
-      delete: jest.fn(() => ({
-        where: jest.fn(() => {
-          deleteCalled = true;
-          return Promise.resolve();
-        }),
-      })),
-      update: jest.fn(() => ({
-        set: jest.fn(() => ({
-          where: jest.fn(() => {
-            updateCalled = true;
-            throw new Error('SIMULATED_CRASH: app killed between delete and update');
-          }),
-        })),
-      })),
-    };
-
-    const db = {
-      transaction: jest.fn(async (callback: (t: any) => Promise<any>) => {
-        return callback(txProxy);
-      }),
-    } as any;
-
+    const repo = makeFakeRepo();
+    const db = {} as any;
     const audit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-    const enqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) } as any;
 
     const {
       DeleteTransactionUseCase,
     } = require('../../domain/transactions/DeleteTransactionUseCase');
 
-    const usecase = new DeleteTransactionUseCase(db, audit, tx, enqueuer);
+    const usecase = new DeleteTransactionUseCase(db, audit, tx, { repo });
 
-    await expect(usecase.execute()).rejects.toThrow('SIMULATED_CRASH');
+    const result = await usecase.execute();
 
-    expect(db.transaction).toHaveBeenCalledTimes(1);
-    expect(deleteCalled).toBe(true);
-    expect(updateCalled).toBe(true);
+    expect(result.success).toBe(true);
+    expect(repo.softDelete).toHaveBeenCalledTimes(1);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.increment).not.toHaveBeenCalled();
   });
 });
 

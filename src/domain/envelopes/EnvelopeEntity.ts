@@ -36,3 +36,25 @@ export function getPercentRemaining(envelope: EnvelopeEntity): number {
 export function isOverBudget(envelope: EnvelopeEntity): boolean {
   return envelope.spentCents > envelope.allocatedCents;
 }
+
+/**
+ * Scope of an envelope's balance, per the derived-balance read model
+ * (`EnvelopeBalanceQuery`):
+ *  - 'period': re-created per budget period ('spending' | 'income' |
+ *    'utility'); the envelope row's `id` is already period-specific.
+ *  - 'persistent': keeps the same row across periods ('sinking_fund' |
+ *    'emergency_fund' | 'savings' | 'baby_step'); its balance is an
+ *    all-time total.
+ */
+export type EnvelopeScope = 'period' | 'persistent';
+
+const PERSISTENT_ENVELOPE_TYPES: ReadonlySet<EnvelopeType> = new Set([
+  'sinking_fund',
+  'emergency_fund',
+  'savings',
+  'baby_step',
+]);
+
+export function getEnvelopeScope(envelope: Pick<EnvelopeEntity, 'envelopeType'>): EnvelopeScope {
+  return PERSISTENT_ENVELOPE_TYPES.has(envelope.envelopeType) ? 'persistent' : 'period';
+}

@@ -9,6 +9,7 @@ import { buildEnvelope, buildDebt, resetFactoryCounter } from '../../__test-util
 import { HOUSEHOLDS } from '../../__test-utils__/scenarioSeed';
 import type { ISyncEnqueuer, SyncOperation } from '../../domain/ports/ISyncEnqueuer';
 import type { IDebtRepository } from '../../domain/ports/IDebtRepository';
+import type { SyncedRepo } from '../../data/uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'mock-uuid-' + Math.random().toString(36).slice(2, 10),
@@ -34,6 +35,23 @@ function createMockEnqueuer(): ISyncEnqueuer & { calls: EnqueueCall[] } {
 
 function createMockAudit() {
   return { log: jest.fn().mockResolvedValue(undefined) };
+}
+
+/** Fake `SyncedRepo` — the write dependency `CreateTransactionUseCase`/`CreateEnvelopeUseCase`
+ * now use instead of `ISyncEnqueuer` (balance is derived; entity write + oplog append is one
+ * atomic call via `createSyncedRepo`, see slice-3 task 3). */
+function createMockSyncedRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
 }
 
 function createMockDebtRepo(): IDebtRepository & { lastUpdate: any } {
@@ -99,14 +117,14 @@ beforeEach(() => resetFactoryCounter());
 
 describe('Offline-First Scenarios (airplane mode)', () => {
   describe('CreateTransactionUseCase offline', () => {
-    it('saves transaction locally with isSynced: false', async () => {
+    it('saves transaction locally with is_synced: false via the synced repo', async () => {
       const envelope = buildEnvelope({
         householdId: KRUGER_ID,
         envelopeType: 'spending',
       });
       const db = createMockDb([envelope]);
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
+      const repo = createMockSyncedRepo();
 
       const uc = new CreateTransactionUseCase(
         db,
@@ -119,24 +137,25 @@ describe('Offline-First Scenarios (airplane mode)', () => {
           description: null,
           transactionDate: '2026-01-15',
         },
-        enqueuer,
+        { repo },
       );
 
       const result = await uc.execute();
 
       expect(result.success).toBe(true);
-      expect(db.inserted.length).toBe(1);
-      expect(db.inserted[0].values.isSynced).toBe(false);
+      expect(repo.insert).toHaveBeenCalledTimes(1);
+      const [row] = repo.insert.mock.calls[0];
+      expect(row.is_synced).toBe(false);
     });
 
-    it('enqueues INSERT to pending_sync for transactions table', async () => {
+    it('appends exactly one oplog op via repo.insert for the transactions table', async () => {
       const envelope = buildEnvelope({
         householdId: KRUGER_ID,
         envelopeType: 'spending',
       });
       const db = createMockDb([envelope]);
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
+      const repo = createMockSyncedRepo();
 
       const uc = new CreateTransactionUseCase(
         db,
@@ -149,25 +168,25 @@ describe('Offline-First Scenarios (airplane mode)', () => {
           description: null,
           transactionDate: '2026-02-10',
         },
-        enqueuer,
+        { repo },
       );
 
       await uc.execute();
 
-      expect(enqueuer.enqueue).toHaveBeenCalledWith('transactions', expect.any(String), 'INSERT');
-      expect(enqueuer.calls).toHaveLength(1);
-      expect(enqueuer.calls[0].tableName).toBe('transactions');
-      expect(enqueuer.calls[0].operation).toBe('INSERT');
+      expect(repo.insert).toHaveBeenCalledTimes(1);
+      const [row] = repo.insert.mock.calls[0];
+      expect(row.household_id).toBe(KRUGER_ID);
+      expect(row.envelope_id).toBe(envelope.id);
     });
 
-    it('atomically increments envelope spentCents', async () => {
+    it('does NOT touch the envelope — balance is derived, not stored', async () => {
       const envelope = buildEnvelope({
         householdId: KRUGER_ID,
         envelopeType: 'spending',
       });
       const db = createMockDb([envelope]);
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
+      const repo = createMockSyncedRepo();
 
       const uc = new CreateTransactionUseCase(
         db,
@@ -180,21 +199,22 @@ describe('Offline-First Scenarios (airplane mode)', () => {
           description: null,
           transactionDate: '2026-03-01',
         },
-        enqueuer,
+        { repo },
       );
 
       await uc.execute();
 
-      expect(db.update).toHaveBeenCalled();
-      expect(db.updated.length).toBeGreaterThanOrEqual(1);
+      expect(db.update).not.toHaveBeenCalled();
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(repo.increment).not.toHaveBeenCalled();
     });
   });
 
   describe('CreateEnvelopeUseCase offline', () => {
-    it('saves envelope locally with isSynced: false and spentCents: 0', async () => {
+    it('saves envelope locally with is_synced: false and spent_cents: 0 via the synced repo', async () => {
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
+      const repo = createMockSyncedRepo();
 
       const uc = new CreateEnvelopeUseCase(
         db,
@@ -206,7 +226,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
           envelopeType: 'spending',
           periodStart: '2026-01-01',
         },
-        enqueuer,
+        { repo },
       );
 
       const result = await uc.execute();
@@ -216,14 +236,16 @@ describe('Offline-First Scenarios (airplane mode)', () => {
         expect(result.data.spentCents).toBe(0);
         expect(result.data.householdId).toBe(KRUGER_ID);
       }
-      expect(db.inserted.length).toBe(1);
-      expect(db.inserted[0].values.isSynced).toBe(false);
+      expect(repo.insert).toHaveBeenCalledTimes(1);
+      const [row] = repo.insert.mock.calls[0];
+      expect(row.is_synced).toBe(false);
+      expect(row.spent_cents).toBe(0);
     });
 
-    it('enqueues INSERT to pending_sync for envelopes table', async () => {
+    it('appends exactly one oplog op via repo.insert for the envelopes table', async () => {
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
+      const repo = createMockSyncedRepo();
 
       const uc = new CreateEnvelopeUseCase(
         db,
@@ -235,19 +257,20 @@ describe('Offline-First Scenarios (airplane mode)', () => {
           envelopeType: 'spending',
           periodStart: '2026-01-01',
         },
-        enqueuer,
+        { repo },
       );
 
       await uc.execute();
 
-      expect(enqueuer.enqueue).toHaveBeenCalledWith('envelopes', expect.any(String), 'INSERT');
-      expect(enqueuer.calls[0].tableName).toBe('envelopes');
+      expect(repo.insert).toHaveBeenCalledTimes(1);
+      const [row] = repo.insert.mock.calls[0];
+      expect(row.household_id).toBe(KRUGER_ID);
     });
 
     it('sets isSavingsLocked true for savings-type envelopes', async () => {
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
+      const repo = createMockSyncedRepo();
 
       const uc = new CreateEnvelopeUseCase(
         db,
@@ -259,7 +282,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
           envelopeType: 'savings',
           periodStart: '2026-01-01',
         },
-        enqueuer,
+        { repo },
       );
 
       const result = await uc.execute();
@@ -404,7 +427,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
       });
       const db = createMockDb([envelope]);
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
+      const repo = createMockSyncedRepo();
 
       const uc = new CreateTransactionUseCase(
         db,
@@ -417,7 +440,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
           description: null,
           transactionDate: '2026-01-15',
         },
-        enqueuer,
+        { repo },
       );
 
       await uc.execute();

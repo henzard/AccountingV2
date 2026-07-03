@@ -67,31 +67,23 @@ describe('Soft-Delete Gaps — Migration 0009 Not Registered', () => {
   });
 });
 
-describe('Soft-Delete Gaps — Hard Delete on Local', () => {
+describe('Soft-Delete Gaps — Hard Delete on Local (FIXED, slice 3 task 3)', () => {
   /**
-   * GAP: DeleteTransactionUseCase performs a hard DELETE (db.delete()),
-   * not a soft delete (UPDATE SET deleted_at = now()). The row is physically
-   * removed from SQLite.
+   * FIXED: SOFTDEL-001 — DeleteTransactionUseCase now soft-deletes
+   * (createSyncedRepo.softDelete sets `deleted_at`) instead of hard-deleting
+   * the row. This creates a tombstone (an oplog `delete` op) that can
+   * propagate to other devices, closing part of the data-resurrection risk
+   * documented below (SOFTDEL-002/003/004 remain open — server-side hard
+   * delete and RestoreService orphan-purge are unrelated, separate gaps).
    */
-  it('documents that DeleteTransactionUseCase uses hard delete', () => {
-    // DeleteTransactionUseCase.execute():
-    //   await this.db.delete(transactions).where(...)
-    // This is a hard delete — the row ceases to exist locally.
-    // Without soft-delete, there is no tombstone to propagate to other devices.
-
-    // Verify the source code uses .delete() not .update().set({ deletedAt: ... })
+  it('documents that DeleteTransactionUseCase now uses soft delete via the synced repo', () => {
     const sourceCode = require('fs').readFileSync(
       require('path').resolve(__dirname, '../../domain/transactions/DeleteTransactionUseCase.ts'),
       'utf8',
     );
 
-    // KNOWN-GAP: SOFTDEL-001 — DeleteTransactionUseCase uses hard DELETE instead of
-    // soft delete (UPDATE SET deleted_at = now()). Fixing requires: updating schema
-    // entity types, adding deleted_at filters to all queries, and coordinating with
-    // SyncOrchestrator and RestoreService. See also SOFTDEL-002, SOFTDEL-003, SOFTDEL-004.
-    expect(sourceCode).toContain('.delete(transactions)');
-    expect(sourceCode).not.toContain('deletedAt');
-    expect(sourceCode).not.toContain('deleted_at');
+    expect(sourceCode).toContain('repo.softDelete(');
+    expect(sourceCode).not.toContain('.delete(transactions)');
   });
 });
 
