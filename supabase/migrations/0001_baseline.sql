@@ -620,3 +620,150 @@ SELECT cron.schedule(
   '0 3 * * *',
   'SELECT public.cleanup_old_slip_images();'
 );
+
+-- ============================================================================
+-- 8. Task 2: private.is_household_member helper + RLS policies + grants.
+--    `private` is never exposed via PostgREST (only `public` is in the
+--    exposed-schemas list), so this helper is safe to keep out of `public`.
+-- ============================================================================
+
+CREATE SCHEMA IF NOT EXISTS private;
+
+CREATE OR REPLACE FUNCTION private.is_household_member(hid text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path = ''
+    AS $$
+  select exists (
+    select 1
+    from public.household_members m
+    where m.household_id = hid
+      and m.user_id = (select auth.uid())::text
+      and m.deleted_at is null
+  );
+$$;
+
+-- ----------------------------------------------------------------------
+-- 8a. Household-scoped SELECT policies (member-only; writes go through
+--     SECURITY DEFINER RPCs, so no INSERT/UPDATE/DELETE policies here).
+-- ----------------------------------------------------------------------
+
+CREATE POLICY households_select ON public.households
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(id));
+
+CREATE POLICY household_members_select ON public.household_members
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY invitations_select ON public.invitations
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY envelopes_select ON public.envelopes
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY transactions_select ON public.transactions
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY debts_select ON public.debts
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY meter_readings_select ON public.meter_readings
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY baby_steps_select ON public.baby_steps
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY slip_queue_select ON public.slip_queue
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+CREATE POLICY score_history_select ON public.score_history
+  FOR SELECT TO authenticated
+  USING (private.is_household_member(household_id));
+
+-- ----------------------------------------------------------------------
+-- 8b. Per-user tables. user_preferences.user_id is uuid (compares
+--     directly to auth.uid()); user_fcm_tokens/user_consent.user_id are
+--     text (cast auth.uid() to text).
+-- ----------------------------------------------------------------------
+
+CREATE POLICY user_consent_select ON public.user_consent
+  FOR SELECT TO authenticated
+  USING (user_id = (select auth.uid())::text);
+
+CREATE POLICY user_preferences_select ON public.user_preferences
+  FOR SELECT TO authenticated
+  USING (user_id = (select auth.uid()));
+
+CREATE POLICY user_preferences_insert ON public.user_preferences
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = (select auth.uid()));
+
+CREATE POLICY user_preferences_update ON public.user_preferences
+  FOR UPDATE TO authenticated
+  USING (user_id = (select auth.uid()))
+  WITH CHECK (user_id = (select auth.uid()));
+
+CREATE POLICY user_fcm_tokens_select ON public.user_fcm_tokens
+  FOR SELECT TO authenticated
+  USING (user_id = (select auth.uid())::text);
+
+CREATE POLICY user_fcm_tokens_insert ON public.user_fcm_tokens
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = (select auth.uid())::text);
+
+CREATE POLICY user_fcm_tokens_update ON public.user_fcm_tokens
+  FOR UPDATE TO authenticated
+  USING (user_id = (select auth.uid())::text)
+  WITH CHECK (user_id = (select auth.uid())::text);
+
+CREATE POLICY user_fcm_tokens_delete ON public.user_fcm_tokens
+  FOR DELETE TO authenticated
+  USING (user_id = (select auth.uid())::text);
+
+-- ----------------------------------------------------------------------
+-- 8c. Grants. job_log and notify_send_log are service_role-only (no
+--     authenticated/anon grants or policies); every other table gets
+--     SELECT for authenticated + anon (mirroring slice-1's 022 for the
+--     client-read tables) plus per-user DML grants as above; service_role
+--     gets ALL on every table.
+-- ----------------------------------------------------------------------
+
+GRANT SELECT ON public.households TO authenticated, anon;
+GRANT SELECT ON public.household_members TO authenticated, anon;
+GRANT SELECT ON public.invitations TO authenticated, anon;
+GRANT SELECT ON public.envelopes TO authenticated, anon;
+GRANT SELECT ON public.transactions TO authenticated, anon;
+GRANT SELECT ON public.debts TO authenticated, anon;
+GRANT SELECT ON public.meter_readings TO authenticated, anon;
+GRANT SELECT ON public.baby_steps TO authenticated, anon;
+GRANT SELECT ON public.slip_queue TO authenticated, anon;
+GRANT SELECT ON public.score_history TO authenticated, anon;
+
+GRANT SELECT ON public.user_consent TO authenticated, anon;
+
+GRANT SELECT, INSERT, UPDATE ON public.user_preferences TO authenticated;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_fcm_tokens TO authenticated;
+
+GRANT ALL ON public.households TO service_role;
+GRANT ALL ON public.household_members TO service_role;
+GRANT ALL ON public.invitations TO service_role;
+GRANT ALL ON public.envelopes TO service_role;
+GRANT ALL ON public.transactions TO service_role;
+GRANT ALL ON public.debts TO service_role;
+GRANT ALL ON public.meter_readings TO service_role;
+GRANT ALL ON public.baby_steps TO service_role;
+GRANT ALL ON public.slip_queue TO service_role;
+GRANT ALL ON public.score_history TO service_role;
+GRANT ALL ON public.user_consent TO service_role;
+GRANT ALL ON public.user_preferences TO service_role;
+GRANT ALL ON public.user_fcm_tokens TO service_role;
+GRANT ALL ON public.job_log TO service_role;
+GRANT ALL ON public.notify_send_log TO service_role;

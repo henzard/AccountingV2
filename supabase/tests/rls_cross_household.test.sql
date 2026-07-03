@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(4);
+select plan(6);
 
 -- Seed: two auth users
 insert into auth.users (id, email)
@@ -23,6 +23,14 @@ insert into public.envelopes (id, household_id, name, allocated_cents, spent_cen
 values
   ('env-b', 'hh-b', 'Groceries B', 10000, 0, 'spending', '2026-01-01', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 
+insert into public.transactions (id, household_id, envelope_id, amount_cents, transaction_date, created_at, updated_at)
+values
+  ('txn-b', 'hh-b', 'env-b', 1000, '2026-01-01', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+
+insert into public.debts (id, household_id, creditor_name, debt_type, outstanding_balance_cents, interest_rate_percent, minimum_payment_cents, created_at, updated_at)
+values
+  ('debt-b', 'hh-b', 'Creditor B', 'credit_card', 50000, 19.99, 2500, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+
 -- Act as user A (authenticated)
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
@@ -38,6 +46,14 @@ select is(
 select is(
   (select count(*)::int from public.envelopes where household_id = 'hh-b'),
   0, 'cross-household SELECT on envelopes returns zero rows');
+
+select is(
+  (select count(*)::int from public.transactions where household_id = 'hh-b'),
+  0, 'cross-household SELECT on transactions returns zero rows');
+
+select is(
+  (select count(*)::int from public.debts where household_id = 'hh-b'),
+  0, 'cross-household SELECT on debts returns zero rows');
 
 -- Anonymous sees nothing at all
 set local role anon;
