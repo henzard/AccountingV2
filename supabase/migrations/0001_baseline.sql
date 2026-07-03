@@ -88,6 +88,16 @@ ALTER TABLE ONLY public.household_members
 
 CREATE INDEX idx_household_members_household_id ON public.household_members USING btree (household_id);
 
+-- Partial unique index: at most one ACTIVE (deleted_at IS NULL) membership
+-- row per (household_id, user_id). Soft-deleted rows are excluded so a
+-- removed member can rejoin later. This closes a TOCTOU window in
+-- join_household_via_invite where two concurrent joins (e.g. via two valid
+-- invites to the same household) could both pass the pre-insert EXISTS
+-- check and insert duplicate active membership rows; the second INSERT now
+-- raises unique_violation instead, which the function catches as a no-op.
+CREATE UNIQUE INDEX household_members_household_id_user_id_active_idx
+  ON public.household_members (household_id, user_id) WHERE deleted_at IS NULL;
+
 -- Drop guard for the retired user_households sync trigger; must run after
 -- household_members exists so the relation reference resolves.
 DROP TRIGGER IF EXISTS tr_household_members_sync_user_households ON public.household_members;
@@ -462,9 +472,11 @@ BEGIN
   IF first_segment !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
     RETURN false;
   END IF;
-  RETURN first_segment IN (
-    SELECT household_id FROM public.household_members WHERE user_id::text = auth.uid()::text
-  );
+  -- Schema-qualified call to private.is_household_member (defined later in
+  -- this file, section 8) so search_path resolution isn't needed and the
+  -- deleted_at IS NULL membership check is single-sourced: a soft-deleted
+  -- (removed) member must NOT keep slip-path access.
+  RETURN private.is_household_member(first_segment);
 END;
 $_$;
 
@@ -515,8 +527,19 @@ BEGIN
     RAISE EXCEPTION 'already a member of this household' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
-  INSERT INTO public.household_members (id, household_id, user_id, role, joined_at, updated_at)
-  VALUES (member_id, invite_row.household_id, caller_id, 'member', now_ts, now_ts);
+  -- The EXISTS check above is a TOCTOU-vulnerable pre-check: two concurrent
+  -- joins (e.g. via two different valid invites to the same household) can
+  -- both pass it and race to insert. The partial unique index on
+  -- (household_id, user_id) WHERE deleted_at IS NULL is the actual guard;
+  -- a loser of the race hits unique_violation here and is treated as a
+  -- no-op success (the caller ends up an active member either way) instead
+  -- of surfacing a spurious error.
+  BEGIN
+    INSERT INTO public.household_members (id, household_id, user_id, role, joined_at, updated_at)
+    VALUES (member_id, invite_row.household_id, caller_id, 'member', now_ts, now_ts);
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
 
   UPDATE public.invitations
   SET used_by = caller_id, used_at = now_ts
@@ -765,6 +788,15 @@ CREATE POLICY user_consent_select ON public.user_consent
   FOR SELECT TO authenticated
   USING (user_id = (select auth.uid())::text);
 
+CREATE POLICY user_consent_insert ON public.user_consent
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = (select auth.uid())::text);
+
+CREATE POLICY user_consent_update ON public.user_consent
+  FOR UPDATE TO authenticated
+  USING (user_id = (select auth.uid())::text)
+  WITH CHECK (user_id = (select auth.uid())::text);
+
 CREATE POLICY user_preferences_select ON public.user_preferences
   FOR SELECT TO authenticated
   USING (user_id = (select auth.uid()));
@@ -815,6 +847,7 @@ GRANT SELECT ON public.slip_queue TO authenticated, anon;
 GRANT SELECT ON public.score_history TO authenticated, anon;
 
 GRANT SELECT ON public.user_consent TO authenticated, anon;
+GRANT INSERT, UPDATE ON public.user_consent TO authenticated;
 
 GRANT SELECT, INSERT, UPDATE ON public.user_preferences TO authenticated;
 

@@ -11,7 +11,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(13);
 
 -- ---------------------------------------------------------------------------
 -- Seed (as postgres, RLS bypassed): one household with an owner and a plain
@@ -120,6 +120,43 @@ select throws_like(
   $$select public.join_household_via_invite((select result ->> 'code' from t_invite))$$,
   '%already used%',
   'P5: an already-consumed invitation code is rejected');
+
+-- ===========================================================================
+-- Probe 6: TOCTOU dup-membership guard. Concurrent joins via different
+-- valid invites to the same household could previously both pass the
+-- pre-insert EXISTS check and insert duplicate active (household_id,
+-- user_id) rows. True concurrency isn't practical to drive from a single
+-- pgTAP session (the EXISTS pre-check already short-circuits a same-session
+-- re-join attempt with an "already a member" error before reaching the
+-- INSERT), so this proves the index-level guard directly instead: the
+-- partial unique index exists, and a duplicate active row raises
+-- unique_violation — the exact condition join_household_via_invite's new
+-- EXCEPTION WHEN unique_violation handler catches and treats as a no-op.
+-- ===========================================================================
+reset role;
+
+select ok(
+  exists (
+    select 1 from pg_indexes
+    where schemaname = 'public'
+      and tablename = 'household_members'
+      and indexname = 'household_members_household_id_user_id_active_idx'
+  ),
+  'P6: a partial unique index on household_members(household_id, user_id) WHERE deleted_at IS NULL exists');
+
+select throws_ok(
+  $$insert into public.household_members (id, household_id, user_id, role, joined_at)
+    values ('hm-dup', 'hh-invite', '00000000-0000-0000-0000-00000000000c', 'member', now())$$,
+  '23505'::character(5),
+  null,
+  'P6: a second active membership row for an existing member raises unique_violation');
+
+select is(
+  (select count(*)::int from public.household_members
+   where household_id = 'hh-invite'
+     and user_id = '00000000-0000-0000-0000-00000000000c'
+     and deleted_at is null),
+  1, 'P6: the rejected duplicate insert left exactly one active row for the joiner');
 
 select * from finish();
 rollback;
