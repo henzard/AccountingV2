@@ -33,13 +33,15 @@
 
 - Produces: `openMigratedDb(upToTag?: string): Database.Database` — opens an in-memory better-sqlite3 DB with `foreign_keys=ON` and all local migrations applied in journal order (optionally stopping after `upToTag`); and `applyMigrationsAfter(db: Database.Database, afterTag: string): void` — applies every migration after `afterTag` to an existing DB. Task 2 and all future slice tests consume these.
 
-**Deliberate deviation from the spec:** the spec's Real-Postgres tier also lists "RPC signature contract tests". Those are deferred to Slice 2: today's client intentionally mismatches `join_household_via_invite` (the known invite bug), so a contract test added now would leave this slice permanently red. Slice 2 rebuilds the RPCs and lands the contract test with them.
+**Scope note (per the spec's build order):** RPC signature contract tests belong to Slice 2, where the RPCs are rebuilt — today's client intentionally mismatches `join_household_via_invite` (the known invite bug), so a contract test added now would leave this slice permanently red. The spec's tier-2 definition annotates this placement.
 
 - [ ] **Step 1: Install dependencies**
 
 ```bash
-npm install --save-dev better-sqlite3 @types/better-sqlite3 @babel/preset-env @babel/preset-typescript
+npm install --save-dev better-sqlite3@~12.9.1 @types/better-sqlite3 @babel/preset-env @babel/preset-typescript
 ```
+
+The `~12.9.1` pin is load-bearing: better-sqlite3 ≥ 12.10 dropped Node 20 (ABI node-v115) prebuilt binaries when Node 20 left LTS, so an unpinned install on this Node 20 repo source-compiles via node-gyp — fine on ubuntu CI, but it fails on Windows dev machines without VS Build Tools. Unpin when the project moves to Node 22.
 
 - [ ] **Step 2: Convert jest.config.js to multi-project**
 
@@ -257,12 +259,18 @@ Expected: PASS (2 tests).
 Run: `npx tsc --noEmit && npx eslint src/ --ext .ts,.tsx --max-warnings 0 && npx jest --selectProjects app --silent 2>&1 | tail -3`
 Expected: all green.
 
+Then verify the CI command picks up BOTH projects (the "Done means" criterion depends on it):
+Run: `npx jest --listTests 2>&1 | grep -c "tests/realsql"`
+Expected: ≥ 1 (the realsql tests are in the default `npx jest` run that CI's `check` job executes as `npx jest --coverage`).
+
 - [ ] **Step 10: Commit**
 
 ```bash
 git add jest.config.js package.json package-lock.json tests/realsql/ src/data/local/migrations/0007_household_members_updated_at.sql
 git commit -m "test(realsql): real-SQLite migration harness; fix invalid non-constant default in 0007"
 ```
+
+If Step 7 was skipped (0007 applied cleanly under better-sqlite3), drop the 0007 file from `git add` and commit with `-m "test(realsql): real-SQLite migration harness; 0007 applies cleanly under better-sqlite3"` instead.
 
 ---
 
@@ -405,7 +413,7 @@ Expected: creates `supabase/config.toml` (accept defaults; answer "n" to VS Code
 There are two distinct landmines in the chain:
 
 1. **Content duplicate:** `010_user_preferences.sql` re-creates the same `user_preferences` table and the same three policies as `008_user_preferences.sql` (verified: files differ only in header/trailing comments). The unguarded `CREATE POLICY up_select/up_insert/up_update` statements abort any fresh replay with `42710 duplicate_object`.
-2. **Version-number collision:** TWO files share the numeric prefix `008` (`008_phase2_data_integrity.sql` and `008_user_preferences.sql`). The Supabase CLI records the leading digits as the migration version in `supabase_migrations.schema_migrations`, whose primary key is `version` — a fresh replay inserts version `008` twice and dies with a `schema_migrations_pkey` violation (supabase/cli issues #2564, #4417) even after fix 1.
+2. **Version-number collision:** TWO files share the numeric prefix `008` (`008_phase2_data_integrity.sql` and `008_user_preferences.sql`). The Supabase CLI parses the version as the filename's leading digits (`^([0-9]+)_(.*)\.sql$` in the CLI's migration/file.go) and records it in `supabase_migrations.schema_migrations`, where `version` is the PRIMARY KEY with a plain INSERT per migration — so a fresh replay inserts version `008` twice and dies with a `schema_migrations_pkey` violation even after fix 1.
 
 Fix both with one move — delete the content-duplicate and renumber the second 008 into the freed 010 slot (its content is unchanged; `user_preferences` is self-contained, so applying at position 010 instead of 008 is order-safe):
 
@@ -450,7 +458,7 @@ db:
   steps:
     - uses: actions/checkout@v4
 
-    - uses: supabase/setup-cli@v1
+    - uses: supabase/setup-cli@v2
       with:
         version: latest
 
@@ -469,9 +477,11 @@ Run: `npx supabase db reset`
 Expected: `Finished supabase db reset` with no errors.
 
 ```bash
-git add supabase/config.toml .github/workflows/ci.yml package.json package-lock.json
+git add supabase/config.toml supabase/migrations/ .github/workflows/ci.yml package.json package-lock.json
 git commit -m "ci(db): local Supabase stack in CI; dedupe migrations 008/010; fix branch glob"
 ```
+
+(`supabase/migrations/` is staged so that any files touched by Step 3's `DROP POLICY IF EXISTS` contingency path are committed too — the `git rm`/`git mv` from Step 2 are already staged, plain edits are not.)
 
 Push the branch and confirm the `db` job goes green in GitHub Actions before starting Task 4.
 
