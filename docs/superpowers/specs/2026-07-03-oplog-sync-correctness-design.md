@@ -77,7 +77,7 @@ Backoff/DLQ retry logic (ported into the pusher), invite-code crypto, the slip-s
 
 ### Derived balances
 
-`spentCents` becomes a read model: SQL view summing non-deleted transactions per `(envelope_id, period)`. `EnvelopeEntity` helpers unchanged; they receive a computed value.
+`spentCents` becomes a read model: SQL view summing non-deleted transactions — per `(envelope_id, period)` for period-scoped envelopes, all-time per envelope for persistent ones. `EnvelopeEntity` helpers unchanged; they receive a computed value.
 
 ### Envelope scopes
 
