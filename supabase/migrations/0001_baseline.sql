@@ -520,9 +520,13 @@ BEGIN
     RAISE EXCEPTION 'invite expired' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
+  -- Only an ACTIVE membership blocks a re-join; a previously-removed
+  -- (soft-deleted) member is allowed to rejoin via a fresh invite.
   IF EXISTS (
     SELECT 1 FROM public.household_members hm
-    WHERE hm.household_id = invite_row.household_id AND hm.user_id = caller_id
+    WHERE hm.household_id = invite_row.household_id
+      AND hm.user_id = caller_id
+      AND hm.deleted_at IS NULL
   ) THEN
     RAISE EXCEPTION 'already a member of this household' USING ERRCODE = 'insufficient_privilege';
   END IF;

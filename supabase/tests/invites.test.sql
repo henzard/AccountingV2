@@ -11,7 +11,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(13);
+select plan(14);
 
 -- ---------------------------------------------------------------------------
 -- Seed (as postgres, RLS bypassed): one household with an owner and a plain
@@ -157,6 +157,32 @@ select is(
      and user_id = '00000000-0000-0000-0000-00000000000c'
      and deleted_at is null),
   1, 'P6: the rejected duplicate insert left exactly one active row for the joiner');
+
+-- ===========================================================================
+-- Probe 7: a previously-removed (soft-deleted) member can rejoin via a fresh
+-- invite — the pre-insert membership check ignores soft-deleted rows.
+-- ===========================================================================
+reset role;
+update public.household_members
+  set deleted_at = now()
+  where id = 'hm-member';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+create temporary table t_rejoin as select public.create_invitation('hh-invite') as result;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+create temporary table t_rejoin_result as
+select public.join_household_via_invite((select result ->> 'code' from t_rejoin)) as ok;
+
+reset role;
+select is(
+  (select count(*)::int from public.household_members
+   where household_id = 'hh-invite'
+     and user_id = '00000000-0000-0000-0000-00000000000b'
+     and deleted_at is null),
+  1, 'P7: a soft-deleted member who rejoins has exactly one active membership again');
 
 select * from finish();
 rollback;
