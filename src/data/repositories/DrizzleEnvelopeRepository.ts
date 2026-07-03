@@ -1,10 +1,13 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../local/schema';
 import { envelopes } from '../local/schema';
 import type { IEnvelopeRepository } from '../../domain/ports/IEnvelopeRepository';
 import type { EnvelopeEntity } from '../../domain/envelopes/EnvelopeEntity';
-import { getEnvelopeSpentCents } from '../local/balances/EnvelopeBalanceQuery';
+import {
+  getEnvelopeSpentCents,
+  envelopeScopeCondition,
+} from '../local/balances/EnvelopeBalanceQuery';
 
 export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
   constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
@@ -27,12 +30,29 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
     return this.rowToEntity(row, spentByEnvelope.get(row.id) ?? 0);
   }
 
-  /** Returns every household envelope for `periodStart`, with `spentCents` derived from the ledger. */
+  /**
+   * Returns this household's envelopes IN SCOPE for `periodStart`, with
+   * `spentCents` derived from the ledger. Uses the same
+   * `envelopeScopeCondition` predicate as `getEnvelopeSpentCents`: a
+   * period-scoped envelope (spending/income/utility) is only included when
+   * its own `period_start` matches, while a persistent envelope
+   * (sinking_fund/emergency_fund/savings/baby_step) is always included. This
+   * keeps other periods' period-scoped rows out of the list — previously
+   * every household envelope was returned regardless of period, so an old
+   * period's spending envelope would leak in with a misleading
+   * `spentCents: 0`.
+   */
   async listByHousehold(householdId: string, periodStart: string): Promise<EnvelopeEntity[]> {
     const rows = await this.db
       .select()
       .from(envelopes)
-      .where(eq(envelopes.householdId, householdId));
+      .where(
+        and(
+          eq(envelopes.householdId, householdId),
+          isNull(envelopes.deletedAt),
+          envelopeScopeCondition(periodStart),
+        ),
+      );
     const spentByEnvelope = await getEnvelopeSpentCents(this.db, householdId, periodStart);
     return rows.map((r) => this.rowToEntity(r, spentByEnvelope.get(r.id) ?? 0));
   }

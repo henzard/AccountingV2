@@ -87,4 +87,17 @@ describe('DeleteTransactionUseCase', () => {
     const result = await uc.execute();
     expect(result.success).toBe(true);
   });
+
+  it('succeeds (does not fail execute or soft-delete twice) when audit.log throws after the ledger commit', async () => {
+    const repo = makeFakeRepo();
+    const failingAudit = { log: jest.fn().mockRejectedValue(new Error('audit db unavailable')) };
+    const uc = new DeleteTransactionUseCase(mockDb, failingAudit as any, tx, { repo });
+
+    const result = await uc.execute();
+
+    expect(result.success).toBe(true);
+    // The soft-delete is the source of truth and already committed by the
+    // time audit.log runs — exactly one call, even though audit failed.
+    expect(repo.softDelete).toHaveBeenCalledTimes(1);
+  });
 });

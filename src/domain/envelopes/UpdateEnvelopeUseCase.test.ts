@@ -167,6 +167,24 @@ describe('UpdateEnvelopeUseCase', () => {
     expect(audit.log).not.toHaveBeenCalled();
   });
 
+  it('rethrows (does NOT report ENVELOPE_NOT_FOUND) when repo.update fails for a non-not-found reason', async () => {
+    const repo = makeFakeRepo();
+    repo.update.mockImplementation(() => {
+      throw new Error('SQLITE_BUSY: database is locked');
+    });
+    const audit = makeAudit();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      audit as any,
+      existing,
+      { name: 'Food', allocatedCents: 400000 },
+      { repo },
+    );
+
+    await expect(uc.execute()).rejects.toThrow('SQLITE_BUSY: database is locked');
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
   it('uses a default synced repo (createSyncedRepo over db) when none is injected', async () => {
     const dbWithRun = {
       transaction: jest.fn((fn: any) => fn({ run: jest.fn().mockReturnValue({ changes: 1 }) })),

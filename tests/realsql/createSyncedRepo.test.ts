@@ -312,6 +312,100 @@ describe('createSyncedRepo (real SQLite)', () => {
     raw.close();
   });
 
+  it('update targeting household_id in fields throws and appends no oplog row (cross-household move guard)', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    seedHousehold(raw, 'hh-2');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    repo.insert(baseEnvelopeRow('env-guard', 'hh-1'), makeCtx({ genId: () => 'op-insert-guard' }));
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.update(
+        'env-guard',
+        'hh-1',
+        { name: 'Rent', household_id: 'hh-2' },
+        makeCtx({ genId: () => 'op-update-guard' }),
+      );
+    }).toThrow(/forbidden/i);
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+    const envelope = raw
+      .prepare('SELECT * FROM envelopes WHERE id = ?')
+      .get('env-guard') as EnvelopeRow;
+    expect(envelope.household_id).toBe('hh-1'); // untouched — never moved cross-household
+    expect(envelope.name).toBe('Groceries'); // untouched — whole write rejected, not partially applied
+
+    raw.close();
+  });
+
+  it('update targeting id or created_at in fields throws and appends no oplog row', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    repo.insert(
+      baseEnvelopeRow('env-guard-2', 'hh-1'),
+      makeCtx({ genId: () => 'op-insert-guard-2' }),
+    );
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.update(
+        'env-guard-2',
+        'hh-1',
+        { id: 'env-guard-hijacked' },
+        makeCtx({ genId: () => 'op-update-guard-id' }),
+      );
+    }).toThrow(/forbidden/i);
+    expect(() => {
+      repo.update(
+        'env-guard-2',
+        'hh-1',
+        { created_at: '1999-01-01T00:00:00.000Z' },
+        makeCtx({ genId: () => 'op-update-guard-created' }),
+      );
+    }).toThrow(/forbidden/i);
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+
+    raw.close();
+  });
+
+  it('increment targeting household_id as the field throws and appends no oplog row', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+    const repo = createSyncedRepo(db, { tableName: 'envelopes' });
+
+    repo.insert(
+      baseEnvelopeRow('env-guard-3', 'hh-1'),
+      makeCtx({ genId: () => 'op-insert-guard-3' }),
+    );
+    const before = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+
+    expect(() => {
+      repo.increment(
+        'env-guard-3',
+        'hh-1',
+        'household_id',
+        1,
+        'none',
+        makeCtx({ genId: () => 'op-increment-guard' }),
+      );
+    }).toThrow(/forbidden/i);
+
+    const after = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(after).toBe(before);
+
+    raw.close();
+  });
+
   it('softDelete targeting a non-existent id throws and appends no oplog row', () => {
     const raw = openMigratedDb();
     seedHousehold(raw, 'hh-1');

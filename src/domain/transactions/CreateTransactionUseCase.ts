@@ -8,6 +8,7 @@ import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { logger } from '../../infrastructure/logging/Logger';
 import type { TransactionEntity } from './TransactionEntity';
 
 interface CreateTransactionInput {
@@ -100,20 +101,34 @@ export class CreateTransactionUseCase {
     const repo = resolveSyncedRepo(this.db, 'transactions', this.deps);
     repo.insert(row, resolveSyncedRepoCtx(this.deps));
 
-    await this.audit.log({
-      householdId: this.input.householdId,
-      entityType: 'transaction',
-      entityId: id,
-      action: 'create',
-      previousValue: null,
-      newValue: {
-        id: tx.id,
-        envelopeId: tx.envelopeId,
-        amountCents: tx.amountCents,
-        payee: tx.payee,
-        transactionDate: tx.transactionDate,
-      },
-    });
+    // The ledger write above (entity row + oplog, one SQLite transaction) is
+    // the source of truth and has already committed by this point. Audit
+    // logging is a secondary, best-effort concern — if it throws here we
+    // must NOT reject execute(), because the caller would see a failure for
+    // a write that actually succeeded and retry, producing a duplicate
+    // transaction (double spend). So a failed audit write is logged and
+    // swallowed rather than folded into this result.
+    try {
+      await this.audit.log({
+        householdId: this.input.householdId,
+        entityType: 'transaction',
+        entityId: id,
+        action: 'create',
+        previousValue: null,
+        newValue: {
+          id: tx.id,
+          envelopeId: tx.envelopeId,
+          amountCents: tx.amountCents,
+          payee: tx.payee,
+          transactionDate: tx.transactionDate,
+        },
+      });
+    } catch (err) {
+      logger.error('CreateTransactionUseCase: audit.log failed after ledger commit', err, {
+        transactionId: id,
+        householdId: this.input.householdId,
+      });
+    }
 
     return createSuccess(tx);
   }

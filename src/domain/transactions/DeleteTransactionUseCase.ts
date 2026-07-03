@@ -5,6 +5,7 @@ import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { logger } from '../../infrastructure/logging/Logger';
 import type { TransactionEntity } from './TransactionEntity';
 
 /**
@@ -38,20 +39,32 @@ export class DeleteTransactionUseCase {
       });
     }
 
-    await this.audit.log({
-      householdId: this.tx.householdId,
-      entityType: 'transaction',
-      entityId: this.tx.id,
-      action: 'delete',
-      previousValue: {
-        id: this.tx.id,
-        envelopeId: this.tx.envelopeId,
-        amountCents: this.tx.amountCents,
-        payee: this.tx.payee,
-        transactionDate: this.tx.transactionDate,
-      },
-      newValue: null,
-    });
+    // The soft-delete above has already committed (entity row + oplog, one
+    // SQLite transaction). Audit logging is secondary/best-effort from here
+    // — if it throws, execute() must still succeed, otherwise a caller
+    // retry would re-run the (already-applied) delete/oplog path against a
+    // row that no longer matches, or mask a delete that genuinely worked.
+    try {
+      await this.audit.log({
+        householdId: this.tx.householdId,
+        entityType: 'transaction',
+        entityId: this.tx.id,
+        action: 'delete',
+        previousValue: {
+          id: this.tx.id,
+          envelopeId: this.tx.envelopeId,
+          amountCents: this.tx.amountCents,
+          payee: this.tx.payee,
+          transactionDate: this.tx.transactionDate,
+        },
+        newValue: null,
+      });
+    } catch (err) {
+      logger.error('DeleteTransactionUseCase: audit.log failed after ledger commit', err, {
+        transactionId: this.tx.id,
+        householdId: this.tx.householdId,
+      });
+    }
 
     return createSuccess(undefined);
   }

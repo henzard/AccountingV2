@@ -71,6 +71,7 @@ describe('CreateTransactionUseCase', () => {
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+    expect(repo.insert).not.toHaveBeenCalled();
   });
 
   it('inserts the transaction row via the synced repo and does NOT touch the envelope', async () => {
@@ -186,5 +187,18 @@ describe('CreateTransactionUseCase', () => {
     const uc = new CreateTransactionUseCase(dbWithRun, mockAudit, input);
     const result = await uc.execute();
     expect(result.success).toBe(true);
+  });
+
+  it('succeeds (does not fail execute or write twice) when audit.log throws after the ledger commit', async () => {
+    const repo = makeFakeRepo();
+    const failingAudit = { log: jest.fn().mockRejectedValue(new Error('audit db unavailable')) };
+    const uc = new CreateTransactionUseCase(mockDb, failingAudit as any, input, { repo });
+
+    const result = await uc.execute();
+
+    expect(result.success).toBe(true);
+    // The ledger write is the source of truth and already committed by the
+    // time audit.log runs — exactly one insert, even though audit failed.
+    expect(repo.insert).toHaveBeenCalledTimes(1);
   });
 });

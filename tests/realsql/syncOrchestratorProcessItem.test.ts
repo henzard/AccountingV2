@@ -72,35 +72,39 @@ function makeSuccessfulSupabaseMock(): SupabaseClient {
 describe('SyncOrchestrator.syncPending against a real post-0012 migrated DB', () => {
   it('completes a successful remote upsert without throwing and removes the pending_sync row (debts)', async () => {
     const raw = openMigratedDb();
-    const db = drizzle(raw, { schema: {} }) as unknown as ExpoSQLiteDatabase<typeof schema>;
+    try {
+      const db = drizzle(raw, { schema: {} }) as unknown as ExpoSQLiteDatabase<typeof schema>;
 
-    seedHousehold(raw, 'hh-1');
-    seedDebt(raw, 'debt-1', 'hh-1');
-    seedPendingSync(raw, { id: 'ps-1', tableName: 'debts', recordId: 'debt-1' });
+      seedHousehold(raw, 'hh-1');
+      seedDebt(raw, 'debt-1', 'hh-1');
+      seedPendingSync(raw, { id: 'ps-1', tableName: 'debts', recordId: 'debt-1' });
 
-    const supabase = makeSuccessfulSupabaseMock();
-    const orch = new SyncOrchestrator(db, supabase);
+      const supabase = makeSuccessfulSupabaseMock();
+      const orch = new SyncOrchestrator(db, supabase);
 
-    // Before the fix, this threw SQLITE_ERROR ("near WHERE: syntax error" /
-    // similar) because processItem's post-upsert isSynced update produced an
-    // empty SET clause against the debts table.
-    const result = await orch.syncPending();
+      // Before the fix, this threw SQLITE_ERROR ("near WHERE: syntax error" /
+      // similar) because processItem's post-upsert isSynced update produced an
+      // empty SET clause against the debts table.
+      const result = await orch.syncPending();
 
-    expect(result.failed).toBe(0);
-    expect(result.deadLettered).toBe(0);
-    expect(result.synced).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(result.deadLettered).toBe(0);
+      expect(result.synced).toBe(1);
 
-    const remaining = raw.prepare('SELECT * FROM pending_sync WHERE id = ?').get('ps-1');
-    expect(remaining).toBeUndefined();
+      const remaining = raw.prepare('SELECT * FROM pending_sync WHERE id = ?').get('ps-1');
+      expect(remaining).toBeUndefined();
 
-    // Sanity: the debts row itself is untouched/still present and consistent.
-    const debtRow = raw.prepare('SELECT * FROM debts WHERE id = ?').get('debt-1') as
-      | Record<string, unknown>
-      | undefined;
-    expect(debtRow).toBeTruthy();
-    expect(debtRow?.id).toBe('debt-1');
-
-    raw.close();
+      // Sanity: the debts row itself is untouched/still present and consistent.
+      const debtRow = raw.prepare('SELECT * FROM debts WHERE id = ?').get('debt-1') as
+        | Record<string, unknown>
+        | undefined;
+      expect(debtRow).toBeTruthy();
+      expect(debtRow?.id).toBe('debt-1');
+    } finally {
+      // Close even if an assertion above throws, so a failing test doesn't
+      // leak a real SQLite file handle into the rest of the run.
+      raw.close();
+    }
   });
 
   it('does not attempt to update an isSynced/is_synced column on any post-0012 entity table', async () => {
@@ -109,27 +113,29 @@ describe('SyncOrchestrator.syncPending against a real post-0012 migrated DB', ()
     // underlying better-sqlite3 connection's exec/prepare calls during a full
     // syncPending() run and confirming no SQL statement references is_synced.
     const raw = openMigratedDb();
-    const db = drizzle(raw, { schema: {} }) as unknown as ExpoSQLiteDatabase<typeof schema>;
+    try {
+      const db = drizzle(raw, { schema: {} }) as unknown as ExpoSQLiteDatabase<typeof schema>;
 
-    seedHousehold(raw, 'hh-1');
-    seedDebt(raw, 'debt-2', 'hh-1');
-    seedPendingSync(raw, { id: 'ps-2', tableName: 'debts', recordId: 'debt-2' });
+      seedHousehold(raw, 'hh-1');
+      seedDebt(raw, 'debt-2', 'hh-1');
+      seedPendingSync(raw, { id: 'ps-2', tableName: 'debts', recordId: 'debt-2' });
 
-    const seenSql: string[] = [];
-    const originalPrepare = raw.prepare.bind(raw);
-    const prepareSpy = jest.fn((sqlText: string) => {
-      seenSql.push(sqlText);
-      return originalPrepare(sqlText);
-    });
-    raw.prepare = prepareSpy as unknown as typeof raw.prepare;
+      const seenSql: string[] = [];
+      const originalPrepare = raw.prepare.bind(raw);
+      const prepareSpy = jest.fn((sqlText: string) => {
+        seenSql.push(sqlText);
+        return originalPrepare(sqlText);
+      });
+      raw.prepare = prepareSpy as unknown as typeof raw.prepare;
 
-    const supabase = makeSuccessfulSupabaseMock();
-    const orch = new SyncOrchestrator(db, supabase);
-    await orch.syncPending();
+      const supabase = makeSuccessfulSupabaseMock();
+      const orch = new SyncOrchestrator(db, supabase);
+      await orch.syncPending();
 
-    const badStatements = seenSql.filter((s) => /is_synced/i.test(s));
-    expect(badStatements).toEqual([]);
-
-    raw.close();
+      const badStatements = seenSql.filter((s) => /is_synced/i.test(s));
+      expect(badStatements).toEqual([]);
+    } finally {
+      raw.close();
+    }
   });
 });

@@ -97,4 +97,48 @@ describe('DrizzleEnvelopeRepository (real SQLite)', () => {
 
     raw.close();
   });
+
+  it("listByHousehold excludes another period's period-scoped envelope but includes a persistent one", async () => {
+    const raw = openMigratedDb();
+    const db = drizzle(raw, { schema: {} }) as unknown as ExpoSQLiteDatabase<typeof schema>;
+    const householdId = 'hh-1';
+    const currentPeriod = '2026-07-01';
+    const oldPeriod = '2026-06-01';
+
+    seedHousehold(raw, householdId);
+    // A period-scoped envelope belonging to a PAST period — must not leak
+    // into the current period's list (this was the bug: listByHousehold
+    // ignored periodStart entirely and returned every household envelope).
+    seedEnvelope(raw, {
+      id: 'env-old-period',
+      householdId,
+      envelopeType: 'spending',
+      periodStart: oldPeriod,
+    });
+    // The current period's equivalent row — must be included.
+    seedEnvelope(raw, {
+      id: 'env-current-period',
+      householdId,
+      envelopeType: 'spending',
+      periodStart: currentPeriod,
+    });
+    // A persistent envelope keeps the same row across periods, so it's
+    // included regardless of which period_start it happens to carry.
+    seedEnvelope(raw, {
+      id: 'env-persistent',
+      householdId,
+      envelopeType: 'sinking_fund',
+      periodStart: oldPeriod,
+    });
+
+    const repo = new DrizzleEnvelopeRepository(db);
+    const envelopes = await repo.listByHousehold(householdId, currentPeriod);
+    const ids = envelopes.map((e) => e.id);
+
+    expect(ids).not.toContain('env-old-period');
+    expect(ids).toContain('env-current-period');
+    expect(ids).toContain('env-persistent');
+
+    raw.close();
+  });
 });

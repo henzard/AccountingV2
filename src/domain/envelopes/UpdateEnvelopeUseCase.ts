@@ -5,6 +5,7 @@ import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { isRowNotMatchedError } from '../../data/uow/createSyncedRepo';
 import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
 
 interface UpdateInput {
@@ -70,7 +71,6 @@ export class UpdateEnvelopeUseCase {
       updated_at: now,
     };
 
-    let repoResult: 'ok' | 'not_found' = 'ok';
     try {
       const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
       repo.update(
@@ -79,14 +79,19 @@ export class UpdateEnvelopeUseCase {
         fields,
         resolveSyncedRepoCtx(this.deps),
       );
-    } catch {
-      repoResult = 'not_found';
-    }
-    if (repoResult === 'not_found') {
-      return createFailure({
-        code: 'ENVELOPE_NOT_FOUND',
-        message: 'Envelope does not exist or was already deleted',
-      });
+    } catch (err) {
+      // Only a genuine zero-rows-matched write means the envelope doesn't
+      // exist (or was deleted/moved) — any other failure (DB error,
+      // constraint violation, etc.) must NOT be reported as
+      // ENVELOPE_NOT_FOUND, or real errors get masked as a plain "not
+      // found" and silently discarded.
+      if (isRowNotMatchedError(err)) {
+        return createFailure({
+          code: 'ENVELOPE_NOT_FOUND',
+          message: 'Envelope does not exist or was already deleted',
+        });
+      }
+      throw err;
     }
 
     const previousValueRecord: Record<string, unknown> = {

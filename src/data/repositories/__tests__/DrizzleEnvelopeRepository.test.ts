@@ -4,6 +4,10 @@ import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 jest.mock('../../local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn(),
+  // listByHousehold composes this into its drizzle `.where(and(...))` — the
+  // mock's WHERE builder never inspects the actual condition, so any stable
+  // stand-in value is sufficient here.
+  envelopeScopeCondition: jest.fn(() => 'MOCK_ENVELOPE_SCOPE_CONDITION'),
 }));
 
 const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<

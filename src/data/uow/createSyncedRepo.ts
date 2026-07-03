@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'expo-crypto';
 import { runInUnitOfWork, type PortableDb } from './UnitOfWork';
 
 /** Clamp applied to an `increment` write's arithmetic. */
@@ -10,14 +10,15 @@ export type IncrementClamp = 'none' | 'floor_zero';
  * Per-call context threaded through every synced-repo write. Carries the
  * things a repository must never read directly from ambient globals
  * (device id, actor, "now") so writes stay deterministic and testable.
- * `genId` defaults to uuid v4 when omitted.
+ * `genId` defaults to `expo-crypto`'s `randomUUID()` (a v4 UUID) when
+ * omitted.
  */
 export interface SyncedRepoCtx {
   deviceId: string;
   actorUserId: string | null;
   /** Returns the current time as an ISO-8601 string. */
   clock: () => string;
-  /** Generates the oplog `op_id`. Defaults to uuid v4. */
+  /** Generates the oplog `op_id`. Defaults to `expo-crypto`'s `randomUUID()`. */
   genId?: () => string;
 }
 
@@ -58,8 +59,29 @@ function assertSafeIdent(name: string): void {
   }
 }
 
+/**
+ * Columns no `update`/`increment` caller may ever target, mirroring the
+ * server-side `forbidden_column` allowlist (see oplog RPC contract). The
+ * WHERE clause on every write already scopes by the row's ORIGINAL
+ * `id`/`household_id`, but nothing stopped a caller from also putting
+ * `household_id` (or `id`, or `created_at`) into `fields`/`field` — which
+ * would silently move the matched row to a different household or falsify
+ * its identity/creation time while still matching the WHERE. This is
+ * defense-in-depth: no current call site does this, but a future/careless
+ * one could.
+ */
+const FORBIDDEN_COLUMNS = new Set(['id', 'household_id', 'created_at']);
+
+function assertNotForbiddenColumn(column: string): void {
+  if (FORBIDDEN_COLUMNS.has(column)) {
+    throw new Error(
+      `createSyncedRepo: "${column}" is a forbidden column for update/increment — id, household_id, and created_at are immutable through this path`,
+    );
+  }
+}
+
 function resolveOpId(ctx: SyncedRepoCtx): string {
-  return ctx.genId ? ctx.genId() : uuidv4();
+  return ctx.genId ? ctx.genId() : randomUUID();
 }
 
 function buildAssignments(fields: Record<string, unknown>): SQL {
@@ -68,6 +90,7 @@ function buildAssignments(fields: Record<string, unknown>): SQL {
     throw new Error('createSyncedRepo.update: requires at least one field');
   }
   columns.forEach(assertSafeIdent);
+  columns.forEach(assertNotForbiddenColumn);
   const assignments = columns.map((column) => sql`${sql.raw(column)} = ${fields[column]}`);
   return sql.join(assignments, sql.raw(', '));
 }
@@ -92,6 +115,20 @@ function extractChanges(result: unknown): number {
   throw new Error(
     'createSyncedRepo: could not read an affected-row "changes" count from db.run() result',
   );
+}
+
+/**
+ * Matches the message `assertRowMatched` throws below. Exported so callers
+ * (e.g. `UpdateEnvelopeUseCase`) can distinguish "the row didn't exist /
+ * didn't match" from any other failure (DB error, constraint violation,
+ * etc.) without treating every exception from a synced-repo write as
+ * not-found.
+ */
+const ROW_NOT_MATCHED_RE = /^createSyncedRepo: no row in ".+" matched id=.+ household_id=.+/;
+
+/** True if `err` is the zero-rows-affected error a synced-repo write throws — see `ROW_NOT_MATCHED_RE`. */
+export function isRowNotMatchedError(err: unknown): boolean {
+  return err instanceof Error && ROW_NOT_MATCHED_RE.test(err.message);
 }
 
 /** Throws a clear not-found error for a write that matched zero rows, so no oplog op is appended for it. */
@@ -200,6 +237,7 @@ export function createSyncedRepo(db: PortableDb, config: CreateSyncedRepoConfig)
 
     increment(id, householdId, field, delta, clamp, ctx) {
       assertSafeIdent(field);
+      assertNotForbiddenColumn(field);
       runInUnitOfWork(db, (uow) => {
         const expression =
           clamp === 'floor_zero'

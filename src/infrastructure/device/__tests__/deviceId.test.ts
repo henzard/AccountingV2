@@ -6,8 +6,8 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn().mockResolvedValue(null),
 }));
 
-jest.mock('uuid', () => ({
-  v4: jest.fn(() => 'generated-uuid-1'),
+jest.mock('expo-crypto', () => ({
+  randomUUID: jest.fn(() => 'generated-uuid-1'),
 }));
 
 describe('getDeviceId', () => {

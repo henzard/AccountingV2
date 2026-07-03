@@ -47,6 +47,14 @@ const realSqlProject = {
       },
     ],
   },
+  moduleNameMapper: {
+    // `createSyncedRepo.ts` generates oplog ids via `expo-crypto`'s
+    // `randomUUID()`. The real package is ESM and its native binding
+    // assumes an RN/Expo bridge — neither works under this tier's plain
+    // "node" environment (no bundler-level RN transform here, no bridge to
+    // call), so it's stubbed with a Node `crypto.randomUUID()`-backed shim.
+    '^expo-crypto$': '<rootDir>/__mocks__/expo-crypto.js',
+  },
 };
 
 module.exports = {
