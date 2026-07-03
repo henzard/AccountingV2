@@ -40,9 +40,9 @@ fi
 # which the old `(-[^ ]+\s+)*` form missed → it fail-OPENED on that very common invocation.
 # Boundary class includes `"` so the raw-JSON last-resort fallback (where `git` is
 # preceded by a quote) still matches and the guard cannot fail open without jq.
-# Match `git [global-opts] commit`. Global opts include -x/--long, key=value, and
-# `-c "key=value with spaces"` (quoted values must not bypass the guard).
-printf '%s' "$cmd" | grep -Eq '(^|[;&|"'"'"']|[[:space:]])git[[:space:]]+((-c[[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)[[:space:]]+)|(-[^[:space:]]+[[:space:]]+)|([^[:space:]]+=[^[:space:]]+[[:space:]]+))*commit([[:space:]]|$|")' || exit 0
+git_cmd_boundary='(^|[;&|"'"'"']|[[:space:]])'
+key_value='[^[:space:]=]+=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)'
+printf '%s' "$cmd" | grep -Eq "${git_cmd_boundary}git[[:space:]]+(-[^[:space:]]+[[:space:]]+|${key_value}[[:space:]]+)*commit([[:space:]]|$|\")" || exit 0
 
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"

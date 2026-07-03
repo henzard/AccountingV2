@@ -1,10 +1,13 @@
 ---
-name: verification-quality
+name: weighsoft-verification-quality
+formerly: verification-quality
 description: "Before claiming any task is done, run the project's REAL tests and — for user-facing changes — run the REAL app and observe the actual behavior. Never report 'done', 'fixed', or 'working' on unverified work. Stack-agnostic: discover the project's own test and run commands, execute them, and report exactly what you ran and what you saw."
 version: '1.0.0'
 category: 'quality-assurance'
 tags: ['verification', 'testing', 'evidence', 'completion-gate', 'quality']
 ---
+
+> 🔁 **Renamed:** this skill is now **weighsoft-verification-quality** (formerly **verification-quality**). Update any references.
 
 # Verification & Quality — ground every completion claim in evidence
 
@@ -83,7 +86,9 @@ result matched <expectation>." That is a _verified_ claim. "Should work now" is 
 2. **The mocked-away subject.** Mocking the very thing under test (stubbing the query
    you're verifying, the request you're hardening, the node you're fixing) yields a
    green test that proves nothing. Keep mocking at boundaries; exercise the real
-   subject.
+   subject. The reliable heuristic: _the more your test resembles the way the
+   software is actually used, the more confidence it gives_ — assert observable
+   behavior, not the mock's own scripted return. ([Testing Library principles][rtl])
 3. **"Tests pass, therefore done" for UI.** Unit-green ≠ renders/works. If a human
    will see or click it, Step 2 (run the app, observe) is mandatory.
 4. **The pre-existing-failure excuse used as a blanket.** It's legitimate to note a
@@ -115,7 +120,7 @@ and no manual run is **unverified** — say so explicitly rather than claiming s
 ## Never-lose-work & branch hygiene (proportionate)
 
 - **Don't work directly on the default/protected branch.** Branch first; one topic
-  per branch. (See the `branch-hygiene` skill.)
+  per branch. (See the `weighsoft-branch-hygiene` skill.)
 - **Commit + push at every meaningful step** so work is never stranded on one
   machine. Small, green, described commits beat one giant unverified one.
 - **No orphan branches.** Every branch heads toward a PR into the default branch or
@@ -157,3 +162,9 @@ A well-grounded fix has these three traits — aim for all of them:
 **The gate, one line:** _tests green for the component you changed, the app run and
 observed if a user can see it, and a report that states what you ran and what you
 saw — otherwise it is not done._
+
+---
+
+Sources / further reading:
+[rtl]: https://testing-library.com/docs/guiding-principles/ "Testing Library — resemble real usage; test behavior, not implementation"
+[dora]: https://dora.dev/capabilities/continuous-integration/ "DORA — CI: fast automated tests gate every change"

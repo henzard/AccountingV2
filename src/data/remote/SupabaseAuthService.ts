@@ -38,4 +38,19 @@ export class SupabaseAuthService {
     }
     return createSuccess(data.session);
   }
+
+  /** SEC-RT-009: verify JWT with Supabase Auth server (not local cache only). */
+  async validateSession(): Promise<Result<Session | null>> {
+    const { data: userData, error: userError } = await this.client.auth.getUser();
+    if (userError || !userData.user) {
+      if (userError) {
+        return createFailure<DomainError>({
+          code: 'AUTH_VALIDATE_SESSION_FAILED',
+          message: userError.message,
+        });
+      }
+      return createSuccess(null);
+    }
+    return this.getSession();
+  }
 }

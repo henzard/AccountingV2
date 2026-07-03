@@ -27,11 +27,50 @@ const withFirebaseNotificationColorFix: ConfigPlugin = (config) => {
   });
 };
 
+/**
+ * expo-camera merges ML Kit barcode_ui metadata even when barcode scanning is
+ * disabled. Remove it so Play Services does not pull the barcode UI module.
+ * Also strip merged ML Kit scanner activities and portrait lock for large screens.
+ */
+const withAndroidPlayCompliance: ConfigPlugin = (config) => {
+  return withAndroidManifest(config, (androidConfig) => {
+    const app = androidConfig.modResults.manifest.application?.[0];
+    if (!app) {
+      return androidConfig;
+    }
+
+    if (app['meta-data']) {
+      app['meta-data'] = app['meta-data'].filter(
+        (metaData) => metaData.$['android:name'] !== 'com.google.mlkit.vision.DEPENDENCIES',
+      );
+    }
+
+    const mainActivity = app.activity?.find(
+      (activity) => activity.$['android:name'] === '.MainActivity',
+    );
+    if (mainActivity?.$['android:screenOrientation']) {
+      delete mainActivity.$['android:screenOrientation'];
+    }
+
+    app.activity = [
+      ...(app.activity ?? []),
+      {
+        $: {
+          'android:name':
+            'com.google.mlkit.vision.codescanner.internal.GmsBarcodeScanningDelegateActivity',
+          'tools:node': 'remove',
+        },
+      },
+    ];
+
+    return androidConfig;
+  });
+};
+
 export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   name: 'AccountingV2',
   slug: 'accountingv2',
   version: '1.0.0',
-  orientation: 'portrait',
   icon: './assets/icon.png',
   newArchEnabled: false,
   splash: {
@@ -54,7 +93,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     '@config-plugins/detox', // must precede build-property-consuming plugins
     'expo-sqlite',
     'expo-secure-store',
-    'expo-camera',
+    ['expo-camera', { barcodeScannerEnabled: false }],
     '@react-native-community/datetimepicker',
     '@react-native-firebase/app',
     '@react-native-firebase/crashlytics',
@@ -62,6 +101,8 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     ['expo-notifications', { icon: './assets/icon.png', color: '#00695C' }],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     withFirebaseNotificationColorFix as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    withAndroidPlayCompliance as any,
   ],
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
