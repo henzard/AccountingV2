@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ['*']
+    branches: ['**']
   pull_request:
 
 jobs:
@@ -28,8 +28,11 @@ jobs:
       - name: ESLint
         run: npx eslint src/ --ext .ts,.tsx --max-warnings 0
 
-      - name: Jest
-        run: npx jest --coverage
+      - name: Jest (app, with coverage)
+        run: npx jest --selectProjects app --coverage
+
+      - name: Jest (realsql tier)
+        run: npx jest --selectProjects realsql
 
       - name: Setup Deno
         uses: denoland/setup-deno@v1
@@ -38,6 +41,28 @@ jobs:
 
       - name: Run Deno tests
         run: deno test --allow-net --allow-env --allow-read supabase/functions/
+
+  db:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: supabase/setup-cli@v2
+        with:
+          version: latest
+
+      - name: Boot local Supabase stack
+        run: supabase start
+
+      - name: Replay full migration chain
+        run: supabase db reset
+
+      - name: Run pgTAP suite
+        run: supabase test db
 
   e2e-android:
     if: github.ref == 'refs/heads/master'

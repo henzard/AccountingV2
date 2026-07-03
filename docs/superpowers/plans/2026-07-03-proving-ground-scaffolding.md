@@ -38,10 +38,12 @@
 - [ ] **Step 1: Install dependencies**
 
 ```bash
-npm install --save-dev better-sqlite3@~12.9.1 @types/better-sqlite3 @babel/preset-env @babel/preset-typescript
+npm install --save-dev better-sqlite3@~12.9.0 @types/better-sqlite3 @babel/preset-env @babel/preset-typescript
 ```
 
-The `~12.9.1` pin is load-bearing: better-sqlite3 ≥ 12.10 dropped Node 20 (ABI node-v115) prebuilt binaries when Node 20 left LTS, so an unpinned install on this Node 20 repo source-compiles via node-gyp — fine on ubuntu CI, but it fails on Windows dev machines without VS Build Tools. Unpin when the project moves to Node 22.
+The `~12.9.0` pin is load-bearing (12.9.0 is the last published version with Node 20 / ABI node-v115 prebuilds — there is no 12.9.1): better-sqlite3 ≥ 12.10 dropped Node 20 prebuilt binaries when Node 20 left LTS, so an unpinned install on this Node 20 repo source-compiles via node-gyp — fine on ubuntu CI, but it fails on Windows dev machines without VS Build Tools. Unpin when the project moves to Node 22.
+
+Execution note (Task 3 deviation): the `supabase` npm wrapper is NOT installed as a devDependency — its platform binary packages (`@supabase/cli-*`) are unpublished placeholders as of 2.109.0, so `npx supabase` fails on every OS. Local dev installs the CLI via scoop (`scoop bucket add supabase https://github.com/supabase/scoop-bucket.git && scoop install supabase`); CI uses `supabase/setup-cli@v2`. Plan commands written as `npx supabase ...` run as plain `supabase ...` locally.
 
 - [ ] **Step 2: Convert jest.config.js to multi-project**
 
