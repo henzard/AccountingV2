@@ -1,6 +1,7 @@
-module.exports = {
+const appProject = {
+  displayName: 'app',
   preset: 'jest-expo',
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/supabase/'],
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/supabase/', '<rootDir>/tests/'],
   setupFiles: ['<rootDir>/jest-setup-globals.js'],
   setupFilesAfterEnv: ['@testing-library/jest-native/extend-expect'],
   transformIgnorePatterns: [
@@ -28,6 +29,28 @@ module.exports = {
     // Stub useAppTheme — avoids configureFonts (react-native-paper) in test env
     '^.*/theme/useAppTheme$': '<rootDir>/__mocks__/useAppTheme.js',
   },
+};
+
+// Real-SQL tier: node environment, real better-sqlite3 against the actual migration files.
+const realSqlProject = {
+  displayName: 'realsql',
+  testEnvironment: 'node',
+  testMatch: ['<rootDir>/tests/realsql/**/*.test.ts'],
+  transform: {
+    '^.+\\.ts$': [
+      'babel-jest',
+      {
+        presets: [
+          ['@babel/preset-env', { targets: { node: 'current' } }],
+          '@babel/preset-typescript',
+        ],
+      },
+    ],
+  },
+};
+
+module.exports = {
+  projects: [appProject, realSqlProject],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/index.ts',
