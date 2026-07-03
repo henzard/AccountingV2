@@ -19,7 +19,6 @@ export interface DebtEntity {
   totalPaidCents: number; // running total of all payments
   createdAt: string;
   updatedAt: string;
-  isSynced: boolean;
 }
 
 export function getDebtTypeLabel(debtType: DebtType): string {

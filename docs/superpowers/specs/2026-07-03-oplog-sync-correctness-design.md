@@ -101,6 +101,61 @@ Backoff/DLQ retry logic (ported into the pusher), invite-code crypto, the slip-s
 
 Use cases emit typed events (`PeriodRolled`, `DebtPaidOff`, `EnvelopeOverspent`, `BabyStepCompleted`) through a publisher port. This effort ships the publisher and event emission plus re-pointing the EXISTING notification triggers; new subscribers (score progression, celebrations, coaching) attach in Phase 2 and are out of scope here (§5).
 
+### Slice-3 as-built note (2026-07-03)
+
+What actually shipped for this section, task by task (full detail: `.superpowers/sdd/task-{1..6}-report.md`):
+
+- **Derived balances**: `getEnvelopeSpentCents(db, householdId, periodStart)` in
+  `src/data/local/balances/EnvelopeBalanceQuery.ts` — a single grouped `SUM` over
+  non-deleted transactions, period-aware by scope. ~3ms/10k rows local, ~17ms on a
+  cold shared CI runner (no trigger-column fallback needed). The realsql assertion
+  ceiling is 250ms: a hard sub-15ms wall-clock bar was flaky on CI hardware, and the
+  gate's real job is catching a catastrophic O(n^2) regression (seconds), not
+  micro-benchmarking the runner.
+- **UnitOfWork + oplog**: `src/data/uow/UnitOfWork.ts` (`runInUnitOfWork`) +
+  `src/data/uow/createSyncedRepo.ts` land the entity write and its local `oplog` row in
+  one SQLite transaction — an op can no longer be forgotten. A phantom-op guard was added
+  (fix commit `56e045c`) so no-op writes don't append a spurious oplog row.
+  `CreateEnvelopeUseCase`/`UpdateEnvelopeUseCase`/`ArchiveEnvelopeUseCase`/
+  `CreateTransactionUseCase`/`DeleteTransactionUseCase` all route through it; none of them
+  write `envelopes.spent_cents` or enqueue onto `pending_sync` anymore.
+- **Schema**: migration 0012 drops `envelopes.spent_cents` and `is_synced` from every
+  entity table that had it. This forced a wider `isSynced`-field purge than envelopes
+  alone (repositories/use cases for debts, meter readings, households, baby steps, slip
+  queue, user consent, audit events — see Task 4 report) because dropping the column
+  broke anything still treating it as a required field.
+- **Envelope scope**: `getEnvelopeScope()` in `EnvelopeEntity.ts` — `'period'`
+  (spending/income/utility) vs `'persistent'` (sinking_fund/emergency_fund/savings/legacy
+  baby_step). Persistent envelopes derive balance from the all-time ledger, fixing the
+  monthly Baby-Step regression structurally (Task 1).
+- **Presentation**: verified zero raw `spent_cents` column reads remain (Task 5). Two
+  deleted-machinery call sites (`PendingSyncEnqueuer` in `MeterSetupStep.tsx`,
+  `RestoreService` in `JoinHouseholdScreen.tsx`) are documented, non-crashing shims —
+  genuinely blocked on domains/engines this slice doesn't own (meter-reading oplog
+  migration, the slice-5 `sync_pull` puller), not oversights.
+- **SyncOrchestrator**: the dead `isSynced`-marker update (ran after every successful
+  upsert, throwing `SQLITE_ERROR` post-0012 since the column no longer exists) was
+  removed (Task 4 fix, commit `f4761b1`). Its dequeue mechanism (`pending_sync` row
+  deletion on success) is untouched and remains the real dequeue path for every
+  not-yet-rewired domain.
+- **EMF reconcile mechanism** (`emergencyFundReconcileStore`,
+  `ReconcileEmergencyFundTypeUseCase`, duplicate-EMF banner): **NOT removed**, contrary to
+  this section's "deleted machinery" framing (§8 table). Task 6 traced every consumer
+  end-to-end (`App.tsx` → `SyncOrchestrator.syncPending` → `emfFlipped` →
+  `emergencyFundReconcileStore` → `DuplicateEmfBanner` on `BudgetScreen`) and found the
+  mechanism still live and load-bearing: persistent envelope scope fixes the _balance_
+  resetting monthly, but does nothing to prevent _creating_ two `emergency_fund`
+  envelopes in the first place — `CreateEnvelopeUseCase` has no uniqueness check, so two
+  devices independently designating an emergency fund before either syncs still produces
+  two active EMF envelope rows today, exactly as before this slice.
+  `BabyStepEvaluator.findEMF` already tie-breaks to the oldest envelope so Baby Steps 1/3
+  don't miscompute, but without the reconcile mechanism the Budget screen would show both
+  duplicate envelopes as "Emergency Fund" forever, with no consolidation and no user
+  notification — a real feature regression, not dead-code removal. Left in place;
+  tracked in `docs/plan-execution-status.md` for slice 4 (rollover engine) or slice 6 to
+  either add a create-time uniqueness guard (then retire this mechanism for real) or keep
+  it permanently.
+
 ## 4. Client sync engine & one-off fixes
 
 ### SyncEngine (replaces SyncOrchestrator + RestoreService + NetworkObserver wiring)
@@ -118,6 +173,7 @@ Use cases emit typed events (`PeriodRolled`, `DebtPaidOff`, `EnvelopeOverspent`,
 3. Push: `notify-event` rebuilt on FCM HTTP v1 (service-account OAuth in Deno); token table keyed `(user_id, token)`; token deleted + rotated on sign-out.
 4. Password reset: `resetPasswordForEmail` + deep-linked ResetPassword screen.
 5. Slip flow: camera FAB on SlipQueue; SlipConfirm loads persisted extraction when the param is missing; completed slips open read-only.
+   - **CRITICAL (found slice-3 review, pre-existing on the shipped build):** `ConfirmSlipUseCase.execute` wraps its multi-item loop in `await this.db.transaction(async (tx) => …)`. Drizzle's expo-sqlite driver runs `transaction()` synchronously in `'sync'` mode and does NOT await an async callback — `COMMIT` fires at the callback's first `await`, before the item writes complete. Reproduced: a 2-item slip where item 2 fails leaves item 1 permanently committed, breaking the all-or-nothing guarantee. All existing tests mock `db.transaction`, hiding it. FIX here: do all validation/reads first (async, outside any transaction), then perform every item insert in ONE synchronous `runInUnitOfWork` transaction (each appends its oplog op); add a realsql test exercising the REAL driver (not a mocked db) proving partial-failure rolls back every item. Fold together with the op_id idempotency + status guard.
 6. Envelope type selector gains the missing types; when the screen is opened with `preselectedType` of `sinking_fund` or `emergency_fund` (the two live navigation paths), that type renders as a fixed read-only chip instead of an unmatched segmented control.
 7. Dashboard score inputs: real period length and meter flag replace hardcoded `30`/`false`.
 

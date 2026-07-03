@@ -4,6 +4,7 @@ import { Text, TextInput, Button, SegmentedButtons, Snackbar } from 'react-nativ
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
 import { envelopes as envelopesTable } from '../../../data/local/schema';
+import { getEnvelopeSpentCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../domain/envelopes/CreateEnvelopeUseCase';
 import { UpdateEnvelopeUseCase } from '../../../domain/envelopes/UpdateEnvelopeUseCase';
@@ -66,9 +67,18 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
         .from(envelopesTable)
         .where(eq(envelopesTable.id, envelopeId))
         .limit(1)
-        .then(([row]) => {
+        .then(async ([row]) => {
           if (row) {
-            setExisting(row as EnvelopeEntity);
+            // spentCents is derived from the transaction ledger, not a stored column.
+            const spentByEnvelope = await getEnvelopeSpentCents(
+              db,
+              row.householdId,
+              row.periodStart,
+            );
+            setExisting({
+              ...row,
+              spentCents: spentByEnvelope.get(row.id) ?? 0,
+            } as EnvelopeEntity);
             setName(row.name);
             setAmountStr(toRandString(row.allocatedCents));
             setEnvelopeType(row.envelopeType as EnvelopeType);

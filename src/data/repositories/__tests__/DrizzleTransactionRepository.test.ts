@@ -114,7 +114,7 @@ describe('DrizzleTransactionRepository', () => {
   });
 
   describe('insert', () => {
-    it('inserts entity with isSynced false', async () => {
+    it('inserts entity unchanged', async () => {
       const valuesFn = jest.fn().mockResolvedValue(undefined);
       const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
       const db = { insert: insertFn } as any;
@@ -124,9 +124,7 @@ describe('DrizzleTransactionRepository', () => {
       await repo.insert(entity);
 
       expect(insertFn).toHaveBeenCalled();
-      expect(valuesFn).toHaveBeenCalledWith(
-        expect.objectContaining({ ...entity, isSynced: false }),
-      );
+      expect(valuesFn).toHaveBeenCalledWith(entity);
     });
 
     it('propagates database errors on insert', async () => {

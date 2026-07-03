@@ -44,7 +44,6 @@ describe('Audit Trail — AuditLogger.log()', () => {
         entityType: 'transaction',
         entityId: 'tx-123',
         action: 'create',
-        isSynced: false,
         createdAt: expect.any(String),
       }),
     );

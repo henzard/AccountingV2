@@ -60,7 +60,6 @@ describe('DrizzleSlipQueueRepository', () => {
         createdBy: 'u1',
         imageUris: '["a/b/0.jpg"]',
         status: 'processing',
-        isSynced: false,
       }),
     );
     const row = await repo.get('s1');

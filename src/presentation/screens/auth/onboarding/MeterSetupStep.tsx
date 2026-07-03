@@ -7,6 +7,18 @@ import { randomUUID } from 'expo-crypto';
 import { format } from 'date-fns';
 import { db } from '../../../../data/local/db';
 import { meterReadings } from '../../../../data/local/schema';
+// PendingSyncEnqueuer/pending_sync is deleted machinery per the oplog-sync
+// spec (docs/superpowers/specs/2026-07-03-oplog-sync-correctness-design.md
+// §2), but meter readings were NOT part of slice 3's UnitOfWork/oplog rewire
+// (only envelopes + transactions were, per Task 3) — LogMeterReadingUseCase
+// still enqueues onto pending_sync the same way it did before this slice,
+// so this call site is unchanged intentionally. Routing this screen through
+// LogMeterReadingUseCase instead of the raw insert below is NOT a drop-in
+// swap: that use case rejects `readingValue <= 0`, but this screen seeds an
+// intentional zero-value "Opening baseline" reading, so switching would
+// break onboarding. Deleting PendingSyncEnqueuer/pending_sync entirely is
+// slice 6's job, once every domain (not just envelopes/transactions) has an
+// oplog-backed use case to replace it with.
 import { PendingSyncEnqueuer } from '../../../../data/sync/PendingSyncEnqueuer';
 import { useAppStore } from '../../../stores/appStore';
 import { radius, spacing } from '../../../theme/tokens';
@@ -52,7 +64,6 @@ export function MeterSetupStep(): React.JSX.Element {
           notes: 'Opening baseline',
           createdAt: now,
           updatedAt: now,
-          isSynced: false,
         });
         await enqueuer.enqueue('meter_readings', id, 'INSERT');
       }

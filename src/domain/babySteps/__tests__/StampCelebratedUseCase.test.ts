@@ -41,7 +41,6 @@ describe('StampCelebratedUseCase', () => {
     expect(db._setFn).toHaveBeenCalledWith(
       expect.objectContaining({
         celebratedAt: '2026-04-12T10:00:00.000Z',
-        isSynced: false,
       }),
     );
   });
@@ -67,11 +66,13 @@ describe('StampCelebratedUseCase', () => {
     expect(db._updateFn).not.toHaveBeenCalled();
   });
 
-  it('writes isSynced=false on stamp', async () => {
+  it('writes updatedAt on stamp', async () => {
     const db = makeDb({ id: 'bs-1', celebratedAt: null });
     const uc = new StampCelebratedUseCase(db as any);
     await uc.execute(HOUSEHOLD_ID, STEP_NUMBER);
 
-    expect(db._setFn).toHaveBeenCalledWith(expect.objectContaining({ isSynced: false }));
+    expect(db._setFn).toHaveBeenCalledWith(
+      expect.objectContaining({ updatedAt: expect.any(String) }),
+    );
   });
 });

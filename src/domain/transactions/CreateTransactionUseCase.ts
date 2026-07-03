@@ -1,14 +1,14 @@
 import { randomUUID } from 'expo-crypto';
-import { and, eq, sql } from 'drizzle-orm';
-import type { InferInsertModel } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
-import { transactions, envelopes } from '../../data/local/schema';
+import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { logger } from '../../infrastructure/logging/Logger';
 import type { TransactionEntity } from './TransactionEntity';
 
 interface CreateTransactionInput {
@@ -23,17 +23,20 @@ interface CreateTransactionInput {
   spendingTriggerNote?: string | null;
 }
 
+/**
+ * Creates a transaction. Balance is DERIVED (see `EnvelopeBalanceQuery`), so
+ * this use case no longer mutates `envelopes.spent_cents` — it only writes
+ * the transaction row, atomically paired with one oplog `insert` row via
+ * the synced repo (see `createSyncedRepo`). The transactions ledger is now
+ * the single source of truth for spend.
+ */
 export class CreateTransactionUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateTransactionInput,
-    enqueuer?: ISyncEnqueuer,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-  }
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(): Promise<Result<TransactionEntity>> {
     if (this.input.amountCents <= 0) {
@@ -80,45 +83,52 @@ export class CreateTransactionUseCase {
       updatedAt: now,
     };
 
-    const row: InferInsertModel<typeof transactions> = {
-      ...tx,
-      slipId: this.input.slipId ?? null,
-      isSynced: false,
+    const row: Record<string, unknown> = {
+      id: tx.id,
+      household_id: tx.householdId,
+      envelope_id: tx.envelopeId,
+      amount_cents: tx.amountCents,
+      payee: tx.payee,
+      description: tx.description,
+      transaction_date: tx.transactionDate,
+      is_business_expense: tx.isBusinessExpense,
+      spending_trigger_note: tx.spendingTriggerNote,
+      slip_id: this.input.slipId ?? null,
+      created_at: tx.createdAt,
+      updated_at: tx.updatedAt,
     };
 
-    await this.db.transaction(async (dbTx) => {
-      await dbTx.insert(transactions).values(row);
+    const repo = resolveSyncedRepo(this.db, 'transactions', this.deps);
+    repo.insert(row, resolveSyncedRepoCtx(this.deps));
 
-      await dbTx
-        .update(envelopes)
-        .set({
-          spentCents: sql`${envelopes.spentCents} + ${this.input.amountCents}`,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(envelopes.id, this.input.envelopeId),
-            eq(envelopes.householdId, this.input.householdId),
-          ),
-        );
-    });
-
-    await this.audit.log({
-      householdId: this.input.householdId,
-      entityType: 'transaction',
-      entityId: id,
-      action: 'create',
-      previousValue: null,
-      newValue: {
-        id: tx.id,
-        envelopeId: tx.envelopeId,
-        amountCents: tx.amountCents,
-        payee: tx.payee,
-        transactionDate: tx.transactionDate,
-      },
-    });
-
-    await this.enqueuer.enqueue('transactions', id, 'INSERT');
+    // The ledger write above (entity row + oplog, one SQLite transaction) is
+    // the source of truth and has already committed by this point. Audit
+    // logging is a secondary, best-effort concern — if it throws here we
+    // must NOT reject execute(), because the caller would see a failure for
+    // a write that actually succeeded and retry, producing a duplicate
+    // transaction (double spend). So a failed audit write is logged and
+    // swallowed rather than folded into this result.
+    try {
+      await this.audit.log({
+        householdId: this.input.householdId,
+        entityType: 'transaction',
+        entityId: id,
+        action: 'create',
+        previousValue: null,
+        newValue: {
+          id: tx.id,
+          envelopeId: tx.envelopeId,
+          amountCents: tx.amountCents,
+          payee: tx.payee,
+          transactionDate: tx.transactionDate,
+        },
+      });
+    } catch (err) {
+      logger.error('CreateTransactionUseCase: audit.log failed after ledger commit', err, {
+        transactionId: id,
+        householdId: this.input.householdId,
+      });
+    }
 
     return createSuccess(tx);
   }

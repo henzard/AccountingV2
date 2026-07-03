@@ -88,13 +88,14 @@ describe('SeedBabyStepsUseCase', () => {
     expect((byStep[7] as any).isManual).toBe(true);
   });
 
-  it('all inserted rows have isSynced=false', async () => {
+  it('all inserted rows have the expected household and creation timestamps', async () => {
     const db = makeDb();
     const uc = new SeedBabyStepsUseCase(db as any);
     await uc.execute(HOUSEHOLD_ID);
 
     for (const row of db._rows) {
-      expect((row as any).isSynced).toBe(false);
+      expect((row as any).householdId).toBe(HOUSEHOLD_ID);
+      expect((row as any).createdAt).toBeTruthy();
     }
   });
 

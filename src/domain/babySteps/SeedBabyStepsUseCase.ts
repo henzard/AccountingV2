@@ -7,7 +7,6 @@
  *
  * Spec §Seeding:
  * - isManual=true for steps 4/5/7
- * - isSynced=false on insert
  */
 
 import { randomUUID } from 'expo-crypto';
@@ -35,7 +34,6 @@ export class SeedBabyStepsUseCase {
         celebratedAt: null,
         createdAt: now,
         updatedAt: now,
-        isSynced: false,
       }));
 
       // INSERT OR IGNORE — safe under concurrent invocation

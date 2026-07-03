@@ -118,6 +118,13 @@ jest.mock('../../../../data/local/db', () => ({
   },
 }));
 
+// spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored
+// column — mocked so setupDbChain's row fixtures (which already carry a
+// `spentCents` value) flow straight through unchanged.
+jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn(),
+}));
+
 // ─── AuditLogger mock ─────────────────────────────────────────────────────────
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
@@ -163,12 +170,19 @@ jest.mock('../../../../data/local/schema', () => ({
 
 import { ne } from 'drizzle-orm';
 import { AddTransactionScreen } from '../AddTransactionScreen';
+import { getEnvelopeSpentCents } from '../../../../data/local/balances/EnvelopeBalanceQuery';
 
 // Get the mocked db after import so we can configure it per test
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { db: mockDb } = require('../../../../data/local/db');
 
-function setupDbChain(rows: object[]): void {
+const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<
+  typeof getEnvelopeSpentCents
+>;
+
+function setupDbChain(
+  rows: Array<{ id: string; spentCents?: number; [k: string]: unknown }>,
+): void {
   // Synchronous-style mock that still supports .then(...).catch(...) chaining
   const mockThen = jest.fn((cb: (r: object[]) => void) => {
     cb(rows);
@@ -177,6 +191,7 @@ function setupDbChain(rows: object[]): void {
   const mockWhere = jest.fn(() => ({ then: mockThen }));
   const mockFrom = jest.fn(() => ({ where: mockWhere }));
   mockDb.select.mockReturnValue({ from: mockFrom });
+  mockGetEnvelopeSpentCents.mockResolvedValue(new Map(rows.map((r) => [r.id, r.spentCents ?? 0])));
 }
 
 const makeNavProps = () => ({
@@ -203,7 +218,7 @@ describe('AddTransactionScreen', () => {
     setupDbChain([]);
   });
 
-  it('opens picker and lists envelopes with correct balance text', () => {
+  it('opens picker and lists envelopes with correct balance text', async () => {
     const rows = [
       {
         id: 'env-1',
@@ -226,6 +241,12 @@ describe('AddTransactionScreen', () => {
 
     // Open picker
     fireEvent.press(getByTestId('envelope-picker-trigger'));
+
+    // spentCents is resolved asynchronously (derived from the ledger via
+    // getEnvelopeSpentCents), so wait for the envelope list to be populated.
+    await waitFor(() => {
+      expect(getByText('Groceries')).toBeTruthy();
+    });
 
     // Verify envelope names are shown
     expect(getByText('Groceries')).toBeTruthy();

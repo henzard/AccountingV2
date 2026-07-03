@@ -79,7 +79,6 @@ export class RestoreService {
           name: sql`excluded.name`,
           paydayDay: sql`excluded.payday_day`,
           updatedAt: sql`excluded.updated_at`,
-          isSynced: true,
         },
       });
 
@@ -90,8 +89,11 @@ export class RestoreService {
       .eq('household_id', householdId);
 
     for (const m of allMembers ?? []) {
-      const localMember = toLocalRow(m as Record<string, unknown>);
-      const { isSynced: _ignored, ...insertableMember } = localMember;
+      // household_members has no isSynced column; toLocalRow() adds a generic
+      // isSynced:true marker for tables that have one, so strip it here — it
+      // would otherwise be silently ignored by drizzle, but stripping it is
+      // clearer than relying on that.
+      const { isSynced: _ignored, ...insertableMember } = toLocalRow(m as Record<string, unknown>);
       try {
         await this.db
           .insert(householdMembers)
@@ -142,7 +144,6 @@ export class RestoreService {
           set: {
             slipScanConsentAt: sql.raw('excluded.slip_scan_consent_at'),
             updatedAt: sql.raw('excluded.updated_at'),
-            isSynced: true,
           },
         });
     }
@@ -170,13 +171,11 @@ export class RestoreService {
     for (const row of data) {
       const localRow = toLocalRow(row as Record<string, unknown>);
       // Build set clause from all non-id columns so remote overwrites stale local rows.
-      // Remote is authoritative on restore.
-      // Exclude isSynced from the conflict-update set so pending local edits
-      // (isSynced=false) are not silently overwritten back to true on restore.
-      // New rows inserted without conflict still get isSynced=true from toLocalRow.
-      const columns = Object.keys(getTableColumns(localTable)).filter(
-        (col) => col !== 'id' && col !== 'isSynced',
-      );
+      // Remote is authoritative on restore. These local tables no longer have an
+      // isSynced column (sync state is tracked by the oplog outbox instead), so
+      // toLocalRow()'s generic isSynced:true marker is simply ignored by drizzle
+      // for any table that lacks the column.
+      const columns = Object.keys(getTableColumns(localTable)).filter((col) => col !== 'id');
       const setClause = Object.fromEntries(
         columns.map((col) => {
           // Map camelCase col to snake_case for the EXCLUDED reference

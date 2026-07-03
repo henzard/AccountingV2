@@ -4,6 +4,14 @@ import { Text, TextInput, Button } from 'react-native-paper';
 import { db } from '../../../data/local/db';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { AcceptInviteUseCase } from '../../../domain/households/AcceptInviteUseCase';
+// RestoreService is deleted machinery per the oplog-sync spec (spec §2, §8:
+// "replaced by an initial sync_pull with progress UI") — but the sync_pull
+// RPC/puller is slice 5 work that doesn't exist yet. Per the slice-3 plan's
+// scope discipline ("do NOT try to build the new puller"), this keeps the
+// existing REST-based restore call, which still compiles and works against
+// the unchanged remote (confirmed: RestoreService has no reference to the
+// spent_cents/is_synced columns dropped in migration 0012). This is an
+// intentional, documented non-crashing shim — slice 5 replaces it wholesale.
 import { RestoreService } from '../../../data/sync/RestoreService';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';

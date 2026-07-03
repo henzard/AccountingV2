@@ -84,6 +84,13 @@
       "when": 1782086400000,
       "tag": "0011_oplog_foundations",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1782172800000,
+      "tag": "0012_derive_balances",
+      "breakpoints": true
     }
   ]
 }

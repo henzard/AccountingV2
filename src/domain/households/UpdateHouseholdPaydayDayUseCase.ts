@@ -30,7 +30,7 @@ export class UpdateHouseholdPaydayDayUseCase {
     const now = new Date().toISOString();
     await this.db
       .update(households)
-      .set({ paydayDay: this.paydayDay, updatedAt: now, isSynced: false })
+      .set({ paydayDay: this.paydayDay, updatedAt: now })
       .where(eq(households.id, this.householdId));
 
     await this.enqueuer.enqueue('households', this.householdId, 'UPDATE');

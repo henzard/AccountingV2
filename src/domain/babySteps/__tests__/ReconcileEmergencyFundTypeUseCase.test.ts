@@ -81,7 +81,7 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
     expect(enqueuer.enqueue).not.toHaveBeenCalled();
   });
 
-  it('two active EMFs → oldest preserved, other flipped to savings with isSynced=false', async () => {
+  it('two active EMFs → oldest preserved, other flipped to savings', async () => {
     const older = makeEnvelopeRow({ id: 'e-older', createdAt: '2025-01-01T00:00:00.000Z' });
     const newer = makeEnvelopeRow({ id: 'e-newer', createdAt: '2026-01-01T00:00:00.000Z' });
     const db = makeDb([newer, older]); // intentionally out of order
@@ -96,7 +96,6 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
     // Should have updated exactly once (the newer one)
     expect(db.update).toHaveBeenCalledTimes(1);
     expect(db._updates[0]?.set.envelopeType).toBe('savings');
-    expect(db._updates[0]?.set.isSynced).toBe(false);
 
     // Enqueuer must be called once for the flipped envelope
     expect(enqueuer.enqueue).toHaveBeenCalledTimes(1);

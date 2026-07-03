@@ -1,12 +1,11 @@
-import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
-import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { isRowNotMatchedError } from '../../data/uow/createSyncedRepo';
 import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
 
 interface UpdateInput {
@@ -20,17 +19,13 @@ interface UpdateInput {
 }
 
 export class UpdateEnvelopeUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly current: EnvelopeEntity,
     private readonly input: UpdateInput,
-    enqueuer?: ISyncEnqueuer,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-  }
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(): Promise<Result<EnvelopeEntity>> {
     const trimmedName = this.input.name.trim();
@@ -67,20 +62,37 @@ export class UpdateEnvelopeUseCase {
       updatedAt: now,
     };
 
-    await this.db
-      .update(envelopes)
-      .set({
-        name: updated.name,
-        allocatedCents: updated.allocatedCents,
-        envelopeType: updated.envelopeType,
-        targetAmountCents: updated.targetAmountCents,
-        targetDate: updated.targetDate,
-        updatedAt: now,
-        isSynced: false,
-      })
-      .where(
-        and(eq(envelopes.id, this.current.id), eq(envelopes.householdId, this.current.householdId)),
+    const fields: Record<string, unknown> = {
+      name: updated.name,
+      allocated_cents: updated.allocatedCents,
+      envelope_type: updated.envelopeType,
+      target_amount_cents: updated.targetAmountCents,
+      target_date: updated.targetDate,
+      updated_at: now,
+    };
+
+    try {
+      const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
+      repo.update(
+        this.current.id,
+        this.current.householdId,
+        fields,
+        resolveSyncedRepoCtx(this.deps),
       );
+    } catch (err) {
+      // Only a genuine zero-rows-matched write means the envelope doesn't
+      // exist (or was deleted/moved) — any other failure (DB error,
+      // constraint violation, etc.) must NOT be reported as
+      // ENVELOPE_NOT_FOUND, or real errors get masked as a plain "not
+      // found" and silently discarded.
+      if (isRowNotMatchedError(err)) {
+        return createFailure({
+          code: 'ENVELOPE_NOT_FOUND',
+          message: 'Envelope does not exist or was already deleted',
+        });
+      }
+      throw err;
+    }
 
     const previousValueRecord: Record<string, unknown> = {
       id: this.current.id,
@@ -115,13 +127,11 @@ export class UpdateEnvelopeUseCase {
     await this.audit.log({
       householdId: this.current.householdId,
       entityType: 'envelope',
-      entityId: this.current.id,
       action: 'update',
+      entityId: this.current.id,
       previousValue: previousValueRecord,
       newValue: newValueRecord,
     });
-
-    await this.enqueuer.enqueue('envelopes', this.current.id, 'UPDATE');
 
     return createSuccess(updated);
   }

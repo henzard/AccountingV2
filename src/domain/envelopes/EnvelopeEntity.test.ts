@@ -1,5 +1,10 @@
-import { getRemainingCents, getPercentRemaining, isOverBudget } from './EnvelopeEntity';
-import type { EnvelopeEntity } from './EnvelopeEntity';
+import {
+  getRemainingCents,
+  getPercentRemaining,
+  isOverBudget,
+  getEnvelopeScope,
+} from './EnvelopeEntity';
+import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
 
 const makeEnvelope = (allocated: number, spent: number): EnvelopeEntity => ({
   id: 'e1',
@@ -54,6 +59,20 @@ describe('EnvelopeEntity pure functions', () => {
     });
     it('returns false when exactly at budget', () => {
       expect(isOverBudget(makeEnvelope(100000, 100000))).toBe(false);
+    });
+  });
+
+  describe('getEnvelopeScope', () => {
+    it.each<[EnvelopeType, 'period' | 'persistent']>([
+      ['spending', 'period'],
+      ['income', 'period'],
+      ['utility', 'period'],
+      ['sinking_fund', 'persistent'],
+      ['emergency_fund', 'persistent'],
+      ['savings', 'persistent'],
+      ['baby_step', 'persistent'],
+    ])('%s envelopes are %s-scoped', (envelopeType, expectedScope) => {
+      expect(getEnvelopeScope({ envelopeType })).toBe(expectedScope);
     });
   });
 });

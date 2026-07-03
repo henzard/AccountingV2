@@ -53,7 +53,7 @@ export class DrizzleMeterReadingRepository implements IMeterReadingRepository {
   }
 
   async insert(reading: MeterReadingEntity): Promise<void> {
-    await this.db.insert(meterReadings).values({ ...reading, isSynced: false });
+    await this.db.insert(meterReadings).values(reading);
   }
 
   private rowToEntity(row: typeof meterReadings.$inferSelect): MeterReadingEntity {
@@ -68,7 +68,6 @@ export class DrizzleMeterReadingRepository implements IMeterReadingRepository {
       notes: row.notes ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      isSynced: row.isSynced,
     };
   }
 }

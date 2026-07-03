@@ -41,11 +41,10 @@ export class DrizzleUserConsentRepository implements IUserConsentRepository {
         slipScanConsentAt: atIso,
         createdAt: now,
         updatedAt: now,
-        isSynced: false,
       })
       .onConflictDoUpdate({
         target: userConsent.userId,
-        set: { slipScanConsentAt: atIso, updatedAt: now, isSynced: false },
+        set: { slipScanConsentAt: atIso, updatedAt: now },
       });
     await this.enqueuer.enqueue('user_consent', userId, existing ? 'UPDATE' : 'INSERT');
   }

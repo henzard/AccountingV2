@@ -7,7 +7,6 @@ export const envelopes = sqliteTable(
     householdId: text('household_id').notNull(),
     name: text('name').notNull(),
     allocatedCents: integer('allocated_cents').notNull().default(0),
-    spentCents: integer('spent_cents').notNull().default(0),
     envelopeType: text('envelope_type').notNull().default('spending'),
     // 'spending' | 'savings' | 'emergency_fund' | 'baby_step' | 'utility'
     isSavingsLocked: integer('is_savings_locked', { mode: 'boolean' }).notNull().default(false),
@@ -17,7 +16,6 @@ export const envelopes = sqliteTable(
     targetDate: text('target_date'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
   },
   (t) => ({

@@ -6,12 +6,11 @@
  * transitions, returns { statuses, newlyCompleted, newlyRegressed }.
  *
  * Invariants enforced here:
- * - Every write to baby_steps sets isSynced=false.
  * - celebrated_at is never cleared (preserved on regression AND re-completion).
  * - On regression: is_completed=false, completed_at=null (cleared), celebrated_at preserved.
  * - On completion: is_completed=true, completed_at=now, celebrated_at unchanged.
  *
- * Spec §ReconcileBabyStepsUseCase, §Sync integration / isSynced=false invariant.
+ * Spec §ReconcileBabyStepsUseCase.
  */
 
 import { eq, and } from 'drizzle-orm';
@@ -23,6 +22,7 @@ import { evaluate } from './BabyStepEvaluator';
 import type { BabyStepStatus, ReconcileResult } from './types';
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';
 import type { DebtEntity } from '../debtSnowball/DebtEntity';
+import { getEnvelopeSpentCents } from '../../data/local/balances/EnvelopeBalanceQuery';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 
@@ -42,12 +42,15 @@ export class ReconcileBabyStepsUseCase {
           ),
         );
 
+      // Balance is derived from the transaction ledger (see EnvelopeBalanceQuery),
+      // not read from a stored column — scoped by this reconciliation's own period.
+      const spentByEnvelope = await getEnvelopeSpentCents(this.db, householdId, currentPeriodStart);
       const envelopeEntities: EnvelopeEntity[] = envelopeRows.map((row) => ({
         id: row.id,
         householdId: row.householdId,
         name: row.name,
         allocatedCents: row.allocatedCents,
-        spentCents: row.spentCents,
+        spentCents: spentByEnvelope.get(row.id) ?? 0,
         envelopeType: row.envelopeType as EnvelopeEntity['envelopeType'],
         isSavingsLocked: row.isSavingsLocked,
         isArchived: row.isArchived,
@@ -75,7 +78,6 @@ export class ReconcileBabyStepsUseCase {
         totalPaidCents: row.totalPaidCents,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
-        isSynced: row.isSynced,
       }));
 
       // 3. Compute INCOME_TOTAL and monthlyExpenseBaseline via BudgetBalanceCalculator
@@ -134,7 +136,6 @@ export class ReconcileBabyStepsUseCase {
                 completedAt,
                 // celebrated_at is never written here — preserved as-is
                 updatedAt: now,
-                isSynced: false,
               })
               .where(
                 and(
@@ -156,7 +157,6 @@ export class ReconcileBabyStepsUseCase {
                 completedAt: null,
                 // celebrated_at preserved — NOT cleared
                 updatedAt: now,
-                isSynced: false,
               })
               .where(
                 and(

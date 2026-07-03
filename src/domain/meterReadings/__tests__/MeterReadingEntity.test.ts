@@ -17,7 +17,6 @@ const base: MeterReadingEntity = {
   notes: null,
   createdAt: '2026-04-01T08:00:00.000Z',
   updatedAt: '2026-04-01T08:00:00.000Z',
-  isSynced: false,
 };
 
 describe('MeterReadingEntity', () => {

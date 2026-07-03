@@ -13,7 +13,6 @@ export interface MeterReadingEntity {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
-  isSynced: boolean;
 }
 
 export function getMeterTypeLabel(meterType: MeterType): string {

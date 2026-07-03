@@ -7,10 +7,18 @@
  * Covers:
  * - complete → incomplete preserves celebrated_at
  * - re-complete after regression: celebrated_at already set (no re-trigger)
- * - every write has isSynced=false
+ *
+ * getEnvelopeSpentCents is mocked out — its correctness is covered by
+ * EnvelopeBalanceQuery's own unit/realsql tests. Every envelope fixture here
+ * uses spentCents: 0, so an empty Map (spentCents defaults to 0 per envelope)
+ * reproduces the same inputs to BudgetBalanceCalculator/BabyStepEvaluator.
  */
 
 import { ReconcileBabyStepsUseCase } from '../ReconcileBabyStepsUseCase';
+
+jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
+}));
 
 beforeAll(() => {
   jest.useFakeTimers();
@@ -53,7 +61,6 @@ function makeBabyStepRow(stepNumber: number, overrides: Record<string, unknown> 
     celebratedAt: null,
     createdAt: '2026-04-01T00:00:00.000Z',
     updatedAt: '2026-04-01T00:00:00.000Z',
-    isSynced: true,
     ...overrides,
   };
 }
@@ -208,7 +215,7 @@ describe('ReconcileBabyStepsUseCase', () => {
     expect(step1Status?.celebratedAt).toBe(celebratedAt);
   });
 
-  it('every write has isSynced=false', async () => {
+  it('every write stamps updatedAt', async () => {
     const envelopeRow = makeEnvelopeRow({
       envelopeType: 'emergency_fund',
       allocatedCents: 100_000,
@@ -225,8 +232,10 @@ describe('ReconcileBabyStepsUseCase', () => {
     const uc = new ReconcileBabyStepsUseCase(db as any);
     await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
+    expect(db._updates.length).toBeGreaterThan(0);
     for (const update of db._updates) {
-      expect(update.set.isSynced).toBe(false);
+      expect(update.set.updatedAt).toBeTruthy();
+      expect(update.set).not.toHaveProperty('isSynced');
     }
   });
 

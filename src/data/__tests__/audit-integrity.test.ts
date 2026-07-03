@@ -3,6 +3,7 @@ import { CreateTransactionUseCase } from '../../domain/transactions/CreateTransa
 import { CreateEnvelopeUseCase } from '../../domain/envelopes/CreateEnvelopeUseCase';
 import { DeleteTransactionUseCase } from '../../domain/transactions/DeleteTransactionUseCase';
 import type { TransactionEntity } from '../../domain/transactions/TransactionEntity';
+import type { SyncedRepo } from '../uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'mock-uuid' }));
 
@@ -38,8 +39,21 @@ function makeMockDb() {
   };
 }
 
-function makeMockEnqueuer() {
-  return { enqueue: jest.fn().mockResolvedValue(undefined) };
+/** Fake `SyncedRepo` — the write dependency the envelope/transaction use cases now use
+ * instead of `ISyncEnqueuer` (balance is derived; entity write + oplog append happen
+ * atomically inside `createSyncedRepo`, see slice-3 task 3). */
+function makeMockSyncedRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
 }
 
 describe('Audit Trail Integrity', () => {
@@ -67,7 +81,6 @@ describe('Audit Trail Integrity', () => {
           entityId: 'tx-1',
           action: 'create',
           createdAt: expect.any(String),
-          isSynced: false,
         }),
       );
     });
@@ -174,7 +187,7 @@ describe('Audit Trail Integrity', () => {
     it('produces an audit event on successful creation', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const enqueuer = makeMockEnqueuer();
+      const repo = makeMockSyncedRepo();
 
       const uc = new CreateTransactionUseCase(
         db,
@@ -187,7 +200,7 @@ describe('Audit Trail Integrity', () => {
           description: null,
           transactionDate: '2026-06-10',
         },
-        enqueuer,
+        { repo },
       );
 
       const result = await uc.execute();
@@ -206,7 +219,7 @@ describe('Audit Trail Integrity', () => {
     it('audit newValue contains transaction fields', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const enqueuer = makeMockEnqueuer();
+      const repo = makeMockSyncedRepo();
 
       const uc = new CreateTransactionUseCase(
         db,
@@ -219,7 +232,7 @@ describe('Audit Trail Integrity', () => {
           description: 'Weekly shop',
           transactionDate: '2026-06-15',
         },
-        enqueuer,
+        { repo },
       );
 
       await uc.execute();
@@ -239,7 +252,7 @@ describe('Audit Trail Integrity', () => {
     it('produces an audit event on successful creation', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const enqueuer = makeMockEnqueuer();
+      const repo = makeMockSyncedRepo();
 
       const uc = new CreateEnvelopeUseCase(
         db,
@@ -251,7 +264,7 @@ describe('Audit Trail Integrity', () => {
           envelopeType: 'spending',
           periodStart: '2026-06-01',
         },
-        enqueuer,
+        { repo },
       );
 
       const result = await uc.execute();
@@ -270,7 +283,7 @@ describe('Audit Trail Integrity', () => {
     it('audit newValue contains envelope fields', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const enqueuer = makeMockEnqueuer();
+      const repo = makeMockSyncedRepo();
 
       const uc = new CreateEnvelopeUseCase(
         db,
@@ -282,7 +295,7 @@ describe('Audit Trail Integrity', () => {
           envelopeType: 'savings',
           periodStart: '2026-06-01',
         },
-        enqueuer,
+        { repo },
       );
 
       await uc.execute();
@@ -302,7 +315,7 @@ describe('Audit Trail Integrity', () => {
     it('produces an audit event with action=delete', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const enqueuer = makeMockEnqueuer();
+      const repo = makeMockSyncedRepo();
 
       const tx: TransactionEntity = {
         id: 'tx-del-1',
@@ -318,7 +331,7 @@ describe('Audit Trail Integrity', () => {
         updatedAt: '2026-06-12T08:00:00.000Z',
       };
 
-      const uc = new DeleteTransactionUseCase(db, mockAudit, tx, enqueuer);
+      const uc = new DeleteTransactionUseCase(db, mockAudit, tx, { repo });
       const result = await uc.execute();
 
       expect(result.success).toBe(true);
@@ -337,7 +350,7 @@ describe('Audit Trail Integrity', () => {
     it('audit previousValue contains the deleted transaction data', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const enqueuer = makeMockEnqueuer();
+      const repo = makeMockSyncedRepo();
 
       const tx: TransactionEntity = {
         id: 'tx-del-2',
@@ -353,7 +366,7 @@ describe('Audit Trail Integrity', () => {
         updatedAt: '2026-06-10T10:00:00.000Z',
       };
 
-      const uc = new DeleteTransactionUseCase(db, mockAudit, tx, enqueuer);
+      const uc = new DeleteTransactionUseCase(db, mockAudit, tx, { repo });
       await uc.execute();
 
       const auditInput = mockAudit.log.mock.calls[0][0];
@@ -367,10 +380,10 @@ describe('Audit Trail Integrity', () => {
       );
     });
 
-    it('enqueues DELETE sync operation after audit', async () => {
+    it('soft-deletes via the synced repo (one oplog op) after resolving success', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const enqueuer = makeMockEnqueuer();
+      const repo = makeMockSyncedRepo();
 
       const tx: TransactionEntity = {
         id: 'tx-del-3',
@@ -386,10 +399,10 @@ describe('Audit Trail Integrity', () => {
         updatedAt: '2026-06-01T00:00:00.000Z',
       };
 
-      const uc = new DeleteTransactionUseCase(db, mockAudit, tx, enqueuer);
+      const uc = new DeleteTransactionUseCase(db, mockAudit, tx, { repo });
       await uc.execute();
 
-      expect(enqueuer.enqueue).toHaveBeenCalledWith('transactions', 'tx-del-3', 'DELETE');
+      expect(repo.softDelete).toHaveBeenCalledWith('tx-del-3', 'h1', expect.any(Object));
     });
   });
 });

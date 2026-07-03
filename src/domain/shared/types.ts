@@ -37,5 +37,4 @@ export interface AuditEvent {
   previousValueJson: string | null;
   newValueJson: string | null;
   createdAt: string; // ISO 8601
-  isSynced: boolean;
 }

@@ -69,7 +69,6 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         notes: null,
         createdAt: today,
         updatedAt: today,
-        isSynced: false,
       };
       const result = anomalyDetector.detect(preview, priorReadings);
       if (result.isAnomaly) {

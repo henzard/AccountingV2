@@ -69,7 +69,6 @@ export class LogMeterReadingUseCase {
       notes: this.input.notes,
       createdAt: now,
       updatedAt: now,
-      isSynced: false,
     };
 
     await this.repo.insert(reading);

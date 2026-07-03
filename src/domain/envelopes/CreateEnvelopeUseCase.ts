@@ -1,11 +1,9 @@
 import { randomUUID } from 'expo-crypto';
-import type { InferInsertModel } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
-import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
@@ -21,16 +19,12 @@ interface CreateEnvelopeInput {
 }
 
 export class CreateEnvelopeUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateEnvelopeInput,
-    enqueuer?: ISyncEnqueuer,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-  }
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(): Promise<Result<EnvelopeEntity>> {
     const trimmedName = this.input.name.trim();
@@ -66,8 +60,23 @@ export class CreateEnvelopeUseCase {
       updatedAt: now,
     };
 
-    const row: InferInsertModel<typeof envelopes> = { ...envelope, isSynced: false };
-    await this.db.insert(envelopes).values(row);
+    const row: Record<string, unknown> = {
+      id: envelope.id,
+      household_id: envelope.householdId,
+      name: envelope.name,
+      allocated_cents: envelope.allocatedCents,
+      envelope_type: envelope.envelopeType,
+      is_savings_locked: envelope.isSavingsLocked,
+      is_archived: envelope.isArchived,
+      period_start: envelope.periodStart,
+      target_amount_cents: envelope.targetAmountCents,
+      target_date: envelope.targetDate,
+      created_at: envelope.createdAt,
+      updated_at: envelope.updatedAt,
+    };
+
+    const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
+    repo.insert(row, resolveSyncedRepoCtx(this.deps));
 
     const envelopeRecord: Record<string, unknown> = {
       id: envelope.id,
@@ -91,8 +100,6 @@ export class CreateEnvelopeUseCase {
       previousValue: null,
       newValue: envelopeRecord,
     });
-
-    await this.enqueuer.enqueue('envelopes', id, 'INSERT');
 
     return createSuccess(envelope);
   }

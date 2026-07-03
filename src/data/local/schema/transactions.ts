@@ -15,7 +15,6 @@ export const transactions = sqliteTable(
     slipId: text('slip_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
   },
   (t) => ({

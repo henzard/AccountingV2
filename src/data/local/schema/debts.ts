@@ -15,6 +15,5 @@ export const debts = sqliteTable('debts', {
   totalPaidCents: integer('total_paid_cents').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
   deletedAt: text('deleted_at'),
 });

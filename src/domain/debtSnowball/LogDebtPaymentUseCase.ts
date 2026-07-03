@@ -56,7 +56,6 @@ export class LogDebtPaymentUseCase {
       outstandingBalanceCents: newBalance,
       isPaidOff,
       updatedAt: now,
-      isSynced: false,
     });
 
     await this.audit.log({

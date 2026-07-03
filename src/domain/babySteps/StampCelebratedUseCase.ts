@@ -1,5 +1,5 @@
 /**
- * StampCelebratedUseCase — sets celebrated_at = now, isSynced=false.
+ * StampCelebratedUseCase — sets celebrated_at = now.
  *
  * Idempotent: if celebrated_at is already set, no-op (returns success).
  * Called from modal dismiss (both foreground and deferred-foreground paths).
@@ -44,7 +44,6 @@ export class StampCelebratedUseCase {
       .set({
         celebratedAt: now,
         updatedAt: now,
-        isSynced: false,
       })
       .where(and(eq(babySteps.householdId, householdId), eq(babySteps.stepNumber, stepNumber)));
 

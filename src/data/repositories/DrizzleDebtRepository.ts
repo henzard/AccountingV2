@@ -24,7 +24,7 @@ export class DrizzleDebtRepository implements IDebtRepository {
   }
 
   async insert(debt: DebtEntity): Promise<void> {
-    await this.db.insert(debts).values({ ...debt, isSynced: false });
+    await this.db.insert(debts).values(debt);
   }
 
   async update(debt: Partial<DebtEntity> & { id: string; householdId: string }): Promise<void> {
@@ -57,7 +57,6 @@ export class DrizzleDebtRepository implements IDebtRepository {
       totalPaidCents: row.totalPaidCents,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      isSynced: row.isSynced,
     };
   }
 }

@@ -2,7 +2,7 @@
  * ReconcileEmergencyFundTypeUseCase — oldest active emergency_fund wins.
  *
  * When multiple non-archived envelopes have type='emergency_fund' for a household,
- * the oldest by createdAt is kept. Others are flipped to 'savings' with isSynced=false.
+ * the oldest by createdAt is kept. Others are flipped to 'savings'.
  * Archived envelopes are skipped entirely.
  *
  * Triggered only after SyncOrchestrator.syncPending returns { failed: 0 }.
@@ -65,7 +65,6 @@ export class ReconcileEmergencyFundTypeUseCase {
         .set({
           envelopeType: 'savings',
           updatedAt: now,
-          isSynced: false,
         })
         .where(and(eq(envelopes.id, envelope.id), eq(envelopes.householdId, householdId)));
       await this.enqueuer.enqueue('envelopes', envelope.id, 'UPDATE');

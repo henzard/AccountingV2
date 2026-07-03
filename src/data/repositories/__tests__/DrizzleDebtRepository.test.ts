@@ -15,11 +15,10 @@ const debt: DebtEntity = {
   totalPaidCents: 0,
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
-  isSynced: false,
 };
 
 describe('DrizzleDebtRepository', () => {
-  it('insert calls db.insert with correct data shape and isSynced:false', async () => {
+  it('insert calls db.insert with correct data shape', async () => {
     const valuesFn = jest.fn().mockResolvedValue(undefined);
     const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
     const db = { insert: insertFn } as any;
@@ -37,7 +36,6 @@ describe('DrizzleDebtRepository', () => {
         outstandingBalanceCents: 50000,
         interestRatePercent: 22.5,
         minimumPaymentCents: 1500,
-        isSynced: false,
       }),
     );
   });

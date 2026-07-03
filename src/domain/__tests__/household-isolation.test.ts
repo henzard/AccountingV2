@@ -4,6 +4,7 @@ import { ArchiveEnvelopeUseCase } from '../envelopes/ArchiveEnvelopeUseCase';
 import { UpdateEnvelopeUseCase } from '../envelopes/UpdateEnvelopeUseCase';
 import type { TransactionEntity } from '../transactions/TransactionEntity';
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';
+import type { SyncedRepo } from '../../data/uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'mock-uuid-001' }));
 
@@ -11,15 +12,8 @@ const HOUSEHOLD_A = 'household-aaa';
 const HOUSEHOLD_B = 'household-bbb';
 
 function createMockDb() {
-  const selectCalls: any[] = [];
-  const updateCalls: any[] = [];
-  const deleteCalls: any[] = [];
-  const insertCalls: any[] = [];
-
   const whereTracker = {
     selectWheres: [] as any[],
-    updateWheres: [] as any[],
-    deleteWheres: [] as any[],
   };
 
   const chainable = (tracker: any[], resolveValue?: any) => {
@@ -38,38 +32,39 @@ function createMockDb() {
 
   const db: any = {
     select: jest.fn(() => chainable(whereTracker.selectWheres, [])),
-    update: jest.fn((table: any) => {
-      const c = chainable(whereTracker.updateWheres);
-      updateCalls.push({ table });
-      return c;
-    }),
-    delete: jest.fn((table: any) => {
-      const c = chainable(whereTracker.deleteWheres);
-      deleteCalls.push({ table });
-      return c;
-    }),
-    insert: jest.fn(() => ({
-      values: jest.fn().mockResolvedValue(undefined),
-    })),
     transaction: jest.fn(async (cb: any) => cb(db)),
   };
 
-  return { db, whereTracker, selectCalls, updateCalls, deleteCalls, insertCalls };
+  return { db, whereTracker };
 }
 
 function createMockAudit() {
   return { log: jest.fn().mockResolvedValue(undefined) } as any;
 }
 
-function createMockEnqueuer() {
-  return { enqueue: jest.fn().mockResolvedValue(undefined) };
+/** Fake `SyncedRepo` — household-scoping now lives in `createSyncedRepo`'s SQL
+ * (`WHERE id = ? AND household_id = ?`, see its realsql tests). These tests
+ * assert that each use case passes the *correct* householdId through to the
+ * repo, rather than inspecting a mocked Drizzle WHERE clause. */
+function createMockSyncedRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
 }
 
 describe('Household Data Isolation — CreateTransactionUseCase', () => {
   it('scopes envelope lookup to the requesting householdId', async () => {
     const { db, whereTracker } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
     const uc = new CreateTransactionUseCase(
       db,
@@ -82,7 +77,7 @@ describe('Household Data Isolation — CreateTransactionUseCase', () => {
         description: null,
         transactionDate: '2026-06-01',
       },
-      enqueuer,
+      { repo },
     );
 
     await uc.execute();
@@ -98,7 +93,7 @@ describe('Household Data Isolation — CreateTransactionUseCase', () => {
   it('returns ENVELOPE_NOT_FOUND when envelope belongs to a different household', async () => {
     const { db } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
     const uc = new CreateTransactionUseCase(
       db,
@@ -111,7 +106,7 @@ describe('Household Data Isolation — CreateTransactionUseCase', () => {
         description: null,
         transactionDate: '2026-06-01',
       },
-      enqueuer,
+      { repo },
     );
 
     const result = await uc.execute();
@@ -120,25 +115,22 @@ describe('Household Data Isolation — CreateTransactionUseCase', () => {
     if (!result.success) {
       expect(result.error.code).toBe('ENVELOPE_NOT_FOUND');
     }
+    expect(repo.insert).not.toHaveBeenCalled();
   });
 
-  it('scopes envelope spentCents update to householdId', async () => {
-    const { db, whereTracker } = createMockDb();
+  it('inserts the transaction row via the repo scoped to the requesting householdId, and never touches the envelope', async () => {
+    const { db } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
-    // Make the select return a valid envelope so the use case proceeds to update
-    const selectChain: any = {
+    // Make the select return a valid envelope so the use case proceeds to insert
+    db.select = jest.fn(() => ({
       from: jest.fn().mockReturnThis(),
-      where: jest.fn((cond: any) => {
-        whereTracker.selectWheres.push(cond);
-        return selectChain;
-      }),
+      where: jest.fn().mockReturnThis(),
       limit: jest
         .fn()
         .mockResolvedValue([{ id: 'env-1', householdId: HOUSEHOLD_A, envelopeType: 'spending' }]),
-    };
-    db.select = jest.fn(() => selectChain);
+    }));
 
     const uc = new CreateTransactionUseCase(
       db,
@@ -151,24 +143,24 @@ describe('Household Data Isolation — CreateTransactionUseCase', () => {
         description: null,
         transactionDate: '2026-06-01',
       },
-      enqueuer,
+      { repo },
     );
 
     await uc.execute();
 
-    expect(db.update).toHaveBeenCalled();
-    expect(whereTracker.updateWheres.length).toBeGreaterThan(0);
-    // Limitation: the mock DB records that a WHERE was passed but cannot verify it
-    // contains the correct householdId predicate. Full cross-household isolation
-    // (household-A envelope invisible to household-B) needs integration tests.
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+    const [row] = repo.insert.mock.calls[0];
+    expect(row.household_id).toBe(HOUSEHOLD_A);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.increment).not.toHaveBeenCalled();
   });
 });
 
 describe('Household Data Isolation — DeleteTransactionUseCase', () => {
-  it('scopes DELETE to householdId', async () => {
-    const { db, whereTracker } = createMockDb();
+  it('scopes the soft-delete to the transaction entity householdId', async () => {
+    const { db } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
     const tx: TransactionEntity = {
       id: 'tx-1',
@@ -184,19 +176,16 @@ describe('Household Data Isolation — DeleteTransactionUseCase', () => {
       updatedAt: '2026-06-01T00:00:00Z',
     };
 
-    const uc = new DeleteTransactionUseCase(db, audit, tx, enqueuer);
+    const uc = new DeleteTransactionUseCase(db, audit, tx, { repo });
     await uc.execute();
 
-    expect(db.delete).toHaveBeenCalled();
-    expect(whereTracker.deleteWheres.length).toBeGreaterThan(0);
-    // See note in CreateTransactionUseCase tests: mock DB cannot evaluate the WHERE
-    // predicate, so true cross-household isolation requires integration tests.
+    expect(repo.softDelete).toHaveBeenCalledWith('tx-1', HOUSEHOLD_A, expect.any(Object));
   });
 
-  it('scopes envelope spentCents decrement to householdId', async () => {
-    const { db, whereTracker } = createMockDb();
+  it('does not touch the envelope (no update/increment call)', async () => {
+    const { db } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
     const tx: TransactionEntity = {
       id: 'tx-1',
@@ -212,19 +201,19 @@ describe('Household Data Isolation — DeleteTransactionUseCase', () => {
       updatedAt: '2026-06-01T00:00:00Z',
     };
 
-    const uc = new DeleteTransactionUseCase(db, audit, tx, enqueuer);
+    const uc = new DeleteTransactionUseCase(db, audit, tx, { repo });
     await uc.execute();
 
-    expect(db.update).toHaveBeenCalled();
-    expect(whereTracker.updateWheres.length).toBeGreaterThan(0);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.increment).not.toHaveBeenCalled();
   });
 });
 
 describe('Household Data Isolation — ArchiveEnvelopeUseCase', () => {
-  it('scopes UPDATE to householdId', async () => {
-    const { db, whereTracker } = createMockDb();
+  it('scopes the update to the envelope entity householdId', async () => {
+    const { db } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
     const envelope: EnvelopeEntity = {
       id: 'env-1',
@@ -242,19 +231,23 @@ describe('Household Data Isolation — ArchiveEnvelopeUseCase', () => {
       updatedAt: '2026-06-01T00:00:00Z',
     };
 
-    const uc = new ArchiveEnvelopeUseCase(db, audit, envelope, enqueuer);
+    const uc = new ArchiveEnvelopeUseCase(db, audit, envelope, { repo });
     await uc.execute();
 
-    expect(db.update).toHaveBeenCalled();
-    expect(whereTracker.updateWheres.length).toBeGreaterThan(0);
+    expect(repo.update).toHaveBeenCalledWith(
+      'env-1',
+      HOUSEHOLD_A,
+      expect.any(Object),
+      expect.any(Object),
+    );
   });
 });
 
 describe('Household Data Isolation — UpdateEnvelopeUseCase', () => {
-  it('scopes UPDATE to householdId', async () => {
-    const { db, whereTracker } = createMockDb();
+  it('scopes the update to the current entity householdId', async () => {
+    const { db } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
     const current: EnvelopeEntity = {
       id: 'env-1',
@@ -276,23 +269,24 @@ describe('Household Data Isolation — UpdateEnvelopeUseCase', () => {
       db,
       audit,
       current,
-      {
-        name: 'Food',
-        allocatedCents: 600_00,
-      },
-      enqueuer,
+      { name: 'Food', allocatedCents: 600_00 },
+      { repo },
     );
 
     await uc.execute();
 
-    expect(db.update).toHaveBeenCalled();
-    expect(whereTracker.updateWheres.length).toBeGreaterThan(0);
+    expect(repo.update).toHaveBeenCalledWith(
+      'env-1',
+      HOUSEHOLD_A,
+      expect.any(Object),
+      expect.any(Object),
+    );
   });
 
   it('does not cross household boundaries — different householdId in current entity', async () => {
-    const { db, whereTracker: _whereTracker } = createMockDb();
+    const { db } = createMockDb();
     const audit = createMockAudit();
-    const enqueuer = createMockEnqueuer();
+    const repo = createMockSyncedRepo();
 
     const current: EnvelopeEntity = {
       id: 'env-1',
@@ -314,18 +308,21 @@ describe('Household Data Isolation — UpdateEnvelopeUseCase', () => {
       db,
       audit,
       current,
-      {
-        name: 'Updated by B',
-        allocatedCents: 700_00,
-      },
-      enqueuer,
+      { name: 'Updated by B', allocatedCents: 700_00 },
+      { repo },
     );
 
     await uc.execute();
 
-    // The WHERE clause uses current.householdId which is HOUSEHOLD_B
-    // If an attacker somehow swaps current to a different household's envelope,
-    // the WHERE would still filter by that entity's householdId.
-    expect(db.update).toHaveBeenCalled();
+    // The repo call uses current.householdId which is HOUSEHOLD_B — if an
+    // attacker somehow swaps `current` to a different household's envelope,
+    // the write would still be scoped by that entity's householdId (and, at
+    // the SQL layer inside createSyncedRepo, would affect 0 rows and throw).
+    expect(repo.update).toHaveBeenCalledWith(
+      'env-1',
+      HOUSEHOLD_B,
+      expect.any(Object),
+      expect.any(Object),
+    );
   });
 });

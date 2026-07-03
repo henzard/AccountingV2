@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const auditEvents = sqliteTable('audit_events', {
   id: text('id').primaryKey(),
@@ -9,5 +9,4 @@ export const auditEvents = sqliteTable('audit_events', {
   previousValueJson: text('previous_value_json'),
   newValueJson: text('new_value_json'),
   createdAt: text('created_at').notNull(),
-  isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
 });

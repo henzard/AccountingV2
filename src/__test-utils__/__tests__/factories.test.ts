@@ -87,7 +87,6 @@ describe('Factory functions produce valid objects', () => {
     expect(typeof debt.sortOrder).toBe('number');
     expect(typeof debt.isPaidOff).toBe('boolean');
     expect(typeof debt.totalPaidCents).toBe('number');
-    expect(typeof debt.isSynced).toBe('boolean');
   });
 
   it('buildMeterReading returns required fields', () => {
@@ -97,7 +96,6 @@ describe('Factory functions produce valid objects', () => {
     expect(['electricity', 'water', 'odometer']).toContain(mr.meterType);
     expect(mr.readingValue).toBeGreaterThan(0);
     expect(mr.readingDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(typeof mr.isSynced).toBe('boolean');
   });
 
   it('buildBabyStep returns required fields', () => {

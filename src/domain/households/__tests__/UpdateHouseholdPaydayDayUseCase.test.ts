@@ -89,7 +89,6 @@ describe('UpdateHouseholdPaydayDayUseCase', () => {
     expect(db._setFn).toHaveBeenCalledWith(
       expect.objectContaining({
         paydayDay: 1,
-        isSynced: false,
         updatedAt: expect.any(String),
       }),
     );
@@ -124,13 +123,13 @@ describe('UpdateHouseholdPaydayDayUseCase', () => {
     expect(enqueuer.enqueue).toHaveBeenCalledWith('households', HOUSEHOLD_ID, 'UPDATE');
   });
 
-  it('sets isSynced=false to flag row for sync', async () => {
+  it('sets updatedAt to flag the row as recently modified', async () => {
     const db = makeDb();
     const enqueuer = makeEnqueuer();
     const uc = new UpdateHouseholdPaydayDayUseCase(db as any, HOUSEHOLD_ID, 20, enqueuer);
     await uc.execute();
 
-    expect(db._setFn).toHaveBeenCalledWith(expect.objectContaining({ isSynced: false }));
+    expect(db._setFn).toHaveBeenCalledWith(expect.objectContaining({ paydayDay: 20 }));
   });
 
   it('sets updatedAt to current time', async () => {

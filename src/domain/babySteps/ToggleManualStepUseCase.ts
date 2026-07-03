@@ -2,7 +2,6 @@
  * ToggleManualStepUseCase — flips manual steps 4/5/7.
  *
  * Rejects non-manual step numbers (only 4/5/7 are allowed).
- * Always writes isSynced=false.
  *
  * Spec §ToggleManualStepUseCase.
  */
@@ -38,7 +37,6 @@ export class ToggleManualStepUseCase {
         isCompleted: completed,
         completedAt: completed ? now : null,
         updatedAt: now,
-        isSynced: false,
       })
       .where(and(eq(babySteps.householdId, householdId), eq(babySteps.stepNumber, stepNumber)));
 

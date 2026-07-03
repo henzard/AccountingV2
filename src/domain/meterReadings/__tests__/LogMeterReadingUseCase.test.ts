@@ -75,7 +75,6 @@ describe('LogMeterReadingUseCase', () => {
       notes: null,
       createdAt: '2026-04-01T00:00:00.000Z',
       updatedAt: '2026-04-01T00:00:00.000Z',
-      isSynced: true,
     };
     const repo = makeMockRepo(existingReading);
     const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, mockEnqueuer, repo);
@@ -106,7 +105,6 @@ describe('LogMeterReadingUseCase', () => {
       expect(result.data.meterType).toBe('electricity');
       expect(result.data.readingValue).toBe(1500);
       expect(result.data.costCents).toBe(52500);
-      expect(result.data.isSynced).toBe(false);
     }
   });
 });

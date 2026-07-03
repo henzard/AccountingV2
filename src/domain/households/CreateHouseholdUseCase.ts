@@ -56,7 +56,6 @@ export class CreateHouseholdUseCase {
       userLevel: 1,
       createdAt: now,
       updatedAt: now,
-      isSynced: false,
     } satisfies InferInsertModel<typeof households>;
     await this.repo.insert(newHousehold);
 

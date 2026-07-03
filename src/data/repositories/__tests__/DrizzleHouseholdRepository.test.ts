@@ -8,19 +8,16 @@ const household: HouseholdRow = {
   userLevel: 1,
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
-  isSynced: false,
 };
 
 describe('DrizzleHouseholdRepository', () => {
-  it('insert calls db.insert with isSynced:false', async () => {
+  it('insert calls db.insert with the household row', async () => {
     const insertValues = jest.fn().mockResolvedValue(undefined);
     const db = { insert: jest.fn().mockReturnValue({ values: insertValues }) } as any;
     const repo = new DrizzleHouseholdRepository(db);
     await repo.insert(household);
     expect(db.insert).toHaveBeenCalled();
-    expect(insertValues).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'h1', isSynced: false }),
-    );
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ id: 'h1' }));
   });
 
   it('findById returns null when no row found', async () => {
