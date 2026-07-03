@@ -12,11 +12,10 @@ const reading: MeterReadingEntity = {
   notes: null,
   createdAt: '2024-06-01T08:00:00.000Z',
   updatedAt: '2024-06-01T08:00:00.000Z',
-  isSynced: false,
 };
 
 describe('DrizzleMeterReadingRepository', () => {
-  it('insert calls db.insert with correct data shape and isSynced:false', async () => {
+  it('insert calls db.insert with correct data shape', async () => {
     const valuesFn = jest.fn().mockResolvedValue(undefined);
     const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
     const db = { insert: insertFn } as any;
@@ -33,7 +32,6 @@ describe('DrizzleMeterReadingRepository', () => {
         readingValue: 1234.5,
         readingDate: '2024-06-01',
         costCents: 45000,
-        isSynced: false,
       }),
     );
   });

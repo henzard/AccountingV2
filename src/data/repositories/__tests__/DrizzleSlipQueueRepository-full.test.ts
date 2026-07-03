@@ -99,7 +99,6 @@ describe('DrizzleSlipQueueRepository', () => {
         const setArg = setMock.mock.calls[0][0];
         const check = expected ?? value;
         expect(setArg[field]).toBe(check);
-        expect(setArg.isSynced).toBe(false);
         expect(setArg.updatedAt).toBeDefined();
         expect(enqueuer.enqueue).toHaveBeenCalledWith('slip_queue', 's1', 'UPDATE');
       },

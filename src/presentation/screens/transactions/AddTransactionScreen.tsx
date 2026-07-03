@@ -6,6 +6,7 @@ import { and, eq, ne } from 'drizzle-orm';
 import { format } from 'date-fns';
 import { db } from '../../../data/local/db';
 import { envelopes as envelopesTable } from '../../../data/local/schema';
+import { getEnvelopeSpentCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTransactionUseCase';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
@@ -71,7 +72,6 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       id: envelopesTable.id,
       name: envelopesTable.name,
       allocatedCents: envelopesTable.allocatedCents,
-      spentCents: envelopesTable.spentCents,
       envelopeType: envelopesTable.envelopeType,
     })
       .from(envelopesTable)
@@ -84,9 +84,15 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           ne(envelopesTable.envelopeType, 'income'),
         ),
       )
-      .then((rows) => {
-        setEnvelopes(rows as EnvelopeOption[]);
-        if (rows.length === 1) setSelectedEnvelope(rows[0] as EnvelopeOption);
+      .then(async (rows) => {
+        // spentCents is derived from the transaction ledger, not a stored column.
+        const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, periodStart);
+        const withSpent = rows.map((row) => ({
+          ...row,
+          spentCents: spentByEnvelope.get(row.id) ?? 0,
+        })) as EnvelopeOption[];
+        setEnvelopes(withSpent);
+        if (withSpent.length === 1) setSelectedEnvelope(withSpent[0]);
       })
       .catch(() => {
         enqueue('Failed to load envelopes', 'error');

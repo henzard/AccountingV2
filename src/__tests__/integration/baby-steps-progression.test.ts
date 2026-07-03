@@ -23,6 +23,14 @@ import { KRUGER_ENVELOPES, KRUGER_DEBTS, HOUSEHOLDS } from '../../__test-utils__
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => `uuid-${Date.now()}-${Math.random()}` }));
 
+// spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored
+// column. The emergency-fund progress asserted below is driven by
+// allocatedCents (the funded balance), not spentCents, so an empty ledger
+// (spentCents defaults to 0 per envelope) reproduces the same inputs.
+jest.mock('../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
+}));
+
 beforeEach(() => resetFactoryCounter());
 
 const DEFAULT_MANUAL_FLAGS: EvaluatorInput['manualFlags'] = { 4: false, 5: false, 7: false };
@@ -479,7 +487,6 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
       ...e,
       targetAmountCents: e.targetAmountCents ?? null,
       targetDate: e.targetDate ?? null,
-      isSynced: false,
     }));
 
     const debtRows = KRUGER_DEBTS.map((d) => ({ ...d }));
@@ -521,7 +528,6 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
       ...e,
       targetAmountCents: e.targetAmountCents ?? null,
       targetDate: e.targetDate ?? null,
-      isSynced: false,
     }));
 
     const persistedStep1 = {
@@ -533,7 +539,6 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
       completedAt: '2026-01-15T00:00:00.000Z',
       celebratedAt: '2026-01-15T01:00:00.000Z',
       updatedAt: '2026-01-15T00:00:00.000Z',
-      isSynced: true,
     };
 
     let selectCallIdx = 0;

@@ -15,7 +15,6 @@ const base: DebtEntity = {
   totalPaidCents: 25000,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-04-01T00:00:00.000Z',
-  isSynced: false,
 };
 
 describe('DebtEntity', () => {

@@ -71,7 +71,6 @@ export function buildHousehold(overrides?: Partial<HouseholdRow>): HouseholdRow 
     userLevel: 1,
     createdAt: ISO_NOW,
     updatedAt: ISO_NOW,
-    isSynced: false,
     ...overrides,
   };
 }
@@ -134,7 +133,6 @@ export function buildDebt(overrides?: Partial<DebtEntity>): DebtEntity {
     totalPaidCents: 0,
     createdAt: ISO_NOW,
     updatedAt: ISO_NOW,
-    isSynced: false,
     ...overrides,
   };
 }
@@ -153,7 +151,6 @@ export function buildMeterReading(overrides?: Partial<MeterReadingEntity>): Mete
     notes: null,
     createdAt: ISO_NOW,
     updatedAt: ISO_NOW,
-    isSynced: false,
     ...overrides,
   };
 }

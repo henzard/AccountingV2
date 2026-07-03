@@ -51,7 +51,6 @@ describe('getPayoffProgressPercent', () => {
     totalPaidCents: 50000,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-04-01T00:00:00Z',
-    isSynced: false,
   };
 
   it('returns correct percentage based on totalPaid/initial', () => {
@@ -112,7 +111,6 @@ describe('getReadingDisplayDate', () => {
       notes: null,
       createdAt: '2026-04-15T00:00:00Z',
       updatedAt: '2026-04-15T00:00:00Z',
-      isSynced: false,
     };
     expect(getReadingDisplayDate(reading)).toBe('15 Apr 2026');
   });
@@ -297,7 +295,6 @@ describe('LogMeterReadingUseCase', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.readingValue).toBe(1500);
-      expect(result.data.isSynced).toBe(false);
     }
   });
 

@@ -120,7 +120,6 @@ describe('StampCelebratedUseCase', () => {
     expect(db._setFn).toHaveBeenCalledWith(
       expect.objectContaining({
         celebratedAt: '2026-06-19T10:00:00.000Z',
-        isSynced: false,
       }),
     );
   });
@@ -166,7 +165,6 @@ describe('ToggleManualStepUseCase', () => {
       expect.objectContaining({
         isCompleted: true,
         completedAt: '2026-06-19T10:00:00.000Z',
-        isSynced: false,
       }),
     );
   });
@@ -233,7 +231,6 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
       periodStart: '2026-04-01',
       createdAt,
       updatedAt: createdAt,
-      isSynced: true,
     };
   }
 
@@ -287,7 +284,6 @@ describe('ReconcileEmergencyFundTypeUseCase', () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.flipped).toBe(1);
     expect(db._updates[0]?.set.envelopeType).toBe('savings');
-    expect(db._updates[0]?.set.isSynced).toBe(false);
     expect(enqueuer.enqueue).toHaveBeenCalledWith('envelopes', 'e-newer', 'UPDATE');
   });
 

@@ -76,7 +76,6 @@ export class CreateDebtUseCase {
       totalPaidCents: 0,
       createdAt: now,
       updatedAt: now,
-      isSynced: false,
     };
 
     await this.repo.insert(debt);

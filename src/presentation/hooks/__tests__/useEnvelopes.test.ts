@@ -9,10 +9,29 @@ jest.mock('../../../data/local/db', () => ({
   },
 }));
 
+// spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored
+// column. Rather than re-plumb every test's row fixtures, this mock derives
+// its Map from whatever rows `mockWhere` most recently resolved to, so
+// existing fixtures (which already carry a `spentCents` value) round-trip
+// through the hook unchanged.
+jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn(),
+}));
+
 mockFrom.mockReturnValue({ where: mockWhere });
 
 import { useEnvelopes } from '../useEnvelopes';
+import { getEnvelopeSpentCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
+
+const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<
+  typeof getEnvelopeSpentCents
+>;
+mockGetEnvelopeSpentCents.mockImplementation(async () => {
+  const lastCall = mockWhere.mock.results[mockWhere.mock.results.length - 1];
+  const rows = lastCall ? ((await lastCall.value) as EnvelopeEntity[]) : [];
+  return new Map(rows.map((r) => [r.id, r.spentCents]));
+});
 
 const HOUSEHOLD = 'hh-1';
 const PERIOD = '2026-06-01';

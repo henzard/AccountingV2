@@ -46,7 +46,6 @@ describe('DrizzleUserConsentRepository', () => {
       // The insert values should include the new consent timestamp
       const insertValues = insertChain.values.mock.calls[0][0];
       expect(insertValues.slipScanConsentAt).toBe('2026-06-19T12:00:00Z');
-      expect(insertValues.isSynced).toBe(false);
 
       // Enqueue should be called with 'UPDATE' (not 'INSERT') since row exists
       expect(enqueuer.enqueue).toHaveBeenCalledWith('user_consent', 'u1', 'UPDATE');

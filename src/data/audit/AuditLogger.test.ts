@@ -96,7 +96,7 @@ describe('AuditLogger', () => {
     expect(insertedValues.newValueJson).toBeNull();
   });
 
-  it('sets isSynced to false for new audit events', async () => {
+  it('does not write an isSynced column (retired in migration 0012)', async () => {
     const valuesMock = jest.fn().mockResolvedValue(undefined);
     (db.insert as jest.Mock).mockReturnValue({ values: valuesMock });
 
@@ -110,7 +110,7 @@ describe('AuditLogger', () => {
     });
 
     const insertedValues = valuesMock.mock.calls[0][0];
-    expect(insertedValues.isSynced).toBe(false);
+    expect(insertedValues).not.toHaveProperty('isSynced');
   });
 
   it('enqueues a pending sync record after inserting audit event', async () => {

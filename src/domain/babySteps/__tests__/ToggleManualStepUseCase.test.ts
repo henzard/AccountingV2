@@ -33,15 +33,13 @@ describe('ToggleManualStepUseCase', () => {
   });
 
   describe('manual step toggle', () => {
-    it.each([4, 5, 7])('accepts step %i and writes isSynced=false', async (stepNumber) => {
+    it.each([4, 5, 7])('accepts step %i and marks it completed', async (stepNumber) => {
       const db = makeDb();
       const uc = new ToggleManualStepUseCase(db as any);
       const result = await uc.execute(HOUSEHOLD_ID, stepNumber, true);
       expect(result.success).toBe(true);
       expect(db.update).toHaveBeenCalledTimes(1);
-      expect(db._set).toHaveBeenCalledWith(
-        expect.objectContaining({ isCompleted: true, isSynced: false }),
-      );
+      expect(db._set).toHaveBeenCalledWith(expect.objectContaining({ isCompleted: true }));
     });
 
     it('marks completed_at=now when toggled on', async () => {

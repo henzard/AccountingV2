@@ -102,9 +102,9 @@ describe('CreateTransactionUseCase', () => {
         is_business_expense: false,
         spending_trigger_note: null,
         slip_id: null,
-        is_synced: false,
       }),
     );
+    expect(row).not.toHaveProperty('is_synced');
     expect(JSON.stringify(row)).not.toMatch(/spent_cents|spentCents/);
   });
 

@@ -27,9 +27,9 @@ interface EnvelopeSeed {
 function seedEnvelope(db: Database.Database, e: EnvelopeSeed): void {
   db.prepare(
     `INSERT INTO envelopes
-       (id, household_id, name, allocated_cents, spent_cents, envelope_type,
-        is_savings_locked, is_archived, period_start, created_at, updated_at, is_synced, deleted_at)
-     VALUES (?, ?, ?, 0, 0, ?, 0, 0, ?, ?, ?, 0, ?)`,
+       (id, household_id, name, allocated_cents, envelope_type,
+        is_savings_locked, is_archived, period_start, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, 0, ?, 0, 0, ?, ?, ?, ?)`,
   ).run(e.id, e.householdId, e.id, e.envelopeType, e.periodStart, NOW, NOW, e.deletedAt ?? null);
 }
 
@@ -46,8 +46,8 @@ function seedTransaction(db: Database.Database, t: TransactionSeed): void {
   db.prepare(
     `INSERT INTO transactions
        (id, household_id, envelope_id, amount_cents, transaction_date,
-        is_business_expense, created_at, updated_at, is_synced, deleted_at)
-     VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0, ?)`,
+        is_business_expense, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
   ).run(
     t.id,
     t.householdId,
@@ -279,8 +279,8 @@ describe('getEnvelopeSpentCents (real SQLite)', () => {
       const insertTx = raw.prepare(
         `INSERT INTO transactions
            (id, household_id, envelope_id, amount_cents, transaction_date,
-            is_business_expense, created_at, updated_at, is_synced, deleted_at)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0, NULL)`,
+            is_business_expense, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, NULL)`,
       );
       const insertMany = raw.transaction((rows: number) => {
         for (let i = 0; i < rows; i++) {

@@ -17,11 +17,10 @@ export class DrizzleHouseholdRepository implements IHouseholdRepository {
       userLevel: row.userLevel,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      isSynced: row.isSynced,
     };
   }
 
   async insert(household: HouseholdRow): Promise<void> {
-    await this.db.insert(households).values({ ...household, isSynced: false });
+    await this.db.insert(households).values(household);
   }
 }

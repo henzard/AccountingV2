@@ -64,7 +64,7 @@ describe('ArchiveEnvelopeUseCase', () => {
     expect(result.success).toBe(true);
   });
 
-  it('sets is_archived=true, is_synced=false, and updated_at via the synced repo', async () => {
+  it('sets is_archived=true and updated_at via the synced repo', async () => {
     const repo = makeFakeRepo();
     const audit = makeAudit();
     const envelope = makeEnvelope();
@@ -78,7 +78,6 @@ describe('ArchiveEnvelopeUseCase', () => {
       {
         is_archived: true,
         updated_at: '2026-06-18T12:00:00.000Z',
-        is_synced: false,
       },
       expect.any(Object),
     );

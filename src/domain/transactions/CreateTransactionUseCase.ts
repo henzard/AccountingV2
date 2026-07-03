@@ -95,7 +95,6 @@ export class CreateTransactionUseCase {
       slip_id: this.input.slipId ?? null,
       created_at: tx.createdAt,
       updated_at: tx.updatedAt,
-      is_synced: false,
     };
 
     const repo = resolveSyncedRepo(this.db, 'transactions', this.deps);

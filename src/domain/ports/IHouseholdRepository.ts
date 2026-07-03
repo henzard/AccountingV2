@@ -5,7 +5,6 @@ export interface HouseholdRow {
   userLevel: number;
   createdAt: string;
   updatedAt: string;
-  isSynced: boolean;
 }
 
 export interface IHouseholdRepository {

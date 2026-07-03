@@ -65,7 +65,6 @@ export class CreateEnvelopeUseCase {
       household_id: envelope.householdId,
       name: envelope.name,
       allocated_cents: envelope.allocatedCents,
-      spent_cents: envelope.spentCents,
       envelope_type: envelope.envelopeType,
       is_savings_locked: envelope.isSavingsLocked,
       is_archived: envelope.isArchived,
@@ -74,7 +73,6 @@ export class CreateEnvelopeUseCase {
       target_date: envelope.targetDate,
       created_at: envelope.createdAt,
       updated_at: envelope.updatedAt,
-      is_synced: false,
     };
 
     const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);

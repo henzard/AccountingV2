@@ -16,9 +16,11 @@ jest.mock('../../../../data/local/db', () => ({
             Promise.resolve([
               {
                 id: 'env-1',
+                householdId: 'hh-1',
                 name: 'Groceries',
                 allocatedCents: 500000,
                 envelopeType: 'spending',
+                periodStart: '2026-06-01',
                 targetAmountCents: null,
                 targetDate: null,
               },
@@ -28,6 +30,10 @@ jest.mock('../../../../data/local/db', () => ({
       })),
     })),
   },
+}));
+// spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored column.
+jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map([['env-1', 0]])),
 }));
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),

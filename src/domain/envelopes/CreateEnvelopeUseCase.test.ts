@@ -58,13 +58,13 @@ describe('CreateEnvelopeUseCase', () => {
         household_id: 'hh-1',
         name: 'Groceries',
         allocated_cents: 300000,
-        spent_cents: 0,
         envelope_type: 'spending',
         is_archived: false,
         period_start: '2026-03-25',
-        is_synced: false,
       }),
     );
+    expect(row).not.toHaveProperty('spent_cents');
+    expect(row).not.toHaveProperty('is_synced');
     expect(ctx).toEqual(expect.any(Object));
   });
 

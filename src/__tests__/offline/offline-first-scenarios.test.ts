@@ -117,7 +117,7 @@ beforeEach(() => resetFactoryCounter());
 
 describe('Offline-First Scenarios (airplane mode)', () => {
   describe('CreateTransactionUseCase offline', () => {
-    it('saves transaction locally with is_synced: false via the synced repo', async () => {
+    it('saves transaction locally via the synced repo (no isSynced column)', async () => {
       const envelope = buildEnvelope({
         householdId: KRUGER_ID,
         envelopeType: 'spending',
@@ -145,7 +145,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
       expect(result.success).toBe(true);
       expect(repo.insert).toHaveBeenCalledTimes(1);
       const [row] = repo.insert.mock.calls[0];
-      expect(row.is_synced).toBe(false);
+      expect(row).not.toHaveProperty('is_synced');
     });
 
     it('appends exactly one oplog op via repo.insert for the transactions table', async () => {
@@ -211,7 +211,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
   });
 
   describe('CreateEnvelopeUseCase offline', () => {
-    it('saves envelope locally with is_synced: false and spent_cents: 0 via the synced repo', async () => {
+    it('saves envelope locally via the synced repo (no isSynced or spent_cents column)', async () => {
       const db = createMockDb();
       const audit = createMockAudit();
       const repo = createMockSyncedRepo();
@@ -238,8 +238,8 @@ describe('Offline-First Scenarios (airplane mode)', () => {
       }
       expect(repo.insert).toHaveBeenCalledTimes(1);
       const [row] = repo.insert.mock.calls[0];
-      expect(row.is_synced).toBe(false);
-      expect(row.spent_cents).toBe(0);
+      expect(row).not.toHaveProperty('is_synced');
+      expect(row).not.toHaveProperty('spent_cents');
     });
 
     it('appends exactly one oplog op via repo.insert for the envelopes table', async () => {

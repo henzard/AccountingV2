@@ -16,5 +16,4 @@ export const slipQueue = sqliteTable('slip_queue', {
   openaiCostCents: integer('openai_cost_cents').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
 });

@@ -81,7 +81,6 @@ describe('Audit Trail Integrity', () => {
           entityId: 'tx-1',
           action: 'create',
           createdAt: expect.any(String),
-          isSynced: false,
         }),
       );
     });

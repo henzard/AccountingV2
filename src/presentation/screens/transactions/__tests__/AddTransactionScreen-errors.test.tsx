@@ -126,6 +126,13 @@ jest.mock('../../../../data/local/db', () => ({
   },
 }));
 
+// spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored
+// column — mocked so setupDbChain's row fixtures (which already carry a
+// `spentCents` value) flow straight through unchanged.
+jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn(),
+}));
+
 // ─── AuditLogger mock ─────────────────────────────────────────────────────────
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
@@ -178,8 +185,15 @@ jest.mock('../../../../data/local/schema', () => ({
 const { db: mockDb } = require('../../../../data/local/db');
 
 import { AddTransactionScreen } from '../AddTransactionScreen';
+import { getEnvelopeSpentCents } from '../../../../data/local/balances/EnvelopeBalanceQuery';
 
-function setupDbChain(rows: object[]): void {
+const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<
+  typeof getEnvelopeSpentCents
+>;
+
+function setupDbChain(
+  rows: Array<{ id: string; spentCents?: number; [k: string]: unknown }>,
+): void {
   const mockThen = jest.fn((cb: (r: object[]) => void) => {
     cb(rows);
     return { catch: jest.fn() };
@@ -187,6 +201,7 @@ function setupDbChain(rows: object[]): void {
   const mockWhere = jest.fn(() => ({ then: mockThen }));
   const mockFrom = jest.fn(() => ({ where: mockWhere }));
   mockDb.select.mockReturnValue({ from: mockFrom });
+  mockGetEnvelopeSpentCents.mockResolvedValue(new Map(rows.map((r) => [r.id, r.spentCents ?? 0])));
 }
 
 const makeNavProps = () => ({
@@ -249,7 +264,13 @@ describe('AddTransactionScreen — error paths', () => {
     );
 
     fireEvent.changeText(getByTestId('Amount (R)'), '50');
-    fireEvent.press(getByText('Record Transaction'));
+    // The single envelope is auto-selected once spentCents resolves
+    // asynchronously (derived from the ledger) — retry the press until the
+    // selection has landed and doSave actually reaches execute().
+    await waitFor(() => {
+      fireEvent.press(getByText('Record Transaction'));
+      expect(mockExecute).toHaveBeenCalled();
+    });
 
     await waitFor(() => {
       expect(queryByTestId('snackbar-error')).toBeTruthy();
@@ -267,7 +288,10 @@ describe('AddTransactionScreen — error paths', () => {
     );
 
     fireEvent.changeText(getByTestId('Amount (R)'), '50');
-    fireEvent.press(getByText('Record Transaction'));
+    await waitFor(() => {
+      fireEvent.press(getByText('Record Transaction'));
+      expect(mockExecute).toHaveBeenCalled();
+    });
 
     await waitFor(() => {
       expect(queryByTestId('snackbar-error')).toBeTruthy();

@@ -29,7 +29,7 @@ export class DrizzleTransactionRepository implements ITransactionRepository {
   }
 
   async insert(t: TransactionEntity): Promise<void> {
-    await this.db.insert(transactions).values({ ...t, isSynced: false });
+    await this.db.insert(transactions).values(t);
   }
 
   async delete(id: string, householdId: string): Promise<void> {

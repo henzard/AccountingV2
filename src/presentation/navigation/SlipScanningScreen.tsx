@@ -26,6 +26,7 @@ import { BudgetPeriodEngine } from '../../domain/shared/BudgetPeriodEngine';
 import { db } from '../../data/local/db';
 import { supabase } from '../../data/remote/supabaseClient';
 import { envelopes as envelopesTable } from '../../data/local/schema';
+import { getEnvelopeSpentCents } from '../../data/local/balances/EnvelopeBalanceQuery';
 import { eq, ne, and } from 'drizzle-orm';
 import { format } from 'date-fns';
 import { useAppStore } from '../stores/appStore';
@@ -73,7 +74,6 @@ export function SlipScanningScreen(): React.JSX.Element {
       id: envelopesTable.id,
       name: envelopesTable.name,
       allocatedCents: envelopesTable.allocatedCents,
-      spentCents: envelopesTable.spentCents,
       envelopeType: envelopesTable.envelopeType,
     })
       .from(envelopesTable)
@@ -85,7 +85,16 @@ export function SlipScanningScreen(): React.JSX.Element {
           ne(envelopesTable.envelopeType, 'income'),
         ),
       )
-      .then((rows) => setEnvelopes(rows as EnvelopeOption[]))
+      .then(async (rows) => {
+        // spentCents is derived from the transaction ledger, not a stored column.
+        const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, periodStart);
+        setEnvelopes(
+          rows.map((row) => ({
+            ...row,
+            spentCents: spentByEnvelope.get(row.id) ?? 0,
+          })) as EnvelopeOption[],
+        );
+      })
       .catch(() => {});
   }, [householdId, periodStart]);
 

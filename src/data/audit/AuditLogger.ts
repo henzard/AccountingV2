@@ -32,7 +32,6 @@ export class AuditLogger {
       previousValueJson: input.previousValue ? JSON.stringify(input.previousValue) : null,
       newValueJson: input.newValue ? JSON.stringify(input.newValue) : null,
       createdAt: now,
-      isSynced: false,
     });
     await this.enqueuer.enqueue('audit_events', id, 'INSERT');
   }

@@ -7,6 +7,5 @@ export const households = sqliteTable('households', {
   userLevel: integer('user_level').notNull().default(1), // 1=Learner, 2=Practitioner, 3=Mentor
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  isSynced: integer('is_synced', { mode: 'boolean' }).notNull().default(false),
   deletedAt: text('deleted_at'),
 });

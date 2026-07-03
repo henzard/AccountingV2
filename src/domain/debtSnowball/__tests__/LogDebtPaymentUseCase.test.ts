@@ -40,7 +40,6 @@ const currentDebt: DebtEntity = {
   totalPaidCents: 0,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
-  isSynced: false,
 };
 
 describe('LogDebtPaymentUseCase', () => {

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { envelopes as envelopesTable } from '../../data/local/schema';
+import { getEnvelopeSpentCents } from '../../data/local/balances/EnvelopeBalanceQuery';
 import type { EnvelopeEntity } from '../../domain/envelopes/EnvelopeEntity';
 
 export interface UseEnvelopesResult {
@@ -30,7 +31,14 @@ export function useEnvelopes(householdId: string, periodStart: string): UseEnvel
             eq(envelopesTable.isArchived, false),
           ),
         );
-      setEnvelopes(rows as EnvelopeEntity[]);
+      // spentCents is derived from the transaction ledger, not a stored column.
+      const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, periodStart);
+      setEnvelopes(
+        rows.map((row) => ({
+          ...row,
+          spentCents: spentByEnvelope.get(row.id) ?? 0,
+        })) as EnvelopeEntity[],
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load envelopes');
     } finally {

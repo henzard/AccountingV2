@@ -23,7 +23,7 @@ export class ArchiveEnvelopeUseCase {
       repo.update(
         this.envelope.id,
         this.envelope.householdId,
-        { is_archived: true, updated_at: now, is_synced: false },
+        { is_archived: true, updated_at: now },
         resolveSyncedRepoCtx(this.deps),
       );
     } catch {

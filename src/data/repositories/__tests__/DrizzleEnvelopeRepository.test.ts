@@ -1,5 +1,14 @@
 import { DrizzleEnvelopeRepository } from '../DrizzleEnvelopeRepository';
+import { getEnvelopeSpentCents } from '../../local/balances/EnvelopeBalanceQuery';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
+
+jest.mock('../../local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn(),
+}));
+
+const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<
+  typeof getEnvelopeSpentCents
+>;
 
 const makeEntity = (overrides: Partial<EnvelopeEntity> = {}): EnvelopeEntity => ({
   id: 'env-1',
@@ -18,11 +27,15 @@ const makeEntity = (overrides: Partial<EnvelopeEntity> = {}): EnvelopeEntity => 
   ...overrides,
 });
 
-const makeRow = (entity: EnvelopeEntity) => ({
-  ...entity,
-  targetAmountCents: entity.targetAmountCents ?? undefined,
-  targetDate: entity.targetDate ?? undefined,
-});
+// DB rows never carry spentCents — it's derived, not stored (migration 0012).
+const makeRow = (entity: EnvelopeEntity) => {
+  const { spentCents: _spentCents, ...row } = entity;
+  return {
+    ...row,
+    targetAmountCents: entity.targetAmountCents ?? undefined,
+    targetDate: entity.targetDate ?? undefined,
+  };
+};
 
 function buildSelectMock(rows: any[]) {
   const limitFn = jest.fn().mockResolvedValue(rows);
@@ -39,13 +52,19 @@ function buildSelectNoLimitMock(rows: any[]) {
   return { selectFn, fromFn, whereFn };
 }
 
+beforeEach(() => {
+  mockGetEnvelopeSpentCents.mockReset();
+  mockGetEnvelopeSpentCents.mockResolvedValue(new Map());
+});
+
 describe('DrizzleEnvelopeRepository', () => {
   describe('findById', () => {
-    it('returns entity when row is found', async () => {
+    it('returns entity with spentCents derived from the ledger', async () => {
       const entity = makeEntity();
       const row = makeRow(entity);
       const { selectFn, limitFn } = buildSelectMock([row]);
       const db = { select: selectFn } as any;
+      mockGetEnvelopeSpentCents.mockResolvedValue(new Map([['env-1', 120_00]]));
       const repo = new DrizzleEnvelopeRepository(db);
 
       const result = await repo.findById('env-1', 'hh-1');
@@ -53,6 +72,20 @@ describe('DrizzleEnvelopeRepository', () => {
       expect(result).toEqual(entity);
       expect(selectFn).toHaveBeenCalled();
       expect(limitFn).toHaveBeenCalledWith(1);
+      expect(mockGetEnvelopeSpentCents).toHaveBeenCalledWith(db, 'hh-1', entity.periodStart);
+    });
+
+    it('defaults spentCents to 0 when the envelope has no ledger entry', async () => {
+      const entity = makeEntity();
+      const row = makeRow(entity);
+      const { selectFn } = buildSelectMock([row]);
+      const db = { select: selectFn } as any;
+      mockGetEnvelopeSpentCents.mockResolvedValue(new Map());
+      const repo = new DrizzleEnvelopeRepository(db);
+
+      const result = await repo.findById('env-1', 'hh-1');
+
+      expect(result?.spentCents).toBe(0);
     });
 
     it('returns null when row is not found', async () => {
@@ -63,6 +96,7 @@ describe('DrizzleEnvelopeRepository', () => {
       const result = await repo.findById('nonexistent', 'hh-1');
 
       expect(result).toBeNull();
+      expect(mockGetEnvelopeSpentCents).not.toHaveBeenCalled();
     });
 
     it('propagates database errors', async () => {
@@ -77,20 +111,29 @@ describe('DrizzleEnvelopeRepository', () => {
     });
   });
 
-  describe('findByHousehold', () => {
-    it('returns all envelopes for a household', async () => {
+  describe('listByHousehold', () => {
+    it('returns all envelopes for a household with derived spentCents', async () => {
       const entities = [makeEntity(), makeEntity({ id: 'env-2', name: 'Transport' })];
       const rows = entities.map(makeRow);
       const { selectFn, whereFn } = buildSelectNoLimitMock(rows);
       const db = { select: selectFn } as any;
+      mockGetEnvelopeSpentCents.mockResolvedValue(
+        new Map([
+          ['env-1', 120_00],
+          ['env-2', 0],
+        ]),
+      );
       const repo = new DrizzleEnvelopeRepository(db);
 
-      const result = await repo.findByHousehold('hh-1');
+      const result = await repo.listByHousehold('hh-1', '2026-06-01');
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Groceries');
+      expect(result[0].spentCents).toBe(120_00);
       expect(result[1].name).toBe('Transport');
+      expect(result[1].spentCents).toBe(0);
       expect(whereFn).toHaveBeenCalledTimes(1);
+      expect(mockGetEnvelopeSpentCents).toHaveBeenCalledWith(db, 'hh-1', '2026-06-01');
     });
 
     it('returns empty array when no envelopes exist', async () => {
@@ -98,7 +141,7 @@ describe('DrizzleEnvelopeRepository', () => {
       const db = { select: selectFn } as any;
       const repo = new DrizzleEnvelopeRepository(db);
 
-      const result = await repo.findByHousehold('hh-1');
+      const result = await repo.listByHousehold('hh-1', '2026-06-01');
 
       expect(result).toEqual([]);
       expect(whereFn).toHaveBeenCalledTimes(1);
@@ -106,7 +149,7 @@ describe('DrizzleEnvelopeRepository', () => {
   });
 
   describe('insert', () => {
-    it('inserts entity with isSynced false', async () => {
+    it('inserts entity columns without the derived spentCents field', async () => {
       const valuesFn = jest.fn().mockResolvedValue(undefined);
       const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
       const db = { insert: insertFn } as any;
@@ -116,9 +159,11 @@ describe('DrizzleEnvelopeRepository', () => {
       await repo.insert(entity);
 
       expect(insertFn).toHaveBeenCalled();
-      expect(valuesFn).toHaveBeenCalledWith(
-        expect.objectContaining({ ...entity, isSynced: false }),
-      );
+      const { spentCents: _spentCents, ...expectedColumns } = entity;
+      expect(valuesFn).toHaveBeenCalledWith(expectedColumns);
+      const insertedArg = valuesFn.mock.calls[0][0];
+      expect(insertedArg).not.toHaveProperty('spentCents');
+      expect(insertedArg).not.toHaveProperty('isSynced');
     });
 
     it('propagates database errors on insert', async () => {
@@ -132,7 +177,7 @@ describe('DrizzleEnvelopeRepository', () => {
   });
 
   describe('update', () => {
-    it('updates entity fields with isSynced false', async () => {
+    it('updates entity fields without touching isSynced or spentCents', async () => {
       const whereFn = jest.fn().mockResolvedValue(undefined);
       const setFn = jest.fn().mockReturnValue({ where: whereFn });
       const updateFn = jest.fn().mockReturnValue({ set: setFn });
@@ -143,9 +188,10 @@ describe('DrizzleEnvelopeRepository', () => {
       await repo.update(entity);
 
       expect(updateFn).toHaveBeenCalled();
-      expect(setFn).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Updated', isSynced: false }),
-      );
+      expect(setFn).toHaveBeenCalledWith(expect.objectContaining({ name: 'Updated' }));
+      const setArg = setFn.mock.calls[0][0];
+      expect(setArg).not.toHaveProperty('spentCents');
+      expect(setArg).not.toHaveProperty('isSynced');
     });
 
     it('propagates database errors on update', async () => {

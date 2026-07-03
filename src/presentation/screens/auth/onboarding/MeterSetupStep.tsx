@@ -52,7 +52,6 @@ export function MeterSetupStep(): React.JSX.Element {
           notes: 'Opening baseline',
           createdAt: now,
           updatedAt: now,
-          isSynced: false,
         });
         await enqueuer.enqueue('meter_readings', id, 'INSERT');
       }

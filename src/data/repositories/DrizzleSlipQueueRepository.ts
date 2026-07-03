@@ -46,7 +46,6 @@ export class DrizzleSlipQueueRepository implements ISlipQueueRepository {
       status: row.status,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      isSynced: false,
     });
     await this.enqueuer.enqueue('slip_queue', row.id, 'INSERT');
   }
@@ -57,7 +56,7 @@ export class DrizzleSlipQueueRepository implements ISlipQueueRepository {
   }
 
   async update(id: string, patch: Partial<SlipQueueRow>): Promise<void> {
-    const set: Record<string, unknown> = { isSynced: false, updatedAt: new Date().toISOString() };
+    const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (patch.status !== undefined) set.status = patch.status;
     if (patch.errorMessage !== undefined) set.errorMessage = patch.errorMessage;
     if (patch.merchant !== undefined) set.merchant = patch.merchant;

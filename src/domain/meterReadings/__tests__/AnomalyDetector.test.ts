@@ -13,7 +13,6 @@ function makeReading(value: number, date: string): MeterReadingEntity {
     notes: null,
     createdAt: `${date}T00:00:00.000Z`,
     updatedAt: `${date}T00:00:00.000Z`,
-    isSynced: false,
   };
 }
 

@@ -68,7 +68,6 @@ export class UpdateEnvelopeUseCase {
       target_amount_cents: updated.targetAmountCents,
       target_date: updated.targetDate,
       updated_at: now,
-      is_synced: false,
     };
 
     let repoResult: 'ok' | 'not_found' = 'ok';

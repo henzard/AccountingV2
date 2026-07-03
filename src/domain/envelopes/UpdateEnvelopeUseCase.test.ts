@@ -80,10 +80,9 @@ describe('UpdateEnvelopeUseCase', () => {
       expect.objectContaining({
         name: 'Food',
         allocated_cents: 400000,
-        is_synced: false,
       }),
     );
-    expect(JSON.stringify(fields)).not.toMatch(/spent_cents|spentCents/);
+    expect(JSON.stringify(fields)).not.toMatch(/spent_cents|spentCents|is_synced|isSynced/);
   });
 
   it('trims whitespace from name', async () => {
@@ -261,7 +260,7 @@ describe('ArchiveEnvelopeUseCase', () => {
     expect(repo.update).toHaveBeenCalledWith(
       'env-1',
       'hh-1',
-      expect.objectContaining({ is_archived: true, is_synced: false }),
+      expect.objectContaining({ is_archived: true }),
       expect.any(Object),
     );
   });
