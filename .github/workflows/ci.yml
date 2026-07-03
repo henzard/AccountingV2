@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ['*']
+    branches: ['**']
   pull_request:
 
 jobs:
@@ -38,6 +38,24 @@ jobs:
 
       - name: Run Deno tests
         run: deno test --allow-net --allow-env --allow-read supabase/functions/
+
+  db:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v2
+        with:
+          version: latest
+
+      - name: Boot local Supabase stack
+        run: supabase start
+
+      - name: Replay full migration chain
+        run: supabase db reset
+
+      - name: Run pgTAP suite
+        run: supabase test db
 
   e2e-android:
     if: github.ref == 'refs/heads/master'
