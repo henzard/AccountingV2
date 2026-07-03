@@ -44,8 +44,12 @@ jobs:
 
   db:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: supabase/setup-cli@v2
         with:
