@@ -43,7 +43,7 @@ jobs:
           deno-version: 'v2.x'
 
       - name: Run Deno tests
-        run: deno test --allow-net --allow-env --allow-read supabase/functions/
+        run: deno test --node-modules-dir=none --allow-net --allow-env --allow-read supabase/functions/
 
   # db-gate mirrors ci.yml's `db` job: replays the full migration chain against
   # a fresh local Postgres, runs the pgTAP suite, and runs the two-device

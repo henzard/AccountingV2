@@ -40,7 +40,7 @@ jobs:
           deno-version: 'v2.x'
 
       - name: Run Deno tests
-        run: deno test --allow-net --allow-env --allow-read supabase/functions/
+        run: deno test --node-modules-dir=none --allow-net --allow-env --allow-read supabase/functions/
 
   db:
     runs-on: ubuntu-latest

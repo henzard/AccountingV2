@@ -1,4 +1,4 @@
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2.103.0';
 import { calculateOpenAIcost } from './pricing.ts';
 import type { OpenAIUsage } from './pricing.ts';
 
