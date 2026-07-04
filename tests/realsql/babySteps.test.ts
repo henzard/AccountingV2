@@ -34,7 +34,7 @@ interface OplogRow {
 }
 
 describe('SeedBabyStepsUseCase (real SQLite)', () => {
-  it('inserts all 7 rows and appends exactly 7 oplog ops (no pending_sync)', async () => {
+  it('inserts all 7 rows and appends exactly 7 oplog ops', async () => {
     const raw = openMigratedDb();
     seedHousehold(raw, 'hh-1');
     const db = drizzle(raw);
@@ -52,10 +52,14 @@ describe('SeedBabyStepsUseCase (real SQLite)', () => {
     expect(ops).toHaveLength(7);
     expect(ops.every((o) => o.op_type === 'insert' && o.table_name === 'baby_steps')).toBe(true);
 
-    const pendingSyncCount = (
-      raw.prepare('SELECT COUNT(*) AS n FROM pending_sync').get() as { n: number }
-    ).n;
-    expect(pendingSyncCount).toBe(0);
+    // Slice 5 task 6 drops the `pending_sync` table entirely (migration
+    // 0014) — its non-existence is a stronger guarantee than the old
+    // "count is 0" assertion this replaces; a query against it would now
+    // throw "no such table" instead.
+    const tableExists = raw
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_sync'")
+      .get();
+    expect(tableExists).toBeUndefined();
 
     raw.close();
   });

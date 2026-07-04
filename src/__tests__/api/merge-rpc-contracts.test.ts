@@ -1,9 +1,15 @@
 /**
  * merge-rpc-contracts.test.ts — WS4
  *
- * Tests that SyncOrchestrator routes each table through the correct merge RPC
- * and that the `r` param passed to supabase.rpc() is a correctly-shaped snake_case
- * row produced by toSupabaseRow.
+ * The OLD `merge_*` RPC routing this file's title refers to (SyncOrchestrator's
+ * per-table dispatch) was deleted in slice 5 task 6 along with SyncOrchestrator
+ * itself — the oplog protocol's `sync_push` replaces all ten `merge_*` RPCs
+ * with one generic apply path (`docs/adr/0001-oplog-sync-protocol.md`). What
+ * remains here, and is still exercised: `toSupabaseRow` (kept — still used by
+ * `RestoreService`) producing a correctly-shaped snake_case row for each
+ * entity type. Kept under its original filename/describe-block names rather
+ * than renamed, to preserve blame history for a file whose actual assertions
+ * were always about `rowConverters`, not RPC dispatch.
  */
 import { toSupabaseRow } from '../../data/sync/rowConverters';
 import {

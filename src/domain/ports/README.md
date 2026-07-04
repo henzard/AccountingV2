@@ -2,10 +2,9 @@
 
 As of slice 5 task 1, **every** use case that writes to persistent storage uses the same DI
 pattern: `SyncWriteDeps` (oplog, via `createSyncedRepo`/`runInUnitOfWork`). The older
-`ISyncEnqueuer` (`pending_sync` outbox) pattern below is now **dead** — no domain code
-constructs a `PendingSyncEnqueuerAdapter` anymore. It's documented here only because
-`ISyncEnqueuer`/`PendingSyncEnqueuer`/`PendingSyncTable` themselves aren't deleted yet (that's
-slice 5 task 6's job, once `SyncEngine` replaces `SyncOrchestrator`).
+`ISyncEnqueuer` (`pending_sync` outbox) pattern has been fully removed as of slice 5 task 6:
+`ISyncEnqueuer`, `PendingSyncEnqueuer`, `PendingSyncEnqueuerAdapter`, `PendingSyncTable`, and
+`SyncOrchestrator` are gone, replaced by `SyncEngine`/`SyncScheduler`.
 
 ## Pattern — SyncWriteDeps (oplog, createSyncedRepo)
 
@@ -69,19 +68,7 @@ the server needs to learn. Appending an oplog `insert` op here would re-push a r
 already has. This mirrors `RestoreService`'s own pulled-row inserts, which also never enqueue or
 append ops.
 
-## Legacy — ISyncEnqueuer (dead, pending removal in slice 5 task 6)
+## Legacy — ISyncEnqueuer (removed in slice 5 task 6)
 
-```ts
-interface ISyncEnqueuer {
-  enqueue(
-    tableName: string,
-    recordId: string,
-    operation: 'INSERT' | 'UPDATE' | 'DELETE',
-  ): Promise<void>;
-}
-```
-
-No use case builds a `PendingSyncEnqueuerAdapter` anymore. `PendingSyncEnqueuer`,
-`PendingSyncEnqueuerAdapter`, `PendingSyncTable`, and `SyncOrchestrator` remain in the tree only
-because slice 5 task 6 owns deleting them (`SyncOrchestrator` is replaced by the new `SyncEngine`
-in this same slice).
+`ISyncEnqueuer`, `PendingSyncEnqueuer`, `PendingSyncEnqueuerAdapter`, `PendingSyncTable`, and
+`SyncOrchestrator` have been deleted. Sync is now handled by `SyncEngine`/`SyncScheduler`.

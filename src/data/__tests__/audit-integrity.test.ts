@@ -136,19 +136,10 @@ describe('Audit Trail Integrity', () => {
       expect(insertValues.mock.calls[0][0].previousValueJson).not.toBeNull();
     });
 
-    it('enqueues audit event for sync after insertion', async () => {
+    it('does not enqueue onto pending_sync (audit_events is local-only, slice 5)', async () => {
       const insertValues = jest.fn().mockResolvedValue(undefined);
       const mockInsert = jest.fn().mockReturnValue({ values: insertValues });
-      // PendingSyncEnqueuer.enqueue first selects to check for existing entry,
-      // then inserts a new pending_sync row when none found.
-      const mockSelect = jest.fn().mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([]), // no existing pending item
-          }),
-        }),
-      });
-      const db = { insert: mockInsert, select: mockSelect } as any;
+      const db = { insert: mockInsert } as any;
       const logger = new AuditLogger(db);
 
       await logger.log({
@@ -160,8 +151,9 @@ describe('Audit Trail Integrity', () => {
         newValue: { id: 'tx-1' },
       });
 
-      // AuditLogger calls db.insert twice: once for audit_events, once via PendingSyncEnqueuer
-      expect(mockInsert).toHaveBeenCalledTimes(2);
+      // AuditLogger no longer depends on PendingSyncEnqueuer (deleted, slice 5
+      // task 6) — db.insert is called exactly once, for audit_events only.
+      expect(mockInsert).toHaveBeenCalledTimes(1);
     });
 
     it('includes ISO 8601 timestamp in createdAt', async () => {

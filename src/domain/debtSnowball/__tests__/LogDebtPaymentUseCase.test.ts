@@ -24,8 +24,11 @@ const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 /**
  * `LogDebtPaymentUseCase` drives `runInUnitOfWork` directly (not
  * `createSyncedRepo`) — see the file's own doc comment for why a debt
- * payment needs two `increment` ops + one `update` op instead of the
- * generic single-field `increment` helper. This fake `db` mimics just
+ * payment needs two `increment` ops (one per money column) instead of the
+ * generic single-field `increment` helper. `is_paid_off` is no longer
+ * pushed as a third op — the server derives it from
+ * `outstanding_balance_cents` via a trigger (slice 5 task 6,
+ * `supabase/migrations/0001_baseline.sql` §9g). This fake `db` mimics just
  * enough of `PortableDb` for `runInUnitOfWork` to work: `.transaction(fn)`
  * calls `fn(tx)` synchronously and returns its result, and `tx.run(...)`
  * records every raw-SQL statement issued inside the transaction.

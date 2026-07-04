@@ -98,6 +98,13 @@
       "when": 1782259200000,
       "tag": "0013_emf_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1782345600000,
+      "tag": "0014_drop_pending_sync",
+      "breakpoints": true
     }
   ]
 }

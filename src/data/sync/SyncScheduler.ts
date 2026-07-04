@@ -92,6 +92,22 @@ export interface SyncSchedulerDeps {
   debounceMs?: number;
   /** Returns "now" as an ISO-8601 string. Injected for deterministic tests. */
   clock?: () => string;
+  /**
+   * Optional hook run after every successful `engine.sync()` round. Kept
+   * generic (not domain-specific) so this data-layer scheduler never imports
+   * `domain/*` — the composition root (App.tsx) supplies the actual
+   * behavior. Its production use, added in slice 5 task 6: re-wiring the
+   * duplicate-emergency-fund reconcile backstop
+   * (`ReconcileEmergencyFundTypeUseCase` / `emergencyFundReconcileStore`)
+   * that used to fire from the OLD `SyncOrchestrator.syncPending` after a
+   * clean `{failed: 0}` sync — the Task 5 cutover to this engine dropped
+   * that call site without replacing it, silently orphaning a mechanism the
+   * spec's own slice-3/4 as-built notes document as a still-live,
+   * load-bearing backstop (not dead code). Failures here are logged and
+   * swallowed — the hook must never be able to fail a sync round or crash
+   * the scheduler.
+   */
+  onSyncSuccess?: (householdId: string) => Promise<void> | void;
 }
 
 /**
@@ -107,6 +123,7 @@ export class SyncScheduler {
   private readonly statusSink: SyncStatusSink;
   private readonly debounceMs: number;
   private readonly clock: () => string;
+  private readonly onSyncSuccess: ((householdId: string) => Promise<void> | void) | undefined;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingHouseholdId: string | null = null;
@@ -135,6 +152,7 @@ export class SyncScheduler {
     this.statusSink = deps.statusSink ?? NULL_SYNC_STATUS_SINK;
     this.debounceMs = deps.debounceMs ?? 400;
     this.clock = deps.clock ?? ((): string => new Date().toISOString());
+    this.onSyncSuccess = deps.onSyncSuccess;
   }
 
   /** True once `start()` has wired triggers and not yet been `stop()`-ed. */
@@ -247,6 +265,16 @@ export class SyncScheduler {
       await this.engine.sync(householdId);
       this.statusSink.setError(null);
       this.statusSink.setLastSyncedAt(this.clock());
+      if (this.onSyncSuccess) {
+        try {
+          await this.onSyncSuccess(householdId);
+        } catch (hookErr) {
+          logger.warn('SyncScheduler: onSyncSuccess hook failed', {
+            householdId,
+            error: hookErr instanceof Error ? hookErr.message : String(hookErr),
+          });
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn('SyncScheduler: sync() failed', { householdId, error: message });

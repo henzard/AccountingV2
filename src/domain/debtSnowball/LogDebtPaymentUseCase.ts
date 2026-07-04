@@ -57,6 +57,19 @@ export class LogDebtPaymentUseCase {
     // §"Debt payment" and `.superpowers/sdd/task-1-report.md` for the design
     // rationale (server's `sync_push` `increment` branch is single-field-only
     // and can't be changed in this local-only task).
+    //
+    // Slice 5 task 6: this used to append a THIRD op — a plain `update` op
+    // carrying the client-computed `is_paid_off` — alongside the two
+    // `increment` ops below. That op is gone. The Task-1 review flagged a
+    // divergence risk: sync_push applies ops independently (no whole-batch
+    // atomicity), so a transient rejection of the balance-decrement op while
+    // this client-computed `is_paid_off` op still applied could show a debt
+    // as "paid off" against a nonzero remote balance until DLQ retry. Fixed
+    // by deriving `is_paid_off` server-side instead (a `BEFORE INSERT OR
+    // UPDATE` trigger on `public.debts`, `supabase/migrations/0001_baseline.sql`
+    // §9g) from whatever `outstanding_balance_cents` the row actually holds —
+    // it can no longer independently diverge, and the client has one fewer
+    // op to push per payment.
     runInUnitOfWork(this.db, (uow) => {
       // ONE SQL statement recomputes outstanding_balance_cents,
       // total_paid_cents, AND is_paid_off from the row's CURRENT (pre-update)
@@ -110,20 +123,6 @@ export class LogDebtPaymentUseCase {
           delta: actualApplied,
           clamp: 'none',
         },
-        actorUserId: ctx.actorUserId,
-        deviceId: ctx.deviceId,
-        clientCreatedAt: now,
-      });
-      // is_paid_off is a plain derived boolean (not a money field, no
-      // increment/lost-update concern) — a normal `update` op carries it and
-      // `updated_at` to the server.
-      uow.appendOp({
-        opId: resolveOpId(ctx),
-        householdId: this.input.householdId,
-        tableName: 'debts',
-        rowId: this.input.debtId,
-        opType: 'update',
-        payload: { is_paid_off: isPaidOff, updated_at: now },
         actorUserId: ctx.actorUserId,
         deviceId: ctx.deviceId,
         clientCreatedAt: now,

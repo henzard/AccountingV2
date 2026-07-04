@@ -74,7 +74,7 @@ interface OplogRow {
 const noopAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
 describe('LogDebtPaymentUseCase (real SQLite)', () => {
-  it('a partial payment: decrements balance, increments total_paid, appends exactly 3 oplog ops', async () => {
+  it('a partial payment: decrements balance, increments total_paid, appends exactly 2 oplog ops', async () => {
     const raw = openMigratedDb();
     seedHousehold(raw, 'hh-1');
     const debt = seedDebt(raw);
@@ -97,7 +97,12 @@ describe('LogDebtPaymentUseCase (real SQLite)', () => {
     const ops = raw
       .prepare('SELECT * FROM oplog WHERE row_id = ? ORDER BY rowid')
       .all('debt-1') as OplogRow[];
-    expect(ops).toHaveLength(3);
+    // Slice 5 task 6: the third op (a plain `update` carrying a
+    // client-computed is_paid_off) was removed — the server now derives
+    // is_paid_off from outstanding_balance_cents via a trigger
+    // (supabase/migrations/0001_baseline.sql §9g), closing the divergence
+    // risk the Task-1 review flagged. Only the two `increment` ops remain.
+    expect(ops).toHaveLength(2);
 
     const balanceOp = ops.find(
       (o) =>
@@ -118,13 +123,6 @@ describe('LogDebtPaymentUseCase (real SQLite)', () => {
       field: 'total_paid_cents',
       delta: 30000,
       clamp: 'none',
-    });
-
-    const updateOp = ops.find((o) => o.op_type === 'update');
-    expect(updateOp).toBeTruthy();
-    expect(JSON.parse(updateOp!.payload)).toEqual({
-      is_paid_off: false,
-      updated_at: expect.any(String),
     });
 
     for (const op of ops) {
@@ -192,12 +190,12 @@ describe('LogDebtPaymentUseCase (real SQLite)', () => {
         n: number;
       }
     ).n;
-    expect(opCount).toBe(6); // 3 ops per payment x 2 payments
+    expect(opCount).toBe(4); // 2 ops per payment x 2 payments
 
     raw.close();
   });
 
-  it('rolls back the entity write and all 3 ops together when the transaction fails mid-write', async () => {
+  it('rolls back the entity write and both ops together when the transaction fails mid-write', async () => {
     const raw = openMigratedDb();
     seedHousehold(raw, 'hh-1');
     const debt = seedDebt(raw);

@@ -1,0 +1,15 @@
+-- 0014_drop_pending_sync.sql
+--
+-- Drops the local `pending_sync` outbox table. It was the write target of
+-- the OLD sync machinery (`PendingSyncEnqueuer`/`PendingSyncTable`, drained
+-- by `SyncOrchestrator`), all deleted in slice 5 task 6 — every domain write
+-- now appends directly to the local `oplog` table (migration 0011) inside
+-- the same transaction as the entity write (`createSyncedRepo`/
+-- `runInUnitOfWork`, slice 3), and `SyncEngine`/`SyncScheduler` (slice 5
+-- tasks 3-4) drain `oplog`, not `pending_sync`. Nothing writes to or reads
+-- from `pending_sync` anymore — see
+-- `docs/superpowers/specs/2026-07-03-oplog-sync-correctness-design.md` and
+-- `docs/adr/0001-oplog-sync-protocol.md` for the full protocol this
+-- replaces it with.
+--> statement-breakpoint
+DROP TABLE IF EXISTS `pending_sync`;

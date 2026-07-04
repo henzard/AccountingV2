@@ -3,13 +3,6 @@ import { AuditLogger } from '../audit/AuditLogger';
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'audit-uuid-001' }));
 
 const mockInsertValues = jest.fn().mockResolvedValue(undefined);
-const mockEnqueue = jest.fn().mockResolvedValue(undefined);
-
-jest.mock('../sync/PendingSyncEnqueuer', () => ({
-  PendingSyncEnqueuer: jest.fn().mockImplementation(() => ({
-    enqueue: mockEnqueue,
-  })),
-}));
 
 function createMockDb() {
   return {
@@ -125,7 +118,7 @@ describe('Audit Trail — AuditLogger.log()', () => {
     expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ newValueJson: null }));
   });
 
-  it('enqueues sync for the audit event', async () => {
+  it('does not enqueue onto pending_sync (audit_events is local-only, slice 5)', async () => {
     const db = createMockDb();
     const logger = new AuditLogger(db);
 
@@ -138,7 +131,9 @@ describe('Audit Trail — AuditLogger.log()', () => {
       newValue: null,
     });
 
-    expect(mockEnqueue).toHaveBeenCalledWith('audit_events', 'audit-uuid-001', 'INSERT');
+    // AuditLogger no longer depends on PendingSyncEnqueuer (deleted, slice 5
+    // task 6) — db.insert is called exactly once, for auditEvents only.
+    expect(db.insert).toHaveBeenCalledTimes(1);
   });
 
   it('includes ISO timestamp in createdAt field', async () => {

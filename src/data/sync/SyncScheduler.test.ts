@@ -442,6 +442,96 @@ describe('SyncScheduler', () => {
     });
   });
 
+  describe('onSyncSuccess hook (Task 6 — EMF reconcile re-wiring)', () => {
+    it('runs onSyncSuccess with the synced householdId after a successful round', async () => {
+      const engine = makeEngine();
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const onSyncSuccess = jest.fn().mockResolvedValue(undefined);
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        onSyncSuccess,
+      });
+      scheduler.start(HH);
+
+      fireAppStateChange('active');
+      await flushMicrotasks();
+
+      expect(onSyncSuccess).toHaveBeenCalledWith(HH);
+    });
+
+    it('does not run onSyncSuccess when sync() rejects', async () => {
+      const engine = makeEngine({ sync: jest.fn().mockRejectedValue(new Error('boom')) });
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const onSyncSuccess = jest.fn().mockResolvedValue(undefined);
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        onSyncSuccess,
+      });
+      scheduler.start(HH);
+
+      fireAppStateChange('active');
+      await flushMicrotasks();
+
+      expect(onSyncSuccess).not.toHaveBeenCalled();
+    });
+
+    it('a throwing/rejecting onSyncSuccess is logged and swallowed — never fails the round or the scheduler', async () => {
+      const engine = makeEngine();
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const sink = {
+        setSyncing: jest.fn(),
+        setLastSyncedAt: jest.fn(),
+        setPendingCount: jest.fn(),
+        setError: jest.fn(),
+        setPullBlocked: jest.fn(),
+      };
+      const onSyncSuccess = jest.fn().mockRejectedValue(new Error('reconcile blew up'));
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        statusSink: sink,
+        onSyncSuccess,
+      });
+      scheduler.start(HH);
+
+      fireAppStateChange('active');
+      await flushMicrotasks();
+
+      expect(onSyncSuccess).toHaveBeenCalledWith(HH);
+      // The round itself is still reported as a success — the hook failure
+      // must never leak into the sync outcome.
+      expect(sink.setError).toHaveBeenCalledWith(null);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'SyncScheduler: onSyncSuccess hook failed',
+        expect.objectContaining({ householdId: HH, error: 'reconcile blew up' }),
+      );
+    });
+
+    it('is optional — a scheduler without onSyncSuccess syncs normally', async () => {
+      const engine = makeEngine();
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+      });
+      scheduler.start(HH);
+
+      fireAppStateChange('active');
+      await expect(flushMicrotasks()).resolves.not.toThrow();
+      expect(engine.sync).toHaveBeenCalledWith(HH);
+    });
+  });
+
   describe('start/stop lifecycle', () => {
     it('start() is idempotent — a second call does not re-subscribe', () => {
       const engine = makeEngine();

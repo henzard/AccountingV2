@@ -71,7 +71,8 @@ function createMockDb(envelopeRows: unknown[] = []) {
     transaction: jest.fn(async (cb: any) => cb(db)),
     // LogDebtPaymentUseCase drives runInUnitOfWork directly (raw SQL via
     // `tx.run(...)`) for its combined balance/total_paid/is_paid_off write +
-    // its 3 oplog appends — `ran` records every such call.
+    // its 2 oplog appends (is_paid_off is server-derived, slice 5 task 6) —
+    // `ran` records every such call.
     ran: [] as unknown[],
     run: jest.fn().mockImplementation(function (this: any, query: unknown) {
       this.ran.push(query);
@@ -333,11 +334,12 @@ describe('Offline-First Scenarios (airplane mode)', () => {
 
       await uc.execute();
 
-      // One combined entity UPDATE + 3 appendOp INSERTs (2 increment ops +
-      // 1 update op — see LogDebtPaymentUseCase's own doc comment), all via
-      // raw SQL through the single db.transaction() below — never through
+      // One combined entity UPDATE + 2 appendOp INSERTs (balance/total_paid
+      // increment ops only — is_paid_off is server-derived as of slice 5
+      // task 6, see LogDebtPaymentUseCase's own doc comment), all via raw
+      // SQL through the single db.transaction() below — never through
       // ISyncEnqueuer/pending_sync.
-      expect(db.ran).toHaveLength(4);
+      expect(db.ran).toHaveLength(3);
     });
 
     it('runs the whole payment inside one db.transaction (atomic write + ops)', async () => {

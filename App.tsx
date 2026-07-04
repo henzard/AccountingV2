@@ -25,6 +25,8 @@ import { EnsureHouseholdUseCase } from './src/domain/households/EnsureHouseholdU
 import { RestoreService } from './src/data/sync/RestoreService';
 import type { RestoredHousehold } from './src/data/sync/RestoreService';
 import { SeedBabyStepsUseCase } from './src/domain/babySteps/SeedBabyStepsUseCase';
+import { ReconcileEmergencyFundTypeUseCase } from './src/domain/babySteps/ReconcileEmergencyFundTypeUseCase';
+import { useEmergencyFundReconcileStore } from './src/presentation/stores/emergencyFundReconcileStore';
 import { babySteps as babyStepsTable } from './src/data/local/schema';
 import { and, eq } from 'drizzle-orm';
 import { useCelebrationStore } from './src/presentation/stores/celebrationStore';
@@ -81,23 +83,36 @@ try {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-// NOTE ON THE SLICE-5 CUTOVER (Task 5):
+// NOTE ON THE SLICE-5 CUTOVER (Tasks 5-6):
 //
-// `RestoreService` (network household discovery/backfill) and the OLD
-// `SyncOrchestrator` (pending_sync push/pull) are NOT deleted yet — that's
-// Task 6. But boot no longer STARTS/DRIVES SyncOrchestrator at all: the
-// production `SyncEngine` + `SyncScheduler` (Tasks 3-4) own push/pull from
-// here on, wired via `ensureSyncRuntime()` below and started only after the
-// navigator has mounted (never before first paint, never network-gating it).
+// Task 5 cut boot over to the production `SyncEngine` + `SyncScheduler`
+// (Tasks 3-4), which own push/pull from here on, wired via
+// `ensureSyncRuntime()` below and started only after the navigator has
+// mounted (never before first paint, never network-gating it). Task 6
+// deleted the OLD `SyncOrchestrator` (pending_sync push/pull),
+// `PendingSyncEnqueuer`/`PendingSyncTable`, and the `pending_sync` table
+// itself — nothing in this file ever referenced them directly.
 //
-// RestoreService is still invoked (`initSessionRemote`, below) so a reinstall
-// on a new device — local SQLite empty, but Supabase still has this user's
-// household memberships — keeps discovering + backfilling them, which the new
-// engine's per-household `sync_pull` can't do on its own yet (it needs to
-// already know a householdId; there's no "list my households" pull in this
-// slice). Deliberately left as a documented follow-up for Task 6 to fold into
-// SyncEngine-native discovery. The important part for THIS task: it is 100%
+// `RestoreService` is KEPT (verified — see `.superpowers/sdd/task-6-report.md`
+// for the full trace) and still invoked below (`initSessionRemote`) so a
+// reinstall on a new device — local SQLite empty, but Supabase still has
+// this user's household memberships — keeps discovering + backfilling them,
+// which the new engine's per-household `sync_pull` can't do on its own yet
+// (it needs to already know a householdId; there's no "list my households"
+// pull in this slice). Left as a documented follow-up for a future
+// SyncEngine-native discovery pull. The important part: it is 100%
 // non-blocking — a hung/offline restore can never delay first paint.
+//
+// `ReconcileEmergencyFundTypeUseCase`/`emergencyFundReconcileStore`/
+// `DuplicateEmfBanner` are also KEPT (same report) — persistent EMF scope
+// (slice 3) never touched the create-time duplicate-EMF race this backstop
+// exists for, and the slice-4 create-time guard only closes the SAME-DEVICE
+// half of it (see `supabase migration 0013_emf_unique.sql`'s own scope
+// note). Task 5's cutover, however, silently dropped the only call site that
+// ever fired it (the old `syncOrchestrator.syncPending().then(...)` chain
+// this file used to have) without replacing it — Task 6 re-wires it below
+// via `SyncScheduler`'s generic `onSyncSuccess` hook so the backstop keeps
+// working instead of shipping present-but-unreachable.
 let restoreService: RestoreService;
 let slipQueueRepo: DrizzleSlipQueueRepository;
 let slipLocalStore: SlipImageLocalStore;
@@ -137,6 +152,19 @@ function ensureSyncRuntime(): Promise<{ engine: SyncEngine; scheduler: SyncSched
         supabase,
         networkObserver,
         statusSink: syncStoreStatusSink,
+        // Duplicate-EMF reconcile backstop (Task 6) — see the module-doc note
+        // above. Best-effort: runs after every sync round that didn't throw,
+        // not gated on a perfectly clean {failed: 0} batch like the old
+        // SyncOrchestrator-driven trigger was, so a still-in-DLQ op elsewhere
+        // just means this keeps retrying on the next successful round rather
+        // than silently never running. Never throws — SyncScheduler already
+        // logs-and-swallows hook failures.
+        onSyncSuccess: async (syncedHouseholdId) => {
+          const result = await new ReconcileEmergencyFundTypeUseCase(db).execute(syncedHouseholdId);
+          if (result.success && result.data.flipped > 0) {
+            useEmergencyFundReconcileStore.getState().setReconciledDuplicateEmf(true);
+          }
+        },
       });
       syncEngineSingleton = engine;
       syncSchedulerSingleton = scheduler;
