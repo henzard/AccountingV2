@@ -188,26 +188,53 @@ only write path." `user_consent`'s local write goes through `runInUnitOfWork` di
 for exactly this case) rather than `createSyncedRepo`, since that helper assumes a
 `household_id` column distinct from `id`.
 
-### Remote-deployment prerequisite (open, flagged for the human)
+### Remote deployment — DONE (2026-07-04), edge functions caught up in slice 6
 
-**The oplog protocol described in this ADR exists in `supabase/migrations/0001_baseline.sql`
-and this repo's local test suite (real Postgres via the local Supabase Docker stack) —
-it has not been deployed to the linked production Supabase project.** The previously
-deployed remote still runs the OLD `merge_*`-RPC schema. Until the baseline is deployed
-(`supabase db push` against the linked project, or an equivalent squash-migration), the
-app's `SyncEngine` cannot successfully round-trip against the real remote — `sync_push`/
-`sync_pull`/`sync_row_state`/`apply_server_op` do not exist there yet. Deploying a
-destructive baseline squash to a real project is a production action; per this slice's
-brief it requires **explicit human approval** before being run, and is called out again
-in `.superpowers/sdd/task-6-report.md`. This ADR's Status is "Accepted" for the protocol
-design; it is not a claim that the protocol is live in production.
+**Update (slice 6):** the remote-deployment prerequisite below is resolved. On
+2026-07-04, with explicit owner authorization, the linked production Supabase project
+(`qmfsobqpnogefvzltwyj`) was backed up (schema + data + roles, to
+`scratchpad/remote-backup-20260704` — the remote held 0 household data and a handful of
+test `auth.users` rows, so this was a safe cutover) and then dump-and-recreated via
+`supabase db reset --linked` applying `0001_baseline.sql`. Verified post-deploy:
+`sync_push`/`sync_pull`/`sync_row_state`/`apply_server_op` present and granted, the oplog
+table + RLS + realtime publication, 21 policies, the slip storage bucket, and every old
+`merge_*` RPC gone. `SyncEngine` round-trips against the real remote as of slice 5's
+merge (DELIVERED + Play).
+
+The cutover did have one fallout, closed in slice 6: **edge functions were not
+redeployed as part of the baseline swap**, so `extract-slip`'s household-membership
+check — which read the now-dropped `user_households` table — started failing 100% of
+the time against the new remote. Slice 6 task 1 re-pointed it to a `household_members`
+query and redeployed it; slip scanning's server side works again. Its direct `.update()`
+calls on `slip_queue` still bypass `apply_server_op` (spec §6.2) — that routing is a
+larger refactor, tracked as an open follow-up, not done in slice 6.
+`notify-event` was separately broken (legacy FCM API shutdown, unrelated to this
+migration) and rebuilt onto FCM HTTP v1 in slice 6 task 5 — see the `is_paid_off`
+paragraph below for the one place the non-atomic-batch consequence bit a payment path;
+push delivery-priority hints (`android.priority: 'high'`, `apns-priority: '10'`) were
+added in slice 6 task 6 so notifications aren't OS-deprioritized once the owner sets the
+`FCM_SERVICE_ACCOUNT` secret.
+
+### Original remote-deployment prerequisite (historical — resolved above)
+
+_(Recorded at the time this ADR was first written, slice 5 task 6; kept for the
+historical record since the spec explicitly calls for durable decision trails. See the
+"Update" note above for current reality.)_
+
+The oplog protocol described in this ADR existed in `supabase/migrations/0001_baseline.sql`
+and this repo's local test suite (real Postgres via the local Supabase Docker stack), but
+had not yet been deployed to the linked production Supabase project. The previously
+deployed remote still ran the OLD `merge_*`-RPC schema. Deploying a destructive baseline
+squash to a real project was flagged as a production action requiring explicit human
+approval before being run.
 
 ## Status
 
-**Accepted.** The protocol is fully implemented and tested locally (`SyncEngine`,
-`SyncScheduler`, the two-device convergence harness, and the local Supabase/pgTAP
-suite). Production deployment of the server baseline is a separate, explicitly deferred
-action (see above) — tracked, not silently assumed done.
+**Accepted, and now live in production.** The protocol is fully implemented and tested
+locally (`SyncEngine`, `SyncScheduler`, the two-device convergence harness, and the local
+Supabase/pgTAP suite) **and** deployed to the linked remote Supabase project as of
+2026-07-04 (see above) — `SyncEngine` round-trips against production, not just the local
+stack.
 
 ## Consequences
 
@@ -238,10 +265,9 @@ action (see above) — tracked, not silently assumed done.
 - **Negative / cost:** compaction is deferred, not solved (§6.5 above) — a household
   approaching ~50k ops needs this ADR revisited before it becomes a real pull-latency or
   storage problem.
-- **Negative / cost:** the remote deployment gap above means this protocol, while fully
-  built and tested, is not yet live for real users. Any near-term work that assumes a
-  working production sync round-trip is blocked on that explicit, human-approved
-  deployment step.
+- **Resolved (was Negative / cost):** the remote deployment gap noted when this ADR was
+  first written is closed — see the "Remote deployment — DONE" section above. The
+  protocol is live for real users on the Play internal track as of slice 5's merge.
 - **Tests / verification:** `npx jest --selectProjects app` (unit/integration tier,
   `SyncEngine.test.ts`/`SyncScheduler.test.ts` and friends), `npm run test:realsql`
   (real better-sqlite3 against the actual migration chain — proves local schema/trigger

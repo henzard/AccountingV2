@@ -146,7 +146,12 @@ const validPayload = { userId: 'u1', householdId: 'h1', title: 'Hello', body: 'W
 Deno.test('buildV1Message: correct v1 payload shape', () => {
   const msg = buildV1Message('tok-abc', 'Hello', 'World');
   assertEquals(msg, {
-    message: { token: 'tok-abc', notification: { title: 'Hello', body: 'World' } },
+    message: {
+      token: 'tok-abc',
+      notification: { title: 'Hello', body: 'World' },
+      android: { priority: 'high' },
+      apns: { headers: { 'apns-priority': '10' } },
+    },
   });
 });
 
@@ -208,7 +213,12 @@ Deno.test('single token: sends one v1 message and reports sent:1', async () => {
         assert(url.includes('/v1/projects/test-project/messages:send'));
         const parsed = JSON.parse(init!.body as string);
         assertEquals(parsed, {
-          message: { token: 'tok-1', notification: { title: 'Hello', body: 'World' } },
+          message: {
+            token: 'tok-1',
+            notification: { title: 'Hello', body: 'World' },
+            android: { priority: 'high' },
+            apns: { headers: { 'apns-priority': '10' } },
+          },
         });
         assertEquals((init!.headers as Record<string, string>)['Authorization'], 'Bearer tok');
         return Promise.resolve(new Response('{}', { status: 200 }));

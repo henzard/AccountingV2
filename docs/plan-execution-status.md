@@ -9,17 +9,19 @@ we really are.
 ## Slice graph
 
 ```
-1. Proving-ground scaffolding (tiers 1-2 in CI)
+1. Proving-ground scaffolding (tiers 1-2 in CI)              DELIVERED + Play
       |
-2. Schema baselines (server) + contract tests
+2. Schema baselines (server) + contract tests                DELIVERED + Play
       |
-3. UnitOfWork, derived balances, envelope scopes
+3. UnitOfWork, derived balances, envelope scopes              DELIVERED + Play
       |
-4. Rollover engine + wizard (deterministic envelope ids)  <-- in review (this doc)
+4. Rollover engine + wizard (deterministic envelope ids)      DELIVERED + Play
       |
-5. SyncEngine + Realtime + DLQ inbox + boot rework (two-device harness gate)
+5. SyncEngine + Realtime + DLQ inbox + boot rework            DELIVERED + Play
+   (two-device harness gate; remote oplog baseline deployed)
       |
-6. One-off fixes + delete dead machinery + e2e/CD gate + protocol ADR
+6. One-off fixes + delete dead machinery + e2e/CD gate        in-review (this doc) <-- Task 6/6
+   + protocol ADR
 ```
 
 Each slice is independently shippable and green (spec §5 "Build order"). A slice does not
@@ -86,7 +88,10 @@ mechanism for real) or keep it as the permanent safety net.
 
 ### Slice 4 — Rollover engine + wizard
 
-**State: in-review (Task 4 of 4 complete; slice PR pending).**
+**State: DELIVERED + Play.** PR #116 merged, CD publish green. CodeRabbit caught 2 Major
+(fixed in `37f0591`) — an EMF partial-unique-index atomic guard and a shared
+`rolloverEnvelopeId`/`isRolloverSource` extraction. On the Play internal track alongside
+slices 1-3.
 
 | Task | Summary                                                                                                                                                                                                                                                                                 | Commit(s)           |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
@@ -115,7 +120,21 @@ verified by reverting and re-applying the fix).
 
 ### Slice 5 — SyncEngine + Realtime + DLQ inbox + boot rework
 
-**State: in-review (Task 6 of 6 complete; slice PR pending).** Full local gate green:
+**State: DELIVERED + Play.** Merged; CD publish green — sync is live end-to-end on the
+Play internal track. **The remote Supabase project was dump-and-recreated onto the oplog
+baseline on 2026-07-04** (owner-authorized: schema+data+roles backed up first to
+`scratchpad/remote-backup-20260704`; the remote had 0 household data and a handful of test
+`auth.users` rows, so this was a safe cutover, not a destructive loss). `supabase db
+reset --linked` applied `0001_baseline.sql` to `qmfsobqpnogefvzltwyj`; verified
+`sync_push`/`sync_pull`/`sync_row_state`/`apply_server_op` present and granted, the oplog
+table + RLS + realtime publication, 21 policies, the slip storage bucket, and the old
+`merge_*` RPCs gone. Edge functions (`extract-slip`, `notify-event`) were NOT redeployed
+as part of that cutover — `extract-slip` broke against the new remote as a direct result
+(its membership check still read the dropped `user_households` table) and became slice
+6 task 1; `notify-event` had already stopped working months earlier for an unrelated
+reason (legacy FCM API shutdown) and became slice 6 task 5.
+
+Full local gate green:
 `npm run test:realsql`, `npx jest --selectProjects twodevice`, `npx jest --selectProjects
 app --coverage` (2032 tests, 87.57%/75.8%/83.82%/88.1% stmt/branch/func/line — above the
 80/60 floor), `npx tsc --noEmit`, `npx eslint src/ --ext .ts,.tsx --max-warnings 0`, and
@@ -154,38 +173,93 @@ longer pushes a third `update` op for it — down to 2 oplog ops per payment (bo
 oplog shape) and `supabase/tests/oplog_protocol.test.sql` Probe 13 (real Postgres trigger
 behavior, run via `supabase test db`).
 
-### Slice 6 — One-off fixes + delete dead machinery + e2e/CD gate + protocol ADR
+### Slice 6 — One-off fixes batch + tier-4 e2e + CD gating + consolidation
 
-**State: pending. No plan file exists yet** (`docs/superpowers/plans/` has no
-`slice6-*.md`). Most of this slice's originally-scoped work (dead-machinery deletion,
-protocol ADR) was pulled forward into slice 5 task 6 above once it became clear slice 5
-couldn't be called done without them. What's left, still unowned by any slice:
+**State: in-review (Task 6 of 6 complete; slice PR pending → merge → Play).** Plan:
+`docs/superpowers/plans/2026-07-04-slice6-oneoffs-tier4.md`. This slice's goal changed
+from its original scope (dead-machinery deletion, protocol ADR — both pulled forward into
+slice 5 task 6 once it became clear slice 5 couldn't be called done without them) to: land
+the surviving game-plan Phase-0 one-off fixes, fix the carried `ConfirmSlipUseCase`
+atomicity Critical, re-point `extract-slip` (broken by the 2026-07-04 remote baseline
+deploy), rebuild push on FCM v1, add the tier-4 authenticated e2e, and close the
+CD-races-CI gap.
 
-- **`ConfirmSlipUseCase` atomicity fix (Critical, carried forward — not a regression,
-  pre-existing on the shipped build).** `ConfirmSlipUseCase.execute` wraps its multi-item
-  write loop in `await this.db.transaction(async (tx) => …)`. Drizzle's expo-sqlite driver
-  runs `transaction()` synchronously in `'sync'` mode and does not await an async
-  callback — `COMMIT` fires at the callback's first `await`, before every item write
-  completes. A 2-item slip where item 2 fails leaves item 1 permanently committed,
-  breaking the all-or-nothing guarantee. Found in slice-3 Task 3 review; every existing
-  test mocks `db.transaction`, hiding it. Fix: read/validate first (outside any
-  transaction), then perform every item write in one synchronous `runInUnitOfWork` call;
-  add a realsql test against the real driver proving partial-failure rollback. **Not
-  touched by slice 5 task 6** — confirmed still slice-6-scope, unchanged.
-- **Remote deployment of the oplog baseline** (flagged in `docs/adr/0001-oplog-sync-protocol.md`)
-  — a production action requiring explicit human approval; the app cannot round-trip
-  against the real Supabase project until `0001_baseline.sql` is deployed there.
-- **Compaction/retention revisit** at ~50k ops/household (ADR §6.5 deferral).
+| Task | Summary                                                                                                                                                                                                                                                                                                                                           | Commit(s)                    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| 1    | `extract-slip` membership check re-pointed from the dropped `user_households` table to `household_members` (broken by the slice-5 remote baseline deploy); **redeployed to remote** — slip scanning's server side works again                                                                                                                     | `7369c7a`                    |
+| 2    | `ConfirmSlipUseCase` atomicity fix (carried Critical, spec §4.5) — reads/validates first outside any transaction, then every item write in one synchronous `runInUnitOfWork` call; op-id idempotency guard added; real-driver rollback proof (the old bug was reproduced first, then fixed)                                                       | `12f0b8c`                    |
+| 3    | Shared `parseMoneyInput` (locale-safe, rejects ambiguous input instead of coercing) wired into all 4 money-entry screens (Transaction, Meter Reading, Debt, Envelope) — kills the `"1,234.56"` → R1.23 misparse class                                                                                                                             | `dbad176`                    |
+| 4    | Slip-scanning camera FAB (was unreachable — empty state referenced a button that didn't exist) + full password-reset flow via deep-link token parse (`PASSWORD_RECOVERY` doesn't fire on RN); fix `c063796` closed a recovery-driven spurious-`SIGNED_IN` regression the reset flow surfaced                                                      | `54eaffb` + fix `c063796`    |
+| 5    | `notify-event` rebuilt onto FCM HTTP v1 (legacy `fcm.googleapis.com/fcm/send` was shut down by Google mid-2024 — push was 100% dead); per-token send, dead-token pruning, graceful no-op when `FCM_SERVICE_ACCOUNT` isn't set                                                                                                                     | `028896b`                    |
+| 6    | This task. `android.priority`/`apns-priority` delivery hints restored on `buildV1Message` (Task-5 minor); tier-4 authenticated Detox journey (sign up → onboard → create envelope → add transaction → verify) wired into the e2e job against a fresh local Supabase stack; CD-races-CI gap closed (see below); status doc + ADR + rebuild summary | pending (this task's commit) |
+
+**CD-races-CI gap — CLOSED.** `cd.yml`'s `build-and-publish` previously only depended on
+its own `ci-gate` job (tsc/eslint/jest-app/jest-realsql), which is a strict _subset_ of
+`ci.yml`'s full train — `cd.yml` never ran the `db` tier (migration replay, pgTAP,
+two-device convergence) or the e2e tier at all, so a push to `master` could reach Play
+before those independent jobs in `ci.yml` had a chance to fail. `ci-gate` now also runs
+prettier + the deno tests (matching `ci.yml`'s `check` job exactly); a new `db-gate` job
+mirrors `ci.yml`'s `db` job (migration replay, pgTAP, two-device convergence); a new
+`e2e-gate` job mirrors `ci.yml`'s `e2e-android` job (boots local Supabase, builds the
+debug APK against it, runs Detox including the new authenticated journey).
+`build-and-publish` now hard-depends on `needs: [ci-gate, db-gate, e2e-gate]`. Documented
+escape hatch if `e2e-gate` proves too flaky/slow in practice: drop it from `needs:` —
+`ci-gate` + `db-gate` (the full unit/integration train) are the non-negotiable minimum.
+
+**Tier-4 authenticated e2e.** `e2e/journeys/authenticatedJourney.e2e.ts` signs up a
+throwaway account, creates a household, completes the full onboarding wizard, creates an
+additional (sinking-fund) envelope, adds a transaction, and verifies it renders in the
+transaction list — against a real local Supabase backend (`ci.yml`'s `e2e-android` job
+and `cd.yml`'s `e2e-gate` now boot a fresh local stack and point the debug build at it via
+`10.0.2.2`, never at production). Unlike the pre-existing three journeys in that folder
+(which only assert the auth gate holds), this one does not blacklist Supabase traffic — it
+needs real auth + data round trips. A handful of previously-untested production screens
+needed `testID`s added to support this (`CreateHouseholdScreen`, `OnboardingStepLayout`'s
+shared CTA button, `IncomeStep`'s amount field, `AddTransactionScreen`'s amount/payee/
+description fields and submit button) — existing unit tests that relied on
+react-native-paper's test-mock testID-falls-back-to-label behavior were updated to use the
+new explicit testIDs. **Not executed in this environment** — Detox requires an Android
+emulator and a built APK, neither available here; the file is type-checked
+(`npx tsc --noEmit` clean) and lint-checked (`npx eslint` clean on both `src/` and `e2e/`)
+but its first real execution will be the next CI run of `ci.yml`'s `e2e-android` job (or a
+local run against an emulator). Full trace: `.superpowers/sdd/task-6-report.md`.
+
+**Carried follow-ups (not fixed in this slice, still open):**
+
+- **`extract-slip` `apply_server_op` routing** — its direct `.update()` calls on
+  `slip_queue` still bypass the oplog (spec §6.2); Task 1 only fixed the membership check
+  so the function works again. Routing onto `apply_server_op` is a larger refactor,
+  deferred.
+- **`user_fcm_tokens` is single-token-per-user** (`user_id` is the primary key) — signing
+  in on a second device silently replaces the first device's push token instead of
+  registering both. No multi-device push today.
+- **`FCM_SERVICE_ACCOUNT` secret** — `notify-event` is deployed and gracefully no-ops
+  (`pushConfigured: false`) until the owner runs
+  `supabase secrets set FCM_SERVICE_ACCOUNT='<service-account-json>'`. Live push does not
+  fire before that.
+- **`RootNavigator` duplicate test files** — `src/presentation/navigation/__tests__/
+root-navigator.test.tsx` and `RootNavigator.test.tsx` (case-differing filenames) both
+  cover `RootNavigator` with overlapping but non-identical coverage; should be
+  consolidated into one file.
+- **`ConfirmSlipUseCase`/`AddEditEnvelopeScreen` validation duplication** — Task 2's
+  review flagged that the confirm-slip item validation logic is now duplicated in a
+  second call site; extract to a shared helper if a third caller appears.
+- **Compaction/retention revisit** at ~50k ops/household (ADR §6.5 deferral) — unrelated
+  to this slice, carried from the ADR itself.
 - **`RestoreService` retirement** — fold household discovery into a `SyncEngine`-native
   pull once a "list my households" pull RPC exists, then delete `RestoreService`/
-  `rowConverters` for real.
-- Authenticated e2e tier + CD hard-dependency on it (original slice-6 scope, not started).
+  `rowConverters` for real (ADR Consequences).
 
 ## Notes
 
 - "DELIVERED + Play" means merged to `master` and live on the Google Play internal
-  testing track, per the existing CD pipeline (slices 1-3; slice 4+ are app-internal
-  refactors with no store-facing surface change yet, riding the same CD pipeline once
-  merged).
+  testing track, per the existing CD pipeline (slices 1-5; slice 6 is in-review as of
+  this doc's last update — see above).
 - Slice 3's own plan: `docs/superpowers/plans/2026-07-03-slice3-unitofwork-derived-balances.md`.
+- Slice 6's own plan: `docs/superpowers/plans/2026-07-04-slice6-oneoffs-tier4.md`.
 - Full target-state spec: `docs/superpowers/specs/2026-07-03-oplog-sync-correctness-design.md`.
+- Original review that triggered this whole rebuild: `docs/200x-game-plan.md`
+  (94-agent deep review, 2026-07-02, overall grade C — "the three loops the app exists
+  for are all broken in production"); full findings:
+  `docs/reviews/2026-07-02-deep-review-findings.md`.
+- Final rebuild summary (what shipped, before/after, what's left): `docs/REBUILD-COMPLETE.md`.

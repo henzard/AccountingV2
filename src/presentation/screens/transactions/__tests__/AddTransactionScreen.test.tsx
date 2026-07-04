@@ -337,7 +337,7 @@ describe('AddTransactionScreen', () => {
     );
 
     await waitFor(() => {
-      fireEvent.changeText(getByTestId('Amount (R)'), '1,234.56');
+      fireEvent.changeText(getByTestId('amount-input'), '1,234.56');
       fireEvent.press(getByText('Record Transaction'));
       expect(queryByTestId('snackbar-error')).toBeTruthy();
     });
@@ -360,7 +360,7 @@ describe('AddTransactionScreen', () => {
     const { getByText, getByTestId } = render(<AddTransactionScreen {...makeNavProps()} />);
 
     await waitFor(() => {
-      fireEvent.changeText(getByTestId('Amount (R)'), '1,50');
+      fireEvent.changeText(getByTestId('amount-input'), '1,50');
       fireEvent.press(getByText('Record Transaction'));
       expect(mockExecute).toHaveBeenCalled();
     });

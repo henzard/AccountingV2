@@ -116,12 +116,12 @@ describe('CreateHouseholdScreen', () => {
 
   it('renders household name input', () => {
     const { getByTestId } = render(<CreateHouseholdScreen />);
-    expect(getByTestId('Household name')).toBeTruthy();
+    expect(getByTestId('household-name-input')).toBeTruthy();
   });
 
   it('renders payday day input', () => {
     const { getByTestId } = render(<CreateHouseholdScreen />);
-    expect(getByTestId('Payday day of month (1–28)')).toBeTruthy();
+    expect(getByTestId('household-payday-input')).toBeTruthy();
   });
 
   it('does not call execute when session is null', async () => {
@@ -135,7 +135,7 @@ describe('CreateHouseholdScreen', () => {
 
   it('calls use case and sets store on success', async () => {
     const { getByTestId, getByText } = render(<CreateHouseholdScreen />);
-    fireEvent.changeText(getByTestId('Household name'), 'Test Home');
+    fireEvent.changeText(getByTestId('household-name-input'), 'Test Home');
     fireEvent.press(getByText('Create Household'));
     await waitFor(() => {
       expect(mockExecute).toHaveBeenCalled();

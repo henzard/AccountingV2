@@ -222,7 +222,7 @@ describe('IncomeStep', () => {
 
   it('stores monthly income in appStore and advances to ExpenseCategories', async () => {
     const { getByText, getByTestId } = render(<IncomeStep />);
-    fireEvent.changeText(getByTestId('Monthly income (R)'), '5000');
+    fireEvent.changeText(getByTestId('income-amount-input'), '5000');
     fireEvent.press(getByText('Next'));
     await waitFor(() => {
       expect(mockSetMonthlyIncomeCents).toHaveBeenCalledWith(500000);

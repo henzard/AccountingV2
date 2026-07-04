@@ -263,7 +263,7 @@ describe('AddTransactionScreen — error paths', () => {
       <AddTransactionScreen {...makeNavProps()} />,
     );
 
-    fireEvent.changeText(getByTestId('Amount (R)'), '50');
+    fireEvent.changeText(getByTestId('amount-input'), '50');
     // The single envelope is auto-selected once spentCents resolves
     // asynchronously (derived from the ledger) — retry the press until the
     // selection has landed and doSave actually reaches execute().
@@ -287,7 +287,7 @@ describe('AddTransactionScreen — error paths', () => {
       <AddTransactionScreen {...makeNavProps()} />,
     );
 
-    fireEvent.changeText(getByTestId('Amount (R)'), '50');
+    fireEvent.changeText(getByTestId('amount-input'), '50');
     await waitFor(() => {
       fireEvent.press(getByText('Record Transaction'));
       expect(mockExecute).toHaveBeenCalled();

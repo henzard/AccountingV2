@@ -68,6 +68,7 @@ export const CreateHouseholdScreen: React.FC = () => {
           value={name}
           onChangeText={setName}
           mode="outlined"
+          testID="household-name-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
         />
@@ -78,6 +79,7 @@ export const CreateHouseholdScreen: React.FC = () => {
           onChangeText={setPaydayDayInput}
           keyboardType="numeric"
           mode="outlined"
+          testID="household-payday-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
         />
@@ -89,6 +91,7 @@ export const CreateHouseholdScreen: React.FC = () => {
           disabled={loading}
           style={styles.button}
           contentStyle={styles.buttonContent}
+          testID="household-create-submit"
         >
           Create Household
         </Button>

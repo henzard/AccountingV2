@@ -209,6 +209,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={amountStr}
           onChangeText={setAmountStr}
           mode="outlined"
+          testID="amount-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           keyboardType="decimal-pad"
           disabled={loading}
@@ -221,6 +222,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={payee}
           onChangeText={setPayee}
           mode="outlined"
+          testID="payee-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Checkers"
@@ -231,6 +233,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={description}
           onChangeText={setDescription}
           mode="outlined"
+          testID="description-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Weekly groceries"
@@ -294,6 +297,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           disabled={loading}
           style={styles.button}
           contentStyle={styles.buttonContent}
+          testID="record-transaction-submit"
         >
           Record Transaction
         </Button>

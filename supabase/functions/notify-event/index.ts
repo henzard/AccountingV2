@@ -138,12 +138,33 @@ async function mintAccessToken(sa: FcmServiceAccount, deps: HandleDeps): Promise
 
 // The FCM HTTP v1 message shape. v1 has no multicast-to-token-list — callers
 // send one message per token.
+//
+// `android.priority: 'high'` and `apns.headers['apns-priority'] = '10'` are
+// delivery-priority hints carried over from the legacy implementation. FCM
+// defaults new v1 messages to normal/5 priority, which providers may queue or
+// delay (especially on Doze/App Standby and iOS background delivery) —
+// without these hints, budget-alert and slip-processing pushes can arrive
+// minutes late or be silently coalesced away by the OS.
 export function buildV1Message(
   token: string,
   title: string,
   body: string,
-): { message: { token: string; notification: { title: string; body: string } } } {
-  return { message: { token, notification: { title, body } } };
+): {
+  message: {
+    token: string;
+    notification: { title: string; body: string };
+    android: { priority: 'high' };
+    apns: { headers: { 'apns-priority': '10' } };
+  };
+} {
+  return {
+    message: {
+      token,
+      notification: { title, body },
+      android: { priority: 'high' },
+      apns: { headers: { 'apns-priority': '10' } },
+    },
+  };
 }
 
 function parseServiceAccount(raw: string): FcmServiceAccount | null {
