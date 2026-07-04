@@ -264,6 +264,51 @@ export function updateRowWithinUow(
 }
 
 /**
+ * Like `updateRowWithinUow`, but the UPDATE carries an extra caller-supplied
+ * `guard` predicate (ANDed onto the `id` + `household_id` match) and 0 rows
+ * affected is NOT an error — the affected-row count is RETURNED so the caller
+ * can distinguish "guard held, row updated" (>0) from "guard failed, nothing
+ * to do" (0) and react accordingly (e.g. an idempotent already-done
+ * short-circuit). The oplog op is appended ONLY when a row was actually
+ * changed, so a no-op guard-miss never enqueues a phantom op.
+ *
+ * Motivating case (ConfirmSlipUseCase, TOCTOU fix): the slip completion write
+ * guards on `status != 'completed'` so two overlapping confirms that both
+ * read 'processing' cannot BOTH complete and duplicate the item
+ * transactions — the loser's UPDATE matches 0 rows and its caller rolls the
+ * whole transaction back.
+ */
+export function updateRowWithinUowGuarded(
+  uow: UnitOfWork,
+  tableName: string,
+  id: string,
+  householdId: string,
+  fields: Record<string, unknown>,
+  guard: SQL,
+  ctx: SyncedRepoCtx,
+): number {
+  assertSafeIdent(tableName);
+  const result = uow.db.run(
+    sql`UPDATE ${sql.raw(tableName)} SET ${buildAssignments(fields)} WHERE id = ${id} AND household_id = ${householdId} AND (${guard})`,
+  );
+  const changes = extractChanges(result);
+  if (changes > 0) {
+    uow.appendOp({
+      opId: resolveOpId(ctx),
+      householdId,
+      tableName,
+      rowId: id,
+      opType: 'update',
+      payload: fields,
+      actorUserId: ctx.actorUserId,
+      deviceId: ctx.deviceId,
+      clientCreatedAt: ctx.clock(),
+    });
+  }
+  return changes;
+}
+
+/**
  * Derives a small write-only repository over `tableName`: every write
  * performs the entity write AND appends exactly one matching local `oplog`
  * row, in ONE `db.transaction` (via `runInUnitOfWork`). This replaces the

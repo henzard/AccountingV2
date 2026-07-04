@@ -18,11 +18,34 @@
  * `PASSWORD_RECOVERY` event that this SDK will never emit for us. See
  * App.tsx's deep-link handler, which calls this and flips
  * `passwordRecoveryPending` directly off the parse result.
+ *
+ * A recovery link can ALSO come back carrying only an error (an
+ * expired/invalid/already-used link — a very common case, since email
+ * scanners pre-fetch links and links expire): no tokens, just
+ * `error`/`error_code`/`error_description` params. Those must NOT be silently
+ * dropped — the user would be stranded on the sign-in screen with no
+ * feedback. This parser reports that case as a distinct `error` result so the
+ * caller can route to ResetPasswordScreen's error view.
  */
 export type RecoveryTokens = {
   accessToken: string;
   refreshToken: string;
 };
+
+/**
+ * Discriminated result of parsing a deep link that MIGHT be a Supabase
+ * password-recovery redirect:
+ *  - `{ status: 'tokens' }` — a well-formed recovery link with both tokens.
+ *  - `{ status: 'error' }`  — a recovery redirect that FAILED (expired/
+ *     invalid/already-used): no tokens, but error params.
+ *  - `null` — not a recovery link at all; the caller safely no-ops.
+ */
+export type RecoveryDeepLinkResult =
+  | { status: 'tokens'; tokens: RecoveryTokens }
+  | { status: 'error'; errorCode: string | null; errorDescription: string | null };
+
+/** The path segment Supabase redirects a recovery link (and its error) back to. */
+const RECOVERY_PATH = 'reset-password';
 
 function extractParamString(url: string): string | null {
   const hashIndex = url.indexOf('#');
@@ -33,21 +56,39 @@ function extractParamString(url: string): string | null {
 }
 
 /**
- * Returns the recovery tokens iff `url` is a well-formed Supabase recovery
- * deep link (has `type=recovery` plus both tokens). Returns null for every
- * other URL (a plain app open, an unrelated deep link, a malformed link) so
- * callers can safely no-op.
+ * Classifies `url` as a recovery link:
+ *  - a well-formed recovery link (`type=recovery` plus both tokens) →
+ *    `{ status: 'tokens' }`;
+ *  - a recovery redirect that failed (the `reset-password` path, carrying
+ *    `error`/`error_code`/`error_description` but no usable tokens) →
+ *    `{ status: 'error' }`;
+ *  - anything else (a plain app open, an unrelated deep link, a malformed
+ *    link) → `null`, so callers can safely no-op.
  */
-export function parseRecoveryDeepLink(url: string): RecoveryTokens | null {
+export function parseRecoveryDeepLink(url: string): RecoveryDeepLinkResult | null {
   const paramString = extractParamString(url);
   if (!paramString) return null;
 
   const params = new URLSearchParams(paramString);
-  if (params.get('type') !== 'recovery') return null;
 
   const accessToken = params.get('access_token');
   const refreshToken = params.get('refresh_token');
-  if (!accessToken || !refreshToken) return null;
+  if (params.get('type') === 'recovery' && accessToken && refreshToken) {
+    return { status: 'tokens', tokens: { accessToken, refreshToken } };
+  }
 
-  return { accessToken, refreshToken };
+  // No usable tokens. If this is the recovery redirect path AND it carries
+  // error params, it's a failed recovery link (expired/invalid/already-used)
+  // — surface it so the caller can show the reset-screen error rather than
+  // silently dropping the link. Gating on the `reset-password` path keeps an
+  // unrelated deep link that happens to carry an `error` param from hijacking
+  // the reset flow.
+  const errorCode = params.get('error_code');
+  const errorDescription = params.get('error_description');
+  const error = params.get('error');
+  if (url.includes(RECOVERY_PATH) && (errorCode || errorDescription || error)) {
+    return { status: 'error', errorCode, errorDescription };
+  }
+
+  return null;
 }

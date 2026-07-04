@@ -172,7 +172,9 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (FIXED: spec §4.5 carried Cr
     // primitives directly rather than an async CreateTransactionUseCase.
     expect(source).toContain('runInUnitOfWork(');
     expect(source).toContain('insertRowWithinUow(');
-    expect(source).toContain('updateRowWithinUow(');
+    // The slip completion goes through the conditional (TOCTOU-guarded)
+    // variant, which also carries a `status != 'completed'` predicate.
+    expect(source).toContain('updateRowWithinUowGuarded(');
   });
 
   it('verifies ConfirmSlipUseCase marks slip as failed on rollback', () => {

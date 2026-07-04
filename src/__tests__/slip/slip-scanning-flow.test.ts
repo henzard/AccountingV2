@@ -30,10 +30,10 @@ jest.mock('../../data/uow/UnitOfWork', () => ({
 }));
 
 const mockInsertRowWithinUow = jest.fn();
-const mockUpdateRowWithinUow = jest.fn();
+const mockUpdateRowWithinUowGuarded = jest.fn();
 jest.mock('../../data/uow/createSyncedRepo', () => ({
   insertRowWithinUow: (...args: unknown[]) => mockInsertRowWithinUow(...args),
-  updateRowWithinUow: (...args: unknown[]) => mockUpdateRowWithinUow(...args),
+  updateRowWithinUowGuarded: (...args: unknown[]) => mockUpdateRowWithinUowGuarded(...args),
 }));
 
 // ─── Mock Helpers ────────────────────────────────────────────────────────────
@@ -118,7 +118,9 @@ beforeEach(() => {
   resetFactoryCounter();
   mockRunInUnitOfWork.mockClear();
   mockInsertRowWithinUow.mockClear();
-  mockUpdateRowWithinUow.mockClear();
+  mockUpdateRowWithinUowGuarded.mockClear();
+  // Default: the conditional completion UPDATE matched 1 row (this confirm won).
+  mockUpdateRowWithinUowGuarded.mockReturnValue(1);
   mockRunInUnitOfWork.mockImplementation((_db: unknown, fn: (uow: unknown) => void) =>
     fn({ db: {}, appendOp: jest.fn() }),
   );
@@ -269,7 +271,7 @@ describe('Slip Scanning Flow', () => {
       expect(result.success).toBe(true);
       expect(mockRunInUnitOfWork).toHaveBeenCalledTimes(1);
       expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(1);
-      expect(mockUpdateRowWithinUow).toHaveBeenCalledTimes(1);
+      expect(mockUpdateRowWithinUowGuarded).toHaveBeenCalledTimes(1);
       // The failure path (repo.update marking the slip 'failed') never runs.
       expect(repo.updates).toHaveLength(0);
     });
@@ -296,7 +298,7 @@ describe('Slip Scanning Flow', () => {
       expect(repo.updates).toHaveLength(1);
       expect(repo.updates[0].patch.status).toBe('failed');
       // The slip-completion update never ran — the throw happened first.
-      expect(mockUpdateRowWithinUow).not.toHaveBeenCalled();
+      expect(mockUpdateRowWithinUowGuarded).not.toHaveBeenCalled();
     });
 
     it('on failure: the write transaction throws before the slip is ever marked "completed"', async () => {

@@ -24,6 +24,7 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import { openMigratedDb } from './harness/openMigratedDb';
 import { ConfirmSlipUseCase } from '../../src/domain/slipScanning/ConfirmSlipUseCase';
 import { DrizzleSlipQueueRepository } from '../../src/data/repositories/DrizzleSlipQueueRepository';
+import type { ISlipQueueRepository } from '../../src/domain/ports/ISlipQueueRepository';
 import type * as schema from '../../src/data/local/schema';
 
 const NOW = '2026-01-01T00:00:00.000Z';
@@ -237,6 +238,72 @@ describe('ConfirmSlipUseCase atomicity (real SQLite, spec §4.5 fix)', () => {
     expect(
       count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE household_id = ?', householdId),
     ).toBe(1); // NOT 2 — the second confirm wrote nothing
+
+    raw.close();
+  });
+
+  it('TOCTOU: a second confirm that still reads "processing" (stale) but whose slip got completed does NOT duplicate transactions', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-toctou';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-4', householdId, status: 'processing' });
+
+    const repo = new DrizzleSlipQueueRepository(db);
+    const input = {
+      slipId: 'slip-4',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [{ description: 'Milk', amountCents: 3500, envelopeId: 'env-1' }],
+    };
+
+    // First confirm wins: slip becomes 'completed' in the DB, 1 transaction.
+    const first = await new ConfirmSlipUseCase(db, repo, {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      clock: () => NOW,
+    }).execute(input);
+    expect(first.success).toBe(true);
+
+    // Second confirm simulates the TOCTOU race: its Step-1 status read still
+    // sees 'processing' (a stale read, forced here by a repo whose get()
+    // reports 'processing' even though the DB row is now 'completed'), so it
+    // sails past the fast-path guard and into the atomic write. The
+    // conditional `status != 'completed'` completion UPDATE must then match 0
+    // rows and roll the whole thing back — no second transaction row.
+    const staleRepo: ISlipQueueRepository = {
+      create: repo.create.bind(repo),
+      get: async (id) => {
+        const slip = await repo.get(id);
+        return slip ? { ...slip, status: 'processing' } : slip;
+      },
+      update: repo.update.bind(repo),
+      listByHousehold: repo.listByHousehold.bind(repo),
+      listExpired: repo.listExpired.bind(repo),
+      listProcessingOlderThan: repo.listProcessingOlderThan.bind(repo),
+    };
+
+    const second = await new ConfirmSlipUseCase(db, staleRepo, {
+      deviceId: 'device-2',
+      actorUserId: 'user-2',
+      clock: () => NOW,
+    }).execute(input);
+
+    // Idempotent success — NOT a failure, and NOT a duplicate write.
+    expect(second.success).toBe(true);
+    if (second.success) expect(second.data.transactionIds).toEqual([]);
+
+    // Still exactly ONE transaction row — the second confirm wrote nothing.
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE household_id = ?', householdId),
+    ).toBe(1);
+
+    // And the slip was NOT flipped to 'failed' by the second confirm's error
+    // path — it stays 'completed'.
+    const slip = raw.prepare('SELECT status FROM slip_queue WHERE id = ?').get('slip-4') as {
+      status: string;
+    };
+    expect(slip.status).toBe('completed');
 
     raw.close();
   });

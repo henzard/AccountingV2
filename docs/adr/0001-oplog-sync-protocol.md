@@ -198,8 +198,8 @@ test `auth.users` rows, so this was a safe cutover) and then dump-and-recreated 
 `supabase db reset --linked` applying `0001_baseline.sql`. Verified post-deploy:
 `sync_push`/`sync_pull`/`sync_row_state`/`apply_server_op` present and granted, the oplog
 table + RLS + realtime publication, 21 policies, the slip storage bucket, and every old
-`merge_*` RPC gone. `SyncEngine` round-trips against the real remote as of slice 5's
-merge (DELIVERED + Play).
+`merge_*` RPC gone. `SyncEngine` round-trips against the real remote as of the 2026-07-04
+cutover (app already DELIVERED + on Play via slices 1–5).
 
 The cutover did have one fallout, closed in slice 6: **edge functions were not
 redeployed as part of the baseline swap**, so `extract-slip`'s household-membership
@@ -266,8 +266,9 @@ stack.
   approaching ~50k ops needs this ADR revisited before it becomes a real pull-latency or
   storage problem.
 - **Resolved (was Negative / cost):** the remote deployment gap noted when this ADR was
-  first written is closed — see the "Remote deployment — DONE" section above. The
-  protocol is live for real users on the Play internal track as of slice 5's merge.
+  first written is closed — see the "Remote deployment — DONE" section above. The app has
+  been live for real users on the Play internal track since slices 1–5 shipped; the oplog
+  protocol has round-tripped against the production remote since the 2026-07-04 cutover.
 - **Tests / verification:** `npx jest --selectProjects app` (unit/integration tier,
   `SyncEngine.test.ts`/`SyncScheduler.test.ts` and friends), `npm run test:realsql`
   (real better-sqlite3 against the actual migration chain — proves local schema/trigger

@@ -203,4 +203,32 @@ describe('AddEditEnvelopeScreen', () => {
       expect.objectContaining({ allocatedCents: 150 }),
     );
   });
+
+  it('treats a whitespace-only target amount as "no target" (skips parsing) and saves', async () => {
+    const { getByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: { preselectedType: 'sinking_fund' } } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('envelope-name'), 'Holiday');
+    fireEvent.changeText(getByTestId('envelope-amount'), '100');
+    // A whitespace-only target must NOT hit parseMoneyInput's ERR_EMPTY —
+    // it should be treated exactly like an empty target (no target set).
+    fireEvent.changeText(getByTestId('target-amount-input'), '   ');
+    fireEvent.press(getByTestId('envelope-save'));
+
+    await waitFor(() => {
+      expect(mockCreateExecute).toHaveBeenCalled();
+    });
+
+    expect(MockCreateEnvelopeUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ envelopeType: 'sinking_fund', targetAmountCents: null }),
+    );
+  });
 });

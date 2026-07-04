@@ -298,6 +298,14 @@ function resetAllStoresOnSignOut(): void {
   resetInitSessionGuard();
 }
 
+/**
+ * User-facing copy shown on ResetPasswordScreen's error view whenever a
+ * recovery link can't be used — whether Supabase redirected back with an
+ * error param (expired/invalid/already-used) or `setSession` later rejected
+ * the tokens. One string so both failure paths read identically.
+ */
+const RECOVERY_LINK_ERROR_MESSAGE = 'This reset link is invalid or expired — request a new one.';
+
 export default function App(): React.JSX.Element | null {
   const appTheme = useAppTheme();
   const { fontsLoaded, fontError } = useFonts();
@@ -508,8 +516,22 @@ export default function App(): React.JSX.Element | null {
   // above so it never interferes with the SIGNED_IN filtering there.
   useEffect(() => {
     const handleUrl = (url: string): void => {
-      const tokens = parseRecoveryDeepLink(url);
-      if (!tokens) return;
+      const result = parseRecoveryDeepLink(url);
+      if (!result) return;
+
+      // A recovery redirect that came back carrying ONLY an error (an
+      // expired/invalid/already-used link — no tokens) must NOT be silently
+      // dropped: route straight to ResetPasswordScreen's error view so the
+      // user sees why and gets a "Back to sign in" way out. It's not
+      // "pending" a reset (there's no session to reset against), so leave
+      // that off and surface `passwordRecoveryError` (see RootNavigator).
+      if (result.status === 'error') {
+        useAppStore.getState().setPasswordRecoveryPending(false);
+        useAppStore.getState().setPasswordRecoveryError(RECOVERY_LINK_ERROR_MESSAGE);
+        return;
+      }
+
+      const { tokens } = result;
       // Set BEFORE the async setSession call resolves so RootNavigator
       // gates on the reset screen the instant the link is handled, rather
       // than racing a SIGNED_IN-driven re-render.
@@ -527,9 +549,7 @@ export default function App(): React.JSX.Element | null {
           // sees why and gets a "Back to sign in" way out instead of being
           // stranded with no feedback.
           useAppStore.getState().setPasswordRecoveryPending(false);
-          useAppStore
-            .getState()
-            .setPasswordRecoveryError('This reset link is invalid or expired — request a new one.');
+          useAppStore.getState().setPasswordRecoveryError(RECOVERY_LINK_ERROR_MESSAGE);
         });
     };
 

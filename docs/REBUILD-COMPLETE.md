@@ -1,7 +1,7 @@
 # AccountingV2 — Oplog Sync Correctness Rebuild: Complete
 
-**Status:** All 6 slices delivered (1-5 merged and live on the Google Play internal
-testing track; slice 6 in-review, PR pending → merge → Play). This document is the final
+**Status:** Slices 1-5 delivered — merged and live on the Google Play internal testing
+track; slice 6 in review (PR pending → merge → Play). This document is the final
 summary of the rebuild triggered by the 2026-07-02 deep review. For the full narrative
 trail, see `docs/plan-execution-status.md` (per-slice/per-task detail),
 `docs/adr/0001-oplog-sync-protocol.md` (the binding protocol contract), and

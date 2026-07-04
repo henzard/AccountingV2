@@ -26,10 +26,10 @@ jest.mock('../../../data/uow/UnitOfWork', () => ({
 }));
 
 const mockInsertRowWithinUow = jest.fn();
-const mockUpdateRowWithinUow = jest.fn();
+const mockUpdateRowWithinUowGuarded = jest.fn();
 jest.mock('../../../data/uow/createSyncedRepo', () => ({
   insertRowWithinUow: (...args: unknown[]) => mockInsertRowWithinUow(...args),
-  updateRowWithinUow: (...args: unknown[]) => mockUpdateRowWithinUow(...args),
+  updateRowWithinUowGuarded: (...args: unknown[]) => mockUpdateRowWithinUowGuarded(...args),
 }));
 
 import { ConfirmSlipUseCase } from '../ConfirmSlipUseCase';
@@ -91,6 +91,10 @@ beforeEach(() => {
   mockRunInUnitOfWork.mockImplementation((_db: unknown, fn: (uow: unknown) => void) =>
     fn({ db: {}, appendOp: jest.fn() }),
   );
+  // Default: the conditional completion UPDATE matched the row (1 row
+  // changed) — i.e. this confirm won. Tests exercising the TOCTOU-loser path
+  // override this to return 0.
+  mockUpdateRowWithinUowGuarded.mockReturnValue(1);
 });
 
 describe('ConfirmSlipUseCase', () => {
@@ -241,14 +245,17 @@ describe('ConfirmSlipUseCase', () => {
       }),
       expect.anything(),
     );
-    // Slip completion is updated INSIDE the same transaction as the inserts.
-    expect(mockUpdateRowWithinUow).toHaveBeenCalledTimes(1);
-    expect(mockUpdateRowWithinUow).toHaveBeenCalledWith(
+    // Slip completion is updated INSIDE the same transaction as the inserts,
+    // via the conditional (TOCTOU-guarded) update — the extra arg before ctx
+    // is the `status != 'completed'` guard predicate.
+    expect(mockUpdateRowWithinUowGuarded).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRowWithinUowGuarded).toHaveBeenCalledWith(
       expect.anything(),
       'slip_queue',
       's1',
       HOUSEHOLD_ID,
       expect.objectContaining({ status: 'completed' }),
+      expect.anything(), // the SQL guard predicate
       expect.anything(),
     );
     // The failure path (mark slip 'failed' via the repo) must NOT have run.
@@ -282,7 +289,30 @@ describe('ConfirmSlipUseCase', () => {
       's1',
       expect.objectContaining({ status: 'failed', errorMessage: expect.stringContaining('boom') }),
     );
-    expect(mockUpdateRowWithinUow).not.toHaveBeenCalled(); // never reached the slip-completion write
+    expect(mockUpdateRowWithinUowGuarded).not.toHaveBeenCalled(); // never reached the slip-completion write
+  });
+
+  it('TOCTOU loser: the conditional completion UPDATE matching 0 rows returns idempotent success and does NOT mark the slip failed', async () => {
+    const { db, limit } = makeDb();
+    limit.mockResolvedValueOnce(SPENDING_ENVELOPE);
+    // Simulate a concurrent confirm having completed the slip after our
+    // Step-1 read: the guarded `status != 'completed'` UPDATE matches 0 rows.
+    mockUpdateRowWithinUowGuarded.mockReturnValue(0);
+    const repo = makeRepo(makeSlip()); // Step-1 read still sees 'processing'
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+    });
+
+    // Idempotent success — NOT the SLIP_PARTIAL_SAVE_FAILED failure path.
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.transactionIds).toEqual([]);
+    // The slip must NOT be marked 'failed' — the other confirm succeeded.
+    expect(repo.update).not.toHaveBeenCalled();
   });
 
   it('writes one best-effort audit log entry per item when an AuditLogger is supplied', async () => {

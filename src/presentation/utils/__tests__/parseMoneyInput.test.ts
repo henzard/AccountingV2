@@ -74,4 +74,28 @@ describe('parseMoneyInput', () => {
     const result = parseMoneyInput(undefined);
     expect(result.ok).toBe(false);
   });
+
+  describe('whole-part overflow guard', () => {
+    it('rejects a whole part longer than the safe-integer cap (would lose precision)', () => {
+      // 20 leading digits — parseInt(...) * 100 blows past Number.MAX_SAFE_INTEGER
+      // and would silently yield an imprecise cents value.
+      const result = parseMoneyInput('99999999999999999999');
+      expect(result).toEqual({ ok: false, error: 'Amount is too large' });
+    });
+
+    it('rejects an over-cap whole part even with a decimal fraction', () => {
+      const result = parseMoneyInput('123456789012345.99');
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe('Amount is too large');
+    });
+
+    it('still accepts a large-but-safe amount (13-digit whole part)', () => {
+      const result = parseMoneyInput('9999999999999.99');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.cents).toBe(999999999999999);
+        expect(Number.isSafeInteger(result.cents)).toBe(true);
+      }
+    });
+  });
 });

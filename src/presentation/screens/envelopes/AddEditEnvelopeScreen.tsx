@@ -104,8 +104,12 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
       const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
       let targetAmountCents: number | null = null;
-      if (envelopeType === 'sinking_fund' && targetAmountStr) {
-        const parsedTarget = parseMoneyInput(targetAmountStr);
+      // Trim before the truthiness check so a whitespace-only entry counts as
+      // "no target set" (skip parsing), matching how "" behaves — otherwise
+      // "   " would hit parseMoneyInput's ERR_EMPTY and wrongly block save.
+      const trimmedTargetAmount = targetAmountStr.trim();
+      if (envelopeType === 'sinking_fund' && trimmedTargetAmount) {
+        const parsedTarget = parseMoneyInput(trimmedTargetAmount);
         if (!parsedTarget.ok) {
           setError(parsedTarget.error);
           return;

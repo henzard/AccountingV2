@@ -27,6 +27,11 @@
  *   - any whitespace between digits (e.g. "1 000")
  *   - non-numeric input
  *   - a bare separator with no digits ("." or ",")
+ *   - a whole part so long that the resulting cents value would exceed
+ *     `Number.MAX_SAFE_INTEGER` — `parseInt(...) * 100` silently loses
+ *     precision there, producing a wrong amount. Rejecting is the whole point
+ *     of this module (a "silently wrong amount" is exactly what it prevents),
+ *     so an over-cap number is refused rather than coerced.
  */
 
 export type ParseMoneyResult = { ok: true; cents: number } | { ok: false; error: string };
@@ -40,6 +45,12 @@ const ERR_EMPTY = 'Enter an amount';
 const ERR_NEGATIVE = 'Amount cannot be negative';
 const ERR_INVALID =
   'Enter a valid amount, e.g. 150.00 or 150,00 (no thousands separators or spaces)';
+const ERR_TOO_LARGE = 'Amount is too large';
+
+// Cap the whole-number part. 13 digits (up to 9,999,999,999,999.99) keeps the
+// resulting cents value well inside Number.MAX_SAFE_INTEGER (~9.0e15); beyond
+// this, `parseInt(wholePart, 10) * 100` starts losing integer precision.
+const MAX_WHOLE_DIGITS = 13;
 
 /**
  * Parses a raw money-entry string into integer cents.
@@ -68,7 +79,15 @@ export function parseMoneyInput(raw: string): ParseMoneyResult {
   }
 
   const [wholePart, fractionPartRaw] = body.split(/[.,]/);
+  if (wholePart.length > MAX_WHOLE_DIGITS) {
+    return { ok: false, error: ERR_TOO_LARGE };
+  }
   const fractionPart = (fractionPartRaw ?? '').padEnd(2, '0');
   const cents = parseInt(wholePart, 10) * 100 + parseInt(fractionPart, 10);
+  // Defence in depth: the digit-cap above is the primary guard, but reject any
+  // value that still isn't an exact integer rather than return a wrong amount.
+  if (!Number.isSafeInteger(cents)) {
+    return { ok: false, error: ERR_TOO_LARGE };
+  }
   return { ok: true, cents };
 }

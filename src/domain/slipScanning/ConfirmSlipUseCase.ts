@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import { randomUUID } from 'expo-crypto';
 import type * as schema from '../../data/local/schema';
@@ -7,7 +7,7 @@ import type { ISlipQueueRepository } from '../ports/ISlipQueueRepository';
 import { createSuccess, createFailure } from '../shared/types';
 import type { Result } from '../shared/types';
 import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
-import { insertRowWithinUow, updateRowWithinUow } from '../../data/uow/createSyncedRepo';
+import { insertRowWithinUow, updateRowWithinUowGuarded } from '../../data/uow/createSyncedRepo';
 import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import { AuditLogger } from '../../data/audit/AuditLogger';
@@ -44,9 +44,12 @@ export type ConfirmSlipInput = {
  * for the real-driver proof).
  *
  * --- The fix -----------------------------------------------------------------
- * 1. Idempotency/status guard (below): a slip already 'completed' is a
- *    no-op success — a double-tap or retried confirm never duplicates the
- *    item transactions.
+ * 1. Idempotency/status guard: a slip already 'completed' is a no-op success
+ *    — a double-tap or retried confirm never duplicates the item
+ *    transactions. The Step-1 read is only a fast path; the real guarantee is
+ *    the conditional `status != 'completed'` completion UPDATE in the atomic
+ *    write, so even two overlapping confirms that both read 'processing'
+ *    (a TOCTOU race) produce exactly one set of transactions.
  * 2. Every read/validation happens FIRST, fully async, with NO open
  *    transaction — envelope existence/type checks for every item, up front.
  *    If any item is invalid, nothing has been written yet.
@@ -63,6 +66,16 @@ export interface ConfirmSlipUseCaseDeps extends SyncWriteDeps {
   audit?: AuditLogger;
 }
 
+/**
+ * Thrown INSIDE the atomic write callback when the slip's conditional
+ * completion UPDATE matches 0 rows — i.e. an overlapping confirm already
+ * marked it 'completed' between our Step-1 status read and the write. Throwing
+ * rolls the whole unit of work back (so the item-transaction inserts don't
+ * duplicate); `execute` catches it and returns the idempotent already-done
+ * result rather than the failure path. Not an error the caller ever sees.
+ */
+class SlipAlreadyCompletedError extends Error {}
+
 export class ConfirmSlipUseCase {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
@@ -78,11 +91,15 @@ export class ConfirmSlipUseCase {
       });
     }
 
-    // --- Step 1: idempotency / status guard --------------------------------
+    // --- Step 1: idempotency / status guard (fast path) --------------------
     // A double-tap or a retried confirm call must never create a second set
     // of transactions for the same slip. Once a slip is 'completed' its item
     // transactions already exist — treat a repeat confirm as a no-op success
-    // rather than duplicating writes.
+    // rather than duplicating writes. This read-then-act check is only a
+    // fast-path/UX short-circuit though: it is NOT the real guarantee. Two
+    // overlapping confirms can both read 'processing' here (a TOCTOU race) —
+    // the actual protection is the conditional `status != 'completed'`
+    // completion UPDATE in Step 3, which lets exactly one of them win.
     const slip = await this.repo.get(input.slipId);
     if (!slip) {
       return createFailure({ code: 'SLIP_NOT_FOUND', message: 'Slip does not exist' });
@@ -153,16 +170,33 @@ export class ConfirmSlipUseCase {
           insertRowWithinUow(uow, 'transactions', row, ctx);
         });
 
-        updateRowWithinUow(
+        // Conditional/atomic completion write (TOCTOU guard): only flip the
+        // slip to 'completed' if it is NOT already 'completed'. If a
+        // concurrent confirm won the race and completed it after our Step-1
+        // read, this matches 0 rows — throw to roll the WHOLE unit of work
+        // back (the item inserts above included) so we never write a
+        // duplicate set of transactions, and surface it as the idempotent
+        // already-confirmed case below.
+        const changed = updateRowWithinUowGuarded(
           uow,
           'slip_queue',
           input.slipId,
           input.householdId,
           { status: 'completed', updated_at: now },
+          sql`status != 'completed'`,
           ctx,
         );
+        if (changed === 0) {
+          throw new SlipAlreadyCompletedError();
+        }
       });
     } catch (err) {
+      if (err instanceof SlipAlreadyCompletedError) {
+        // Another confirm already completed this slip — its transactions
+        // exist, ours rolled back. Idempotent no-op success, exactly like the
+        // Step-1 fast-path guard. Do NOT mark the slip 'failed'.
+        return createSuccess({ transactionIds: [] });
+      }
       // Rolled back — no item transaction and no slip status change were
       // committed. Marking the slip 'failed' is a separate, SUBSEQUENT write
       // (its own transaction) so the user can retry cleanly; it does not

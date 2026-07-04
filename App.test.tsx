@@ -628,5 +628,31 @@ describe('App boot (Task 5)', () => {
       );
       expect(mockEnsureExecute).not.toHaveBeenCalled();
     });
+
+    // Regression proof for the dropped-error-redirect finding: Supabase can
+    // redirect a recovery link back carrying ONLY an error (expired/invalid/
+    // already-used) — no tokens at all. That must surface the reset-screen
+    // error, NOT silently no-op (the old `if (!tokens) return;` dropped it,
+    // leaving the user stranded with no feedback and no session created).
+    it('a recovery redirect carrying only error params (no tokens) surfaces passwordRecoveryError without calling setSession', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({
+          url: 'accountingv2://reset-password#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired',
+        });
+      });
+
+      expect(supabaseMock.supabase.auth.setSession).not.toHaveBeenCalled();
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(false);
+      expect(useAppStore.getState().passwordRecoveryError).toBe(
+        'This reset link is invalid or expired — request a new one.',
+      );
+      expect(mockEnsureExecute).not.toHaveBeenCalled();
+    });
   });
 });
