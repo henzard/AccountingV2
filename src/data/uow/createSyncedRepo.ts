@@ -159,9 +159,21 @@ const UNIQUE_CONSTRAINT_RE = /UNIQUE constraint failed/;
  * wrapper around it.
  */
 export function isUniqueConstraintError(err: unknown): boolean {
+  // Walk the `.cause` chain by DUCK-TYPING, not `instanceof Error`. drizzle
+  // wraps the driver error as `DrizzleError { cause: SqliteError }`, and under
+  // Jest's sandboxed module realms `SqliteError instanceof Error` can be false
+  // (the better-sqlite3 error's prototype resolves to a different realm's
+  // Error than the one in scope here) — which previously stopped the walk
+  // before it ever reached the real SQLite message, intermittently missing a
+  // genuine unique violation. Check BOTH the message and the stable SQLite
+  // error `code` (`SQLITE_CONSTRAINT*`), since messages are less reliable than
+  // codes across driver/wrapper layers.
   let current: unknown = err;
-  for (let i = 0; i < 5 && current instanceof Error; i += 1) {
-    if (UNIQUE_CONSTRAINT_RE.test(current.message)) return true;
+  for (let i = 0; i < 5 && current != null && typeof current === 'object'; i += 1) {
+    const message = (current as { message?: unknown }).message;
+    if (typeof message === 'string' && UNIQUE_CONSTRAINT_RE.test(message)) return true;
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT')) return true;
     current = (current as { cause?: unknown }).cause;
   }
   return false;
