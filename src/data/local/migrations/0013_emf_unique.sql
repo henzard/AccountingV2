@@ -23,13 +23,18 @@
 -- rows for a household BEFORE the create-time guard existed would otherwise
 -- make `CREATE UNIQUE INDEX` abort — blocking this migration and hanging boot
 -- (dbReady never flips) on that device. Keep the earliest-inserted active EMF
--- per household (`MIN(rowid)`) and soft-delete the rest, so the index can
--- build. Idempotent: on a re-run each household already has exactly one active
--- EMF, so nothing matches. Matches the dedupe-before-constraint pattern used
--- server-side for household_members.
+-- per household (`MIN(rowid)`) and FLIP the rest to `savings` (NOT soft-delete)
+-- so the index can build without hiding money: the losing row may already hold
+-- `allocated_cents`/linked transactions, and `EnvelopeBalanceQuery` excludes
+-- `deleted_at` rows — soft-deleting would silently drop that balance. Flipping
+-- the type preserves the row and its state, matching
+-- `ReconcileEmergencyFundTypeUseCase`'s cross-device reconcile. Idempotent: on
+-- a re-run each household already has exactly one active EMF, so nothing
+-- matches. The `MIN(rowid)` subquery is uncorrelated, so SQLite evaluates it
+-- once (before any flip) — the keepers are fixed up front.
 --> statement-breakpoint
 UPDATE `envelopes`
-SET `deleted_at` = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+SET `envelope_type` = 'savings', `updated_at` = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
 WHERE `envelope_type` = 'emergency_fund'
   AND `deleted_at` IS NULL
   AND `is_archived` = 0

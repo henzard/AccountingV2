@@ -186,6 +186,17 @@ describe('local migration chain (real SQLite)', () => {
       )
       .get() as { id: string };
     expect(survivor.id).toBe('emf1');
+    // The losing duplicates are FLIPPED to savings (row + balance/transactions
+    // preserved), NOT soft-deleted — so no money is hidden from balance queries.
+    const flipped = db
+      .prepare(
+        `SELECT id, envelope_type, deleted_at FROM envelopes WHERE id IN ('emf2', 'emf3') ORDER BY id`,
+      )
+      .all() as { id: string; envelope_type: string; deleted_at: string | null }[];
+    expect(flipped).toEqual([
+      { id: 'emf2', envelope_type: 'savings', deleted_at: null },
+      { id: 'emf3', envelope_type: 'savings', deleted_at: null },
+    ]);
     // The unique index now exists and forbids a second active EMF.
     expect(
       db

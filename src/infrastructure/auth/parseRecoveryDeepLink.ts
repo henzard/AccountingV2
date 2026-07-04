@@ -86,7 +86,11 @@ export function parseRecoveryDeepLink(url: string): RecoveryDeepLinkResult | nul
   const errorCode = params.get('error_code');
   const errorDescription = params.get('error_description');
   const error = params.get('error');
-  if (url.includes(RECOVERY_PATH) && (errorCode || errorDescription || error)) {
+  // Gate on the PATH segment (before any `?`/`#`) only — a `url.includes(...)`
+  // over the whole URL would let an unrelated deep link that merely carries
+  // `reset-password` inside a query/fragment value hijack the recovery flow.
+  const pathSegment = url.split(/[?#]/, 1)[0];
+  if (pathSegment.includes(RECOVERY_PATH) && (errorCode || errorDescription || error)) {
     return { status: 'error', errorCode, errorDescription };
   }
 

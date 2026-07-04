@@ -172,8 +172,11 @@ export function isUniqueConstraintError(err: unknown): boolean {
   for (let i = 0; i < 5 && current != null && typeof current === 'object'; i += 1) {
     const message = (current as { message?: unknown }).message;
     if (typeof message === 'string' && UNIQUE_CONSTRAINT_RE.test(message)) return true;
+    // Only UNIQUE/PRIMARYKEY constraint codes mean "duplicate" — a broad
+    // `startsWith('SQLITE_CONSTRAINT')` would also swallow NOT NULL, CHECK and
+    // FOREIGN KEY failures (real write bugs) as idempotent duplicates.
     const code = (current as { code?: unknown }).code;
-    if (typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT')) return true;
+    if (code === 'SQLITE_CONSTRAINT_UNIQUE' || code === 'SQLITE_CONSTRAINT_PRIMARYKEY') return true;
     current = (current as { cause?: unknown }).cause;
   }
   return false;
