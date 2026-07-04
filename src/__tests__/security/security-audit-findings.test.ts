@@ -95,6 +95,7 @@ describe('Finding 2: notify-event must not leak secret env var names', () => {
     // The error string sent to the client must not reveal config details
     const leakPatterns = [
       /error.*FCM_SERVER_KEY/,
+      /error.*FCM_SERVICE_ACCOUNT/,
       /error.*SUPABASE_SERVICE_ROLE_KEY/,
       /error.*OPENAI_API_KEY/,
     ];
@@ -103,8 +104,12 @@ describe('Finding 2: notify-event must not leak secret env var names', () => {
     }
   });
 
-  it('returns generic "Server misconfigured" when FCM key is missing', () => {
-    expect(notifySource).toContain('Server misconfigured');
+  it('returns a generic message (no secret name) when push is not configured', () => {
+    // notify-event was rewritten onto FCM HTTP v1 (the legacy FCM_SERVER_KEY
+    // API was shut down by Google in mid-2024). The new secret is
+    // FCM_SERVICE_ACCOUNT; the graceful "not configured" response must not
+    // name it (see the leak-pattern test above).
+    expect(notifySource).toContain('Push notifications are not configured');
   });
 });
 
