@@ -115,15 +115,71 @@ verified by reverting and re-applying the fix).
 
 ### Slice 5 — SyncEngine + Realtime + DLQ inbox + boot rework
 
-**State: pending.** Gated on building test tier 3 (two-device property harness) first,
-per spec §5 risk mitigation. Not started.
+**State: in-review (Task 6 of 6 complete; slice PR pending).** Full local gate green:
+`npm run test:realsql`, `npx jest --selectProjects twodevice`, `npx jest --selectProjects
+app --coverage` (2032 tests, 87.57%/75.8%/83.82%/88.1% stmt/branch/func/line — above the
+80/60 floor), `npx tsc --noEmit`, `npx eslint src/ --ext .ts,.tsx --max-warnings 0`, and
+`supabase db reset && supabase test db` (54/54 pgTAP) all green.
+
+| Task | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Commit(s)                         |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| 1    | Migrated every remaining domain writer (debts, baby steps, meter readings, households, slip queue, user consent) off `pending_sync`/`PendingSyncEnqueuer` onto `createSyncedRepo`/oplog; recorded 2 follow-ups (debt `is_paid_off` divergence, EMF-reconcile disposition)                                                                                                                                                                                                                                                                                                                                                                                                                                 | `5cb1709` + `2344464` + `38ba25e` |
+| 2    | Two-device convergence property harness (tier 3) driving real server RPCs against local Supabase — the slice's risk-mitigation gate, built and green before the production engine existed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `443743e` + `0ecd11d`             |
+| 3    | Production `SyncEngine` — pusher + puller, validated against the Task-2 harness with the real engine; puller resilience + dead-letter/increment guard fixes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `b11893b` + `5c5f425`             |
+| 4    | `SyncScheduler` — Realtime nudge + after-write/foreground/reconnect triggers, `syncStore` wiring, DLQ surfacing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | `20e64d1`                         |
+| 5    | Sync Health / DLQ inbox screen; `App.tsx` boot rework — cuts over to `SyncEngine`/`SyncScheduler`, local-only boot gate (never network-gated); boot-resilience fix (degrade gracefully on local init throw instead of hanging splash)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `07aa7d7` + `cac6266`             |
+| 6    | This task. Deleted `SyncOrchestrator`/`PendingSyncEnqueuer`/`PendingSyncEnqueuerAdapter`/`PendingSyncTable`/`ISyncEnqueuer` + the local `pending_sync` table (migration 0014); kept `RestoreService`/`rowConverters` (still-live discovery path) and the EMF reconcile mechanism (re-verified live, re-wired onto `SyncScheduler.onSyncSuccess` after Task 5's cutover silently orphaned its old trigger); fixed a latent bug where `AuditLogger` still wrote into the about-to-be-dropped `pending_sync` table; closed the debt `is_paid_off` divergence via a server-side derive trigger (baseline §9g); wrote `docs/adr/0001-oplog-sync-protocol.md`. Full trace: `.superpowers/sdd/task-6-report.md`. | pending (this task's commit)      |
+
+**EMF reconcile disposition — reconfirmed KEPT, not removed (third review of the same
+question; see task-6-report.md for the full trace).** The slice-3 Task-6 and slice-4
+as-built dispositions already recorded in this doc were correct and are reconfirmed: the
+create-time race (two offline devices each creating their own `emergency_fund` envelope
+before either syncs) is still open today — the slice-4 create-time guard and the local
+`0013_emf_unique.sql` unique index only close the SAME-DEVICE half of it (the index's own
+comment says so explicitly). What Task 6 found NEW: Task 5's `App.tsx` boot-rework cutover
+removed the only call site that ever fired the reconcile trigger
+(`syncOrchestrator.syncPending().then(...)`) without replacing it, silently orphaning a
+mechanism this doc already described as "kept... as the permanent safety net." Task 6
+treats this as a Task-5 regression, not a reason to finally delete the mechanism, and
+re-wires it via a new generic `SyncScheduler.onSyncSuccess` hook called from `App.tsx`'s
+composition root (data layer still never imports `domain/*` — the hook is generic, the
+EMF-specific behavior is supplied by `App.tsx`).
+
+**Debt `is_paid_off` divergence — CLOSED.** The Task-1-review follow-up (spec
+"Slice-5 follow-ups") is fixed: `supabase/migrations/0001_baseline.sql` §9g adds a
+`BEFORE INSERT OR UPDATE` trigger on `public.debts` that derives `is_paid_off` from
+`outstanding_balance_cents` unconditionally, server-side. `LogDebtPaymentUseCase` no
+longer pushes a third `update` op for it — down to 2 oplog ops per payment (both
+`increment`). Proven at both layers: `tests/realsql/debtPayment.test.ts` (local SQLite
+oplog shape) and `supabase/tests/oplog_protocol.test.sql` Probe 13 (real Postgres trigger
+behavior, run via `supabase test db`).
 
 ### Slice 6 — One-off fixes + delete dead machinery + e2e/CD gate + protocol ADR
 
-**State: pending.** Not started. Owns: `ConfirmSlipUseCase` atomicity fix (above),
-deletion of `SyncOrchestrator`/`PendingSyncEnqueuer`/`RestoreService`/`AuditLogger` once
-every domain is oplog-backed, `merge_*` RPC removal, protocol contract ADR, authenticated
-e2e tier + CD hard-dependency on it.
+**State: pending. No plan file exists yet** (`docs/superpowers/plans/` has no
+`slice6-*.md`). Most of this slice's originally-scoped work (dead-machinery deletion,
+protocol ADR) was pulled forward into slice 5 task 6 above once it became clear slice 5
+couldn't be called done without them. What's left, still unowned by any slice:
+
+- **`ConfirmSlipUseCase` atomicity fix (Critical, carried forward — not a regression,
+  pre-existing on the shipped build).** `ConfirmSlipUseCase.execute` wraps its multi-item
+  write loop in `await this.db.transaction(async (tx) => …)`. Drizzle's expo-sqlite driver
+  runs `transaction()` synchronously in `'sync'` mode and does not await an async
+  callback — `COMMIT` fires at the callback's first `await`, before every item write
+  completes. A 2-item slip where item 2 fails leaves item 1 permanently committed,
+  breaking the all-or-nothing guarantee. Found in slice-3 Task 3 review; every existing
+  test mocks `db.transaction`, hiding it. Fix: read/validate first (outside any
+  transaction), then perform every item write in one synchronous `runInUnitOfWork` call;
+  add a realsql test against the real driver proving partial-failure rollback. **Not
+  touched by slice 5 task 6** — confirmed still slice-6-scope, unchanged.
+- **Remote deployment of the oplog baseline** (flagged in `docs/adr/0001-oplog-sync-protocol.md`)
+  — a production action requiring explicit human approval; the app cannot round-trip
+  against the real Supabase project until `0001_baseline.sql` is deployed there.
+- **Compaction/retention revisit** at ~50k ops/household (ADR §6.5 deferral).
+- **`RestoreService` retirement** — fold household discovery into a `SyncEngine`-native
+  pull once a "list my households" pull RPC exists, then delete `RestoreService`/
+  `rowConverters` for real.
+- Authenticated e2e tier + CD hard-dependency on it (original slice-6 scope, not started).
 
 ## Notes
 

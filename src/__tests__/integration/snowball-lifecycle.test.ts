@@ -26,16 +26,6 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => `uuid-${Date.now()}-${Math.r
 
 beforeEach(() => resetFactoryCounter());
 
-function makeMockDebtRepo() {
-  return {
-    findById: jest.fn().mockResolvedValue(null),
-    findByHousehold: jest.fn().mockResolvedValue([]),
-    insert: jest.fn().mockResolvedValue(undefined),
-    update: jest.fn().mockResolvedValue(undefined),
-    incrementTotalPaid: jest.fn().mockResolvedValue(undefined),
-  };
-}
-
 const mockDb = {
   select: jest.fn().mockReturnValue({
     from: jest.fn().mockReturnValue({
@@ -46,10 +36,14 @@ const mockDb = {
   update: jest.fn().mockReturnValue({
     set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
   }),
+  // LogDebtPaymentUseCase now drives runInUnitOfWork directly (oplog, not
+  // pending_sync) — this fakes just enough of PortableDb's `.transaction`
+  // API for that: call the callback synchronously with a `tx` exposing
+  // `.run()` for the raw-SQL entity write + oplog appends.
+  transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ run: jest.fn() })),
 } as any;
 
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-const mockEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 function applyPayment(debt: DebtEntity, paymentCents: number): DebtEntity {
   const applied = Math.min(paymentCents, debt.outstandingBalanceCents);
@@ -104,20 +98,13 @@ describe('Payment logging and balance tracking', () => {
 
   it('LogDebtPaymentUseCase returns updated debt with correct balances', async () => {
     const woolworths = debts[0]!;
-    const repo = makeMockDebtRepo();
 
-    const uc = new LogDebtPaymentUseCase(
-      mockDb,
-      mockAudit,
-      {
-        householdId: woolworths.householdId,
-        debtId: woolworths.id,
-        paymentAmountCents: 15_000,
-        currentDebt: woolworths,
-      },
-      mockEnqueuer,
-      repo,
-    );
+    const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
+      householdId: woolworths.householdId,
+      debtId: woolworths.id,
+      paymentAmountCents: 15_000,
+      currentDebt: woolworths,
+    });
 
     const result = await uc.execute();
     expect(result.success).toBe(true);
@@ -198,19 +185,12 @@ describe('Full payoff — Woolworths and snowball rollover', () => {
     const woolworths = { ...KRUGER_DEBTS[0]! };
     woolworths.outstandingBalanceCents = 5_000; // only R50 left
 
-    const repo = makeMockDebtRepo();
-    const uc = new LogDebtPaymentUseCase(
-      mockDb,
-      mockAudit,
-      {
-        householdId: woolworths.householdId,
-        debtId: woolworths.id,
-        paymentAmountCents: 15_000,
-        currentDebt: woolworths,
-      },
-      mockEnqueuer,
-      repo,
-    );
+    const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
+      householdId: woolworths.householdId,
+      debtId: woolworths.id,
+      paymentAmountCents: 15_000,
+      currentDebt: woolworths,
+    });
 
     const result = await uc.execute();
     expect(result.success).toBe(true);
@@ -224,19 +204,12 @@ describe('Full payoff — Woolworths and snowball rollover', () => {
 
   it('rejects zero payment amount', async () => {
     const woolworths = { ...KRUGER_DEBTS[0]! };
-    const repo = makeMockDebtRepo();
-    const uc = new LogDebtPaymentUseCase(
-      mockDb,
-      mockAudit,
-      {
-        householdId: woolworths.householdId,
-        debtId: woolworths.id,
-        paymentAmountCents: 0,
-        currentDebt: woolworths,
-      },
-      mockEnqueuer,
-      repo,
-    );
+    const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
+      householdId: woolworths.householdId,
+      debtId: woolworths.id,
+      paymentAmountCents: 0,
+      currentDebt: woolworths,
+    });
 
     const result = await uc.execute();
     expect(result.success).toBe(false);

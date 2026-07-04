@@ -113,7 +113,7 @@ describe('AuditLogger', () => {
     expect(insertedValues).not.toHaveProperty('isSynced');
   });
 
-  it('enqueues a pending sync record after inserting audit event', async () => {
+  it('does not enqueue onto pending_sync (audit_events is local-only, slice 5)', async () => {
     const valuesMock = jest.fn().mockResolvedValue(undefined);
     (db.insert as jest.Mock).mockReturnValue({ values: valuesMock });
 
@@ -126,8 +126,9 @@ describe('AuditLogger', () => {
       newValue: { name: 'Groceries' },
     });
 
-    // db.insert is called twice: once for auditEvents, once for pendingSync enqueue
-    expect(db.insert).toHaveBeenCalledTimes(2);
+    // AuditLogger no longer depends on PendingSyncEnqueuer (deleted, slice 5
+    // task 6) — db.insert is called exactly once, for auditEvents only.
+    expect(db.insert).toHaveBeenCalledTimes(1);
   });
 
   it('uses a generated UUID and ISO timestamp', async () => {

@@ -3,7 +3,6 @@ import { AcceptInviteUseCase } from '../AcceptInviteUseCase';
 import { CreateInviteUseCase } from '../CreateInviteUseCase';
 import { EnsureHouseholdUseCase } from '../EnsureHouseholdUseCase';
 import { UpdateHouseholdPaydayDayUseCase } from '../UpdateHouseholdPaydayDayUseCase';
-import type { ISyncEnqueuer } from '../../ports/ISyncEnqueuer';
 
 jest.mock('expo-crypto', () => ({
   randomUUID: jest.fn(() => 'uuid-test-' + Math.random().toString(36).slice(2, 8)),
@@ -25,8 +24,13 @@ afterAll(() => {
   jest.useRealTimers();
 });
 
-function makeEnqueuer(): ISyncEnqueuer & { enqueue: jest.Mock } {
-  return { enqueue: jest.fn().mockResolvedValue(undefined) };
+function makeFakeRepo() {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -35,13 +39,13 @@ function makeEnqueuer(): ISyncEnqueuer & { enqueue: jest.Mock } {
 
 describe('CreateHouseholdUseCase', () => {
   function makeDb() {
-    const valuesFn = jest.fn().mockResolvedValue(undefined);
-    const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
-    return { insert: insertFn, _values: valuesFn };
-  }
-
-  function makeRepo() {
-    return { insert: jest.fn().mockResolvedValue(undefined) };
+    // households insert is a raw runInUnitOfWork write; household_members
+    // insert (+ baby_steps seeding, mocked above) goes through deps.repo.
+    return {
+      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+        fn({ run: jest.fn(() => ({ changes: 1 })) }),
+      ),
+    };
   }
 
   function makeAudit() {
@@ -51,14 +55,12 @@ describe('CreateHouseholdUseCase', () => {
   it('succeeds with valid name and payday', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: 'My House', paydayDay: 25 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
@@ -68,21 +70,19 @@ describe('CreateHouseholdUseCase', () => {
       expect(result.data.paydayDay).toBe(25);
       expect(result.data.userLevel).toBe(1);
     }
-    expect(repo.insert).toHaveBeenCalledTimes(1);
-    expect(enqueuer.enqueue).toHaveBeenCalledTimes(2);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(repo.insert).toHaveBeenCalledTimes(1); // household_members only (baby steps mocked)
   });
 
   it('trims whitespace from name', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: '  Trimmed  ', paydayDay: 15 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
@@ -93,33 +93,29 @@ describe('CreateHouseholdUseCase', () => {
   it('returns INVALID_NAME when name is empty', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: '', paydayDay: 15 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVALID_NAME');
-    expect(repo.insert).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
   });
 
   it('returns INVALID_NAME when name is only whitespace', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: '   ', paydayDay: 15 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
@@ -130,14 +126,12 @@ describe('CreateHouseholdUseCase', () => {
   it('returns INVALID_PAYDAY when payday is 0', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: 'House', paydayDay: 0 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
@@ -148,14 +142,12 @@ describe('CreateHouseholdUseCase', () => {
   it('returns INVALID_PAYDAY when payday is 29', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: 'House', paydayDay: 29 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
@@ -166,14 +158,12 @@ describe('CreateHouseholdUseCase', () => {
   it('accepts payday boundary value 1', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: 'House', paydayDay: 1 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
@@ -184,14 +174,12 @@ describe('CreateHouseholdUseCase', () => {
   it('accepts payday boundary value 28', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: 'House', paydayDay: 28 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     const result = await uc.execute();
 
@@ -199,25 +187,21 @@ describe('CreateHouseholdUseCase', () => {
     if (result.success) expect(result.data.paydayDay).toBe(28);
   });
 
-  it('enqueues both household and member inserts', async () => {
+  it('inserts the household_members row via the synced repo', async () => {
     const db = makeDb();
     const audit = makeAudit();
-    const enqueuer = makeEnqueuer();
-    const repo = makeRepo();
+    const repo = makeFakeRepo();
     const uc = new CreateHouseholdUseCase(
       db as any,
       audit as any,
       { userId: 'u1', name: 'House', paydayDay: 15 },
-      enqueuer,
-      repo as any,
+      { repo },
     );
     await uc.execute();
 
-    expect(enqueuer.enqueue).toHaveBeenCalledWith('households', expect.any(String), 'INSERT');
-    expect(enqueuer.enqueue).toHaveBeenCalledWith(
-      'household_members',
-      expect.any(String),
-      'INSERT',
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: 'u1', role: 'owner' }),
+      expect.anything(),
     );
   });
 });
@@ -258,15 +242,11 @@ describe('AcceptInviteUseCase', () => {
     });
     const db = makeDb();
     const restore = makeRestoreService({ id: 'hh-1', name: 'Test House', paydayDay: 25 });
-    const enqueuer = makeEnqueuer();
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restore as any,
-      { code: 'ABC123', userId: 'u2' },
-      enqueuer,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restore as any, {
+      code: 'ABC123',
+      userId: 'u2',
+    });
     const result = await uc.execute();
 
     expect(result.success).toBe(true);
@@ -283,15 +263,11 @@ describe('AcceptInviteUseCase', () => {
     });
     const db = makeDb();
     const restore = makeRestoreService({ id: 'hh-1', name: 'House', paydayDay: 25 });
-    const enqueuer = makeEnqueuer();
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restore as any,
-      { code: 'abc123', userId: 'u2' },
-      enqueuer,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restore as any, {
+      code: 'abc123',
+      userId: 'u2',
+    });
     await uc.execute();
 
     expect(supabase.rpc).toHaveBeenCalledWith('join_household_via_invite', {
@@ -303,15 +279,11 @@ describe('AcceptInviteUseCase', () => {
     const supabase = makeSupabase({ data: null, error: { message: 'invite not found' } });
     const db = makeDb();
     const restore = makeRestoreService();
-    const enqueuer = makeEnqueuer();
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restore as any,
-      { code: 'BADCODE', userId: 'u2' },
-      enqueuer,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restore as any, {
+      code: 'BADCODE',
+      userId: 'u2',
+    });
     const result = await uc.execute();
 
     expect(result.success).toBe(false);
@@ -322,15 +294,11 @@ describe('AcceptInviteUseCase', () => {
     const supabase = makeSupabase({ data: null, error: { message: 'invite expired' } });
     const db = makeDb();
     const restore = makeRestoreService();
-    const enqueuer = makeEnqueuer();
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restore as any,
-      { code: 'EXPIRED', userId: 'u2' },
-      enqueuer,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restore as any, {
+      code: 'EXPIRED',
+      userId: 'u2',
+    });
     const result = await uc.execute();
 
     expect(result.success).toBe(false);
@@ -341,15 +309,11 @@ describe('AcceptInviteUseCase', () => {
     const supabase = makeSupabase({ data: null, error: { message: 'invite already used' } });
     const db = makeDb();
     const restore = makeRestoreService();
-    const enqueuer = makeEnqueuer();
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restore as any,
-      { code: 'USED01', userId: 'u2' },
-      enqueuer,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restore as any, {
+      code: 'USED01',
+      userId: 'u2',
+    });
     const result = await uc.execute();
 
     expect(result.success).toBe(false);
@@ -366,15 +330,11 @@ describe('AcceptInviteUseCase', () => {
     const restore = {
       restoreHousehold: jest.fn().mockRejectedValue(new Error('network')),
     };
-    const enqueuer = makeEnqueuer();
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restore as any,
-      { code: 'VALID1', userId: 'u2' },
-      enqueuer,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restore as any, {
+      code: 'VALID1',
+      userId: 'u2',
+    });
     const result = await uc.execute();
 
     expect(result.success).toBe(true);
@@ -464,10 +424,7 @@ describe('EnsureHouseholdUseCase', () => {
     const fromFn = jest.fn().mockReturnValue({ where: whereFn });
     const selectFn = jest.fn().mockReturnValue({ from: fromFn });
 
-    const valuesFn = jest.fn().mockResolvedValue(undefined);
-    const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
-
-    return { select: selectFn, insert: insertFn, _limitFn: limitFn };
+    return { select: selectFn, _limitFn: limitFn };
   }
 
   function makeDbWithLegacy(legacyHousehold: Record<string, unknown>) {
@@ -477,17 +434,18 @@ describe('EnsureHouseholdUseCase', () => {
     const fromFn = jest.fn().mockReturnValue({ where: whereFn });
     const selectFn = jest.fn().mockReturnValue({ from: fromFn });
 
-    const valuesFn = jest.fn().mockResolvedValue(undefined);
-    const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
-
-    return { select: selectFn, insert: insertFn, _valuesFn: valuesFn };
+    return {
+      select: selectFn,
+      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+        fn({ run: jest.fn(() => ({ changes: 1 })) }),
+      ),
+    };
   }
 
   it('returns existing household when membership exists', async () => {
     const hh = { id: 'hh-1', name: 'Existing', paydayDay: 20, userLevel: 2 };
     const db = makeDbWithMembership(hh);
-    const enqueuer = makeEnqueuer();
-    const uc = new EnsureHouseholdUseCase(db as any, 'u1', enqueuer);
+    const uc = new EnsureHouseholdUseCase(db as any, 'u1');
     const result = await uc.execute();
 
     expect(result.success).toBe(true);
@@ -502,8 +460,8 @@ describe('EnsureHouseholdUseCase', () => {
   it('adopts legacy household when id=userId', async () => {
     const legacy = { id: 'u1', name: 'Legacy House', paydayDay: 25, userLevel: 1 };
     const db = makeDbWithLegacy(legacy);
-    const enqueuer = makeEnqueuer();
-    const uc = new EnsureHouseholdUseCase(db as any, 'u1', enqueuer);
+    const repo = makeFakeRepo();
+    const uc = new EnsureHouseholdUseCase(db as any, 'u1', { repo });
     const result = await uc.execute();
 
     expect(result.success).toBe(true);
@@ -511,18 +469,19 @@ describe('EnsureHouseholdUseCase', () => {
       expect(result.data.id).toBe('u1');
       expect(result.data.name).toBe('Legacy House');
     }
-    expect(enqueuer.enqueue).toHaveBeenCalledWith(
-      'household_members',
-      expect.any(String),
-      'INSERT',
+    // household_members insert (new local row) via the synced repo
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ household_id: 'u1', user_id: 'u1', role: 'owner' }),
+      expect.anything(),
     );
-    expect(enqueuer.enqueue).toHaveBeenCalledWith('households', 'u1', 'INSERT');
+    // households catch-up op (row already exists locally — no repo.insert,
+    // just an oplog append via db.transaction)
+    expect(db.transaction).toHaveBeenCalled();
   });
 
   it('returns no_household when neither membership nor legacy exists', async () => {
     const db = makeDbWithMembership(null);
-    const enqueuer = makeEnqueuer();
-    const uc = new EnsureHouseholdUseCase(db as any, 'u-new', enqueuer);
+    const uc = new EnsureHouseholdUseCase(db as any, 'u-new');
     const result = await uc.execute();
 
     expect(result.success).toBe(false);
@@ -536,32 +495,30 @@ describe('EnsureHouseholdUseCase', () => {
 
 describe('UpdateHouseholdPaydayDayUseCase', () => {
   function makeDb() {
-    const whereFn = jest.fn().mockResolvedValue(undefined);
-    const setFn = jest.fn().mockReturnValue({ where: whereFn });
-    const updateFn = jest.fn().mockReturnValue({ set: setFn });
-    return { update: updateFn, _setFn: setFn };
+    return {
+      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+        fn({ run: jest.fn(() => ({ changes: 1 })) }),
+      ),
+    };
   }
 
   it('returns success for valid payday (1)', async () => {
     const db = makeDb();
-    const enqueuer = makeEnqueuer();
-    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 1, enqueuer);
+    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 1);
     const result = await uc.execute();
     expect(result.success).toBe(true);
   });
 
   it('returns success for valid payday (28)', async () => {
     const db = makeDb();
-    const enqueuer = makeEnqueuer();
-    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 28, enqueuer);
+    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 28);
     const result = await uc.execute();
     expect(result.success).toBe(true);
   });
 
   it('returns INVALID_PAYDAY for 0', async () => {
     const db = makeDb();
-    const enqueuer = makeEnqueuer();
-    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 0, enqueuer);
+    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 0);
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVALID_PAYDAY');
@@ -569,18 +526,16 @@ describe('UpdateHouseholdPaydayDayUseCase', () => {
 
   it('returns INVALID_PAYDAY for 29', async () => {
     const db = makeDb();
-    const enqueuer = makeEnqueuer();
-    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 29, enqueuer);
+    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 29);
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVALID_PAYDAY');
   });
 
-  it('enqueues UPDATE after successful write', async () => {
+  it('writes via one db.transaction (oplog, not pending_sync)', async () => {
     const db = makeDb();
-    const enqueuer = makeEnqueuer();
-    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 15, enqueuer);
+    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, 'hh-1', 15);
     await uc.execute();
-    expect(enqueuer.enqueue).toHaveBeenCalledWith('households', 'hh-1', 'UPDATE');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,20 +6,13 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { randomUUID } from 'expo-crypto';
 import { format } from 'date-fns';
 import { db } from '../../../../data/local/db';
-import { meterReadings } from '../../../../data/local/schema';
-// PendingSyncEnqueuer/pending_sync is deleted machinery per the oplog-sync
-// spec (docs/superpowers/specs/2026-07-03-oplog-sync-correctness-design.md
-// §2), but meter readings were NOT part of slice 3's UnitOfWork/oplog rewire
-// (only envelopes + transactions were, per Task 3) — LogMeterReadingUseCase
-// still enqueues onto pending_sync the same way it did before this slice,
-// so this call site is unchanged intentionally. Routing this screen through
-// LogMeterReadingUseCase instead of the raw insert below is NOT a drop-in
-// swap: that use case rejects `readingValue <= 0`, but this screen seeds an
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../../../../domain/shared/syncWrite';
+// Routing this screen through LogMeterReadingUseCase is NOT a drop-in swap:
+// that use case rejects `readingValue <= 0`, but this screen seeds an
 // intentional zero-value "Opening baseline" reading, so switching would
-// break onboarding. Deleting PendingSyncEnqueuer/pending_sync entirely is
-// slice 6's job, once every domain (not just envelopes/transactions) has an
-// oplog-backed use case to replace it with.
-import { PendingSyncEnqueuer } from '../../../../data/sync/PendingSyncEnqueuer';
+// break onboarding. It writes through the same slice-3/5 oplog-backed
+// synced repo LogMeterReadingUseCase itself uses, just inlined here for the
+// zero-value case (see task-1-report.md, "meter readings" section).
 import { useAppStore } from '../../../stores/appStore';
 import { radius, spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
@@ -42,7 +35,8 @@ export function MeterSetupStep(): React.JSX.Element {
   const handleNext = async (): Promise<void> => {
     setLoading(true);
     try {
-      const enqueuer = new PendingSyncEnqueuer(db);
+      const repo = resolveSyncedRepo(db, 'meter_readings', {});
+      const ctx = resolveSyncedRepoCtx({});
       const today = format(new Date(), 'yyyy-MM-dd');
       const now = new Date().toISOString();
 
@@ -53,19 +47,21 @@ export function MeterSetupStep(): React.JSX.Element {
 
       for (const meterType of enabledTypes) {
         const id = randomUUID();
-        await db.insert(meterReadings).values({
-          id,
-          householdId,
-          meterType,
-          readingValue: 0,
-          readingDate: today,
-          costCents: null,
-          vehicleId: null,
-          notes: 'Opening baseline',
-          createdAt: now,
-          updatedAt: now,
-        });
-        await enqueuer.enqueue('meter_readings', id, 'INSERT');
+        repo.insert(
+          {
+            id,
+            household_id: householdId,
+            meter_type: meterType,
+            reading_value: 0,
+            reading_date: today,
+            cost_cents: null,
+            vehicle_id: null,
+            notes: 'Opening baseline',
+            created_at: now,
+            updated_at: now,
+          },
+          ctx,
+        );
       }
     } finally {
       setLoading(false);

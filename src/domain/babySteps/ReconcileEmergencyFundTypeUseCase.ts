@@ -5,7 +5,22 @@
  * the oldest by createdAt is kept. Others are flipped to 'savings'.
  * Archived envelopes are skipped entirely.
  *
- * Triggered only after SyncOrchestrator.syncPending returns { failed: 0 }.
+ * Kept (not deleted) as of slice 5 task 6 — verified this remains a live,
+ * load-bearing backstop for the cross-device duplicate-EMF race (see
+ * `.superpowers/sdd/task-6-report.md`): the slice-4 create-time guard +
+ * local unique index (`0013_emf_unique.sql`) only close the SAME-DEVICE
+ * half of the race; two offline devices each creating their own
+ * `emergency_fund` envelope before either syncs still produce two active
+ * rows today.
+ *
+ * Previously triggered only after the OLD `SyncOrchestrator.syncPending`
+ * returned `{ failed: 0 }`. That call site was deleted with the rest of
+ * SyncOrchestrator (slice 5 task 6) and re-wired onto the new engine: it now
+ * runs from `SyncScheduler`'s `onSyncSuccess` hook (see `App.tsx`'s
+ * `ensureSyncRuntime()`) after every successful `SyncEngine.sync()` round —
+ * a looser gate than the old exact `{failed: 0}` requirement, but
+ * idempotent, so an opportunistic re-run on a partially-clean round is
+ * harmless and self-correcting on the next successful round.
  *
  * Spec §ReconcileEmergencyFundTypeUseCase trigger.
  */
@@ -14,8 +29,8 @@ import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
 
@@ -25,14 +40,10 @@ export interface ReconcileEmergencyFundTypeResult {
 }
 
 export class ReconcileEmergencyFundTypeUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
-    enqueuer?: ISyncEnqueuer,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-  }
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(householdId: string): Promise<Result<ReconcileEmergencyFundTypeResult>> {
     // 1. Find all non-archived emergency_fund envelopes, ordered by createdAt ASC
@@ -58,16 +69,11 @@ export class ReconcileEmergencyFundTypeUseCase {
     // 2. Keep the oldest; flip the rest to 'savings'
     const [, ...toFlip] = sorted;
     const now = new Date().toISOString();
+    const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
+    const ctx = resolveSyncedRepoCtx(this.deps);
 
     for (const envelope of toFlip) {
-      await this.db
-        .update(envelopes)
-        .set({
-          envelopeType: 'savings',
-          updatedAt: now,
-        })
-        .where(and(eq(envelopes.id, envelope.id), eq(envelopes.householdId, householdId)));
-      await this.enqueuer.enqueue('envelopes', envelope.id, 'UPDATE');
+      repo.update(envelope.id, householdId, { envelope_type: 'savings', updated_at: now }, ctx);
     }
 
     return createSuccess({ flipped: toFlip.length });

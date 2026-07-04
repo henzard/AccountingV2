@@ -2,7 +2,10 @@
  * ReconcileBabyStepsUseCase tests.
  *
  * Uses a simpler call-count-tracking mock: the first select() call is envelopes,
- * second is debts, third is baby_steps rows.
+ * second is debts, third is baby_steps rows. Writes go through a fake
+ * `SyncedRepo` (injected via deps.repo) rather than a mocked db.update chain,
+ * since the use case now writes baby_steps transitions via the oplog synced
+ * repo instead of a raw drizzle update.
  *
  * Covers:
  * - complete → incomplete preserves celebrated_at
@@ -23,6 +26,7 @@
  */
 
 import { ReconcileBabyStepsUseCase } from '../ReconcileBabyStepsUseCase';
+import type { SyncedRepo } from '../../../data/uow/createSyncedRepo';
 
 jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
@@ -74,6 +78,20 @@ function makeBabyStepRow(stepNumber: number, overrides: Record<string, unknown> 
   };
 }
 
+function makeFakeRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Simple sequential mock: select calls return envelopes, debts, baby_steps in order
 // ---------------------------------------------------------------------------
@@ -86,8 +104,6 @@ function makeDb({
   const selectCallResults = [envelopeRows, debtRows, babyStepRows];
   let selectCallCount = 0;
 
-  const updates: Array<{ set: Record<string, unknown> }> = [];
-
   const mockSelect = jest.fn(() => {
     const results = selectCallResults[selectCallCount++] ?? [];
     return {
@@ -97,18 +113,7 @@ function makeDb({
     };
   });
 
-  const mockWhereFnUpdate = jest.fn().mockResolvedValue(undefined);
-  const mockSetFn = jest.fn().mockImplementation((setVal: Record<string, unknown>) => {
-    updates.push({ set: setVal });
-    return { where: mockWhereFnUpdate };
-  });
-  const mockUpdate = jest.fn().mockReturnValue({ set: mockSetFn });
-
-  return {
-    select: mockSelect,
-    update: mockUpdate,
-    _updates: updates,
-  };
+  return { select: mockSelect };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,8 +137,9 @@ describe('ReconcileBabyStepsUseCase', () => {
       debtRows: [],
       babyStepRows: bsRows,
     });
+    const repo = makeFakeRepo();
 
-    const uc = new ReconcileBabyStepsUseCase(db as any);
+    const uc = new ReconcileBabyStepsUseCase(db as any, { repo });
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
     expect(result.success).toBe(true);
@@ -163,21 +169,22 @@ describe('ReconcileBabyStepsUseCase', () => {
       debtRows: [],
       babyStepRows: bsRows,
     });
+    const repo = makeFakeRepo();
 
-    const uc = new ReconcileBabyStepsUseCase(db as any);
+    const uc = new ReconcileBabyStepsUseCase(db as any, { repo });
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.newlyRegressed).toContain(1);
 
-    // The write should set isCompleted=false, completedAt=null but NOT touch celebratedAt
-    const step1Update = db._updates.find(
-      (u) => u.set.isCompleted === false && u.set.completedAt === null,
+    // The write should set is_completed=0, completed_at=null but NOT touch celebrated_at
+    const step1Update = repo.update.mock.calls.find(
+      (call) => call[0] === 'bs-1' && call[2].is_completed === 0 && call[2].completed_at === null,
     );
     expect(step1Update).toBeDefined();
-    // celebrated_at key should NOT be in the SET clause (it is preserved by not writing it)
-    expect(step1Update?.set).not.toHaveProperty('celebratedAt');
+    // celebrated_at key should NOT be in the payload (it is preserved by not writing it)
+    expect(step1Update?.[2]).not.toHaveProperty('celebrated_at');
 
     // The returned status should preserve celebratedAt from the persisted row
     const step1Status = result.data.statuses.find((s) => s.stepNumber === 1);
@@ -206,25 +213,28 @@ describe('ReconcileBabyStepsUseCase', () => {
       debtRows: [],
       babyStepRows: bsRows,
     });
+    const repo = makeFakeRepo();
 
-    const uc = new ReconcileBabyStepsUseCase(db as any);
+    const uc = new ReconcileBabyStepsUseCase(db as any, { repo });
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.newlyCompleted).toContain(1);
 
-    // Re-completion write should NOT include celebratedAt in the SET
-    const step1Update = db._updates.find((u) => u.set.isCompleted === true);
+    // Re-completion write should NOT include celebrated_at in the payload
+    const step1Update = repo.update.mock.calls.find(
+      (call) => call[0] === 'bs-1' && call[2].is_completed === 1,
+    );
     expect(step1Update).toBeDefined();
-    expect(step1Update?.set).not.toHaveProperty('celebratedAt');
+    expect(step1Update?.[2]).not.toHaveProperty('celebrated_at');
 
     // The returned status preserves the existing celebratedAt
     const step1Status = result.data.statuses.find((s) => s.stepNumber === 1);
     expect(step1Status?.celebratedAt).toBe(celebratedAt);
   });
 
-  it('every write stamps updatedAt', async () => {
+  it('every write stamps updated_at', async () => {
     const envelopeRow = makeEnvelopeRow({
       envelopeType: 'emergency_fund',
       allocatedCents: 100_000,
@@ -237,18 +247,19 @@ describe('ReconcileBabyStepsUseCase', () => {
       debtRows: [],
       babyStepRows: bsRows,
     });
+    const repo = makeFakeRepo();
 
-    const uc = new ReconcileBabyStepsUseCase(db as any);
+    const uc = new ReconcileBabyStepsUseCase(db as any, { repo });
     await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
-    expect(db._updates.length).toBeGreaterThan(0);
-    for (const update of db._updates) {
-      expect(update.set.updatedAt).toBeTruthy();
-      expect(update.set).not.toHaveProperty('isSynced');
+    expect(repo.update.mock.calls.length).toBeGreaterThan(0);
+    for (const call of repo.update.mock.calls) {
+      expect(call[2].updated_at).toBeTruthy();
+      expect(call[2]).not.toHaveProperty('isSynced');
     }
   });
 
-  it('no transitions when state unchanged → no DB writes', async () => {
+  it('no transitions when state unchanged → no synced-repo writes', async () => {
     // Step 1 already complete and conditions still met
     const envelopeRow = makeEnvelopeRow({
       envelopeType: 'emergency_fund',
@@ -262,14 +273,15 @@ describe('ReconcileBabyStepsUseCase', () => {
       debtRows: [],
       babyStepRows: bsRows,
     });
+    const repo = makeFakeRepo();
 
-    const uc = new ReconcileBabyStepsUseCase(db as any);
+    const uc = new ReconcileBabyStepsUseCase(db as any, { repo });
     const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.newlyCompleted).toHaveLength(0);
     expect(result.data.newlyRegressed).toHaveLength(0);
-    expect(db._updates).toHaveLength(0);
+    expect(repo.update).not.toHaveBeenCalled();
   });
 });

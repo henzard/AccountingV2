@@ -1,19 +1,27 @@
 import { LogMeterReadingUseCase } from '../LogMeterReadingUseCase';
 import type { IMeterReadingRepository } from '../../ports/IMeterReadingRepository';
+import type { SyncedRepo } from '../../../data/uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-meter-1' }));
 
-const mockInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
-const mockSelect = jest.fn().mockReturnValue({
-  from: jest.fn().mockReturnThis(),
-  where: jest.fn().mockReturnThis(),
-  limit: jest.fn().mockResolvedValue([]),
-});
-const mockDb = { insert: mockInsert, select: mockSelect } as any;
+const mockDb = {} as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-const mockEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) } as any;
 
-function makeMockRepo(existing: any = null): IMeterReadingRepository {
+function makeFakeRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
+}
+
+function makeMockMeterRepo(existing: any = null): IMeterReadingRepository {
   return {
     findById: jest.fn().mockResolvedValue(null),
     findByHousehold: jest.fn().mockResolvedValue([]),
@@ -36,13 +44,13 @@ describe('LogMeterReadingUseCase', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('returns failure when readingValue is 0', async () => {
-    const repo = makeMockRepo();
+    const meterRepo = makeMockMeterRepo();
     const uc = new LogMeterReadingUseCase(
       mockDb,
       mockAudit,
       { ...input, readingValue: 0 },
-      mockEnqueuer,
-      repo,
+      {},
+      meterRepo,
     );
     const result = await uc.execute();
     expect(result.success).toBe(false);
@@ -50,13 +58,13 @@ describe('LogMeterReadingUseCase', () => {
   });
 
   it('returns failure when readingValue is negative', async () => {
-    const repo = makeMockRepo();
+    const meterRepo = makeMockMeterRepo();
     const uc = new LogMeterReadingUseCase(
       mockDb,
       mockAudit,
       { ...input, readingValue: -10 },
-      mockEnqueuer,
-      repo,
+      {},
+      meterRepo,
     );
     const result = await uc.execute();
     expect(result.success).toBe(false);
@@ -76,8 +84,9 @@ describe('LogMeterReadingUseCase', () => {
       createdAt: '2026-04-01T00:00:00.000Z',
       updatedAt: '2026-04-01T00:00:00.000Z',
     };
-    const repo = makeMockRepo(existingReading);
-    const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, mockEnqueuer, repo);
+    const meterRepo = makeMockMeterRepo(existingReading);
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, { repo }, meterRepo);
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -86,18 +95,26 @@ describe('LogMeterReadingUseCase', () => {
     expect(repo.insert).not.toHaveBeenCalled();
   });
 
-  it('inserts reading and logs audit on success', async () => {
-    const repo = makeMockRepo();
-    const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, mockEnqueuer, repo);
+  it('inserts reading via the synced repo (exactly one oplog op) and logs audit', async () => {
+    const meterRepo = makeMockMeterRepo();
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, { repo }, meterRepo);
     const result = await uc.execute();
     expect(result.success).toBe(true);
     expect(repo.insert).toHaveBeenCalledTimes(1);
+    expect(repo.update).not.toHaveBeenCalled();
     expect(mockAudit.log).toHaveBeenCalledTimes(1);
+
+    const [row] = repo.insert.mock.calls[0];
+    expect(row.household_id).toBe('h1');
+    expect(row.meter_type).toBe('electricity');
+    expect(row.reading_value).toBe(1500);
   });
 
   it('returns entity with correct id and fields', async () => {
-    const repo = makeMockRepo();
-    const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, mockEnqueuer, repo);
+    const meterRepo = makeMockMeterRepo();
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, { repo }, meterRepo);
     const result = await uc.execute();
     expect(result.success).toBe(true);
     if (result.success) {

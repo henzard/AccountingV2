@@ -11,7 +11,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(28);
 
 -- ---------------------------------------------------------------------------
 -- Seed (as postgres, RLS bypassed)
@@ -346,6 +346,58 @@ select cmp_ok(
   '>',
   (select seq from public.oplog where op_id = 'a0000000-0000-0000-0000-0000000012a1'),
   'P12: later push gets a higher seq than the earlier push');
+
+-- ===========================================================================
+-- Probe 13: debts.is_paid_off is server-derived (slice 5 task 6 — baseline
+-- §9g `derive_debt_is_paid_off` trigger). Closes the Task-1-review follow-up:
+-- the client no longer pushes `is_paid_off` at all, but the trigger must also
+-- ignore/override it if a client sends it anyway (older client, op replay).
+-- ===========================================================================
+
+-- Insert claims is_paid_off: true even though the balance is nonzero — the
+-- trigger must overwrite it to false regardless of what the payload said.
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000013',
+    'household_id', 'hh-a',
+    'table', 'debts',
+    'row_id', 'debt-13',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'creditor_name', 'Test Bank', 'debt_type', 'credit_card',
+      'outstanding_balance_cents', 50000, 'interest_rate_percent', 20,
+      'minimum_payment_cents', 1000, 'is_paid_off', true,
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a'
+  ))) -> 0 ->> 'status',
+  'applied', 'P13: debt insert op returns applied');
+
+select is(
+  (select is_paid_off from public.debts where id = 'debt-13'),
+  false,
+  'P13: trigger derives is_paid_off=false from a nonzero balance, ignoring the payload''s true');
+
+-- Increment the balance down to exactly 0 — no is_paid_off op sent at all
+-- (the client no longer sends one) — the trigger must flip it to true purely
+-- from the increment's resulting outstanding_balance_cents.
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000014',
+    'household_id', 'hh-a',
+    'table', 'debts',
+    'row_id', 'debt-13',
+    'op_type', 'increment',
+    'payload', jsonb_build_object('field', 'outstanding_balance_cents', 'delta', -50000, 'clamp', 'floor_zero'),
+    'device_id', 'dev-a'
+  ))) -> 0 ->> 'status',
+  'applied', 'P13: debt balance-clearing increment op returns applied');
+
+select is(
+  (select is_paid_off from public.debts where id = 'debt-13'),
+  true,
+  'P13: trigger flips is_paid_off=true purely from the increment, with no client-sent update op');
 
 select * from finish();
 rollback;

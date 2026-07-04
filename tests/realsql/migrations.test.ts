@@ -12,12 +12,14 @@ describe('local migration chain (real SQLite)', () => {
       'envelopes',
       'transactions',
       'baby_steps',
-      'pending_sync',
       'audit_events',
       'slip_queue',
     ]) {
       expect(tables).toContain(expected);
     }
+    // pending_sync was dropped by migration 0014 (slice 5 task 6) — assert
+    // its absence here rather than its presence.
+    expect(tables).not.toContain('pending_sync');
     db.close();
   });
 
@@ -120,6 +122,21 @@ describe('local migration chain (real SQLite)', () => {
       allocated_cents: number;
     };
     expect(envelope.allocated_cents).toBe(50000);
+
+    db.close();
+  });
+
+  it('0014 drops pending_sync (dead outbox — SyncOrchestrator/PendingSyncEnqueuer deleted, slice 5 task 6)', () => {
+    const db = openMigratedDb('0013_emf_unique');
+
+    const tableExists = (): unknown =>
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_sync'").get();
+
+    expect(tableExists()).toBeDefined();
+
+    expect(() => applyMigrationsAfter(db, '0013_emf_unique')).not.toThrow();
+
+    expect(tableExists()).toBeUndefined();
 
     db.close();
   });

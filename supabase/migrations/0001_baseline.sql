@@ -1204,3 +1204,48 @@ $fn$;
 
 REVOKE ALL ON FUNCTION public.apply_server_op(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.apply_server_op(jsonb) TO service_role;
+
+-- ----------------------------------------------------------------------
+-- 9g. Server-derived debts.is_paid_off (slice 5 task 6 — closes the
+--     Task-1-review follow-up recorded in
+--     docs/superpowers/specs/2026-07-03-oplog-sync-correctness-design.md,
+--     "Slice-5 follow-ups"). `LogDebtPaymentUseCase` used to push a
+--     client-computed `is_paid_off` as a THIRD, independent `update` op
+--     alongside the two balance/total_paid `increment` ops. Because
+--     sync_push applies every op in a batch independently (per-op
+--     savepoints, no whole-batch atomicity — §6.3), a transient rejection
+--     of the balance-decrement op while the `is_paid_off` op still applied
+--     could leave a debt showing "paid off" against a nonzero remote
+--     balance until the rejected op's DLQ retry landed. Deriving the flag
+--     server-side, unconditionally, on every insert/update makes it
+--     self-healing no matter which subset of a payment's ops has applied so
+--     far — it can never independently diverge from the balance that is
+--     actually on the row. The client (slice 5 task 6) no longer sends
+--     `is_paid_off` in either the debt-creation insert or the payment
+--     update; this trigger tolerates it being sent anyway (older clients,
+--     op replay) by simply overwriting whatever value arrives with the
+--     value implied by `outstanding_balance_cents`. A plain BEFORE ROW
+--     trigger was chosen over a GENERATED ALWAYS column so the column stays
+--     writable — a generated column would make `apply_one_op`'s dynamic
+--     `UPDATE ... SET is_paid_off = ...` (built from the payload's key set,
+--     §9b) a hard SQL error the moment ANY client (including one not yet
+--     updated) still includes the field, permanently rejecting the whole op
+--     instead of self-healing.
+-- ----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION private.derive_debt_is_paid_off()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path = ''
+    AS $fn$
+BEGIN
+  NEW.is_paid_off := (NEW.outstanding_balance_cents <= 0);
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS derive_debt_is_paid_off ON public.debts;
+CREATE TRIGGER derive_debt_is_paid_off
+  BEFORE INSERT OR UPDATE ON public.debts
+  FOR EACH ROW
+  EXECUTE FUNCTION private.derive_debt_is_paid_off();

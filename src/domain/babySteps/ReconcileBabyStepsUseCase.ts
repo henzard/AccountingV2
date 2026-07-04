@@ -26,11 +26,16 @@ import {
   envelopeScopeCondition,
   getEnvelopeSpentCents,
 } from '../../data/local/balances/EnvelopeBalanceQuery';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 
 export class ReconcileBabyStepsUseCase {
-  constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
+  constructor(
+    private readonly db: ExpoSQLiteDatabase<typeof schema>,
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(householdId: string, currentPeriodStart: string): Promise<Result<ReconcileResult>> {
     try {
@@ -127,6 +132,8 @@ export class ReconcileBabyStepsUseCase {
       const newlyCompleted: number[] = [];
       const newlyRegressed: number[] = [];
       const statuses: BabyStepStatus[] = [];
+      const repo = resolveSyncedRepo(this.db, 'baby_steps', this.deps);
+      const ctx = resolveSyncedRepoCtx(this.deps);
 
       for (const current of evaluated) {
         const persisted = persistedByStep.get(current.stepNumber);
@@ -144,20 +151,13 @@ export class ReconcileBabyStepsUseCase {
           completedAt = now;
 
           if (persisted) {
-            await this.db
-              .update(babySteps)
-              .set({
-                isCompleted: true,
-                completedAt,
-                // celebrated_at is never written here — preserved as-is
-                updatedAt: now,
-              })
-              .where(
-                and(
-                  eq(babySteps.householdId, householdId),
-                  eq(babySteps.stepNumber, current.stepNumber),
-                ),
-              );
+            // celebrated_at is never written here — preserved as-is
+            repo.update(
+              persisted.id,
+              householdId,
+              { is_completed: 1, completed_at: completedAt, updated_at: now },
+              ctx,
+            );
           }
         } else if (!current.isCompleted && previouslyCompleted) {
           // Transition: complete → incomplete (regression)
@@ -165,20 +165,13 @@ export class ReconcileBabyStepsUseCase {
           completedAt = null;
 
           if (persisted) {
-            await this.db
-              .update(babySteps)
-              .set({
-                isCompleted: false,
-                completedAt: null,
-                // celebrated_at preserved — NOT cleared
-                updatedAt: now,
-              })
-              .where(
-                and(
-                  eq(babySteps.householdId, householdId),
-                  eq(babySteps.stepNumber, current.stepNumber),
-                ),
-              );
+            // celebrated_at preserved — NOT cleared
+            repo.update(
+              persisted.id,
+              householdId,
+              { is_completed: 0, completed_at: null, updated_at: now },
+              ctx,
+            );
           }
         }
 

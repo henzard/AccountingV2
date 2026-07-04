@@ -2,13 +2,10 @@
  * Phase 6 integration tests — Baby Steps sync + restore verification.
  *
  * Tasks covered:
- *   6.1 — SyncOrchestrator round-trip: celebrated_at preserved across devices
  *   6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timestamp mutation
- *   6.4 — Multi-EMF integration: fixer composes correctly inside SyncOrchestrator
  *   6.7 — Seeder race: RestoreService + concurrent SeedBabyStepsUseCase (cross-reference)
  *
- * Mock pattern: hand-rolled mocks following the established SyncOrchestrator.test.ts style.
- * No in-memory Drizzle — pure mock DB objects.
+ * Mock pattern: hand-rolled mocks; no in-memory Drizzle — pure mock DB objects.
  *
  * Domain use cases are exercised as real instances (not mocked) where possible,
  * receiving mock persistence.
@@ -18,242 +15,8 @@ jest.mock('expo-crypto', () => ({
   randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
 }));
 
-import { SyncOrchestrator } from '../SyncOrchestrator';
 import { RestoreService } from '../RestoreService';
 import { SeedBabyStepsUseCase } from '../../../domain/babySteps/SeedBabyStepsUseCase';
-
-// ---------------------------------------------------------------------------
-// Helper: build a mock DB suitable for SyncOrchestrator
-// ---------------------------------------------------------------------------
-
-function makePendingQueueChain(rows: unknown[]) {
-  const limitFn = () => Promise.resolve(rows);
-  const orderByFn = () => ({ limit: limitFn });
-  const whereChain = { where: () => ({ orderBy: orderByFn }), orderBy: orderByFn };
-  return { from: () => whereChain };
-}
-
-function makeSyncDb(
-  pendingItems: Record<string, unknown>[],
-  rowsByRecordId: Record<string, unknown[]>,
-) {
-  // C7 N+1 fix: rows are now batch-fetched per table (inArray) before processItem.
-  // Group all rows into per-table batches (one batch SELECT per table, not per item).
-  const allRows = Object.values(rowsByRecordId).flat();
-
-  // Group pending items by tableName to build per-table batch calls
-  const tableNames = [...new Set(pendingItems.map((p) => p.tableName as string))];
-  const batchFetchByTable = tableNames.map((_tableName) => () => ({
-    // inArray fetch returns all rows for that table (no .limit() — just .from().where())
-    from: () => ({ where: () => Promise.resolve(allRows) }),
-  }));
-
-  let selectCallIdx = 0;
-  const selectCallOrder: (() => unknown)[] = [
-    // First call: fetch pending sync queue (supports .where().orderBy().limit())
-    () => makePendingQueueChain(pendingItems),
-    // C7: One batch fetch per table (inArray — no .limit())
-    ...batchFetchByTable,
-  ];
-
-  return {
-    select: jest.fn().mockImplementation(() => {
-      const fn =
-        selectCallOrder[selectCallIdx] ??
-        (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
-      selectCallIdx++;
-      return fn();
-    }),
-    delete: () => ({ where: () => Promise.resolve() }),
-    update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 6.1 — SyncOrchestrator: celebrated_at stamp preservation across devices
-//
-// Scenario:
-//   Device A stamps celebrated_at='2026-04-12T10:05:00Z' on step 1, writes
-//   to pending_sync as INSERT.
-//   Device B has an earlier row (celebrated_at=null) that would normally overwrite.
-//
-//   The RPC call receives Device A's row with celebrated_at set.
-//   The server-side RPC logic (tested here via mock verification) must preserve
-//   the stamp when the incoming row has celebrated_at non-null.
-//
-//   This test verifies that SyncOrchestrator passes the full row including
-//   celebrated_at to merge_baby_step and does NOT strip or null the field.
-// ---------------------------------------------------------------------------
-
-describe('6.1 — SyncOrchestrator: celebrated_at stamp preserved in merge_baby_step RPC payload', () => {
-  it('Device A row with celebrated_at is passed verbatim to merge_baby_step RPC (stamp not stripped)', async () => {
-    const deviceARow = {
-      id: 'bs-device-a-1',
-      householdId: 'hh-1',
-      stepNumber: 1,
-      isCompleted: true,
-      completedAt: '2026-04-12T10:00:00Z',
-      isManual: false,
-      celebratedAt: '2026-04-12T10:05:00Z', // Device A stamped this
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-04-12T10:05:00Z',
-      isSynced: false,
-    };
-
-    const pending = [
-      {
-        id: 'psync-1',
-        tableName: 'baby_steps',
-        recordId: 'bs-device-a-1',
-        operation: 'INSERT',
-        retryCount: 0,
-      },
-    ];
-
-    const db = makeSyncDb(pending, { 'bs-device-a-1': [deviceARow] });
-
-    const rpcMock = jest.fn().mockResolvedValue({ error: null });
-    const supabase = {
-      rpc: rpcMock,
-      from: () => ({ upsert: jest.fn() }),
-    } as any;
-
-    const orch = new SyncOrchestrator(db as any, supabase);
-    const result = await orch.syncPending();
-
-    expect(result.synced).toBe(1);
-    expect(result.failed).toBe(0);
-
-    // Verify RPC was called with merge_baby_step
-    expect(rpcMock).toHaveBeenCalledWith(
-      'merge_baby_step',
-      expect.objectContaining({
-        r: expect.objectContaining({
-          id: 'bs-device-a-1',
-          celebrated_at: '2026-04-12T10:05:00Z', // NOT null — stamp preserved
-        }),
-      }),
-    );
-  });
-
-  it('Device B row with celebrated_at=null does not override existing stamp (RPC receives null; server preserves)', async () => {
-    // Device B has celebrated_at=null — an earlier sync. The server RPC is
-    // responsible for preservation when existing.celebrated_at is non-null.
-    // This test verifies: SyncOrchestrator passes null correctly (not coerced to
-    // a timestamp) so the server can apply the "preserve when incoming is null" rule.
-    const deviceBRow = {
-      id: 'bs-device-b-1',
-      householdId: 'hh-1',
-      stepNumber: 1,
-      isCompleted: true,
-      completedAt: '2026-04-10T08:00:00Z',
-      isManual: false,
-      celebratedAt: null, // Device B has not seen the celebration yet
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-04-10T08:00:00Z',
-      isSynced: false,
-    };
-
-    const pending = [
-      {
-        id: 'psync-2',
-        tableName: 'baby_steps',
-        recordId: 'bs-device-b-1',
-        operation: 'INSERT',
-        retryCount: 0,
-      },
-    ];
-
-    const db = makeSyncDb(pending, { 'bs-device-b-1': [deviceBRow] });
-
-    const rpcMock = jest.fn().mockResolvedValue({ error: null });
-    const supabase = {
-      rpc: rpcMock,
-      from: () => ({ upsert: jest.fn() }),
-    } as any;
-
-    const orch = new SyncOrchestrator(db as any, supabase);
-    await orch.syncPending();
-
-    // celebrated_at must be passed as null (not as a non-null string)
-    // so the server-side RPC can apply: "preserve existing when incoming IS NULL"
-    expect(rpcMock).toHaveBeenCalledWith(
-      'merge_baby_step',
-      expect.objectContaining({
-        r: expect.objectContaining({
-          celebrated_at: null,
-        }),
-      }),
-    );
-  });
-
-  it('Two pending baby_steps items (Device A stamp + Device B null) both route through RPC', async () => {
-    const pending = [
-      { id: 'p1', tableName: 'baby_steps', recordId: 'bs-a', operation: 'INSERT', retryCount: 0 },
-      { id: 'p2', tableName: 'baby_steps', recordId: 'bs-b', operation: 'INSERT', retryCount: 0 },
-    ];
-
-    const rowA = {
-      id: 'bs-a',
-      householdId: 'hh-1',
-      stepNumber: 1,
-      isCompleted: true,
-      completedAt: '2026-04-12T10:00:00Z',
-      isManual: false,
-      celebratedAt: '2026-04-12T10:05:00Z',
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-04-12T10:05:00Z',
-      isSynced: false,
-    };
-    const rowB = {
-      id: 'bs-b',
-      householdId: 'hh-1',
-      stepNumber: 1,
-      isCompleted: true,
-      completedAt: '2026-04-10T08:00:00Z',
-      isManual: false,
-      celebratedAt: null,
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-04-10T08:00:00Z',
-      isSynced: false,
-    };
-
-    // C7: Build db with 2 select slots: pending queue, then one batch fetch for all baby_steps
-    let callIdx = 0;
-    const selectImpls = [
-      () => makePendingQueueChain(pending),
-      // C7: batch inArray fetch returns BOTH rows at once (all baby_steps)
-      () => ({ from: () => ({ where: () => Promise.resolve([rowA, rowB]) }) }),
-    ];
-    const db = {
-      select: jest.fn().mockImplementation(() => {
-        const fn =
-          selectImpls[callIdx] ?? (() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
-        callIdx++;
-        return fn();
-      }),
-      delete: () => ({ where: () => Promise.resolve() }),
-      update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-    } as any;
-
-    const rpcMock = jest.fn().mockResolvedValue({ error: null });
-    const supabase = { rpc: rpcMock, from: () => ({ upsert: jest.fn() }) } as any;
-
-    const orch = new SyncOrchestrator(db, supabase);
-    const result = await orch.syncPending();
-
-    expect(result.synced).toBe(2);
-    expect(rpcMock).toHaveBeenCalledTimes(2);
-
-    // First call: stamp present
-    const firstCallRow = rpcMock.mock.calls[0][1].r;
-    expect(firstCallRow.celebrated_at).toBe('2026-04-12T10:05:00Z');
-
-    // Second call: stamp absent
-    const secondCallRow = rpcMock.mock.calls[1][1].r;
-    expect(secondCallRow.celebrated_at).toBeNull();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // 6.2 — RestoreService: restores rows then seeds missing steps without mutation
@@ -310,7 +73,6 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
     }));
 
     const insertedRows: Record<string, unknown>[] = [];
-    const conflicting = new Set<string>();
 
     const db = {
       insert: () => ({
@@ -319,20 +81,37 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
             insertedRows.push(row);
             return Promise.resolve();
           }),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
-            const key = `${row.householdId}:${row.stepNumber}`;
-            if (!conflicting.has(key)) {
-              conflicting.add(key);
-              insertedRows.push(row);
-            }
-            return Promise.resolve();
-          }),
+        }),
+      }),
+      // The seeder's existence check reads whatever restoreTable already
+      // pulled (via onConflictDoUpdate above) for baby_steps.
+      select: () => ({
+        from: () => ({
+          where: () =>
+            Promise.resolve(
+              insertedRows
+                .filter((r) => 'stepNumber' in r)
+                .map((r) => ({ stepNumber: r.stepNumber })),
+            ),
         }),
       }),
     } as any;
 
+    // SeedBabyStepsUseCase now writes via the oplog synced repo rather than
+    // a raw onConflictDoNothing insert — inject a fake repo (via
+    // RestoreService's seedDeps) that also records into `insertedRows` so
+    // the assertions below see the backfilled steps.
+    const fakeRepo = {
+      insert: jest.fn((row: Record<string, unknown>) => {
+        insertedRows.push({ stepNumber: row.step_number });
+      }),
+      update: jest.fn(),
+      softDelete: jest.fn(),
+      increment: jest.fn(),
+    };
+
     const supabase = makeRestoreSupabase(remoteRows);
-    const svc = new RestoreService(db, supabase as any);
+    const svc = new RestoreService(db, supabase as any, { repo: fakeRepo as any });
     await svc.restoreHousehold('hh-restore', 'owner', 'user-1');
 
     // At minimum 7 distinct (householdId, stepNumber) pairs must be present
@@ -462,144 +241,6 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
 });
 
 // ---------------------------------------------------------------------------
-// 6.4 — Multi-EMF integration: SyncOrchestrator triggers fixer which skips
-//        archived and flips non-oldest active
-// ---------------------------------------------------------------------------
-
-describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmergencyFundTypeUseCase', () => {
-  it('clean sync with householdId triggers fixer; fixer skips archived, flips non-oldest active', async () => {
-    // Empty pending queue → clean sync
-    const older = {
-      id: 'e-older',
-      householdId: 'hh-emf',
-      envelopeType: 'emergency_fund',
-      isArchived: false,
-      createdAt: '2025-01-01T00:00:00.000Z',
-      updatedAt: '2025-01-01T00:00:00.000Z',
-      isSynced: true,
-    };
-    const newer = {
-      id: 'e-newer',
-      householdId: 'hh-emf',
-      envelopeType: 'emergency_fund',
-      isArchived: false,
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-      isSynced: true,
-    };
-
-    let selectCallIdx = 0;
-
-    // Select calls:
-    //   (0) pending queue → empty
-    //   (1) fixer's envelope select → [older, newer]
-    //   (2) enqueuer dedup select → no existing row (triggers insert path)
-    const db = {
-      select: jest.fn().mockImplementation(() => {
-        const idx = selectCallIdx++;
-        if (idx === 0) {
-          return makePendingQueueChain([]);
-        }
-        if (idx === 1) {
-          // Fixer's envelope query — returns both active EMFs
-          return { from: () => ({ where: () => Promise.resolve([older, newer]) }) };
-        }
-        // Enqueuer dedup select (pendingSync table) — return empty → triggers insert
-        return {
-          from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
-        };
-      }),
-      update: jest.fn().mockImplementation(() => ({
-        set: jest.fn().mockImplementation(() => ({
-          where: jest.fn().mockImplementation((_cond) => {
-            return Promise.resolve();
-          }),
-        })),
-      })),
-      insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
-    } as any;
-
-    const supabase = {} as any;
-    const orch = new SyncOrchestrator(db, supabase);
-    const result = await orch.syncPending('hh-emf');
-
-    expect(result.synced).toBe(0);
-    expect(result.failed).toBe(0);
-    // fixer ran — emfFlipped = 1 (only the newer one flipped)
-    expect(result.emfFlipped).toBe(1);
-    // update must have been called exactly once (for the newer envelope)
-    expect(db.update).toHaveBeenCalledTimes(1);
-  });
-
-  it('clean sync with single EMF → fixer no-op, emfFlipped=0', async () => {
-    const singleEMF = {
-      id: 'e-only',
-      householdId: 'hh-emf2',
-      envelopeType: 'emergency_fund',
-      isArchived: false,
-      createdAt: '2025-01-01T00:00:00.000Z',
-      updatedAt: '2025-01-01T00:00:00.000Z',
-      isSynced: true,
-    };
-
-    let selectCallIdx = 0;
-    const db = {
-      select: jest.fn().mockImplementation(() => {
-        const idx = selectCallIdx++;
-        if (idx === 0) {
-          return makePendingQueueChain([]);
-        }
-        return { from: () => ({ where: () => Promise.resolve([singleEMF]) }) };
-      }),
-      update: jest.fn(),
-    } as any;
-
-    const supabase = {} as any;
-    const orch = new SyncOrchestrator(db, supabase);
-    const result = await orch.syncPending('hh-emf2');
-
-    expect(result.emfFlipped).toBe(0);
-    expect(db.update).not.toHaveBeenCalled();
-  });
-
-  it('partial sync (failed > 0) does NOT trigger fixer even when householdId provided', async () => {
-    const pending = [
-      { id: 'p1', tableName: 'envelopes', recordId: 'e1', operation: 'INSERT', retryCount: 0 },
-    ];
-    const db = {
-      select: jest
-        .fn()
-        .mockReturnValueOnce(makePendingQueueChain(pending))
-        .mockReturnValueOnce({
-          from: () => ({
-            where: () => ({ limit: () => Promise.resolve([{ id: 'e1', isSynced: false }]) }),
-          }),
-        }),
-      update: jest.fn().mockReturnValue({
-        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
-      }),
-    } as any;
-
-    const supabase = {
-      rpc: () => Promise.resolve({ error: { message: 'fail' } }),
-      from: () => ({ upsert: () => Promise.resolve({ error: { message: 'fail' } }) }),
-    } as any;
-
-    const orch = new SyncOrchestrator(db, supabase);
-    const result = await orch.syncPending('hh-emf3');
-
-    expect(result.failed).toBe(1);
-    expect(result.emfFlipped).toBe(0);
-    // update was called only for retry-count increment, not for EMF flip
-    // The fixer would call update for the envelope flip — verify it was never called
-    // with envelopeType data (only the pendingSync retry update should occur)
-    const updateCalls = (db.update as jest.Mock).mock.calls.length;
-    // Only the retry-count increment update should fire (1 call)
-    expect(updateCalls).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // 6.7 — Seeder race cross-reference: RestoreService + concurrent seed()
 //
 // Spec §Testing — seeder race: already covered as unit test in SeedBabyStepsUseCase.test.ts.
@@ -642,24 +283,49 @@ describe('6.7 — Seeder race cross-reference: RestoreService + concurrent SeedB
 
     const db = {
       insert: () => ({
-        values: (row: Record<string, unknown>) => ({
+        values: () => ({
           onConflictDoUpdate: jest.fn().mockImplementation(() => {
             // onConflictDoUpdate is used for household upsert
             return Promise.resolve();
           }),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
-            const key = `${row.householdId}:${row.stepNumber}`;
-            if (key && !rows.has(key)) {
-              rows.set(key, row);
-            }
-            return Promise.resolve();
-          }),
+        }),
+      }),
+      // SeedBabyStepsUseCase's existence pre-check reads from the same
+      // shared `rows` map both seeder invocations write into.
+      select: () => ({
+        from: () => ({
+          where: () =>
+            Promise.resolve(
+              Array.from(rows.keys())
+                .filter((k) => k.startsWith('hh-race:'))
+                .map((k) => ({ stepNumber: Number(k.split(':')[1]) })),
+            ),
         }),
       }),
     } as any;
 
-    const svc = new RestoreService(db, supabase);
-    const externalSeeder = new SeedBabyStepsUseCase(db as any);
+    // SeedBabyStepsUseCase now writes via the oplog synced repo. This fake
+    // reproduces the real `createSyncedRepo`'s race behavior: a second
+    // writer for the same (household_id, step_number) hits the same
+    // UNIQUE-constraint-shaped error, which the use case's own catch treats
+    // as an idempotent no-op (see SeedBabyStepsUseCase.ts).
+    const fakeRepo = {
+      insert: jest.fn((row: Record<string, unknown>) => {
+        const key = `${row.household_id}:${row.step_number}`;
+        if (rows.has(key)) {
+          throw new Error(
+            'UNIQUE constraint failed: baby_steps.household_id, baby_steps.step_number',
+          );
+        }
+        rows.set(key, row);
+      }),
+      update: jest.fn(),
+      softDelete: jest.fn(),
+      increment: jest.fn(),
+    };
+
+    const svc = new RestoreService(db, supabase, { repo: fakeRepo as any });
+    const externalSeeder = new SeedBabyStepsUseCase(db as any, { repo: fakeRepo as any });
 
     // Fire both concurrently: RestoreService (which internally calls seed once)
     // and an external seed() call for the same household.

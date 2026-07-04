@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-import { useSyncStore } from '../syncStore';
+import { useSyncStore, syncStoreStatusSink } from '../syncStore';
 
 let mockEventListenerCallback:
   | ((state: { isConnected: boolean | null; isInternetReachable: boolean | null }) => void)
@@ -22,6 +22,8 @@ describe('syncStore', () => {
       pendingSyncCount: 0,
       syncStatus: 'idle',
       lastSyncAt: null,
+      error: null,
+      pullBlocked: false,
     });
   });
 
@@ -45,12 +47,30 @@ describe('syncStore', () => {
     expect(useSyncStore.getState().lastSyncAt).toBe('2026-04-15T12:00:00Z');
   });
 
+  it('setError updates error', () => {
+    useSyncStore.getState().setError('sync_push failed: network error');
+    expect(useSyncStore.getState().error).toBe('sync_push failed: network error');
+  });
+
+  it('setError(null) clears a previous error', () => {
+    useSyncStore.getState().setError('boom');
+    useSyncStore.getState().setError(null);
+    expect(useSyncStore.getState().error).toBeNull();
+  });
+
+  it('setPullBlocked updates pullBlocked', () => {
+    useSyncStore.getState().setPullBlocked(true);
+    expect(useSyncStore.getState().pullBlocked).toBe(true);
+  });
+
   it('reset restores initial values', () => {
     useSyncStore.setState({
       isOnline: false,
       pendingSyncCount: 5,
       syncStatus: 'error',
       lastSyncAt: '2026-04-15T12:00:00Z',
+      error: 'boom',
+      pullBlocked: true,
     });
     useSyncStore.getState().reset();
     const s = useSyncStore.getState();
@@ -58,6 +78,76 @@ describe('syncStore', () => {
     expect(s.pendingSyncCount).toBe(0);
     expect(s.syncStatus).toBe('idle');
     expect(s.lastSyncAt).toBeNull();
+    expect(s.error).toBeNull();
+    expect(s.pullBlocked).toBe(false);
+  });
+});
+
+describe('syncStoreStatusSink (SyncScheduler -> syncStore adapter)', () => {
+  beforeEach(() => {
+    useSyncStore.setState({
+      isOnline: true,
+      pendingSyncCount: 0,
+      syncStatus: 'idle',
+      lastSyncAt: null,
+      error: null,
+      pullBlocked: false,
+    });
+  });
+
+  it('setSyncing(true) sets syncStatus to syncing', () => {
+    syncStoreStatusSink.setSyncing(true);
+    expect(useSyncStore.getState().syncStatus).toBe('syncing');
+  });
+
+  it('setSyncing(false) sets syncStatus back to idle', () => {
+    syncStoreStatusSink.setSyncing(true);
+    syncStoreStatusSink.setSyncing(false);
+    expect(useSyncStore.getState().syncStatus).toBe('idle');
+  });
+
+  it('a full successful sync cycle: syncing -> lastSyncedAt/error cleared -> idle, pendingCount refreshed', () => {
+    syncStoreStatusSink.setSyncing(true);
+    expect(useSyncStore.getState().syncStatus).toBe('syncing');
+
+    syncStoreStatusSink.setError(null);
+    syncStoreStatusSink.setLastSyncedAt('2026-07-04T06:00:00.000Z');
+    syncStoreStatusSink.setPendingCount(0);
+    syncStoreStatusSink.setSyncing(false);
+    syncStoreStatusSink.setPullBlocked(false);
+
+    const s = useSyncStore.getState();
+    expect(s.syncStatus).toBe('idle');
+    expect(s.lastSyncAt).toBe('2026-07-04T06:00:00.000Z');
+    expect(s.error).toBeNull();
+    expect(s.pendingSyncCount).toBe(0);
+    expect(s.pullBlocked).toBe(false);
+  });
+
+  it('a failed sync cycle: syncing -> error set, lastSyncAt untouched -> idle', () => {
+    syncStoreStatusSink.setSyncing(true);
+    syncStoreStatusSink.setError('sync_push failed: network error');
+    syncStoreStatusSink.setPendingCount(4);
+    syncStoreStatusSink.setSyncing(false);
+
+    const s = useSyncStore.getState();
+    expect(s.syncStatus).toBe('idle');
+    expect(s.error).toBe('sync_push failed: network error');
+    expect(s.pendingSyncCount).toBe(4);
+    expect(s.lastSyncAt).toBeNull();
+  });
+
+  it('a round that completes without throwing but with a blocked puller surfaces pullBlocked (never gets stuck on syncing)', () => {
+    syncStoreStatusSink.setSyncing(true);
+    syncStoreStatusSink.setError(null);
+    syncStoreStatusSink.setLastSyncedAt('2026-07-04T06:05:00.000Z');
+    syncStoreStatusSink.setPendingCount(2);
+    syncStoreStatusSink.setSyncing(false);
+    syncStoreStatusSink.setPullBlocked(true);
+
+    const s = useSyncStore.getState();
+    expect(s.syncStatus).toBe('idle');
+    expect(s.pullBlocked).toBe(true);
   });
 });
 

@@ -4,6 +4,7 @@ import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsStackParamList } from '../../navigation/types';
 import { SettingsScreen } from './SettingsScreen';
 import { NotificationPreferencesScreen } from './NotificationPreferencesScreen';
+import { SyncHealthScreen } from './SyncHealthScreen';
 import { CrashLogViewer } from './CrashLogViewer';
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
@@ -27,6 +28,11 @@ export function SettingsStackNavigator(): React.JSX.Element {
         name="NotificationPreferences"
         component={NotificationPreferencesScreen}
         options={{ title: 'Notifications' }}
+      />
+      <Stack.Screen
+        name="SyncHealth"
+        component={SyncHealthScreen}
+        options={{ title: 'Sync Health' }}
       />
       <Stack.Screen name="CrashLog" component={CrashLogViewer} options={{ title: 'Crash log' }} />
     </Stack.Navigator>

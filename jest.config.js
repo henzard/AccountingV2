@@ -31,34 +31,54 @@ const appProject = {
   },
 };
 
-// Real-SQL tier: node environment, real better-sqlite3 against the actual migration files.
+// Shared node-tier transform + expo-crypto shim (used by both the offline
+// realsql tier and the Postgres-backed two-device tier).
+// `createSyncedRepo.ts` generates oplog ids via `expo-crypto`'s `randomUUID()`.
+// The real package is ESM with a native RN/Expo bridge — neither works under
+// this plain "node" environment, so it's stubbed with a Node
+// `crypto.randomUUID()`-backed shim.
+const nodeTierTransform = {
+  '^.+\\.ts$': [
+    'babel-jest',
+    {
+      presets: [
+        ['@babel/preset-env', { targets: { node: 'current' } }],
+        '@babel/preset-typescript',
+      ],
+    },
+  ],
+};
+const nodeTierModuleNameMapper = {
+  '^expo-crypto$': '<rootDir>/__mocks__/expo-crypto.js',
+};
+
+// Real-SQL tier: node environment, real better-sqlite3 against the actual
+// migration files. Offline (no network) — runs in CI's `check` job.
 const realSqlProject = {
   displayName: 'realsql',
   testEnvironment: 'node',
   testMatch: ['<rootDir>/tests/realsql/**/*.test.ts'],
-  transform: {
-    '^.+\\.ts$': [
-      'babel-jest',
-      {
-        presets: [
-          ['@babel/preset-env', { targets: { node: 'current' } }],
-          '@babel/preset-typescript',
-        ],
-      },
-    ],
-  },
-  moduleNameMapper: {
-    // `createSyncedRepo.ts` generates oplog ids via `expo-crypto`'s
-    // `randomUUID()`. The real package is ESM and its native binding
-    // assumes an RN/Expo bridge — neither works under this tier's plain
-    // "node" environment (no bundler-level RN transform here, no bridge to
-    // call), so it's stubbed with a Node `crypto.randomUUID()`-backed shim.
-    '^expo-crypto$': '<rootDir>/__mocks__/expo-crypto.js',
-  },
+  // The two-device convergence tier needs a live Postgres (local Supabase),
+  // so it runs in CI's `db` job — NOT this offline project. Exclude it here.
+  testPathIgnorePatterns: ['<rootDir>/tests/realsql/twoDevice/'],
+  transform: nodeTierTransform,
+  moduleNameMapper: nodeTierModuleNameMapper,
+  setupFiles: ['<rootDir>/tests/realsql/harness/setupGlobals.js'],
+};
+
+// Two-device convergence tier: drives the REAL sync_push/sync_pull RPCs against
+// a live local Supabase Postgres. Requires the stack up — runs in CI's `db` job.
+const twoDeviceProject = {
+  displayName: 'twodevice',
+  testEnvironment: 'node',
+  testMatch: ['<rootDir>/tests/realsql/twoDevice/**/*.test.ts'],
+  transform: nodeTierTransform,
+  moduleNameMapper: nodeTierModuleNameMapper,
+  setupFiles: ['<rootDir>/tests/realsql/harness/setupGlobals.js'],
 };
 
 module.exports = {
-  projects: [appProject, realSqlProject],
+  projects: [appProject, realSqlProject, twoDeviceProject],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/index.ts',

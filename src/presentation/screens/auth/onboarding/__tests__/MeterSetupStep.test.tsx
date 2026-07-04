@@ -75,22 +75,26 @@ jest.mock('../../../../stores/appStore', () => ({
 }));
 
 // ─── DB mock ──────────────────────────────────────────────────────────────────
-const mockInsertValues = jest.fn().mockResolvedValue(undefined);
-jest.mock('../../../../../data/local/db', () => ({
-  db: {
-    insert: jest.fn(() => ({ values: mockInsertValues })),
-  },
-}));
+// MeterSetupStep now writes through the shared oplog synced repo
+// (resolveSyncedRepo/resolveSyncedRepoCtx) instead of a raw db.insert +
+// PendingSyncEnqueuer pair — see MeterSetupStep.tsx's doc comment. `db` only
+// needs to exist as an identity for resolveSyncedRepo to key off of; the
+// synced-repo fake below is what actually gets exercised.
+jest.mock('../../../../../data/local/db', () => ({ db: {} }));
 
-// ─── Schema mock ──────────────────────────────────────────────────────────────
-jest.mock('../../../../../data/local/schema', () => ({
-  meterReadings: 'meterReadings',
-}));
-
-// ─── PendingSyncEnqueuer mock ─────────────────────────────────────────────────
-const mockEnqueue = jest.fn().mockResolvedValue(undefined);
-jest.mock('../../../../../data/sync/PendingSyncEnqueuer', () => ({
-  PendingSyncEnqueuer: jest.fn().mockImplementation(() => ({ enqueue: mockEnqueue })),
+const mockRepoInsert = jest.fn();
+jest.mock('../../../../../domain/shared/syncWrite', () => ({
+  resolveSyncedRepo: jest.fn(() => ({
+    insert: mockRepoInsert,
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  })),
+  resolveSyncedRepoCtx: jest.fn(() => ({
+    deviceId: 'unassigned-device',
+    actorUserId: null,
+    clock: () => '2026-01-01T00:00:00.000Z',
+  })),
 }));
 
 // ─── expo-crypto mock ─────────────────────────────────────────────────────────
@@ -122,7 +126,24 @@ describe('MeterSetupStep', () => {
     fireEvent.press(getByText('Skip'));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
-      expect(mockInsertValues).not.toHaveBeenCalled();
+      expect(mockRepoInsert).not.toHaveBeenCalled();
     });
+  });
+
+  it('pressing Next with a toggle enabled seeds a zero-value baseline reading via the synced repo', async () => {
+    const { getByTestId, getByText } = render(<MeterSetupStep />);
+    fireEvent(getByTestId('switch-electricity'), 'touchEnd');
+    fireEvent.press(getByText('Next'));
+
+    await waitFor(() => {
+      expect(mockRepoInsert).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
+    });
+
+    const [row] = mockRepoInsert.mock.calls[0];
+    expect(row.household_id).toBe('hh-test');
+    expect(row.meter_type).toBe('electricity');
+    expect(row.reading_value).toBe(0);
+    expect(row.notes).toBe('Opening baseline');
   });
 });

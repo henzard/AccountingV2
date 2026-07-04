@@ -5,8 +5,11 @@
  * The banner on BudgetScreen reads this flag and shows copy verbatim from spec
  * §Duplicate-EMF banner copy.
  *
- * The store is set from SyncOrchestrator.syncPending after a clean sync
- * (failed: 0) if ReconcileEmergencyFundTypeUseCase returned flipped > 0.
+ * The store is set from `App.tsx`'s `SyncScheduler.onSyncSuccess` hook after
+ * a successful sync round if `ReconcileEmergencyFundTypeUseCase` returned
+ * `flipped > 0` (previously wired from the OLD `SyncOrchestrator.syncPending`,
+ * deleted in slice 5 task 6 — see that use case's own doc comment for the
+ * kept-not-deleted rationale).
  *
  * Spec §Duplicate-EMF banner copy.
  */

@@ -17,6 +17,7 @@ import {
 } from '../local/schema';
 import { toLocalRow } from './rowConverters';
 import { SeedBabyStepsUseCase } from '../../domain/babySteps/SeedBabyStepsUseCase';
+import type { SyncWriteDeps } from '../../domain/shared/syncWrite';
 
 export interface RestoredHousehold {
   id: string;
@@ -29,6 +30,11 @@ export class RestoreService {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly supabase: SupabaseClient,
+    // Forwarded to the internal baby_steps backfill seeder below — lets tests
+    // inject a fake SyncedRepo instead of needing a real db.transaction.
+    // Defaults to {} (the seeder builds its own real synced repo over `db`),
+    // so this is a no-op for every production call site.
+    private readonly seedDeps: SyncWriteDeps = {},
   ) {}
 
   async restore(userId: string): Promise<RestoredHousehold[]> {
@@ -115,7 +121,7 @@ export class RestoreService {
     await this.restoreUserConsent(userId);
 
     // Backfill any missing baby_steps rows (idempotent — INSERT OR IGNORE)
-    const seeder = new SeedBabyStepsUseCase(this.db);
+    const seeder = new SeedBabyStepsUseCase(this.db, this.seedDeps);
     await seeder.execute(householdId);
 
     return {

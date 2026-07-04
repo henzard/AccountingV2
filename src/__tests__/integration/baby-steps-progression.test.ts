@@ -559,6 +559,13 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
           where: jest.fn().mockResolvedValue(undefined),
         }),
       }),
+      // The step1 regression transition below writes via the oplog synced
+      // repo (createSyncedRepo), which drives db.transaction() — `run` must
+      // return a RunResult-shaped `{ changes }` so createSyncedRepo's
+      // extractChanges/assertRowMatched see one row matched.
+      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+        fn({ run: jest.fn(() => ({ changes: 1 })) }),
+      ),
     } as any;
 
     const uc = new ReconcileBabyStepsUseCase(mockDb);

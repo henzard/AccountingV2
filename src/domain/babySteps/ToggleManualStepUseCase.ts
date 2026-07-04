@@ -6,16 +6,21 @@
  * Spec §ToggleManualStepUseCase.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { babySteps } from '../../data/local/schema';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import { MANUAL_STEP_NUMBERS } from './BabyStepRules';
 
 export class ToggleManualStepUseCase {
-  constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
+  constructor(
+    private readonly db: ExpoSQLiteDatabase<typeof schema>,
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(
     householdId: string,
@@ -29,16 +34,29 @@ export class ToggleManualStepUseCase {
       });
     }
 
-    const now = new Date().toISOString();
-
-    await this.db
-      .update(babySteps)
-      .set({
-        isCompleted: completed,
-        completedAt: completed ? now : null,
-        updatedAt: now,
-      })
+    const [row] = await this.db
+      .select({ id: babySteps.id })
+      .from(babySteps)
       .where(and(eq(babySteps.householdId, householdId), eq(babySteps.stepNumber, stepNumber)));
+    if (!row) {
+      return createFailure({
+        code: 'STEP_NOT_FOUND',
+        message: `Baby step ${stepNumber} not found for household ${householdId}`,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const repo = resolveSyncedRepo(this.db, 'baby_steps', this.deps);
+    repo.update(
+      row.id,
+      householdId,
+      {
+        is_completed: completed ? 1 : 0,
+        completed_at: completed ? now : null,
+        updated_at: now,
+      },
+      resolveSyncedRepoCtx(this.deps),
+    );
 
     return createSuccess(undefined);
   }

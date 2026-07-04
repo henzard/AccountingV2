@@ -4,7 +4,25 @@ import type { DebtEntity, DebtType } from '../domain/debtSnowball/DebtEntity';
 import type { MeterReadingEntity, MeterType } from '../domain/meterReadings/MeterReadingEntity';
 import type { BabyStepStatus } from '../domain/babySteps/types';
 import type { HouseholdRow } from '../domain/ports/IHouseholdRepository';
-import type { PendingSyncRecord } from '../data/sync/PendingSyncTable';
+
+// Local copy of the old PendingSyncTable's row shape — kept here only so
+// buildPendingSyncRow (still used by restore-ordering.test.ts, documenting a
+// known restore/pending_sync interaction gap, plus its own factory-shape
+// test) keeps working after PendingSyncTable.ts was deleted with the old
+// sync machinery. The former "legacy queue/FIFO ordering" consumer
+// (queue-buildup.test.ts) was itself deleted in this task — it had been
+// reduced, after removing its SyncOrchestrator-dependent blocks, to testing
+// only this factory's own output shape, already covered by
+// __test-utils__/__tests__/factories.test.ts.
+export interface PendingSyncRecord {
+  id: string;
+  tableName: string;
+  recordId: string;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  retryCount: number;
+  lastAttemptedAt: string | null;
+  createdAt: string;
+}
 
 // ── Lightweight user type (Supabase auth is external) ────────────────────────
 

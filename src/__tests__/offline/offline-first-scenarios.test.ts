@@ -7,8 +7,6 @@ import { CreateEnvelopeUseCase } from '../../domain/envelopes/CreateEnvelopeUseC
 import { LogDebtPaymentUseCase } from '../../domain/debtSnowball/LogDebtPaymentUseCase';
 import { buildEnvelope, buildDebt, resetFactoryCounter } from '../../__test-utils__/factories';
 import { HOUSEHOLDS } from '../../__test-utils__/scenarioSeed';
-import type { ISyncEnqueuer, SyncOperation } from '../../domain/ports/ISyncEnqueuer';
-import type { IDebtRepository } from '../../domain/ports/IDebtRepository';
 import type { SyncedRepo } from '../../data/uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({
@@ -16,22 +14,6 @@ jest.mock('expo-crypto', () => ({
 }));
 
 // ─── Mock Helpers ────────────────────────────────────────────────────────────
-
-interface EnqueueCall {
-  tableName: string;
-  recordId: string;
-  operation: SyncOperation;
-}
-
-function createMockEnqueuer(): ISyncEnqueuer & { calls: EnqueueCall[] } {
-  const calls: EnqueueCall[] = [];
-  return {
-    calls,
-    enqueue: jest.fn(async (tableName, recordId, operation) => {
-      calls.push({ tableName, recordId, operation });
-    }),
-  };
-}
 
 function createMockAudit() {
   return { log: jest.fn().mockResolvedValue(undefined) };
@@ -51,23 +33,6 @@ function createMockSyncedRepo(): SyncedRepo & {
     update: jest.fn(),
     softDelete: jest.fn(),
     increment: jest.fn(),
-  };
-}
-
-function createMockDebtRepo(): IDebtRepository & { lastUpdate: any } {
-  const state = { lastUpdate: null as any };
-  return {
-    ...state,
-    findById: jest.fn().mockResolvedValue(null),
-    findByHousehold: jest.fn().mockResolvedValue([]),
-    insert: jest.fn().mockResolvedValue(undefined),
-    update: jest.fn(async (debt: any) => {
-      state.lastUpdate = debt;
-    }),
-    incrementTotalPaid: jest.fn().mockResolvedValue(undefined),
-    get lastUpdate() {
-      return state.lastUpdate;
-    },
   };
 }
 
@@ -104,6 +69,14 @@ function createMockDb(envelopeRows: unknown[] = []) {
       from: jest.fn().mockReturnValue(chainable),
     }),
     transaction: jest.fn(async (cb: any) => cb(db)),
+    // LogDebtPaymentUseCase drives runInUnitOfWork directly (raw SQL via
+    // `tx.run(...)`) for its combined balance/total_paid/is_paid_off write +
+    // its 2 oplog appends (is_paid_off is server-derived, slice 5 task 6) —
+    // `ran` records every such call.
+    ran: [] as unknown[],
+    run: jest.fn().mockImplementation(function (this: any, query: unknown) {
+      this.ran.push(query);
+    }),
   };
 
   return db;
@@ -303,21 +276,13 @@ describe('Offline-First Scenarios (airplane mode)', () => {
       });
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
-      const repo = createMockDebtRepo();
 
-      const uc = new LogDebtPaymentUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          debtId: debt.id,
-          paymentAmountCents: 15000,
-          currentDebt: debt,
-        },
-        enqueuer,
-        repo,
-      );
+      const uc = new LogDebtPaymentUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        debtId: debt.id,
+        paymentAmountCents: 15000,
+        currentDebt: debt,
+      });
 
       const result = await uc.execute();
 
@@ -337,21 +302,13 @@ describe('Offline-First Scenarios (airplane mode)', () => {
       });
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
-      const repo = createMockDebtRepo();
 
-      const uc = new LogDebtPaymentUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          debtId: debt.id,
-          paymentAmountCents: 10000,
-          currentDebt: debt,
-        },
-        enqueuer,
-        repo,
-      );
+      const uc = new LogDebtPaymentUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        debtId: debt.id,
+        paymentAmountCents: 10000,
+        currentDebt: debt,
+      });
 
       const result = await uc.execute();
 
@@ -363,59 +320,46 @@ describe('Offline-First Scenarios (airplane mode)', () => {
       }
     });
 
-    it('enqueues UPDATE to pending_sync for debts table', async () => {
+    it('appends its writes via the oplog (no pending_sync enqueue)', async () => {
       const debt = buildDebt({ householdId: KRUGER_ID });
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
-      const repo = createMockDebtRepo();
 
-      const uc = new LogDebtPaymentUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          debtId: debt.id,
-          paymentAmountCents: 5000,
-          currentDebt: debt,
-        },
-        enqueuer,
-        repo,
-      );
+      const uc = new LogDebtPaymentUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        debtId: debt.id,
+        paymentAmountCents: 5000,
+        currentDebt: debt,
+      });
 
       await uc.execute();
 
-      expect(enqueuer.enqueue).toHaveBeenCalledWith('debts', debt.id, 'UPDATE');
-      expect(enqueuer.calls[0].tableName).toBe('debts');
-      expect(enqueuer.calls[0].operation).toBe('UPDATE');
+      // One combined entity UPDATE + 2 appendOp INSERTs (balance/total_paid
+      // increment ops only — is_paid_off is server-derived as of slice 5
+      // task 6, see LogDebtPaymentUseCase's own doc comment), all via raw
+      // SQL through the single db.transaction() below — never through
+      // ISyncEnqueuer/pending_sync.
+      expect(db.ran).toHaveLength(3);
     });
 
-    it('calls repo.incrementTotalPaid for atomic SQL update', async () => {
+    it('runs the whole payment inside one db.transaction (atomic write + ops)', async () => {
       const debt = buildDebt({
         householdId: KRUGER_ID,
         outstandingBalanceCents: 100000,
       });
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
-      const repo = createMockDebtRepo();
 
-      const uc = new LogDebtPaymentUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          debtId: debt.id,
-          paymentAmountCents: 20000,
-          currentDebt: debt,
-        },
-        enqueuer,
-        repo,
-      );
+      const uc = new LogDebtPaymentUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        debtId: debt.id,
+        paymentAmountCents: 20000,
+        currentDebt: debt,
+      });
 
       await uc.execute();
 
-      expect(repo.incrementTotalPaid).toHaveBeenCalledWith(debt.id, KRUGER_ID, 20000);
+      expect(db.transaction).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -459,21 +403,13 @@ describe('Offline-First Scenarios (airplane mode)', () => {
       const debt = buildDebt({ householdId: KRUGER_ID });
       const db = createMockDb();
       const audit = createMockAudit();
-      const enqueuer = createMockEnqueuer();
-      const repo = createMockDebtRepo();
 
-      const uc = new LogDebtPaymentUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          debtId: debt.id,
-          paymentAmountCents: 5000,
-          currentDebt: debt,
-        },
-        enqueuer,
-        repo,
-      );
+      const uc = new LogDebtPaymentUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        debtId: debt.id,
+        paymentAmountCents: 5000,
+        currentDebt: debt,
+      });
 
       await uc.execute();
 

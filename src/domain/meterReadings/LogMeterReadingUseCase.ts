@@ -2,9 +2,9 @@ import { randomUUID } from 'expo-crypto';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
 import { DrizzleMeterReadingRepository } from '../../data/repositories/DrizzleMeterReadingRepository';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { IMeterReadingRepository } from '../ports/IMeterReadingRepository';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
@@ -21,17 +21,15 @@ export interface LogMeterReadingInput {
 }
 
 export class LogMeterReadingUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
   private readonly repo: IMeterReadingRepository;
 
   constructor(
-    db: ExpoSQLiteDatabase<typeof schema>,
+    private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: LogMeterReadingInput,
-    enqueuer?: ISyncEnqueuer,
+    private readonly deps: SyncWriteDeps = {},
     repo?: IMeterReadingRepository,
   ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
     this.repo = repo ?? new DrizzleMeterReadingRepository(db);
   }
 
@@ -71,7 +69,21 @@ export class LogMeterReadingUseCase {
       updatedAt: now,
     };
 
-    await this.repo.insert(reading);
+    const row: Record<string, unknown> = {
+      id: reading.id,
+      household_id: reading.householdId,
+      meter_type: reading.meterType,
+      reading_value: reading.readingValue,
+      reading_date: reading.readingDate,
+      cost_cents: reading.costCents,
+      vehicle_id: reading.vehicleId,
+      notes: reading.notes,
+      created_at: reading.createdAt,
+      updated_at: reading.updatedAt,
+    };
+
+    const syncedRepo = resolveSyncedRepo(this.db, 'meter_readings', this.deps);
+    syncedRepo.insert(row, resolveSyncedRepoCtx(this.deps));
 
     await this.audit.log({
       householdId: this.input.householdId,
@@ -86,8 +98,6 @@ export class LogMeterReadingUseCase {
         readingDate: this.input.readingDate,
       },
     });
-
-    await this.enqueuer.enqueue('meter_readings', id, 'INSERT');
 
     return createSuccess(reading);
   }
