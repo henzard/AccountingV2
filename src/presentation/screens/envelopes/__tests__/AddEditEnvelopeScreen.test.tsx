@@ -38,8 +38,9 @@ jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
 }));
+const mockCreateExecute = jest.fn();
 jest.mock('../../../../domain/envelopes/CreateEnvelopeUseCase', () => ({
-  CreateEnvelopeUseCase: jest.fn().mockImplementation(() => ({ execute: jest.fn() })),
+  CreateEnvelopeUseCase: jest.fn().mockImplementation(() => ({ execute: mockCreateExecute })),
 }));
 jest.mock('../../../../domain/envelopes/UpdateEnvelopeUseCase', () => ({
   UpdateEnvelopeUseCase: jest.fn().mockImplementation(() => ({ execute: jest.fn() })),
@@ -107,9 +108,18 @@ const mockGoBack = jest.fn();
 const mockSetOptions = jest.fn();
 import { AddEditEnvelopeScreen } from '../AddEditEnvelopeScreen';
 
+// Grabbed after the mock module has been loaded (see jest.mock above) — this
+// picks up the already-registered mock constructor rather than referencing an
+// external variable from inside the factory (which risks capturing it before
+// assignment when import hoisting triggers the factory early).
+const { CreateEnvelopeUseCase: MockCreateEnvelopeUseCase } = jest.requireMock(
+  '../../../../domain/envelopes/CreateEnvelopeUseCase',
+) as { CreateEnvelopeUseCase: jest.Mock };
+
 describe('AddEditEnvelopeScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCreateExecute.mockResolvedValue({ success: true });
   });
 
   it('renders without crashing (create mode)', () => {
@@ -146,5 +156,51 @@ describe('AddEditEnvelopeScreen', () => {
     await waitFor(() => {
       expect(getByTestId('snackbar')).toBeTruthy();
     });
+  });
+
+  it('rejects an ambiguous thousands-separated budget amount and does not call the use case', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: {} } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('envelope-name'), 'Groceries');
+    fireEvent.changeText(getByTestId('envelope-amount'), '1,234.56');
+    fireEvent.press(getByTestId('envelope-save'));
+
+    await waitFor(() => {
+      expect(queryByTestId('snackbar')).toBeTruthy();
+    });
+    expect(MockCreateEnvelopeUseCase).not.toHaveBeenCalled();
+    expect(mockCreateExecute).not.toHaveBeenCalled();
+  });
+
+  it('accepts a comma-decimal budget amount and saves with the correct cents', async () => {
+    const { getByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: {} } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('envelope-name'), 'Groceries');
+    fireEvent.changeText(getByTestId('envelope-amount'), '1,50');
+    fireEvent.press(getByTestId('envelope-save'));
+
+    await waitFor(() => {
+      expect(mockCreateExecute).toHaveBeenCalled();
+    });
+
+    expect(MockCreateEnvelopeUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ allocatedCents: 150 }),
+    );
   });
 });

@@ -17,15 +17,10 @@ import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddEditEnvelopeScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity, EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
 import { format } from 'date-fns';
+import { parseMoneyInput } from '../../utils/parseMoneyInput';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
-
-function toCents(randStr: string): number {
-  const n = parseFloat(randStr.replace(',', '.'));
-  if (isNaN(n)) return 0;
-  return Math.round(n * 100);
-}
 
 function toRandString(cents: number): string {
   if (cents === 0) return '';
@@ -99,14 +94,24 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const allocatedCents = toCents(amountStr);
+      const parsedAmount = parseMoneyInput(amountStr);
+      if (!parsedAmount.ok) {
+        setError(parsedAmount.error);
+        return;
+      }
+      const allocatedCents = parsedAmount.cents;
       const period = engine.getCurrentPeriod(paydayDay);
       const periodStart = format(period.startDate, 'yyyy-MM-dd');
 
-      const targetAmountCents =
-        envelopeType === 'sinking_fund' && targetAmountStr
-          ? Math.round(parseFloat(targetAmountStr.replace(',', '.')) * 100)
-          : null;
+      let targetAmountCents: number | null = null;
+      if (envelopeType === 'sinking_fund' && targetAmountStr) {
+        const parsedTarget = parseMoneyInput(targetAmountStr);
+        if (!parsedTarget.ok) {
+          setError(parsedTarget.error);
+          return;
+        }
+        targetAmountCents = parsedTarget.cents;
+      }
       const targetDate =
         envelopeType === 'sinking_fund' && targetDateStr.trim() ? targetDateStr.trim() : null;
 

@@ -76,6 +76,14 @@ const mockGoBack = jest.fn();
 const mockNavigation = { navigate: mockNavigate, goBack: mockGoBack } as never;
 import { AddDebtScreen } from '../AddDebtScreen';
 
+// Grabbed after the mock module has been loaded (see jest.mock above) — this
+// picks up the already-registered mock constructor rather than referencing an
+// external variable from inside the factory (which risks capturing it before
+// assignment when import hoisting triggers the factory early).
+const { CreateDebtUseCase: MockCreateDebtUseCase } = jest.requireMock(
+  '../../../../domain/debtSnowball/CreateDebtUseCase',
+) as { CreateDebtUseCase: jest.Mock };
+
 describe('AddDebtScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -181,6 +189,76 @@ describe('AddDebtScreen', () => {
     await waitFor(() => {
       expect(queryByTestId('helper-error')).toBeTruthy();
     });
+  });
+
+  it('rejects an ambiguous thousands-separated balance and does not call execute', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
+    );
+
+    fireEvent.changeText(getByTestId('Creditor / Account name'), 'Visa');
+    fireEvent.changeText(getByTestId('Outstanding balance (R)'), '1,234.56');
+    fireEvent.changeText(getByTestId('Interest rate (%)'), '20');
+    fireEvent.changeText(getByTestId('Minimum monthly payment (R)'), '500');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('helper-error')).toBeTruthy();
+    });
+    expect(MockCreateDebtUseCase).not.toHaveBeenCalled();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ambiguous thousands-separated minimum payment and does not call execute', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
+    );
+
+    fireEvent.changeText(getByTestId('Creditor / Account name'), 'Visa');
+    fireEvent.changeText(getByTestId('Outstanding balance (R)'), '5000');
+    fireEvent.changeText(getByTestId('Interest rate (%)'), '20');
+    fireEvent.changeText(getByTestId('Minimum monthly payment (R)'), '1 000');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('helper-error')).toBeTruthy();
+    });
+    expect(MockCreateDebtUseCase).not.toHaveBeenCalled();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('accepts comma-decimal balance and minimum payment and saves with correct cents', async () => {
+    const { getByTestId } = render(
+      <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
+    );
+
+    fireEvent.changeText(getByTestId('Creditor / Account name'), 'Visa');
+    fireEvent.changeText(getByTestId('Outstanding balance (R)'), '5000,50');
+    fireEvent.changeText(getByTestId('Interest rate (%)'), '20');
+    fireEvent.changeText(getByTestId('Minimum monthly payment (R)'), '1,50');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalled();
+    });
+
+    expect(MockCreateDebtUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        outstandingBalanceCents: 500050,
+        minimumPaymentCents: 150,
+      }),
+    );
   });
 
   // ── Successful save ──────────────────────────────────────────────────────

@@ -327,4 +327,54 @@ describe('AddReadingScreen', () => {
     );
     expect(getByTestId('Cost this period (R) — optional')).toBeTruthy();
   });
+
+  it('rejects an ambiguous thousands-separated cost and does not call execute', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('Current reading (kWh)'), '1234');
+    fireEvent.changeText(getByTestId('Cost this period (R) — optional'), '1,234.56');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('helper-error')).toBeTruthy();
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('accepts a comma-decimal cost and saves with the correct cents', async () => {
+    const { getByTestId } = render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('Current reading (kWh)'), '1234');
+    fireEvent.changeText(getByTestId('Cost this period (R) — optional'), '1,50');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalled();
+    });
+
+    const { LogMeterReadingUseCase } = jest.requireMock(
+      '../../../../domain/meterReadings/LogMeterReadingUseCase',
+    ) as { LogMeterReadingUseCase: jest.Mock };
+    expect(LogMeterReadingUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ costCents: 150 }),
+    );
+  });
 });

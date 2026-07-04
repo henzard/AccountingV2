@@ -10,6 +10,7 @@ import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtType } from '../../../domain/debtSnowball/DebtEntity';
 import type { AddDebtScreenProps } from '../../navigation/types';
+import { parseMoneyInput } from '../../utils/parseMoneyInput';
 
 const audit = new AuditLogger(db);
 
@@ -38,19 +39,30 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
       setError('Creditor name is required');
       return;
     }
-    const balanceCents = Math.round(parseFloat(balanceRands) * 100);
-    const rate = parseFloat(ratePercent);
-    const minPayCents = Math.round(parseFloat(minPaymentRands) * 100);
-
-    if (isNaN(balanceCents) || balanceCents <= 0) {
+    const parsedBalance = parseMoneyInput(balanceRands);
+    if (!parsedBalance.ok) {
+      setError(parsedBalance.error);
+      return;
+    }
+    const balanceCents = parsedBalance.cents;
+    if (balanceCents <= 0) {
       setError('Enter a valid outstanding balance');
       return;
     }
+
+    const rate = parseFloat(ratePercent);
     if (isNaN(rate) || rate < 0) {
       setError('Enter a valid interest rate (0 for interest-free)');
       return;
     }
-    if (isNaN(minPayCents) || minPayCents <= 0) {
+
+    const parsedMinPay = parseMoneyInput(minPaymentRands);
+    if (!parsedMinPay.ok) {
+      setError(parsedMinPay.error);
+      return;
+    }
+    const minPayCents = parsedMinPay.cents;
+    if (minPayCents <= 0) {
       setError('Enter a valid minimum monthly payment');
       return;
     }
