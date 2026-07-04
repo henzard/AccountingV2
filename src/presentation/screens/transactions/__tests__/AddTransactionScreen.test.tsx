@@ -142,9 +142,8 @@ jest.mock('../../../../domain/shared/BudgetPeriodEngine', () => ({
 
 // ─── CreateTransactionUseCase mock ────────────────────────────────────────────
 const mockExecute = jest.fn().mockResolvedValue({ success: true });
-const MockCreateTransactionUseCase = jest.fn().mockImplementation(() => ({ execute: mockExecute }));
 jest.mock('../../../../domain/transactions/CreateTransactionUseCase', () => ({
-  CreateTransactionUseCase: MockCreateTransactionUseCase,
+  CreateTransactionUseCase: jest.fn().mockImplementation(() => ({ execute: mockExecute })),
 }));
 
 // ─── drizzle-orm mock ─────────────────────────────────────────────────────────
@@ -179,6 +178,14 @@ const { db: mockDb } = require('../../../../data/local/db');
 const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<
   typeof getEnvelopeSpentCents
 >;
+
+// Grabbed after the mock module has been loaded (see jest.mock above) — this
+// picks up the already-registered mock constructor rather than referencing an
+// external variable from inside the factory (which risks capturing it before
+// assignment when import hoisting triggers the factory early).
+const { CreateTransactionUseCase: MockCreateTransactionUseCase } = jest.requireMock(
+  '../../../../domain/transactions/CreateTransactionUseCase',
+) as { CreateTransactionUseCase: jest.Mock };
 
 function setupDbChain(
   rows: Array<{ id: string; spentCents?: number; [k: string]: unknown }>,
@@ -312,5 +319,56 @@ describe('AddTransactionScreen', () => {
       expect(MockCreateTransactionUseCase).not.toHaveBeenCalled();
       expect(mockExecute).not.toHaveBeenCalled();
     });
+  });
+
+  it('rejects an ambiguous thousands-separated amount and does not call the use case', async () => {
+    setupDbChain([
+      {
+        id: 'env-1',
+        name: 'Groceries',
+        allocatedCents: 1_000_000,
+        spentCents: 0,
+        envelopeType: 'spending',
+      },
+    ]);
+
+    const { getByText, getByTestId, queryByTestId } = render(
+      <AddTransactionScreen {...makeNavProps()} />,
+    );
+
+    await waitFor(() => {
+      fireEvent.changeText(getByTestId('amount-input'), '1,234.56');
+      fireEvent.press(getByText('Record Transaction'));
+      expect(queryByTestId('snackbar-error')).toBeTruthy();
+    });
+
+    expect(MockCreateTransactionUseCase).not.toHaveBeenCalled();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('accepts a comma-decimal amount and saves with the correct cents', async () => {
+    setupDbChain([
+      {
+        id: 'env-1',
+        name: 'Groceries',
+        allocatedCents: 1_000_000,
+        spentCents: 0,
+        envelopeType: 'spending',
+      },
+    ]);
+
+    const { getByText, getByTestId } = render(<AddTransactionScreen {...makeNavProps()} />);
+
+    await waitFor(() => {
+      fireEvent.changeText(getByTestId('amount-input'), '1,50');
+      fireEvent.press(getByText('Record Transaction'));
+      expect(mockExecute).toHaveBeenCalled();
+    });
+
+    expect(MockCreateTransactionUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ amountCents: 150 }),
+    );
   });
 });

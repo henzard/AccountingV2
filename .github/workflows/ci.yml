@@ -35,12 +35,12 @@ jobs:
         run: npx jest --selectProjects realsql
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v1
+        uses: denoland/setup-deno@v2
         with:
-          deno-version: 'v1.x'
+          deno-version: 'v2.x'
 
       - name: Run Deno tests
-        run: deno test --allow-net --allow-env --allow-read supabase/functions/
+        run: deno test --node-modules-dir=none --allow-net --allow-env --allow-read supabase/functions/
 
   db:
     runs-on: ubuntu-latest
@@ -109,6 +109,27 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      - uses: supabase/setup-cli@v2
+        with:
+          version: latest
+
+      - name: Boot local Supabase stack (backs the tier-4 authenticated journey)
+        run: supabase start
+
+      - name: Replay full migration chain
+        run: supabase db reset
+
+      - name: Capture local Supabase connection details
+        id: supa
+        run: |
+          supabase status -o env > /tmp/supabase-status.env
+          # PUBLISHABLE_KEY is the local anon-equivalent key (sb_publishable_* format,
+          # matching the client the app actually ships with). 10.0.2.2 is the Android
+          # emulator's alias for the host loopback interface — the emulator cannot
+          # reach 127.0.0.1 on the runner directly.
+          KEY=$(grep '^PUBLISHABLE_KEY=' /tmp/supabase-status.env | cut -d= -f2- | tr -d '"')
+          echo "anon_key=$KEY" >> "$GITHUB_OUTPUT"
+
       - name: Install Detox CLI
         run: npm install -g detox-cli
 
@@ -122,8 +143,14 @@ jobs:
         env:
           # EXPO_PUBLIC_* are bundled into the JS bundle at build time.
           # Without these, supabaseClient.ts throws at module eval → app crashes on launch.
-          EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
+          #
+          # DECISION: the debug/Detox build points at the local Supabase stack
+          # (not the deployed remote project) so the tier-4 authenticated journey
+          # (e2e/journeys/authenticatedJourney.e2e.ts) can sign up a throwaway user,
+          # exercise onboarding/envelopes/transactions, and be torn down with the
+          # runner — it never touches production data.
+          EXPO_PUBLIC_SUPABASE_URL: http://10.0.2.2:54321
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supa.outputs.anon_key }}
 
       - name: Run Detox tests on emulator
         uses: reactivecircus/android-emulator-runner@v2

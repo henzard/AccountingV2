@@ -71,6 +71,7 @@ export function OnboardingStepLayout({
         disabled={Boolean(ctaDisabled || ctaLoading)}
         style={styles.button}
         contentStyle={styles.buttonContent}
+        testID="onboarding-cta"
       >
         {ctaLabel}
       </Button>

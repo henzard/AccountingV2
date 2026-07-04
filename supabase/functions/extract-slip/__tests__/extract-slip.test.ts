@@ -15,12 +15,14 @@ function makeRequest(body: unknown, authHeader?: string): Request {
 
 function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
   const adminFrom = (table: string) => {
-    if (table === 'user_households') {
+    if (table === 'household_members') {
       return {
         select: () => ({
           eq: () => ({
             eq: () => ({
-              maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+              is: () => ({
+                maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+              }),
             }),
           }),
         }),
@@ -148,12 +150,104 @@ Deno.test('returns 403 when not household member', async () => {
     createAdminClient: () =>
       ({
         from: (table: string) => {
-          if (table === 'user_households') {
+          if (table === 'household_members') {
             return {
               select: () => ({
                 eq: () => ({
                   eq: () => ({
-                    maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                    is: () => ({
+                      maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return { select: () => ({}), update: () => ({ eq: () => Promise.resolve({}) }) };
+        },
+      }) as any,
+  });
+  const req = makeRequest(
+    { slip_id: 's1', household_id: 'h1', images_base64: ['aaa'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 403);
+});
+
+Deno.test(
+  'membership check queries household_members with household_id, user_id, and deleted_at IS NULL',
+  async () => {
+    const calls: { eq: Array<[string, unknown]>; is: Array<[string, unknown]> } = {
+      eq: [],
+      is: [],
+    };
+    const baseDeps = makeBaseDeps();
+    const deps: HandleDeps = {
+      ...baseDeps,
+      createAdminClient: () => {
+        const base = baseDeps.createAdminClient();
+        return {
+          ...base,
+          from: (table: string) => {
+            if (table === 'household_members') {
+              return {
+                select: () => ({
+                  eq: (col: string, val: unknown) => {
+                    calls.eq.push([col, val]);
+                    return {
+                      eq: (col2: string, val2: unknown) => {
+                        calls.eq.push([col2, val2]);
+                        return {
+                          is: (col3: string, val3: unknown) => {
+                            calls.is.push([col3, val3]);
+                            return {
+                              maybeSingle: () =>
+                                Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                }),
+              };
+            }
+            return base.from(table);
+          },
+        };
+      },
+    };
+    const req = makeRequest(
+      { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+      'Bearer tok',
+    );
+    const resp = await handle(req, deps);
+    assertEquals(resp.status, 200);
+    assertEquals(calls.eq, [
+      ['household_id', 'h1'],
+      ['user_id', 'u1'],
+    ]);
+    assertEquals(calls.is, [['deleted_at', null]]);
+  },
+);
+
+Deno.test('returns 403 when membership row is soft-deleted (removed member)', async () => {
+  // Mirrors what a real deleted_at IS NULL filter would produce for a
+  // soft-removed member: the row exists in the table but the predicate
+  // excludes it, so maybeSingle() resolves to null — same as no row.
+  const deps = makeBaseDeps({
+    createAdminClient: () =>
+      ({
+        from: (table: string) => {
+          if (table === 'household_members') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    is: () => ({
+                      maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                    }),
                   }),
                 }),
               }),
@@ -176,12 +270,14 @@ Deno.test('returns 412 when consent missing', async () => {
     createAdminClient: () =>
       ({
         from: (table: string) => {
-          if (table === 'user_households') {
+          if (table === 'household_members') {
             return {
               select: () => ({
                 eq: () => ({
                   eq: () => ({
-                    maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                    is: () => ({
+                      maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                    }),
                   }),
                 }),
               }),
@@ -214,12 +310,14 @@ Deno.test('returns 200 on idempotent cache hit', async () => {
     createAdminClient: () =>
       ({
         from: (table: string) => {
-          if (table === 'user_households') {
+          if (table === 'household_members') {
             return {
               select: () => ({
                 eq: () => ({
                   eq: () => ({
-                    maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                    is: () => ({
+                      maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                    }),
                   }),
                 }),
               }),
@@ -451,13 +549,16 @@ Deno.test(
       createAdminClient: () =>
         ({
           from: (table: string) => {
-            if (table === 'user_households') {
+            if (table === 'household_members') {
               // membership check passes for h2
               return {
                 select: () => ({
                   eq: () => ({
                     eq: () => ({
-                      maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                      is: () => ({
+                        maybeSingle: () =>
+                          Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                      }),
                     }),
                   }),
                 }),
@@ -516,12 +617,14 @@ Deno.test('returns 403 when slip created_by differs from caller', async () => {
     createAdminClient: () =>
       ({
         from: (table: string) => {
-          if (table === 'user_households') {
+          if (table === 'household_members') {
             return {
               select: () => ({
                 eq: () => ({
                   eq: () => ({
-                    maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                    is: () => ({
+                      maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                    }),
                   }),
                 }),
               }),

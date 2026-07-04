@@ -28,6 +28,7 @@ export type SlipScanningStackNavigatorProps = {
   householdId: string;
   createdBy: string;
   recordConsent: (userId: string) => Promise<{ success: boolean }>;
+  hasConsented: boolean;
   repo: Parameters<typeof SlipQueueScreen>[0]['repo'];
   startScan: Parameters<typeof SlipProcessingScreen>[0]['startScan'];
   cancelSlip: Parameters<typeof SlipProcessingScreen>[0]['cancelSlip'];
@@ -40,6 +41,7 @@ export function SlipScanningStackNavigator({
   householdId,
   createdBy,
   recordConsent,
+  hasConsented,
   repo,
   startScan,
   cancelSlip,
@@ -50,7 +52,9 @@ export function SlipScanningStackNavigator({
   return (
     <Stack.Navigator screenOptions={{ headerShown: true, headerShadowVisible: false }}>
       <Stack.Screen name="SlipQueue" options={{ title: 'Slip history' }}>
-        {() => <SlipQueueScreen repo={repo} householdId={householdId} />}
+        {() => (
+          <SlipQueueScreen repo={repo} householdId={householdId} hasConsented={hasConsented} />
+        )}
       </Stack.Screen>
       <Stack.Screen name="SlipConsent" options={{ title: 'Slip scanning consent' }}>
         {() => <SlipConsentScreen recordConsent={recordConsent} />}

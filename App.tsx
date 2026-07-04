@@ -54,6 +54,8 @@ import {
   hydrateThemeFromRemote,
   resetThemeStore,
 } from './src/presentation/stores/themeStore';
+import { parseRecoveryDeepLink } from './src/infrastructure/auth/parseRecoveryDeepLink';
+import { addUrlListener, getInitialURL } from './src/infrastructure/device/appLinking';
 
 // Install global crash handler as early as possible (after imports — module
 // evaluation order still puts this before any App code runs).
@@ -296,6 +298,14 @@ function resetAllStoresOnSignOut(): void {
   resetInitSessionGuard();
 }
 
+/**
+ * User-facing copy shown on ResetPasswordScreen's error view whenever a
+ * recovery link can't be used — whether Supabase redirected back with an
+ * error param (expired/invalid/already-used) or `setSession` later rejected
+ * the tokens. One string so both failure paths read identically.
+ */
+const RECOVERY_LINK_ERROR_MESSAGE = 'This reset link is invalid or expired — request a new one.';
+
 export default function App(): React.JSX.Element | null {
   const appTheme = useAppTheme();
   const { fontsLoaded, fontError } = useFonts();
@@ -429,6 +439,41 @@ export default function App(): React.JSX.Element | null {
         return;
       }
 
+      // Defensive branch only — added per the deep-review fix without
+      // touching the SIGNED_IN-only filtering above/below. NOTE: on React
+      // Native, @supabase/auth-js's automatic `PASSWORD_RECOVERY` event is
+      // gated on `isBrowser()` (see GoTrueClient#_initialize) and never
+      // fires here in practice — the deep-link handler below (which parses
+      // `type=recovery` itself and flips `passwordRecoveryPending` directly)
+      // is the mechanism that actually works on this platform. This branch
+      // exists so a future SDK/platform change that DOES emit the event
+      // still routes correctly, without ever falling through to
+      // `initSessionOnce` for it.
+      if (event === 'PASSWORD_RECOVERY') {
+        useAppStore.getState().setPasswordRecoveryPending(true);
+        return;
+      }
+
+      // CRITICAL gate (deep-review finding): the recovery deep-link handler
+      // below calls `setSession()`, which — per @supabase/auth-js's
+      // `GoTrueClient#_setSession` — ALWAYS fires this listener with a plain
+      // `SIGNED_IN` on React Native (see the doc comments above and on
+      // `passwordRecoveryPending` in appStore.ts; the `PASSWORD_RECOVERY`
+      // branch above is a no-op on this platform). Without this guard, that
+      // SIGNED_IN would fall straight through to `initSessionOnce` below and
+      // run the FULL bootstrap (EnsureHousehold, RestoreService.restore,
+      // SeedBabySteps, registerFcmToken, SyncScheduler) while the user is
+      // still meant to be on ResetPasswordScreen, before they've set a new
+      // password — a regression of slice 5's "SIGNED_IN-only, no spurious
+      // bootstrap" guarantee. `passwordRecoveryPending` is set synchronously
+      // by the deep-link handler BEFORE it calls `setSession`, so it is
+      // already true by the time this callback runs for that session.
+      // Ordinary logins (`passwordRecoveryPending` false) are completely
+      // unaffected — this only short-circuits the recovery-driven SIGNED_IN.
+      if (useAppStore.getState().passwordRecoveryPending) {
+        return;
+      }
+
       if (session.user?.id) {
         void hydrateThemeFromRemote(session.user.id);
       }
@@ -458,6 +503,67 @@ export default function App(): React.JSX.Element | null {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setSession, bindCelebrationStore]);
+
+  // ─── Password-recovery deep link ─────────────────────────────────────────────
+  //
+  // Consumes the link Supabase emails from `resetPasswordForEmail(email, {
+  // redirectTo })` (see ForgotPasswordScreen) once the OS hands it back to
+  // this app (`accountingv2://reset-password#access_token=...`).
+  // `parseRecoveryDeepLink` only returns tokens for a genuine `type=recovery`
+  // link — see its own doc comment for why we detect that ourselves instead
+  // of relying on the `PASSWORD_RECOVERY` auth event (which this SDK never
+  // emits outside a browser). Runs independently of the auth-listener effect
+  // above so it never interferes with the SIGNED_IN filtering there.
+  useEffect(() => {
+    const handleUrl = (url: string): void => {
+      const result = parseRecoveryDeepLink(url);
+      if (!result) return;
+
+      // A recovery redirect that came back carrying ONLY an error (an
+      // expired/invalid/already-used link — no tokens) must NOT be silently
+      // dropped: route straight to ResetPasswordScreen's error view so the
+      // user sees why and gets a "Back to sign in" way out. It's not
+      // "pending" a reset (there's no session to reset against), so leave
+      // that off and surface `passwordRecoveryError` (see RootNavigator).
+      if (result.status === 'error') {
+        useAppStore.getState().setPasswordRecoveryPending(false);
+        useAppStore.getState().setPasswordRecoveryError(RECOVERY_LINK_ERROR_MESSAGE);
+        return;
+      }
+
+      const { tokens } = result;
+      // Set BEFORE the async setSession call resolves so RootNavigator
+      // gates on the reset screen the instant the link is handled, rather
+      // than racing a SIGNED_IN-driven re-render.
+      useAppStore.getState().setPasswordRecoveryError(null);
+      useAppStore.getState().setPasswordRecoveryPending(true);
+      void supabase.auth
+        .setSession({ access_token: tokens.accessToken, refresh_token: tokens.refreshToken })
+        .catch((err) => {
+          captureBoot('setSession (recovery deep link)', err);
+          // A bad/expired/reused recovery link (common: email scanners
+          // pre-fetch the link, links expire, the user double-taps) leaves
+          // no session to reset a password on — it's no longer "pending" a
+          // reset, so flip that off, but keep ResetPasswordScreen showing
+          // via `passwordRecoveryError` (see RootNavigator) so the user
+          // sees why and gets a "Back to sign in" way out instead of being
+          // stranded with no feedback.
+          useAppStore.getState().setPasswordRecoveryPending(false);
+          useAppStore.getState().setPasswordRecoveryError(RECOVERY_LINK_ERROR_MESSAGE);
+        });
+    };
+
+    const subscription = addUrlListener(({ url }) => handleUrl(url));
+    void getInitialURL()
+      .then((url) => {
+        if (url) handleUrl(url);
+      })
+      .catch(() => {});
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   // ─── SyncScheduler lifecycle (Task 5 cutover) ───────────────────────────────
   //

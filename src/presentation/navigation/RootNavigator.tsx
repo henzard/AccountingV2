@@ -10,6 +10,7 @@ import { HouseholdPickerScreen } from '../screens/household/HouseholdPickerScree
 import { CreateHouseholdScreen } from '../screens/household/CreateHouseholdScreen';
 import { ShareInviteScreen } from '../screens/household/ShareInviteScreen';
 import { JoinHouseholdScreen } from '../screens/household/JoinHouseholdScreen';
+import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
 import { LoadingSplash } from '../components/shared/LoadingSplash';
 import { useAppStore } from '../stores/appStore';
 import { useNotificationStore } from '../stores/notificationStore';
@@ -36,6 +37,8 @@ Notifications.setNotificationHandler({
 export function RootNavigator(): React.JSX.Element {
   const session = useAppStore((s) => s.session);
   const householdId = useAppStore((s) => s.householdId);
+  const passwordRecoveryPending = useAppStore((s) => s.passwordRecoveryPending);
+  const passwordRecoveryError = useAppStore((s) => s.passwordRecoveryError);
   const paydayDay = useAppStore((s) => s.paydayDay);
   const { setPreferences, setPermissionsGranted } = useNotificationStore();
 
@@ -104,6 +107,19 @@ export function RootNavigator(): React.JSX.Element {
 
   // Determine which navigator to show
   const renderNavigator = (): React.JSX.Element => {
+    // Takes priority over everything else, including a signed-in session —
+    // the temporary recovery session App.tsx's deep-link handler establishes
+    // via `setSession` DOES make `isAuthenticated` true, but the user must
+    // set a new password before landing in the normal app. Also shown when
+    // `passwordRecoveryError` is set (the deep link's `setSession` call
+    // rejected — bad/expired/reused link): `passwordRecoveryPending` has
+    // already been flipped back to false by then (there's no session to
+    // reset a password on), but we keep ResetPasswordScreen up so it can
+    // surface the error + a "Back to sign in" way out instead of silently
+    // bouncing the user to the login screen.
+    if (passwordRecoveryPending || passwordRecoveryError) {
+      return <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />;
+    }
     if (!isAuthenticated) {
       return <Stack.Screen name="Auth" component={AuthNavigator} />;
     }

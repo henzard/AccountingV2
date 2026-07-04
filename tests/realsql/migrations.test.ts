@@ -126,6 +126,99 @@ describe('local migration chain (real SQLite)', () => {
     db.close();
   });
 
+  it('0013 dedupes pre-existing duplicate active EMFs before building the unique index (no abort)', () => {
+    const db = openMigratedDb('0012_derive_balances');
+    const env = (
+      id: string,
+      hh: string,
+      type: string,
+      archived = 0,
+      deletedAt: string | null = null,
+    ): void => {
+      db.prepare(
+        `INSERT INTO envelopes
+           (id, household_id, name, allocated_cents, envelope_type,
+            is_savings_locked, is_archived, period_start, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, 0, ?, 0, ?, '2026-01-01', ?, ?, ?)`,
+      ).run(
+        id,
+        hh,
+        id,
+        type,
+        archived,
+        `2026-01-0${id.slice(-1)}T00:00:00.000Z`,
+        '2026-01-01T00:00:00.000Z',
+        deletedAt,
+      );
+    };
+    // hh-1: THREE active EMFs (the duplicate case that would abort the index),
+    // plus one archived and one soft-deleted EMF (must be ignored by the dedupe).
+    env('emf1', 'hh-1', 'emergency_fund');
+    env('emf2', 'hh-1', 'emergency_fund');
+    env('emf3', 'hh-1', 'emergency_fund');
+    env('emf4', 'hh-1', 'emergency_fund', 1); // archived
+    env('emf5', 'hh-1', 'emergency_fund', 0, '2026-02-01T00:00:00.000Z'); // soft-deleted
+    // hh-2: its own single active EMF — must NOT be touched (cross-household).
+    env('emf6', 'hh-2', 'emergency_fund');
+    // a non-EMF envelope — must be untouched.
+    env('spend1', 'hh-1', 'spending');
+
+    // The migration must NOT abort even though hh-1 has 3 active EMFs.
+    expect(() => applyMigrationsAfter(db, '0012_derive_balances')).not.toThrow();
+
+    const activeEmf = (hh: string): number =>
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM envelopes
+             WHERE household_id = ? AND envelope_type = 'emergency_fund'
+               AND deleted_at IS NULL AND is_archived = 0`,
+          )
+          .get(hh) as { n: number }
+      ).n;
+    // hh-1 keeps exactly one active EMF (the earliest, emf1); hh-2 untouched.
+    expect(activeEmf('hh-1')).toBe(1);
+    expect(activeEmf('hh-2')).toBe(1);
+    const survivor = db
+      .prepare(
+        `SELECT id FROM envelopes WHERE household_id = 'hh-1' AND envelope_type = 'emergency_fund'
+         AND deleted_at IS NULL AND is_archived = 0`,
+      )
+      .get() as { id: string };
+    expect(survivor.id).toBe('emf1');
+    // The losing duplicates are FLIPPED to savings (row + balance/transactions
+    // preserved), NOT soft-deleted — so no money is hidden from balance queries.
+    const flipped = db
+      .prepare(
+        `SELECT id, envelope_type, deleted_at FROM envelopes WHERE id IN ('emf2', 'emf3') ORDER BY id`,
+      )
+      .all() as { id: string; envelope_type: string; deleted_at: string | null }[];
+    expect(flipped).toEqual([
+      { id: 'emf2', envelope_type: 'savings', deleted_at: null },
+      { id: 'emf3', envelope_type: 'savings', deleted_at: null },
+    ]);
+    // The unique index now exists and forbids a second active EMF.
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name='envelopes_one_active_emf_per_household'",
+        )
+        .get(),
+    ).toBeDefined();
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO envelopes (id, household_id, name, allocated_cents, envelope_type,
+             is_savings_locked, is_archived, period_start, created_at, updated_at)
+           VALUES ('emf-dup', 'hh-1', 'x', 0, 'emergency_fund', 0, 0, '2026-01-01',
+                   '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z')`,
+        )
+        .run(),
+    ).toThrow();
+
+    db.close();
+  });
+
   it('0014 drops pending_sync (dead outbox — SyncOrchestrator/PendingSyncEnqueuer deleted, slice 5 task 6)', () => {
     const db = openMigratedDb('0013_emf_unique');
 

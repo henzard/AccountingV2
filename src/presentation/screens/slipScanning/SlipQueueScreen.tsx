@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { Text, Chip } from 'react-native-paper';
+import { Text, Chip, FAB } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { useSlipHistory } from '../../hooks/useSlipHistory';
 import { spacing, radius } from '../../theme/tokens';
@@ -16,6 +16,13 @@ const PAGE_SIZE = 20;
 export type SlipQueueScreenProps = {
   repo: ISlipQueueRepository;
   householdId: string;
+  /**
+   * Whether the current user has already granted slip-scan AI-processing
+   * consent (DrizzleUserConsentRepository / RecordSlipConsentUseCase).
+   * Defaults to false (the safe default — an unresolved/unknown consent
+   * state routes through the consent screen rather than skipping it).
+   */
+  hasConsented?: boolean;
 };
 
 function statusLabel(status: SlipStatus): string {
@@ -94,7 +101,11 @@ function SlipQueueItem({
   );
 }
 
-export function SlipQueueScreen({ repo, householdId }: SlipQueueScreenProps): React.JSX.Element {
+export function SlipQueueScreen({
+  repo,
+  householdId,
+  hasConsented = false,
+}: SlipQueueScreenProps): React.JSX.Element {
   const { colors } = useAppTheme();
   const navigation = useNavigation<{
     navigate: (screen: string, params?: object) => void;
@@ -160,6 +171,14 @@ export function SlipQueueScreen({ repo, householdId }: SlipQueueScreenProps): Re
     [navigation, householdId],
   );
 
+  // Slip scanning's START — unreachable before this fix (the empty state
+  // referenced a "camera button" that didn't exist). Consent gates AI slip
+  // processing (see SlipConsentScreen), so route through it first unless the
+  // user has already granted it.
+  const handleScanPress = useCallback((): void => {
+    navigation.navigate(hasConsented ? 'SlipCapture' : 'SlipConsent');
+  }, [navigation, hasConsented]);
+
   return (
     <View
       style={[styles.container, { backgroundColor: colors.surface }]}
@@ -186,6 +205,15 @@ export function SlipQueueScreen({ repo, householdId }: SlipQueueScreenProps): Re
         contentContainerStyle={styles.listContent}
         testID="slip-queue-list"
       />
+      <FAB
+        icon="camera"
+        style={[styles.fab, { backgroundColor: colors.primary }]}
+        color={colors.onPrimary}
+        onPress={handleScanPress}
+        testID="slip-queue-camera-fab"
+        accessibilityLabel="Scan a slip"
+        accessibilityRole="button"
+      />
     </View>
   );
 }
@@ -202,4 +230,9 @@ const styles = StyleSheet.create({
   merchant: { flex: 1, marginRight: spacing.sm },
   chip: { borderRadius: radius.full },
   empty: { padding: spacing.xl, alignItems: 'center' },
+  fab: {
+    position: 'absolute',
+    right: spacing.base,
+    bottom: spacing.xl,
+  },
 });

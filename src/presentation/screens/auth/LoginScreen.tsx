@@ -122,6 +122,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
 
           <Button
             mode="text"
+            onPress={() => navigation.navigate('ForgotPassword')}
+            style={styles.linkButton}
+            testID="login-forgot-password-link"
+            accessibilityLabel="Forgot password?"
+            accessibilityRole="button"
+          >
+            Forgot password?
+          </Button>
+
+          <Button
+            mode="text"
             onPress={() => navigation.navigate('SignUp')}
             style={styles.linkButton}
             testID="login-signup-link"

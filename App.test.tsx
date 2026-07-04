@@ -91,20 +91,64 @@ jest.mock('./src/presentation/boot/BootErrorBoundary', () => ({
   BootErrorBoundary: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-jest.mock('./src/data/remote/supabaseClient', () => ({
-  supabase: {
-    auth: {
-      getSession: jest.fn(() => Promise.resolve({ data: { session: null } })),
-      getUser: jest.fn(() => Promise.resolve({ data: { user: null }, error: null })),
-      onAuthStateChange: jest.fn((cb: unknown) => ({
-        data: { subscription: { unsubscribe: jest.fn() } },
-        __callback: cb,
-      })),
+// `setSession`'s default implementation below simulates the REAL
+// @supabase/auth-js behavior (`GoTrueClient#_setSession` ->
+// `_notifyAllSubscribers('SIGNED_IN', session)`) rather than a mock that's
+// disconnected from `onAuthStateChange` -- setSession() ALWAYS fires the
+// currently-registered listener with a plain `SIGNED_IN`, never
+// `PASSWORD_RECOVERY` (see parseRecoveryDeepLink.ts's doc comment). A mock
+// that didn't do this would hide the exact regression Task 4's fix pass
+// addresses: the recovery deep-link handler's `setSession` call spuriously
+// triggering the normal SIGNED_IN bootstrap. `latestAuthCallback` is kept
+// as a closure-private variable inside this factory (not exported) since
+// it's purely an implementation detail of this simulation.
+jest.mock('./src/data/remote/supabaseClient', () => {
+  let latestAuthCallback: ((event: string, session: unknown) => void | Promise<void>) | null = null;
+  return {
+    supabase: {
+      auth: {
+        getSession: jest.fn(() => Promise.resolve({ data: { session: null } })),
+        getUser: jest.fn(() => Promise.resolve({ data: { user: null }, error: null })),
+        onAuthStateChange: jest.fn(
+          (cb: (event: string, session: unknown) => void | Promise<void>) => {
+            latestAuthCallback = cb;
+            return {
+              data: { subscription: { unsubscribe: jest.fn() } },
+              __callback: cb,
+            };
+          },
+        ),
+        setSession: jest.fn(() => {
+          const session = { user: { id: 'recovery-user' } };
+          void latestAuthCallback?.('SIGNED_IN', session);
+          return Promise.resolve({ data: { session, user: session.user }, error: null });
+        }),
+      },
+      rpc: jest.fn(),
+      channel: jest.fn(() => ({ on: jest.fn().mockReturnThis(), subscribe: jest.fn() })),
+      removeChannel: jest.fn(),
     },
-    rpc: jest.fn(),
-    channel: jest.fn(() => ({ on: jest.fn().mockReturnThis(), subscribe: jest.fn() })),
-    removeChannel: jest.fn(),
-  },
+  };
+});
+
+// ─── appLinking (password-recovery deep link) ────────────────────────────────
+// Mocks OUR OWN thin wrapper (src/infrastructure/device/appLinking.ts) rather
+// than react-native's `Linking` directly — react-native's index defines most
+// exports (Linking included) as getter-backed properties on a non-extensible
+// module object for lazy native loading, which makes them effectively
+// unmockable in place (a plain assignment silently no-ops; spreading the
+// whole module eagerly evaluates unrelated native-only exports like DevMenu
+// and throws outside a real native runtime). Mocking our own wrapper module
+// sidesteps all of that, the same way `getDeviceId`/`networkObserver` do for
+// their native dependencies elsewhere in this file.
+const mockLinkingRemove = jest.fn();
+const mockAddUrlListener = jest.fn((_handler: (event: { url: string }) => void) => ({
+  remove: mockLinkingRemove,
+}));
+const mockGetInitialURL = jest.fn((): Promise<string | null> => Promise.resolve(null));
+jest.mock('./src/infrastructure/device/appLinking', () => ({
+  addUrlListener: (handler: (event: { url: string }) => void) => mockAddUrlListener(handler),
+  getInitialURL: () => mockGetInitialURL(),
 }));
 
 jest.mock('./src/domain/households/EnsureHouseholdUseCase', () => {
@@ -204,9 +248,13 @@ const supabaseMock = jest.requireMock('./src/data/remote/supabaseClient') as {
     auth: {
       getSession: jest.Mock;
       onAuthStateChange: jest.Mock;
+      setSession: jest.Mock;
     };
   };
 };
+const { hydrateThemeFromRemote: mockHydrateThemeFromRemote } = jest.requireMock(
+  './src/presentation/stores/themeStore',
+) as { hydrateThemeFromRemote: jest.Mock };
 const { __mockExecute: mockEnsureExecute } = jest.requireMock(
   './src/domain/households/EnsureHouseholdUseCase',
 ) as { __mockExecute: jest.Mock };
@@ -237,6 +285,11 @@ function getAuthCallback(): (event: string, session: unknown) => Promise<void> {
   return call[0] as (event: string, session: unknown) => Promise<void>;
 }
 
+function getDeepLinkHandler(): (event: { url: string }) => void {
+  const call = mockAddUrlListener.mock.calls[0];
+  return call[0] as (event: { url: string }) => void;
+}
+
 // Cleared in afterEach (not beforeEach): `preventAutoHideAsync` runs once at
 // App.tsx's MODULE LOAD, before the FIRST test's beforeEach would ever run --
 // clearing in beforeEach would wipe that call before any test body could
@@ -255,6 +308,13 @@ beforeEach(() => {
   mockSchedulerInstance.isStarted = false;
   SplashScreen.preventAutoHideAsync.mockResolvedValue(undefined);
   SplashScreen.hideAsync.mockResolvedValue(undefined);
+  mockGetInitialURL.mockResolvedValue(null);
+  // NOTE: `setSession`'s implementation is intentionally left as the
+  // factory default above (which fires the captured onAuthStateChange
+  // listener with SIGNED_IN, simulating the real SDK) -- do NOT override it
+  // here with `.mockResolvedValue(...)`, which would replace that
+  // implementation and silently disconnect setSession from the listener
+  // again for every test in this file.
 });
 
 describe('App boot (Task 5)', () => {
@@ -409,5 +469,190 @@ describe('App boot (Task 5)', () => {
 
     // (c) No unhandled rejection should have escaped from the boot sequence.
     expect(unhandledRejections).toEqual([]);
+  });
+
+  describe('password recovery (Task 4)', () => {
+    it('PASSWORD_RECOVERY auth event sets passwordRecoveryPending and never runs initSession', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const authCallback = getAuthCallback();
+      await act(async () => {
+        await authCallback('PASSWORD_RECOVERY', { user: { id: 'user-recovery' } });
+      });
+
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(true);
+      expect(mockEnsureExecute).not.toHaveBeenCalled();
+    });
+
+    it('a genuine recovery deep link (via addEventListener) sets passwordRecoveryPending and calls setSession with the parsed tokens', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({
+          url: 'accountingv2://reset-password#access_token=at-1&refresh_token=rt-1&type=recovery',
+        });
+      });
+
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(true);
+      expect(supabaseMock.supabase.auth.setSession).toHaveBeenCalledWith({
+        access_token: 'at-1',
+        refresh_token: 'rt-1',
+      });
+    });
+
+    it('a recovery deep link present as the initial URL (cold start via the link) is handled the same way', async () => {
+      setSession(null);
+      mockGetInitialURL.mockResolvedValue(
+        'accountingv2://reset-password#access_token=at-2&refresh_token=rt-2&type=recovery',
+      );
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      await waitFor(() => {
+        expect(useAppStore.getState().passwordRecoveryPending).toBe(true);
+      });
+      expect(supabaseMock.supabase.auth.setSession).toHaveBeenCalledWith({
+        access_token: 'at-2',
+        refresh_token: 'rt-2',
+      });
+    });
+
+    it('ignores a deep link that is not a recovery link', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({ url: 'accountingv2://some/other/path' });
+      });
+
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(false);
+      expect(supabaseMock.supabase.auth.setSession).not.toHaveBeenCalled();
+    });
+
+    it('removes the deep-link listener on unmount', async () => {
+      setSession(null);
+      const { findByTestId, unmount } = render(<App />);
+      await findByTestId('root-navigator');
+
+      unmount();
+      expect(mockLinkingRemove).toHaveBeenCalled();
+    });
+
+    // Regression proof for the CRITICAL finding: setSession() -- not a
+    // hand-wired direct authCallback('PASSWORD_RECOVERY', ...) call --
+    // ALWAYS emits a plain SIGNED_IN on this SDK/platform (simulated by the
+    // supabase mock's setSession implementation at the top of this file,
+    // which fires the captured onAuthStateChange listener exactly the way
+    // @supabase/auth-js's GoTrueClient#_setSession really does). Pre-fix,
+    // App.tsx's only gate on that SIGNED_IN was `event !== 'SIGNED_IN'`, so
+    // it ran the full bootstrap (EnsureHousehold et al.) while the user was
+    // still meant to be on ResetPasswordScreen -- this test fails against
+    // that code and passes once the listener also gates on
+    // `passwordRecoveryPending`.
+    it('a recovery-triggered SIGNED_IN (via the real setSession -> onAuthStateChange path) does not bootstrap while recovery is pending, but an ordinary SIGNED_IN still does', async () => {
+      setSession(null);
+      mockEnsureExecute.mockResolvedValue(successResult('hh-recovery-guard'));
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({
+          url: 'accountingv2://reset-password#access_token=at-r&refresh_token=rt-r&type=recovery',
+        });
+      });
+
+      // setSession was called with the parsed tokens, and -- simulating the
+      // REAL SDK -- that call fired the captured onAuthStateChange listener
+      // with SIGNED_IN. `passwordRecoveryPending` (set synchronously by the
+      // deep-link handler BEFORE calling setSession) must have gated that
+      // SIGNED_IN off entirely: no household bootstrap, no theme hydration.
+      expect(supabaseMock.supabase.auth.setSession).toHaveBeenCalledWith({
+        access_token: 'at-r',
+        refresh_token: 'rt-r',
+      });
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(true);
+      expect(mockEnsureExecute).not.toHaveBeenCalled();
+      expect(mockHydrateThemeFromRemote).not.toHaveBeenCalled();
+      expect(useAppStore.getState().householdId).toBeNull();
+
+      // Once recovery is no longer pending (reset completed, or the user
+      // bailed via "Back to sign in"), an ORDINARY SIGNED_IN must still run
+      // the full bootstrap exactly as slice 5 requires -- the guard must
+      // never leak into the normal login path.
+      await act(async () => {
+        useAppStore.getState().setPasswordRecoveryPending(false);
+      });
+      const authCallback = getAuthCallback();
+      await act(async () => {
+        await authCallback('SIGNED_IN', { user: { id: 'user-ordinary-after-recovery' } });
+      });
+      expect(mockEnsureExecute).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().householdId).toBe('hh-recovery-guard');
+    });
+
+    it('a setSession rejection (bad/expired/reused recovery link) clears passwordRecoveryPending and surfaces passwordRecoveryError', async () => {
+      setSession(null);
+      supabaseMock.supabase.auth.setSession.mockImplementationOnce(() =>
+        Promise.reject(new Error('invalid_grant: token expired')),
+      );
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({
+          url: 'accountingv2://reset-password#access_token=at-bad&refresh_token=rt-bad&type=recovery',
+        });
+        // Flush the rejected setSession promise's .catch() handler.
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(false);
+      expect(useAppStore.getState().passwordRecoveryError).toBe(
+        'This reset link is invalid or expired — request a new one.',
+      );
+      expect(mockEnsureExecute).not.toHaveBeenCalled();
+    });
+
+    // Regression proof for the dropped-error-redirect finding: Supabase can
+    // redirect a recovery link back carrying ONLY an error (expired/invalid/
+    // already-used) — no tokens at all. That must surface the reset-screen
+    // error, NOT silently no-op (the old `if (!tokens) return;` dropped it,
+    // leaving the user stranded with no feedback and no session created).
+    it('a recovery redirect carrying only error params (no tokens) surfaces passwordRecoveryError without calling setSession', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({
+          url: 'accountingv2://reset-password#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired',
+        });
+      });
+
+      expect(supabaseMock.supabase.auth.setSession).not.toHaveBeenCalled();
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(false);
+      expect(useAppStore.getState().passwordRecoveryError).toBe(
+        'This reset link is invalid or expired — request a new one.',
+      );
+      expect(mockEnsureExecute).not.toHaveBeenCalled();
+    });
   });
 });

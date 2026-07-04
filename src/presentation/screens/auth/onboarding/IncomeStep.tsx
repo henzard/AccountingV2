@@ -46,6 +46,7 @@ export function IncomeStep(): React.JSX.Element {
         value={amountStr}
         onChangeText={setAmountStr}
         mode="outlined"
+        testID="income-amount-input"
         style={{ backgroundColor: colors.surface }}
         keyboardType="decimal-pad"
         placeholder="0.00"

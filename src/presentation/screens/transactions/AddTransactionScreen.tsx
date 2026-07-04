@@ -21,16 +21,11 @@ import { PickerField } from '../../components/shared/PickerField';
 import { SpendingCoach } from '../../../domain/coaching/SpendingCoach';
 import { CoachingModal } from '../../components/shared/CoachingModal';
 import type { CoachingResult } from '../../../domain/coaching/SpendingCoach';
+import { parseMoneyInput } from '../../utils/parseMoneyInput';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
 const coach = new SpendingCoach();
-
-function toCents(randStr: string): number {
-  const n = parseFloat(randStr.replace(',', '.'));
-  if (isNaN(n)) return 0;
-  return Math.round(n * 100);
-}
 
 function formatBalance(env: EnvelopeOption): string {
   const balance = env.allocatedCents - env.spentCents;
@@ -150,7 +145,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       setError('Please select an envelope');
       return;
     }
-    const amountCents = toCents(amountStr);
+    const parsedAmount = parseMoneyInput(amountStr);
+    if (!parsedAmount.ok) {
+      setError(parsedAmount.error);
+      return;
+    }
+    const amountCents = parsedAmount.cents;
     if (amountCents <= 0) {
       setError('Amount must be greater than R0');
       return;
@@ -209,6 +209,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={amountStr}
           onChangeText={setAmountStr}
           mode="outlined"
+          testID="amount-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           keyboardType="decimal-pad"
           disabled={loading}
@@ -221,6 +222,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={payee}
           onChangeText={setPayee}
           mode="outlined"
+          testID="payee-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Checkers"
@@ -231,6 +233,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           value={description}
           onChangeText={setDescription}
           mode="outlined"
+          testID="description-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Weekly groceries"
@@ -294,6 +297,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           disabled={loading}
           style={styles.button}
           contentStyle={styles.buttonContent}
+          testID="record-transaction-submit"
         >
           Record Transaction
         </Button>

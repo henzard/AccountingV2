@@ -1,4 +1,4 @@
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2.103.0';
 import { calculateOpenAIcost } from './pricing.ts';
 import type { OpenAIUsage } from './pricing.ts';
 
@@ -88,11 +88,19 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   const adminSupabase = deps.createAdminClient();
 
   // 2. Household membership check
+  // NOTE: re-pointed from the dropped public.user_households to
+  // public.household_members (the 2026-07-04 baseline's replacement table).
+  // This uses the admin (service-role) client, which bypasses RLS, so the
+  // active-membership predicate must be reproduced explicitly here — it
+  // mirrors private.is_household_member(hid): household_id match, user_id =
+  // the authenticated caller, and deleted_at IS NULL (a soft-deleted/removed
+  // member must not retain slip-scan access).
   const { data: membership } = await adminSupabase
-    .from('user_households')
+    .from('household_members')
     .select('user_id')
     .eq('household_id', household_id)
     .eq('user_id', callerId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!membership) return new Response('Forbidden', { status: 403 });
 

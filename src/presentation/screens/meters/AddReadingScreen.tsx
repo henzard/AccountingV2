@@ -18,6 +18,7 @@ import type {
 } from '../../../domain/meterReadings/MeterReadingEntity';
 import { getMeterUnitLabel } from '../../../domain/meterReadings/MeterReadingEntity';
 import type { AddReadingScreenProps } from '../../navigation/types';
+import { parseMoneyInput } from '../../utils/parseMoneyInput';
 
 const audit = new AuditLogger(db);
 const anomalyDetector = new AnomalyDetector();
@@ -92,7 +93,15 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       setError('Reading value must be a positive number');
       return;
     }
-    const costCents = costRands.trim() ? Math.round(parseFloat(costRands) * 100) : null;
+    let costCents: number | null = null;
+    if (costRands.trim()) {
+      const parsedCost = parseMoneyInput(costRands);
+      if (!parsedCost.ok) {
+        setError(parsedCost.error);
+        return;
+      }
+      costCents = parsedCost.cents;
+    }
     setSaving(true);
     setError(null);
     const uc = new LogMeterReadingUseCase(db, audit, {

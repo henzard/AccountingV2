@@ -82,6 +82,17 @@ jest.mock('../../screens/household/JoinHouseholdScreen', () => {
   };
 });
 
+// ─── Mock ResetPasswordScreen — has its own dedicated test file ──────────────
+jest.mock('../../screens/auth/ResetPasswordScreen', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+  return {
+    ResetPasswordScreen: () => React.createElement(View, { testID: 'reset-password-screen' }),
+  };
+});
+
 // ─── Mock SlipScanningScreen — encapsulates all DI / camera / AsyncStorage ────
 jest.mock('../SlipScanningScreen', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -205,5 +216,26 @@ describe('RootNavigator routing', () => {
     expect(getByTestId('loading-splash')).toBeTruthy();
     expect(queryByTestId('main-tab-nav')).toBeNull();
     expect(queryByTestId('onboarding-nav')).toBeNull();
+  });
+
+  it('renders ResetPasswordScreen when passwordRecoveryPending is set, even with a full session+household', async () => {
+    // The temporary recovery session App.tsx's deep-link handler establishes
+    // makes `isAuthenticated` (and even `hasHousehold`) true — the pending
+    // flag must still win over the normal Main/Onboarding routing.
+    setStore({ user: { id: 'user-1' } }, 'h1');
+    mockIsOnboardingComplete.mockResolvedValue(true);
+    useAppStore.setState({ passwordRecoveryPending: true });
+
+    const { getByTestId, queryByTestId } = render(<RootNavigator />);
+    expect(getByTestId('reset-password-screen')).toBeTruthy();
+    expect(queryByTestId('main-tab-nav')).toBeNull();
+  });
+
+  it('renders ResetPasswordScreen when passwordRecoveryPending is set even with no session at all', () => {
+    setStore(null, null);
+    useAppStore.setState({ passwordRecoveryPending: true });
+
+    const { getByTestId } = render(<RootNavigator />);
+    expect(getByTestId('reset-password-screen')).toBeTruthy();
   });
 });

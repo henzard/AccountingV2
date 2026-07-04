@@ -16,6 +16,26 @@ jest.mock('expo-crypto', () => ({
   randomUUID: () => 'mock-uuid-slip-' + Math.random().toString(36).slice(2, 10),
 }));
 
+// ConfirmSlipUseCase now writes every item + the slip completion through ONE
+// synchronous `runInUnitOfWork` call using the low-level within-uow write
+// primitives (spec §4.5 fix — see ConfirmSlipUseCase.ts's header comment).
+// Mocked here so the ConfirmSlipUseCase describe block below can assert on
+// ordering/atomicity-of-call-shape without a real SQLite driver; the actual
+// real-driver rollback proof lives in tests/realsql/confirmSlipAtomicity.test.ts.
+const mockRunInUnitOfWork = jest.fn((_db: unknown, fn: (uow: unknown) => void) =>
+  fn({ db: {}, appendOp: jest.fn() }),
+);
+jest.mock('../../data/uow/UnitOfWork', () => ({
+  runInUnitOfWork: (...args: [unknown, (uow: unknown) => void]) => mockRunInUnitOfWork(...args),
+}));
+
+const mockInsertRowWithinUow = jest.fn();
+const mockUpdateRowWithinUowGuarded = jest.fn();
+jest.mock('../../data/uow/createSyncedRepo', () => ({
+  insertRowWithinUow: (...args: unknown[]) => mockInsertRowWithinUow(...args),
+  updateRowWithinUowGuarded: (...args: unknown[]) => mockUpdateRowWithinUowGuarded(...args),
+}));
+
 // ─── Mock Helpers ────────────────────────────────────────────────────────────
 
 const KRUGER_ID = HOUSEHOLDS.kruger.id;
@@ -77,22 +97,34 @@ function createMockLocalStore() {
   };
 }
 
-function createMockTransactionDb(shouldFail = false) {
+/** Mocks `db.select().from(envelopes).where().limit()`, always resolving one non-income envelope — enough for ConfirmSlipUseCase's up-front per-item validation reads (step 2). */
+function createMockValidationDb(): any {
   return {
-    transaction: jest.fn().mockImplementation(async (fn: any) => {
-      if (shouldFail) {
-        throw new Error('SLIP_PARTIAL_SAVE_FAILED: Transaction creation failed');
-      }
-      return fn({});
-    }),
-  } as any;
+    select: jest.fn(() => ({
+      from: jest.fn(() => ({
+        where: jest.fn(() => ({
+          limit: jest.fn().mockResolvedValue([{ id: 'env-1', envelopeType: 'spending' }]),
+        })),
+      })),
+    })),
+  };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TESTS
 // ═════════════════════════════════════════════════════════════════════════════
 
-beforeEach(() => resetFactoryCounter());
+beforeEach(() => {
+  resetFactoryCounter();
+  mockRunInUnitOfWork.mockClear();
+  mockInsertRowWithinUow.mockClear();
+  mockUpdateRowWithinUowGuarded.mockClear();
+  // Default: the conditional completion UPDATE matched 1 row (this confirm won).
+  mockUpdateRowWithinUowGuarded.mockReturnValue(1);
+  mockRunInUnitOfWork.mockImplementation((_db: unknown, fn: (uow: unknown) => void) =>
+    fn({ db: {}, appendOp: jest.fn() }),
+  );
+});
 
 describe('Slip Scanning Flow', () => {
   describe('CaptureSlipUseCase', () => {
@@ -205,17 +237,30 @@ describe('Slip Scanning Flow', () => {
   });
 
   describe('ConfirmSlipUseCase (transactional)', () => {
-    it('uses db.transaction for all-or-nothing commit', async () => {
-      const db = createMockTransactionDb(false);
-      const repo = createMockSlipRepo();
-      const factory = jest.fn().mockReturnValue({
-        execute: jest.fn().mockResolvedValue({
-          success: true,
-          data: { id: 'tx-1' },
-        }),
-      });
+    function slipInProgress(): SlipQueueRow {
+      return {
+        id: 'slip-1',
+        householdId: KRUGER_ID,
+        createdBy: 'user-1',
+        imageUris: [],
+        status: 'processing',
+        errorMessage: null,
+        merchant: null,
+        slipDate: null,
+        totalCents: null,
+        rawResponseJson: null,
+        imagesDeletedAt: null,
+        openaiCostCents: 0,
+        createdAt: '2026-01-15T00:00:00.000Z',
+        updatedAt: '2026-01-15T00:00:00.000Z',
+      };
+    }
 
-      const uc = new ConfirmSlipUseCase(db, factory, repo);
+    it('writes the item + slip completion in ONE runInUnitOfWork call (all-or-nothing commit)', async () => {
+      const db = createMockValidationDb();
+      const repo = createMockSlipRepo({ slips: [slipInProgress()] });
+
+      const uc = new ConfirmSlipUseCase(db, repo);
       const result = await uc.execute({
         slipId: 'slip-1',
         householdId: KRUGER_ID,
@@ -224,15 +269,21 @@ describe('Slip Scanning Flow', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(db.transaction).toHaveBeenCalledTimes(1);
+      expect(mockRunInUnitOfWork).toHaveBeenCalledTimes(1);
+      expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(1);
+      expect(mockUpdateRowWithinUowGuarded).toHaveBeenCalledTimes(1);
+      // The failure path (repo.update marking the slip 'failed') never runs.
+      expect(repo.updates).toHaveLength(0);
     });
 
-    it('on failure: rolls back and marks slip as "failed"', async () => {
-      const db = createMockTransactionDb(true);
-      const repo = createMockSlipRepo();
-      const factory = jest.fn();
+    it('on failure: rolls back (mocked) and marks slip as "failed" — never "completed"', async () => {
+      const db = createMockValidationDb();
+      const repo = createMockSlipRepo({ slips: [slipInProgress()] });
+      mockInsertRowWithinUow.mockImplementationOnce(() => {
+        throw new Error('SLIP_PARTIAL_SAVE_FAILED: Transaction creation failed');
+      });
 
-      const uc = new ConfirmSlipUseCase(db, factory, repo);
+      const uc = new ConfirmSlipUseCase(db, repo);
       const result = await uc.execute({
         slipId: 'slip-1',
         householdId: KRUGER_ID,
@@ -246,14 +297,18 @@ describe('Slip Scanning Flow', () => {
       }
       expect(repo.updates).toHaveLength(1);
       expect(repo.updates[0].patch.status).toBe('failed');
+      // The slip-completion update never ran — the throw happened first.
+      expect(mockUpdateRowWithinUowGuarded).not.toHaveBeenCalled();
     });
 
-    it('on failure: neither transaction nor spentCents changes persist', async () => {
-      const db = createMockTransactionDb(true);
-      const repo = createMockSlipRepo();
-      const factory = jest.fn();
+    it('on failure: the write transaction throws before the slip is ever marked "completed"', async () => {
+      const db = createMockValidationDb();
+      const repo = createMockSlipRepo({ slips: [slipInProgress()] });
+      mockInsertRowWithinUow.mockImplementationOnce(() => {
+        throw new Error('boom');
+      });
 
-      const uc = new ConfirmSlipUseCase(db, factory, repo);
+      const uc = new ConfirmSlipUseCase(db, repo);
       await uc.execute({
         slipId: 'slip-1',
         householdId: KRUGER_ID,
@@ -261,8 +316,24 @@ describe('Slip Scanning Flow', () => {
         items: [{ description: 'Eggs', amountCents: 4000, envelopeId: 'env-1' }],
       });
 
-      // Factory was never called because db.transaction threw before it ran
-      expect(factory).not.toHaveBeenCalled();
+      expect(repo.updates.some((u: any) => u.patch.status === 'completed')).toBe(false);
+    });
+
+    it('double-confirm is idempotent: an already-"completed" slip returns success with no new writes', async () => {
+      const db = createMockValidationDb();
+      const repo = createMockSlipRepo({ slips: [{ ...slipInProgress(), status: 'completed' }] });
+
+      const uc = new ConfirmSlipUseCase(db, repo);
+      const result = await uc.execute({
+        slipId: 'slip-1',
+        householdId: KRUGER_ID,
+        transactionDate: '2026-01-15',
+        items: [{ description: 'Eggs', amountCents: 4000, envelopeId: 'env-1' }],
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
+      expect(repo.updates).toHaveLength(0);
     });
   });
 

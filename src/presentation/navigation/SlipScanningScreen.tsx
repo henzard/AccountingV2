@@ -20,7 +20,6 @@ import { DrizzleUserConsentRepository } from '../../data/repositories/DrizzleUse
 import { SupabaseSlipImageUploader } from '../../infrastructure/slipScanning/SupabaseSlipImageUploader';
 import { ExpoSlipImageCompressor } from '../../infrastructure/slipScanning/ExpoSlipImageCompressor';
 import { EdgeFunctionSlipExtractor } from '../../infrastructure/slipScanning/EdgeFunctionSlipExtractor';
-import { CreateTransactionUseCase } from '../../domain/transactions/CreateTransactionUseCase';
 import { AuditLogger } from '../../data/audit/AuditLogger';
 import { BudgetPeriodEngine } from '../../domain/shared/BudgetPeriodEngine';
 import { db } from '../../data/local/db';
@@ -67,6 +66,31 @@ export function SlipScanningScreen(): React.JSX.Element {
   const paydayDay = useAppStore((s) => s.paydayDay);
   const periodStart = format(budgetEngine.getCurrentPeriod(paydayDay).startDate, 'yyyy-MM-dd');
   const [envelopes, setEnvelopes] = useState<EnvelopeOption[]>([]);
+  // Whether the current user has already granted slip-scan consent — read
+  // once per user so the queue's camera FAB can route straight to
+  // SlipCapture instead of always detouring through SlipConsent. Defaults to
+  // false (safe default) until resolved.
+  const [hasConsented, setHasConsented] = useState(false);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setHasConsented(false);
+      return;
+    }
+    let cancelled = false;
+    userConsentRepo
+      .get(userId)
+      .then((row) => {
+        if (!cancelled) setHasConsented(row?.slipScanConsentAt != null);
+      })
+      .catch(() => {
+        if (!cancelled) setHasConsented(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (!householdId) return;
@@ -101,21 +125,7 @@ export function SlipScanningScreen(): React.JSX.Element {
   const { start, progress } = useSlipScanner(slipFlow);
 
   const confirmSlipUseCase = useMemo(
-    () =>
-      new ConfirmSlipUseCase(
-        db,
-        (tx, input) =>
-          new CreateTransactionUseCase(tx as unknown as typeof db, slipAudit, {
-            householdId: input.householdId,
-            envelopeId: input.envelopeId,
-            amountCents: input.amountCents,
-            transactionDate: input.transactionDate,
-            payee: null,
-            description: input.description,
-            slipId: input.slipId,
-          }),
-        slipQueueRepo,
-      ),
+    () => new ConfirmSlipUseCase(db, slipQueueRepo, { audit: slipAudit }),
     [],
   );
 
@@ -123,6 +133,7 @@ export function SlipScanningScreen(): React.JSX.Element {
     () =>
       async (userId: string): Promise<{ success: boolean }> => {
         const result = await recordConsentUseCase.execute({ userId });
+        if (result.success) setHasConsented(true);
         return { success: result.success };
       },
     [],
@@ -165,6 +176,7 @@ export function SlipScanningScreen(): React.JSX.Element {
       householdId={householdId}
       createdBy={createdBy}
       recordConsent={recordConsent}
+      hasConsented={hasConsented}
       repo={slipQueueRepo}
       startScan={start}
       cancelSlip={cancelSlip}
