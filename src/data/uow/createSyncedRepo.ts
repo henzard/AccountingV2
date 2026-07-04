@@ -131,6 +131,42 @@ export function isRowNotMatchedError(err: unknown): boolean {
   return err instanceof Error && ROW_NOT_MATCHED_RE.test(err.message);
 }
 
+/**
+ * Matches the message both local SQLite engines raise for a UNIQUE
+ * constraint violation: better-sqlite3 throws a `SqliteError` (code
+ * `SQLITE_CONSTRAINT_UNIQUE`) and expo-sqlite throws an error wrapping the
+ * same underlying SQLite engine message — both read
+ * `UNIQUE constraint failed: <table>.<column>[, ...]`. Matching on message
+ * text rather than requiring a specific error class keeps this working
+ * across both drivers without importing either as a type-only dependency.
+ */
+const UNIQUE_CONSTRAINT_RE = /UNIQUE constraint failed/;
+
+/**
+ * True if `err` is a UNIQUE constraint violation from an `insert` — the
+ * signal a caller can use to translate a DB-level race loss (e.g. two
+ * overlapping `execute()` calls both passing an application-level
+ * pre-check) into a clean domain failure instead of an unhandled throw. See
+ * `CreateEnvelopeUseCase`'s emergency_fund duplicate guard for the intended
+ * use: the partial unique index in `0013_emf_unique.sql` is the actual
+ * guarantee, the pre-check is only a fast-path UX improvement.
+ *
+ * Drizzle wraps the driver-thrown error (better-sqlite3's `SqliteError`,
+ * message-compatible with expo-sqlite's) in its own `DrizzleQueryError`,
+ * whose `.message` is a generic "Failed to run the query ..." — the actual
+ * `UNIQUE constraint failed: ...` text is on `.cause`. This walks a short
+ * `.cause` chain so it matches either the raw driver error or Drizzle's
+ * wrapper around it.
+ */
+export function isUniqueConstraintError(err: unknown): boolean {
+  let current: unknown = err;
+  for (let i = 0; i < 5 && current instanceof Error; i += 1) {
+    if (UNIQUE_CONSTRAINT_RE.test(current.message)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /** Throws a clear not-found error for a write that matched zero rows, so no oplog op is appended for it. */
 function assertRowMatched(
   tableName: string,

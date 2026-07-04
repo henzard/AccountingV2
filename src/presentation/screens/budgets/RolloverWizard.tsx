@@ -10,12 +10,14 @@ import {
   envelopeScopeCondition,
   getEnvelopeSpentCents,
 } from '../../../data/local/balances/EnvelopeBalanceQuery';
-import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import type { EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
-import { StartNewPeriodUseCase } from '../../../domain/budgets/StartNewPeriodUseCase';
+import {
+  StartNewPeriodUseCase,
+  isRolloverSource,
+  rolloverEnvelopeId,
+} from '../../../domain/budgets/StartNewPeriodUseCase';
 import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../../../domain/shared/syncWrite';
 import type { SyncWriteDeps } from '../../../domain/shared/syncWrite';
-import { uuidv5, APP_NAMESPACE } from '../../../infrastructure/crypto/uuidv5';
 import { formatCurrency } from '../../utils/currency';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { spacing, radius, fontSize } from '../../theme/tokens';
@@ -68,10 +70,8 @@ async function loadPeriodScopedEnvelopes(
       ),
     );
 
-  const periodScoped = rows.filter(
-    (row) =>
-      !row.isArchived &&
-      getEnvelopeScope({ envelopeType: row.envelopeType as EnvelopeType }) === 'period',
+  const periodScoped = rows.filter((row) =>
+    isRolloverSource({ envelopeType: row.envelopeType, isArchived: row.isArchived }),
   );
 
   const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, periodStart);
@@ -240,7 +240,7 @@ export function RolloverWizard({
         const repo = resolveSyncedRepo(db, 'envelopes', syncDeps ?? {});
         const ctx = resolveSyncedRepoCtx(syncDeps ?? {});
         edits.forEach(({ envelope, editedCents }) => {
-          const targetId = uuidv5(`${householdId}:${toPeriodStart}:${envelope.id}`, APP_NAMESPACE);
+          const targetId = rolloverEnvelopeId(householdId, toPeriodStart, envelope.id);
           repo.update(targetId, householdId, { allocated_cents: editedCents }, ctx);
         });
       }

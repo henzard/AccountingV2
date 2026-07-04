@@ -25,6 +25,40 @@ export interface StartNewPeriodOutput {
 }
 
 /**
+ * True if `envelope` is a PERIOD-scoped, non-archived envelope — the exact
+ * source-envelope selection `StartNewPeriodUseCase.execute` copies forward.
+ * Exported so any caller that needs to preview or reference this same set
+ * before the use case runs (e.g. `RolloverWizard`'s review step) imports
+ * this predicate instead of re-deriving it — a second, independent copy of
+ * this logic would silently drift from the use case's actual selection if
+ * either changed without the other.
+ */
+export function isRolloverSource(envelope: { envelopeType: string; isArchived: boolean }): boolean {
+  return (
+    !envelope.isArchived &&
+    getEnvelopeScope({ envelopeType: envelope.envelopeType as EnvelopeType }) === 'period'
+  );
+}
+
+/**
+ * The deterministic id `StartNewPeriodUseCase.execute` gives the copied-
+ * forward row for `sourceId` when rolling `householdId` into `toPeriodStart`
+ * (see the class doc comment for why this must be a pure function of these
+ * three inputs, not a random id). Exported so any caller that needs to
+ * reference or mutate that target row before/around the use case call
+ * (e.g. `RolloverWizard` applying a user's allocation edit right after
+ * commit) computes the SAME id via this one formula, instead of a second
+ * copy that could silently drift out of sync with the use case.
+ */
+export function rolloverEnvelopeId(
+  householdId: string,
+  toPeriodStart: string,
+  sourceId: string,
+): string {
+  return uuidv5(`${householdId}:${toPeriodStart}:${sourceId}`, APP_NAMESPACE);
+}
+
+/**
  * The real period rollover: copies every non-archived, non-deleted
  * PERIOD-scoped envelope (`spending` | `income` | `utility` — see
  * `getEnvelopeScope`) of `fromPeriodStart` forward into `toPeriodStart`,
@@ -68,10 +102,8 @@ export class StartNewPeriodUseCase {
         ),
       );
 
-    const sourceEnvelopes = candidates.filter(
-      (row) =>
-        !row.isArchived &&
-        getEnvelopeScope({ envelopeType: row.envelopeType as EnvelopeType }) === 'period',
+    const sourceEnvelopes = candidates.filter((row) =>
+      isRolloverSource({ envelopeType: row.envelopeType, isArchived: row.isArchived }),
     );
 
     if (sourceEnvelopes.length === 0) {
@@ -79,7 +111,7 @@ export class StartNewPeriodUseCase {
     }
 
     const targetIds = sourceEnvelopes.map((source) =>
-      uuidv5(`${householdId}:${toPeriodStart}:${source.id}`, APP_NAMESPACE),
+      rolloverEnvelopeId(householdId, toPeriodStart, source.id),
     );
 
     // Idempotency check: a target id that already exists means this exact

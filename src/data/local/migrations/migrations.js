@@ -14,6 +14,7 @@ import m0009 from './0009_soft_delete_tombstones.sql';
 import m0010 from './0010_envelope_targets.sql';
 import m0011 from './0011_oplog_foundations.sql';
 import m0012 from './0012_derive_balances.sql';
+import m0013 from './0013_emf_unique.sql';
 
 export default {
   journal,
@@ -31,5 +32,6 @@ export default {
     m0010,
     m0011,
     m0012,
+    m0013,
   },
 };

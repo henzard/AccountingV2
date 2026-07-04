@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const envelopes = sqliteTable(
   'envelopes',
@@ -24,5 +25,15 @@ export const envelopes = sqliteTable(
       t.periodStart,
       t.isArchived,
     ),
+    // Partial unique index: at most one ACTIVE emergency_fund envelope per
+    // household — see migration 0013_emf_unique.sql for the full rationale
+    // (this closes the same-device TOCTOU race in the create-time EMF
+    // duplicate guard; the cross-device case remains handled by the
+    // emergencyFundReconcileStore backstop).
+    oneActiveEmfPerHousehold: uniqueIndex('envelopes_one_active_emf_per_household')
+      .on(t.householdId)
+      .where(
+        sql`${t.envelopeType} = 'emergency_fund' AND ${t.deletedAt} IS NULL AND ${t.isArchived} = 0`,
+      ),
   }),
 );

@@ -282,4 +282,97 @@ describe('CreateEnvelopeUseCase — emergency_fund create-time duplicate guard (
 
     raw.close();
   });
+
+  describe('same-device race — partial unique index backstop (0013_emf_unique.sql)', () => {
+    it('the DB itself rejects a second active emergency_fund row for one household with a UNIQUE constraint violation', () => {
+      const raw = openMigratedDb();
+      seedHousehold(raw, HOUSEHOLD_A);
+      seedEnvelope(raw, {
+        id: 'env-emf-first',
+        householdId: HOUSEHOLD_A,
+        envelopeType: 'emergency_fund',
+      });
+
+      // Proves the index, independent of any application code: a second
+      // raw INSERT of an active emergency_fund for the SAME household is
+      // rejected at the DB layer, not merely by CreateEnvelopeUseCase's
+      // pre-check.
+      expect(() =>
+        seedEnvelope(raw, {
+          id: 'env-emf-second',
+          householdId: HOUSEHOLD_A,
+          envelopeType: 'emergency_fund',
+        }),
+      ).toThrow(/UNIQUE constraint failed/);
+
+      const emfRows = raw
+        .prepare("SELECT * FROM envelopes WHERE envelope_type = 'emergency_fund'")
+        .all() as EnvelopeRow[];
+      expect(emfRows).toHaveLength(1);
+
+      raw.close();
+    });
+
+    it('CreateEnvelopeUseCase returns DUPLICATE_EMERGENCY_FUND (not a throw) when its pre-check races past a concurrent insert and the DB rejects the INSERT', async () => {
+      const raw = openMigratedDb();
+      seedHousehold(raw, HOUSEHOLD_A);
+      // Simulates the winner of the race: an active EMF already landed in
+      // the real DB before this execute() call's own pre-check ran.
+      seedEnvelope(raw, {
+        id: 'env-emf-race-winner',
+        householdId: HOUSEHOLD_A,
+        envelopeType: 'emergency_fund',
+      });
+
+      const db = makeDb(raw);
+      const audit = new AuditLogger(db);
+
+      // Stubs out just the pre-check's `select` chain to return NO existing
+      // rows — standing in for the TOCTOU window where this call's SELECT
+      // executed before the winner's INSERT committed. `repo.insert` below
+      // still goes through the REAL db/transaction, so it hits the REAL
+      // partial unique index seeded above.
+      const staleReadDb = db as unknown as { select: unknown };
+      const originalSelect = db.select.bind(db);
+      staleReadDb.select = () => ({ from: () => ({ where: async () => [] }) });
+
+      const uc = new CreateEnvelopeUseCase(
+        db,
+        audit,
+        {
+          householdId: HOUSEHOLD_A,
+          name: 'Race Emergency Fund',
+          allocatedCents: 250000,
+          envelopeType: 'emergency_fund',
+          periodStart: PERIOD_START,
+        },
+        { deviceId: 'device-2', actorUserId: 'user-2' },
+      );
+
+      const result = await uc.execute();
+
+      // Restore in case anything below (or a future addition) needs a real select.
+      staleReadDb.select = originalSelect;
+
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('DUPLICATE_EMERGENCY_FUND');
+
+      const emfRows = raw
+        .prepare("SELECT * FROM envelopes WHERE envelope_type = 'emergency_fund'")
+        .all() as EnvelopeRow[];
+      // Only the race winner's row exists — the loser's INSERT was rejected
+      // by the DB and never landed.
+      expect(emfRows).toHaveLength(1);
+      expect(emfRows[0].id).toBe('env-emf-race-winner');
+
+      const insertOps = raw
+        .prepare("SELECT * FROM oplog WHERE table_name = 'envelopes' AND op_type = 'insert'")
+        .all() as OplogRow[];
+      // No oplog op for the rejected insert (the failed statement rolled
+      // back within its own transaction before appendOp ran).
+      expect(insertOps).toHaveLength(0);
+
+      raw.close();
+    });
+  });
 });

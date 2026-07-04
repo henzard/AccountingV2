@@ -9,6 +9,7 @@ import React from 'react';
 import fs from 'fs';
 import path from 'path';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { rolloverEnvelopeId } from '../../../../domain/budgets/StartNewPeriodUseCase';
 
 // ─── db mock (chain: select().from().where()) ────────────────────────────────
 const mockFrom = jest.fn();
@@ -29,9 +30,17 @@ const mockExecute = jest.fn();
 const MockStartNewPeriodUseCase = jest.fn().mockImplementation(() => ({
   execute: mockExecute,
 }));
-jest.mock('../../../../domain/budgets/StartNewPeriodUseCase', () => ({
-  StartNewPeriodUseCase: (...args: unknown[]) => MockStartNewPeriodUseCase(...args),
-}));
+jest.mock('../../../../domain/budgets/StartNewPeriodUseCase', () => {
+  // Keeps the real `isRolloverSource`/`rolloverEnvelopeId` exports (only the
+  // `StartNewPeriodUseCase` class itself is faked) so the wizard's source
+  // selection and target-id computation stay wired to the SAME shared
+  // functions the use case uses — proving they can't silently drift apart.
+  const actual = jest.requireActual('../../../../domain/budgets/StartNewPeriodUseCase');
+  return {
+    ...actual,
+    StartNewPeriodUseCase: (...args: unknown[]) => MockStartNewPeriodUseCase(...args),
+  };
+});
 
 // ─── syncWrite mock (createSyncedRepo write seam) ─────────────────────────────
 const mockUpdate = jest.fn();
@@ -244,9 +253,13 @@ describe('RolloverWizard', () => {
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledTimes(1);
     });
-    const [, updatedHouseholdId, fields] = mockUpdate.mock.calls[0];
+    const [updatedTargetId, updatedHouseholdId, fields] = mockUpdate.mock.calls[0];
     expect(updatedHouseholdId).toBe(HOUSEHOLD);
     expect(fields).toEqual({ allocated_cents: 75000 });
+    // The wizard must target the SAME row id `StartNewPeriodUseCase` copied
+    // the source envelope into — computed via the one shared
+    // `rolloverEnvelopeId` formula, not a second hand-rolled copy of it.
+    expect(updatedTargetId).toBe(rolloverEnvelopeId(HOUSEHOLD, TO_PERIOD, 'env-1'));
     // Only the edited envelope (env-1) triggers an update — env-2 stayed at its default.
     expect(mockUpdate).not.toHaveBeenCalledWith(
       expect.anything(),
