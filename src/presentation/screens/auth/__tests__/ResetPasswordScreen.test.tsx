@@ -45,19 +45,41 @@ jest.mock('react-native-paper', () => {
 });
 
 const mockUpdateUser = jest.fn();
+const mockSignOut = jest.fn();
 jest.mock('../../../../data/remote/supabaseClient', () => ({
   supabase: {
     auth: {
       updateUser: (...args: unknown[]) => mockUpdateUser(...args),
+      signOut: (...args: unknown[]) => mockSignOut(...args),
     },
   },
 }));
 
 const mockSetPasswordRecoveryPending = jest.fn();
+const mockSetPasswordRecoveryError = jest.fn();
+// Mutable, read by the useAppStore mock below on every selector call so
+// individual tests can flip `passwordRecoveryError` without needing to
+// re-mock the whole module. Name starts with "mock" so babel-plugin-
+// jest-hoist allows referencing it from inside the (hoisted) jest.mock
+// factory further down -- same convention the rest of this file already
+// uses for `mockUpdateUser`/`mockSignOut`.
+const mockAppStoreState: { passwordRecoveryError: string | null } = {
+  passwordRecoveryError: null,
+};
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn(
-    (sel: (s: { setPasswordRecoveryPending: typeof mockSetPasswordRecoveryPending }) => unknown) =>
-      sel({ setPasswordRecoveryPending: mockSetPasswordRecoveryPending }),
+    (
+      sel: (s: {
+        setPasswordRecoveryPending: typeof mockSetPasswordRecoveryPending;
+        setPasswordRecoveryError: typeof mockSetPasswordRecoveryError;
+        passwordRecoveryError: string | null;
+      }) => unknown,
+    ) =>
+      sel({
+        setPasswordRecoveryPending: mockSetPasswordRecoveryPending,
+        setPasswordRecoveryError: mockSetPasswordRecoveryError,
+        passwordRecoveryError: mockAppStoreState.passwordRecoveryError,
+      }),
   ),
 }));
 
@@ -78,6 +100,8 @@ describe('ResetPasswordScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUpdateUser.mockResolvedValue({ error: null });
+    mockSignOut.mockResolvedValue({ error: null });
+    mockAppStoreState.passwordRecoveryError = null;
   });
 
   it('renders new-password and confirm fields', () => {
@@ -118,13 +142,20 @@ describe('ResetPasswordScreen', () => {
     });
   });
 
-  it('shows a success state and clears passwordRecoveryPending on success', async () => {
+  it('shows a success state, signs out, and clears passwordRecoveryPending on success (clean re-auth, not a silent bootstrap)', async () => {
     const { getByTestId } = render(<ResetPasswordScreen />);
     fireEvent.changeText(getByTestId('reset-password-new'), 'longenoughpassword');
     fireEvent.changeText(getByTestId('reset-password-confirm'), 'longenoughpassword');
     fireEvent.press(getByTestId('reset-password-submit'));
     await waitFor(() => {
       expect(getByTestId('reset-password-success')).toBeTruthy();
+    });
+    // Signs out the temporary recovery session (App.tsx's auth listener
+    // never ran initSessionOnce for it -- see ResetPasswordScreen's doc
+    // comment) BEFORE clearing the flag, so RootNavigator lands the user on
+    // the normal Auth flow to re-authenticate with their new password.
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalled();
     });
     await waitFor(() => {
       expect(mockSetPasswordRecoveryPending).toHaveBeenCalledWith(false);
@@ -142,5 +173,46 @@ describe('ResetPasswordScreen', () => {
     });
     expect(queryByTestId('reset-password-success')).toBeNull();
     expect(mockSetPasswordRecoveryPending).not.toHaveBeenCalled();
+  });
+
+  it('"Back to sign in" signs out and clears both recovery flags, even after a failed updateUser', async () => {
+    mockUpdateUser.mockResolvedValue({ error: { message: 'Session expired' } });
+    const { getByTestId } = render(<ResetPasswordScreen />);
+    fireEvent.changeText(getByTestId('reset-password-new'), 'longenoughpassword');
+    fireEvent.changeText(getByTestId('reset-password-confirm'), 'longenoughpassword');
+    fireEvent.press(getByTestId('reset-password-submit'));
+    await waitFor(() => {
+      expect(mockUpdateUser).toHaveBeenCalled();
+    });
+
+    fireEvent.press(getByTestId('reset-password-back-to-signin'));
+
+    expect(mockSignOut).toHaveBeenCalled();
+    expect(mockSetPasswordRecoveryError).toHaveBeenCalledWith(null);
+    expect(mockSetPasswordRecoveryPending).toHaveBeenCalledWith(false);
+  });
+
+  describe('invalid/expired recovery link (passwordRecoveryError set)', () => {
+    beforeEach(() => {
+      mockAppStoreState.passwordRecoveryError =
+        'This reset link is invalid or expired — request a new one.';
+    });
+
+    it('shows the error and a "Back to sign in" affordance instead of the form', () => {
+      const { getByTestId, queryByTestId } = render(<ResetPasswordScreen />);
+      expect(getByTestId('reset-password-link-error-text')).toBeTruthy();
+      expect(getByTestId('reset-password-back-to-signin')).toBeTruthy();
+      expect(queryByTestId('reset-password-new')).toBeNull();
+      expect(queryByTestId('reset-password-submit')).toBeNull();
+    });
+
+    it('"Back to sign in" signs out and clears the error + pending flags', () => {
+      const { getByTestId } = render(<ResetPasswordScreen />);
+      fireEvent.press(getByTestId('reset-password-back-to-signin'));
+
+      expect(mockSignOut).toHaveBeenCalled();
+      expect(mockSetPasswordRecoveryError).toHaveBeenCalledWith(null);
+      expect(mockSetPasswordRecoveryPending).toHaveBeenCalledWith(false);
+    });
   });
 });

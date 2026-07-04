@@ -18,18 +18,28 @@ const MIN_PASSWORD_LENGTH = 8;
 
 /**
  * Rendered by RootNavigator (in place of the normal Auth/Main tree) while
- * `appStore.passwordRecoveryPending` is true — i.e. after the user has
- * tapped a Supabase password-recovery link and App.tsx's deep-link handler
- * has established the temporary recovery session via `setSession`.
+ * `appStore.passwordRecoveryPending` OR `appStore.passwordRecoveryError` is
+ * set — i.e. after the user has tapped a Supabase password-recovery link
+ * and App.tsx's deep-link handler either established the temporary
+ * recovery session via `setSession` (`passwordRecoveryPending`), or that
+ * call rejected — a bad/expired/reused link (`passwordRecoveryError`).
  *
- * On success, `updateUser({ password })` sets the new password while
- * keeping the user signed in (Supabase's documented recovery flow) — we
- * simply clear `passwordRecoveryPending` so RootNavigator falls through to
- * its normal session-based routing.
+ * On success, `updateUser({ password })` sets the new password. We then
+ * sign the user out and clear `passwordRecoveryPending` so RootNavigator
+ * falls through to the normal Auth flow and the user re-authenticates with
+ * their NEW password — this is deliberately a clean re-auth rather than
+ * silently proceeding into the normal signed-in bootstrap: `initSessionOnce`
+ * (EnsureHousehold/RestoreService/SeedBabySteps/registerFcmToken/
+ * SyncScheduler) never ran for this recovery session (App.tsx's auth
+ * listener gates it off exactly because a recovery session must not
+ * trigger it), and a real `SIGNED_IN` from signing back in is what runs it,
+ * the same way it does for every other login.
  */
 export function ResetPasswordScreen(): React.JSX.Element {
   const { colors } = useAppTheme();
   const setPasswordRecoveryPending = useAppStore((s) => s.setPasswordRecoveryPending);
+  const setPasswordRecoveryError = useAppStore((s) => s.setPasswordRecoveryError);
+  const passwordRecoveryError = useAppStore((s) => s.passwordRecoveryError);
 
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -60,17 +70,73 @@ export function ResetPasswordScreen(): React.JSX.Element {
     AccessibilityInfo.announceForAccessibility('Password updated.');
   };
 
-  // Clearing the flag hands control straight back to RootNavigator's normal
-  // routing (the user is still signed in). Done as an effect (not inline
-  // during render) since it updates a store another component tree reads.
+  // Back-to-sign-in: the escape hatch for every dead end on this screen —
+  // an invalid/expired link (`passwordRecoveryError`), a repeatedly-failing
+  // `updateUser` (e.g. "Session expired"), or the user simply changing
+  // their mind. Signs out defensively (harmless no-op if there's no
+  // session, e.g. the link never established one) so a lingering recovery
+  // session is never left behind, then clears both flags so RootNavigator
+  // falls back to the normal Auth flow.
+  const handleBackToSignIn = (): void => {
+    void supabase.auth.signOut().catch(() => {});
+    setPasswordRecoveryError(null);
+    setPasswordRecoveryPending(false);
+  };
+
+  // Clearing the flag hands control back to RootNavigator's normal routing.
+  // Signing out first (rather than proceeding signed-in) is deliberate: see
+  // the doc comment above this component for why. Done as an effect (not
+  // inline during render) since it updates a store another component tree
+  // reads.
   useEffect(() => {
     if (!done) return;
-    setPasswordRecoveryPending(false);
+    void supabase.auth
+      .signOut()
+      .catch(() => {})
+      .finally(() => {
+        setPasswordRecoveryPending(false);
+      });
   }, [done, setPasswordRecoveryPending]);
 
+  // A rejected `setSession` (see App.tsx's deep-link handler) means there is
+  // no session to reset a password on — show the error and the only
+  // available action, rather than a form that can't possibly succeed.
+  if (passwordRecoveryError) {
+    return (
+      <View
+        style={[styles.flex, styles.centerContent, { backgroundColor: colors.surface }]}
+        testID="reset-password-link-error"
+      >
+        <Text variant="displaySmall" style={[styles.title, { color: colors.primary }]}>
+          Link expired
+        </Text>
+        <HelperText
+          type="error"
+          visible
+          testID="reset-password-link-error-text"
+          accessibilityLiveRegion="assertive"
+          accessibilityRole="alert"
+        >
+          {passwordRecoveryError}
+        </HelperText>
+        <Button
+          mode="contained"
+          onPress={handleBackToSignIn}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+          testID="reset-password-back-to-signin"
+          accessibilityLabel="Back to sign in"
+          accessibilityRole="button"
+        >
+          Back to sign in
+        </Button>
+      </View>
+    );
+  }
+
   if (done) {
-    // Brief transitional state while the effect above flips the flag and
-    // RootNavigator swaps this screen out for the normal app tree.
+    // Brief transitional state while the effect above signs out, flips the
+    // flag, and RootNavigator swaps this screen out for the Auth flow.
     return (
       <View
         style={[styles.flex, styles.centerContent, { backgroundColor: colors.surface }]}
@@ -78,7 +144,7 @@ export function ResetPasswordScreen(): React.JSX.Element {
       >
         <ActivityIndicator size="large" color={colors.primary} />
         <Text variant="bodyLarge" style={[styles.successText, { color: colors.onSurfaceVariant }]}>
-          Password updated. Taking you to your account…
+          Password updated. Taking you to sign in…
         </Text>
       </View>
     );
@@ -163,6 +229,18 @@ export function ResetPasswordScreen(): React.JSX.Element {
             accessibilityRole="button"
           >
             Update password
+          </Button>
+
+          <Button
+            mode="text"
+            onPress={handleBackToSignIn}
+            disabled={loading}
+            style={styles.button}
+            testID="reset-password-back-to-signin"
+            accessibilityLabel="Back to sign in"
+            accessibilityRole="button"
+          >
+            Back to sign in
           </Button>
         </View>
       </ScrollView>

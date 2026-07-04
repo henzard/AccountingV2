@@ -446,6 +446,26 @@ export default function App(): React.JSX.Element | null {
         return;
       }
 
+      // CRITICAL gate (deep-review finding): the recovery deep-link handler
+      // below calls `setSession()`, which — per @supabase/auth-js's
+      // `GoTrueClient#_setSession` — ALWAYS fires this listener with a plain
+      // `SIGNED_IN` on React Native (see the doc comments above and on
+      // `passwordRecoveryPending` in appStore.ts; the `PASSWORD_RECOVERY`
+      // branch above is a no-op on this platform). Without this guard, that
+      // SIGNED_IN would fall straight through to `initSessionOnce` below and
+      // run the FULL bootstrap (EnsureHousehold, RestoreService.restore,
+      // SeedBabySteps, registerFcmToken, SyncScheduler) while the user is
+      // still meant to be on ResetPasswordScreen, before they've set a new
+      // password — a regression of slice 5's "SIGNED_IN-only, no spurious
+      // bootstrap" guarantee. `passwordRecoveryPending` is set synchronously
+      // by the deep-link handler BEFORE it calls `setSession`, so it is
+      // already true by the time this callback runs for that session.
+      // Ordinary logins (`passwordRecoveryPending` false) are completely
+      // unaffected — this only short-circuits the recovery-driven SIGNED_IN.
+      if (useAppStore.getState().passwordRecoveryPending) {
+        return;
+      }
+
       if (session.user?.id) {
         void hydrateThemeFromRemote(session.user.id);
       }
@@ -493,10 +513,24 @@ export default function App(): React.JSX.Element | null {
       // Set BEFORE the async setSession call resolves so RootNavigator
       // gates on the reset screen the instant the link is handled, rather
       // than racing a SIGNED_IN-driven re-render.
+      useAppStore.getState().setPasswordRecoveryError(null);
       useAppStore.getState().setPasswordRecoveryPending(true);
       void supabase.auth
         .setSession({ access_token: tokens.accessToken, refresh_token: tokens.refreshToken })
-        .catch((err) => captureBoot('setSession (recovery deep link)', err));
+        .catch((err) => {
+          captureBoot('setSession (recovery deep link)', err);
+          // A bad/expired/reused recovery link (common: email scanners
+          // pre-fetch the link, links expire, the user double-taps) leaves
+          // no session to reset a password on — it's no longer "pending" a
+          // reset, so flip that off, but keep ResetPasswordScreen showing
+          // via `passwordRecoveryError` (see RootNavigator) so the user
+          // sees why and gets a "Back to sign in" way out instead of being
+          // stranded with no feedback.
+          useAppStore.getState().setPasswordRecoveryPending(false);
+          useAppStore
+            .getState()
+            .setPasswordRecoveryError('This reset link is invalid or expired — request a new one.');
+        });
     };
 
     const subscription = addUrlListener(({ url }) => handleUrl(url));
