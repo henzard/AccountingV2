@@ -204,10 +204,12 @@ describe('SyncEngine puller cursor-in-same-transaction guarantee', () => {
     raw.close();
   });
 
-  it('rolls back the cursor advance when apply throws mid-batch (atomic)', async () => {
+  it('rolls back the cursor advance when apply throws mid-batch (atomic), without throwing out of pull() (§7.2)', async () => {
     const raw = openMigratedDb();
     seedHousehold(raw);
     const t = new FakeTransport();
+    // Same batch every call (mimics the server: the cursor never advances,
+    // so a re-pull returns the SAME rows) -- this is the poison-batch shape.
     t.pull = async () => [
       row(7, 'p1', {
         op_type: 'insert',
@@ -225,7 +227,11 @@ describe('SyncEngine puller cursor-in-same-transaction guarantee', () => {
       row(8, 'p2', { row_id: 'd2', op_type: 'insert', payload: { not_a_column: 1 } }),
     ];
 
-    await expect(engineFor(raw, t).pull(HH)).rejects.toThrow();
+    // A local-apply failure must not throw out of pull() (§7.2) -- it would
+    // otherwise stall the household's puller with an uncaught rejection on
+    // every future pull.
+    const summary = await engineFor(raw, t).pull(HH);
+    expect(summary?.applied).toBe(0);
     // Neither the first insert nor the cursor advance survived.
     expect(raw.prepare('SELECT id FROM debts WHERE id = ?').get('d1')).toBeUndefined();
     expect(

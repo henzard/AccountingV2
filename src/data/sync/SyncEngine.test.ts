@@ -369,26 +369,31 @@ describe('SyncEngine.pull — cursor + apply', () => {
     raw.close();
   });
 
-  it('rolls back BOTH the batch and the cursor when an op fails mid-batch', async () => {
+  it('rolls back BOTH the batch and the cursor when an op fails mid-batch (does not throw)', async () => {
     const raw = openMigratedDb();
     seedHousehold(raw);
     const t = new FakeTransport();
     // op1 valid; op2 targets a non-existent column -> SQL throws -> whole tx rolls back.
-    t.pullBatches = [
-      [
-        serverRow({ seq: 5, op_id: 'p1', op_type: 'insert', payload: debtRowPayload() }),
-        serverRow({
-          seq: 6,
-          op_id: 'p2',
-          row_id: 'd2',
-          op_type: 'insert',
-          payload: debtRowPayload({ bogus_col: 1 }),
-        }),
-      ],
+    // Same payload every call (mimics the server: the cursor never advances,
+    // so re-pulling returns the SAME batch), letting us drive repeated
+    // apply-failure attempts deterministically.
+    t.pullImpl = async () => [
+      serverRow({ seq: 5, op_id: 'p1', op_type: 'insert', payload: debtRowPayload() }),
+      serverRow({
+        seq: 6,
+        op_id: 'p2',
+        row_id: 'd2',
+        op_type: 'insert',
+        payload: debtRowPayload({ bogus_col: 1 }),
+      }),
     ];
     const engine = makeEngine(raw, t);
 
-    await expect(engine.pull(HH)).rejects.toThrow();
+    // §7.2: a local-apply failure must NOT throw out of pull() (a poison
+    // batch would otherwise stall the household's puller forever with an
+    // uncaught rejection on every future pull).
+    const summary = await engine.pull(HH);
+    expect(summary?.applied).toBe(0);
     // Atomicity: op1's insert AND the cursor advance were both reverted.
     const d1 = raw.prepare('SELECT id FROM debts WHERE id = ?').get('d1');
     expect(d1).toBeUndefined();
@@ -396,6 +401,92 @@ describe('SyncEngine.pull — cursor + apply', () => {
       .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
       .get(HH) as { s: number } | undefined;
     expect(cursor).toBeUndefined(); // cursor never advanced past the unapplied batch
+    raw.close();
+  });
+
+  it('a transient transport failure backs off and does not throw out of pull() (mock fails once then succeeds)', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const t = new FakeTransport();
+    let calls = 0;
+    t.pullImpl = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('ECONNRESET');
+      if (calls === 2)
+        return [serverRow({ seq: 5, op_id: 'p1', op_type: 'insert', payload: debtRowPayload() })];
+      return [];
+    };
+    let clockMs = 0;
+    const engine = makeEngine(raw, t, {
+      clock: () => new Date(Date.parse(NOW) + clockMs).toISOString(),
+      options: { backoffBaseMs: 1000, backoffMaxMs: 60000 },
+    });
+
+    // First call: transport throws -> backed off, no throw out of pull().
+    const first = await engine.pull(HH);
+    expect(first).toMatchObject({ batches: 0, applied: 0, blocked: false });
+    expect(raw.prepare('SELECT id FROM debts WHERE id = ?').get('d1')).toBeUndefined();
+
+    // Immediately retrying is a no-op: still within the backoff window, so
+    // the transport isn't even called again.
+    const stillBackedOff = await engine.pull(HH);
+    expect(stillBackedOff).toMatchObject({ batches: 0, applied: 0 });
+    expect(calls).toBe(1);
+
+    // Advance the clock past the backoff window (base 1000ms * 2^0) and
+    // retry -> converges (the network recovered).
+    clockMs += 2000;
+    const second = await engine.pull(HH);
+    expect(second).toMatchObject({ applied: 1, blocked: false });
+    expect(raw.prepare('SELECT id FROM debts WHERE id = ?').get('d1')).toBeDefined();
+    raw.close();
+  });
+
+  it('a poison batch (applyOne fails repeatedly) stops after N attempts, sets the blocked flag, and never advances the cursor — ops stay re-pullable', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const t = new FakeTransport();
+    // Same op_id/cursor position every call — a batch that can never apply.
+    t.pullImpl = async () => [
+      serverRow({
+        seq: 5,
+        op_id: 'poison-1',
+        op_type: 'insert',
+        payload: debtRowPayload({ bogus_col: 1 }),
+      }),
+    ];
+    const engine = makeEngine(raw, t, { options: { maxPullApplyRetries: 3 } });
+
+    expect(engine.getPullHealth(HH)).toEqual({ blocked: false });
+
+    await engine.pull(HH); // attempt 1
+    expect(engine.getPullHealth(HH).blocked).toBe(false);
+    await engine.pull(HH); // attempt 2
+    expect(engine.getPullHealth(HH).blocked).toBe(false);
+    const third = await engine.pull(HH); // attempt 3 -> hits maxPullApplyRetries -> blocked
+    expect(third?.blocked).toBe(true);
+
+    const health = engine.getPullHealth(HH);
+    expect(health.blocked).toBe(true);
+    expect(health.opIds).toEqual(['poison-1']);
+    expect(health.error).toBeTruthy();
+
+    // No data loss: the op was never applied locally, but it's still
+    // server-side (re-pullable) — the cursor never advanced past it.
+    const cursor = raw
+      .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
+      .get(HH);
+    expect(cursor).toBeUndefined();
+
+    // Once blocked, a further pull() call doesn't even hit the transport again.
+    let callsAfterBlock = 0;
+    t.pullImpl = async () => {
+      callsAfterBlock += 1;
+      return [];
+    };
+    const fourth = await engine.pull(HH);
+    expect(fourth?.blocked).toBe(true);
+    expect(callsAfterBlock).toBe(0);
     raw.close();
   });
 
@@ -515,6 +606,43 @@ describe('SyncEngine.pull — cursor + apply', () => {
     expect(row.creditor_name).toBe('Renamed');
     expect(row.total_paid_cents).toBe(0); // floor_zero clamped 50-100 -> 0
     expect(row.deleted_at).toBe('2026-02-02T00:00:00.000Z'); // origin value, not "now"
+    raw.close();
+  });
+
+  it('increment with a non-finite delta throws and rolls back (never writes NULL/NaN into a money column)', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const t = new FakeTransport();
+    const engine = makeEngine(raw, t, { deviceId: 'devA' });
+    t.pullBatches = [
+      [
+        serverRow({
+          seq: 1,
+          op_id: 'i',
+          op_type: 'insert',
+          payload: debtRowPayload({ total_paid_cents: 50 }),
+        }),
+        serverRow({
+          seq: 2,
+          op_id: 'bad-delta',
+          op_type: 'increment',
+          // Malformed payload: delta is not numeric -> Number(...) is NaN.
+          payload: { field: 'total_paid_cents', delta: 'not-a-number', clamp: 'none' },
+        }),
+      ],
+      [],
+    ];
+
+    // The batch fails to apply (poison-batch candidate) rather than throwing
+    // out of pull() (§7.2) -- but critically the row's money column must be
+    // untouched (rolled back), not written with NULL/NaN.
+    const summary = await engine.pull(HH);
+    expect(summary?.applied).toBe(0);
+    const row = raw.prepare('SELECT id, total_paid_cents FROM debts WHERE id = ?').get('d1');
+    // Rolled back: the insert from op 'i' (same transaction as the bad
+    // increment) never committed either -- proves atomicity, not just that
+    // the bad column stayed NULL.
+    expect(row).toBeUndefined();
     raw.close();
   });
 

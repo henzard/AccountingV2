@@ -23,6 +23,12 @@
 //       cursor advances IN THAT SAME transaction — a rollback reverts both, so
 //       the cursor can never point past an unapplied op.
 //   R8  ops apply in server `seq` order (the server returns them ordered).
+//   §7.2 the puller reuses the pusher's classification/backoff shape: a
+//       transient transport failure backs off (capped exponential) and never
+//       throws out of pull(); a batch that repeatedly fails to APPLY (not a
+//       network error) never advances the cursor (no data loss — R6) but
+//       stops auto-retrying after `maxPullApplyRetries` and is surfaced via
+//       `getPullHealth()` as a poison batch (a code-fix situation).
 //
 // The engine depends on an injected `SyncTransport` (not the raw supabase
 // client) so it is testable against either the real `sync_push`/`sync_pull`
@@ -110,6 +116,21 @@ export interface PushSummary {
 export interface PullSummary {
   batches: number;
   applied: number;
+  /** True if this household's puller is currently blocked on a poison batch
+   * (a batch that repeatedly failed to apply locally — see `getPullHealth`
+   * for the diagnostic detail). When true, this call did not contact the
+   * transport at all (§7.2). */
+  blocked: boolean;
+}
+
+/** Diagnostic surface for a household's puller (Task 5's Sync Health UI).
+ * `opIds`/`error` are populated only when `blocked` is true. Never includes
+ * op payloads (§7.4 — financial data), only op_ids and the error message. */
+export interface PullHealth {
+  blocked: boolean;
+  opIds?: string[];
+  error?: string;
+  blockedAt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +170,10 @@ export interface SyncEngineOptions {
   backoffMaxMs?: number;
   /** Retries of an UNEXPECTED per-op reject code before it is dead-lettered. Default 10. */
   maxRejectRetries?: number;
+  /** Consecutive local-apply failures of the SAME pulled batch (same cursor
+   * position) before the puller flags it a poison batch, stops retrying it
+   * automatically, and surfaces `getPullHealth().blocked` (§7.2). Default 5. */
+  maxPullApplyRetries?: number;
 }
 
 export interface SyncEngineDeps {
@@ -215,10 +240,38 @@ export class SyncEngine {
   private readonly backoffBaseMs: number;
   private readonly backoffMaxMs: number;
   private readonly maxRejectRetries: number;
+  private readonly maxPullApplyRetries: number;
 
   /** Single-flight guard keyed by scope (`push`, `pull:<hh>`, `sync:<hh>`). A
    * hung RPC releases its key when the 30s timeout aborts the call. */
   private readonly inFlight = new Set<string>();
+
+  // ----- puller resilience state (§7.2) --------------------------------
+  //
+  // Deliberately IN-MEMORY, not persisted on `sync_cursor` — a transient
+  // network failure only needs to survive until the next foreground trigger
+  // calls pull() again, and a process restart legitimately wants to try
+  // immediately (no stale backoff/poison state surviving a fresh process, and
+  // no migration needed for a value with no meaning across restarts).
+
+  /** Per-household transient transport-failure backoff (mirrors the pusher's
+   * capped exponential backoff). Cleared on the next successful pull. */
+  private readonly pullBackoff = new Map<string, { retryCount: number; nextAttemptAtMs: number }>();
+
+  /** Per-household count of consecutive LOCAL APPLY failures (not transport
+   * failures) for the batch read from the same cursor position. Cleared on
+   * the next successful pull. */
+  private readonly pullApplyFailures = new Map<string, { cursor: number; attempts: number }>();
+
+  /** Households whose puller is blocked on a poison batch — a batch that
+   * failed to apply `maxPullApplyRetries` times in a row. This is a code-fix
+   * situation (client/server schema drift), not a transient condition, so it
+   * is cleared only by restarting the process (after a fix ships), never
+   * automatically. */
+  private readonly pullBlocked = new Map<
+    string,
+    { opIds: string[]; error: string; blockedAt: string }
+  >();
 
   constructor(deps: SyncEngineDeps) {
     this.db = deps.db;
@@ -232,6 +285,7 @@ export class SyncEngine {
     this.backoffBaseMs = o.backoffBaseMs ?? 1_000;
     this.backoffMaxMs = o.backoffMaxMs ?? 60_000;
     this.maxRejectRetries = o.maxRejectRetries ?? 10;
+    this.maxPullApplyRetries = o.maxPullApplyRetries ?? 5;
     // Receiver-side idempotency ledger (R5). Local-only bookkeeping — NOT part
     // of the sync protocol, so it lives outside the shipped migration chain.
     this.db.run(sql`CREATE TABLE IF NOT EXISTS oplog_applied (op_id text PRIMARY KEY)`);
@@ -257,6 +311,15 @@ export class SyncEngine {
       await this.withLock('push', () => this.drainPush());
       await this.withLock(`pull:${householdId}`, () => this.drainPull(householdId));
     });
+  }
+
+  /** Sync Health surface (Task 5): is this household's puller stalled on a
+   * poison batch? See `pullBlocked` for why this is a code-fix situation, not
+   * a transient one. Never exposes op payloads (§7.4), only op_ids + the
+   * error message. */
+  getPullHealth(householdId: string): PullHealth {
+    const b = this.pullBlocked.get(householdId);
+    return b ? { blocked: true, ...b } : { blocked: false };
   }
 
   // ----- pusher -------------------------------------------------------------
@@ -358,9 +421,13 @@ export class SyncEngine {
   }
 
   private deadLetter(opId: string, deadAtIso: string, code: string): void {
+    // Guard matches markPushed/backoffOp: `dead_lettered_at IS NULL` (in
+    // addition to `pushed_at IS NULL`) so a second pass over the same op
+    // (e.g. a concurrent drain) can't re-stamp/re-bump an already
+    // dead-lettered op.
     this.db.run(sql`
       UPDATE oplog SET dead_lettered_at = ${deadAtIso}, retry_count = retry_count + 1
-      WHERE op_id = ${opId} AND pushed_at IS NULL
+      WHERE op_id = ${opId} AND pushed_at IS NULL AND dead_lettered_at IS NULL
     `);
     logger.warn('SyncEngine.push: op dead-lettered', { opId, code });
   }
@@ -368,22 +435,135 @@ export class SyncEngine {
   // ----- puller -------------------------------------------------------------
 
   private async drainPull(householdId: string): Promise<PullSummary> {
-    const summary: PullSummary = { batches: 0, applied: 0 };
+    const summary: PullSummary = { batches: 0, applied: 0, blocked: false };
+
+    // POISON BATCH: already flagged blocked for this household — a batch that
+    // needs a code fix (schema drift) is never retried automatically, so
+    // don't even contact the transport (§7.2).
+    if (this.pullBlocked.has(householdId)) {
+      summary.blocked = true;
+      return summary;
+    }
+
+    // Transient backoff (mirrors the pusher's capped exponential backoff):
+    // skip the network entirely until this household's next scheduled
+    // attempt.
+    const backoff = this.pullBackoff.get(householdId);
+    if (backoff && Date.parse(this.clock()) < backoff.nextAttemptAtMs) {
+      return summary;
+    }
+
     let cursor = this.readCursor(householdId);
 
     for (;;) {
-      const rows = await this.withTimeout((signal) =>
-        this.transport.pull(householdId, cursor, this.pullLimit, signal),
-      );
+      let rows: ServerOplogRow[];
+      try {
+        rows = await this.withTimeout((signal) =>
+          this.transport.pull(householdId, cursor, this.pullLimit, signal),
+        );
+      } catch (err) {
+        // Transient transport failure (network / 5xx / timeout / abort): no
+        // committed write is lost — ops stay server-side and re-pullable.
+        // Back off THIS household's next pull attempt (capped exponential,
+        // mirrors the pusher) and stop draining this cycle. Never throw out
+        // of pull() (§7.2) — letting it propagate would repeatedly hammer a
+        // flaky link every time the trigger loop calls pull() again.
+        this.backoffTransientPull(householdId, err);
+        break;
+      }
       if (rows.length === 0) break;
       summary.batches += 1;
-      const res = this.applyPulledBatch(householdId, rows);
+
+      let res: { cursor: number; applied: number };
+      try {
+        res = this.applyPulledBatch(householdId, rows);
+      } catch (err) {
+        // Local apply failed for THIS batch. Cursor-in-transaction (R6) means
+        // it did NOT advance — the ops are still server-side and re-pullable,
+        // so no data is lost. Unlike the transport catch above, this is an
+        // actual applyOne throw — on a matured protocol that means
+        // client/server schema drift, a code-fix situation, not a condition a
+        // retry alone will resolve. Track it as a poison-batch candidate and
+        // stop draining (§7.2).
+        this.recordPullApplyFailure(householdId, cursor, rows, err);
+        if (this.pullBlocked.has(householdId)) summary.blocked = true;
+        break;
+      }
+      // Forward progress: any earlier backoff/poison-batch tracking for this
+      // household is stale.
+      this.pullBackoff.delete(householdId);
+      this.pullApplyFailures.delete(householdId);
       summary.applied += res.applied;
       cursor = res.cursor;
       if (rows.length < this.pullLimit) break;
     }
 
     return summary;
+  }
+
+  /** Transient pull-transport failure: capped exponential backoff for this
+   * household's NEXT pull attempt, mirroring the pusher's backoff exactly
+   * (`min(backoffMaxMs, backoffBaseMs * 2^retryCount)`). */
+  private backoffTransientPull(householdId: string, err: unknown): void {
+    const prev = this.pullBackoff.get(householdId);
+    const currentRetryCount = prev?.retryCount ?? 0;
+    const nextIso = nextAttemptAt(
+      currentRetryCount,
+      this.backoffBaseMs,
+      this.backoffMaxMs,
+      this.clock(),
+    );
+    this.pullBackoff.set(householdId, {
+      retryCount: currentRetryCount + 1,
+      nextAttemptAtMs: Date.parse(nextIso),
+    });
+    logger.warn('SyncEngine.pull: transport failure, backed off', {
+      householdId,
+      retryCount: currentRetryCount + 1,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  /** Records a local-apply failure for the batch read from `cursor`. After
+   * `maxPullApplyRetries` consecutive failures of the SAME batch, flags the
+   * household "pull blocked" (poison batch) instead of retrying forever. */
+  private recordPullApplyFailure(
+    householdId: string,
+    cursor: number,
+    rows: ServerOplogRow[],
+    err: unknown,
+  ): void {
+    const prev = this.pullApplyFailures.get(householdId);
+    const attempts = prev && prev.cursor === cursor ? prev.attempts + 1 : 1;
+    this.pullApplyFailures.set(householdId, { cursor, attempts });
+    const opIds = rows.map((r) => r.op_id);
+
+    if (attempts >= this.maxPullApplyRetries) {
+      // POISON BATCH (§7.2): the SAME batch (same cursor position) has now
+      // failed to apply `maxPullApplyRetries` times in a row. Stop retrying
+      // automatically (never hammer forever) but never advance the cursor
+      // either (never skip/lose the ops — R1 in spirit). Surface it for Task
+      // 5's Sync Health UI via getPullHealth(). §7.4: op_ids + error, NEVER
+      // the payload (financial data).
+      this.pullBlocked.set(householdId, {
+        opIds,
+        error: err instanceof Error ? err.message : String(err),
+        blockedAt: this.clock(),
+      });
+      logger.error(
+        'SyncEngine.pull: batch blocked after repeated local-apply failures ' +
+          '(poison batch — likely client/server schema drift; needs a code fix, not a retry)',
+        err,
+        { householdId, opIds, attempts },
+      );
+    } else {
+      logger.warn('SyncEngine.pull: batch failed to apply, will retry', {
+        householdId,
+        opIds,
+        attempts,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private readCursor(householdId: string): number {
@@ -472,6 +652,15 @@ export class SyncEngine {
     } else if (row.op_type === 'increment') {
       const field = assertIdent(String(payload.field));
       const delta = Number(payload.delta);
+      if (!Number.isFinite(delta)) {
+        // Money-column guard: `field` here is always an integer-cents money
+        // column. A malformed/non-numeric delta must never reach the
+        // arithmetic expression below (that would write NULL/NaN into it) —
+        // throw so the whole batch rolls back and fails safe instead of
+        // committing corrupt money state. (Never log payload.delta itself —
+        // §7.4 forbids logging op payloads.)
+        throw new Error(`SyncEngine: increment op ${row.op_id} has a non-finite delta`);
+      }
       const expr =
         payload.clamp === 'floor_zero'
           ? sql`MAX(0, ${sql.raw(field)} + ${delta})`
