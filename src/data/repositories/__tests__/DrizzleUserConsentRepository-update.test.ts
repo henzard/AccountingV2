@@ -1,9 +1,17 @@
-// The setSlipScanConsent INSERT-vs-UPDATE op-type behavior formerly tested
-// here now depends on a real runInUnitOfWork/db.transaction write (raw SQL
-// upsert + oplog append) — see DrizzleUserConsentRepository.ts's doc
-// comment. That behavior is proven against real SQLite in
-// tests/realsql/userConsent.test.ts (both the insert-path and update-path
-// op-type cases, plus the exactly-one-oplog-op assertion).
+// The setSlipScanConsent write-path behavior formerly tested here now
+// depends on a real local SQLite upsert plus a direct
+// `supabase.from('user_consent').upsert(...)` call — see
+// DrizzleUserConsentRepository.ts's doc comment. `user_consent` is a
+// per-user table kept OUTSIDE the household-scoped oplog (spec §8), so it
+// must never append an oplog row. That behavior is proven against real
+// SQLite (plus a mocked supabase client) in tests/realsql/userConsent.test.ts.
+//
+// The module-level `supabase` singleton import must be mocked here too —
+// the real client throws at import time without Expo config env vars.
+jest.mock('../../remote/supabaseClient', () => ({
+  supabase: { from: () => ({ upsert: jest.fn().mockResolvedValue({ error: null }) }) },
+}));
+
 import { DrizzleUserConsentRepository } from '../DrizzleUserConsentRepository';
 
 describe('DrizzleUserConsentRepository — get', () => {

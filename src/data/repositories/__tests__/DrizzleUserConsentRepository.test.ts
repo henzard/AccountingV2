@@ -1,10 +1,17 @@
-// setSlipScanConsent now writes via runInUnitOfWork (raw SQL upsert + one
-// oplog op, household_id: null — see DrizzleUserConsentRepository.ts) rather
-// than a mockable Drizzle .insert().values().onConflictDoUpdate() chain, so
-// its write-path behavior (upsert correctness, exactly-one-oplog-op,
-// insert-vs-update op type) is proven against real SQLite in
-// tests/realsql/userConsent.test.ts instead. This file keeps the read-path
-// (`get`) coverage, which is unaffected by that migration.
+// setSlipScanConsent now writes via a raw SQL local upsert plus a direct
+// `supabase.from('user_consent').upsert(...)` call (per-user table, kept
+// OUTSIDE the household-scoped oplog — see DrizzleUserConsentRepository.ts)
+// rather than a mockable Drizzle .insert().values().onConflictDoUpdate()
+// chain, so its write-path behavior is proven against real SQLite (plus a
+// mocked supabase client) in tests/realsql/userConsent.test.ts instead.
+// This file keeps the read-path (`get`) coverage, which is unaffected.
+//
+// The module-level `supabase` singleton import must be mocked here too —
+// the real client throws at import time without Expo config env vars.
+jest.mock('../../remote/supabaseClient', () => ({
+  supabase: { from: () => ({ upsert: jest.fn().mockResolvedValue({ error: null }) }) },
+}));
+
 import { DrizzleUserConsentRepository } from '../DrizzleUserConsentRepository';
 
 describe('DrizzleUserConsentRepository', () => {

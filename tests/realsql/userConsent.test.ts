@@ -9,17 +9,25 @@ interface UserConsentRow {
   updated_at: string;
 }
 
-interface OplogRow {
-  op_id: string;
-  household_id: string | null;
-  table_name: string;
-  row_id: string;
-  op_type: string;
-  payload: string;
-}
+const mockUpsert = jest.fn();
+
+// `user_consent` writes go through the module-level `supabase` singleton
+// (same pattern as userPreferences.ts), so it must be mocked here — the
+// real client throws at import time when Expo config env vars aren't
+// present, which is always true in this node-environment test tier.
+jest.mock('../../src/data/remote/supabaseClient', () => ({
+  supabase: {
+    from: () => ({ upsert: mockUpsert }),
+  },
+}));
 
 describe('DrizzleUserConsentRepository (real SQLite)', () => {
-  it('first call: upserts a new row and appends exactly one INSERT oplog op with household_id null', async () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUpsert.mockResolvedValue({ error: null });
+  });
+
+  it('first call: upserts a new local row, appends NO oplog row, and upserts remote with created_at', async () => {
     const raw = openMigratedDb();
     const db = drizzle(raw);
     const repo = new DrizzleUserConsentRepository(db as any);
@@ -31,27 +39,35 @@ describe('DrizzleUserConsentRepository (real SQLite)', () => {
       .get('user-1') as UserConsentRow;
     expect(row.slip_scan_consent_at).toBe('2026-04-13T00:00:00.000Z');
 
-    const ops = raw.prepare('SELECT * FROM oplog WHERE row_id = ?').all('user-1') as OplogRow[];
-    expect(ops).toHaveLength(1);
-    expect(ops[0].op_type).toBe('insert');
-    expect(ops[0].table_name).toBe('user_consent');
-    expect(ops[0].household_id).toBeNull();
-    expect(JSON.parse(ops[0].payload)).toEqual(
-      expect.objectContaining({
+    // `user_consent` is a per-user table — spec §8 keeps it OUTSIDE the
+    // household-scoped oplog entirely (the server's apply_one_op table
+    // allowlist doesn't include it, so an oplog row here would be
+    // permanently rejected once a pusher exists). It must never produce
+    // an oplog row; it writes locally plus direct-upserts to Supabase.
+    const ops = raw.prepare('SELECT * FROM oplog WHERE row_id = ?').all('user-1');
+    expect(ops).toHaveLength(0);
+
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    expect(mockUpsert).toHaveBeenCalledWith(
+      {
         user_id: 'user-1',
         slip_scan_consent_at: '2026-04-13T00:00:00.000Z',
-      }),
+        created_at: expect.any(String),
+        updated_at: expect.any(String),
+      },
+      { onConflict: 'user_id' },
     );
 
     raw.close();
   });
 
-  it('second call: updates the existing row and appends exactly one UPDATE oplog op', async () => {
+  it('second call: updates the existing local row (still one row, still no oplog); remote upsert omits created_at', async () => {
     const raw = openMigratedDb();
     const db = drizzle(raw);
     const repo = new DrizzleUserConsentRepository(db as any);
 
     await repo.setSlipScanConsent('user-1', '2026-04-13T00:00:00.000Z');
+    mockUpsert.mockClear();
     await repo.setSlipScanConsent('user-1', '2026-05-01T00:00:00.000Z');
 
     const row = raw
@@ -64,15 +80,38 @@ describe('DrizzleUserConsentRepository (real SQLite)', () => {
       .n;
     expect(rowCount).toBe(1);
 
-    const ops = raw
-      .prepare('SELECT * FROM oplog WHERE row_id = ? ORDER BY rowid')
-      .all('user-1') as OplogRow[];
-    expect(ops).toHaveLength(2); // insert (first call) + update (second call)
-    expect(ops[0].op_type).toBe('insert');
-    expect(ops[1].op_type).toBe('update');
-    expect(JSON.parse(ops[1].payload)).toEqual(
-      expect.objectContaining({ slip_scan_consent_at: '2026-05-01T00:00:00.000Z' }),
+    const ops = raw.prepare('SELECT * FROM oplog WHERE row_id = ?').all('user-1');
+    expect(ops).toHaveLength(0);
+
+    // Remote payload omits `created_at` on the update path so a repeat
+    // upsert can't clobber the row's original creation time server-side.
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    expect(mockUpsert).toHaveBeenCalledWith(
+      {
+        user_id: 'user-1',
+        slip_scan_consent_at: '2026-05-01T00:00:00.000Z',
+        updated_at: expect.any(String),
+      },
+      { onConflict: 'user_id' },
     );
+
+    raw.close();
+  });
+
+  it('remote upsert failure does not block or throw from the local write (best-effort, matches userPreferences.ts)', async () => {
+    mockUpsert.mockResolvedValue({ error: { message: 'offline' } });
+    const raw = openMigratedDb();
+    const db = drizzle(raw);
+    const repo = new DrizzleUserConsentRepository(db as any);
+
+    await expect(
+      repo.setSlipScanConsent('user-1', '2026-04-13T00:00:00.000Z'),
+    ).resolves.toBeUndefined();
+
+    const row = raw
+      .prepare('SELECT * FROM user_consent WHERE user_id = ?')
+      .get('user-1') as UserConsentRow;
+    expect(row.slip_scan_consent_at).toBe('2026-04-13T00:00:00.000Z');
 
     raw.close();
   });
