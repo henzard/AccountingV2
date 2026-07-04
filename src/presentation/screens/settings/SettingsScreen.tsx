@@ -126,6 +126,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           right={(props) => <List.Icon {...props} icon="chevron-right" />}
           onPress={() => navigation.navigate('NotificationPreferences')}
         />
+        <Divider />
+        <List.Item
+          title="Sync Health"
+          description="Sync status, pending changes, and items needing attention"
+          left={(props) => <List.Icon {...props} icon="sync" />}
+          right={(props) => <List.Icon {...props} icon="chevron-right" />}
+          onPress={() => navigation.navigate('SyncHealth')}
+          testID="sync-health-item"
+        />
         {__DEV__ && (
           <>
             <Divider />

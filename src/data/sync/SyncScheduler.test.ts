@@ -573,4 +573,101 @@ describe('SyncScheduler', () => {
       expect(engine.sync).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('re-entrancy guard (Task 4 review minor, closed in Task 5)', () => {
+    it('an overlapping immediate trigger while a round is in flight skips instead of double-driving statusSink', async () => {
+      let resolveSync: (() => void) | null = null;
+      const engine = makeEngine({
+        sync: jest.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveSync = resolve;
+            }),
+        ),
+      });
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const sink = {
+        setSyncing: jest.fn(),
+        setLastSyncedAt: jest.fn(),
+        setPendingCount: jest.fn(),
+        setError: jest.fn(),
+        setPullBlocked: jest.fn(),
+      };
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        statusSink: sink,
+      });
+      scheduler.start(HH);
+      sink.setSyncing.mockClear();
+
+      // First immediate trigger starts a round that never resolves until we
+      // release it below.
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+      expect(sink.setSyncing).toHaveBeenCalledTimes(1);
+      expect(sink.setSyncing).toHaveBeenLastCalledWith(true);
+
+      // A second immediate trigger arrives WHILE the first is still in
+      // flight (e.g. reconnect firing during a foreground-triggered round).
+      // Without the re-entrancy guard this would call engine.sync() again
+      // AND call setSyncing(true) then (once IT resolves) setSyncing(false)
+      // independently of the first round's own lifecycle.
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+
+      expect(engine.sync).toHaveBeenCalledTimes(1); // NOT called a second time
+      expect(sink.setSyncing).toHaveBeenCalledTimes(1); // still only the one true
+      expect(logger.warn).not.toHaveBeenCalled();
+
+      // Releasing the original round completes normally and resets the guard.
+      resolveSync!();
+      await flushMicrotasks();
+      expect(sink.setSyncing).toHaveBeenLastCalledWith(false);
+
+      // A THIRD trigger after the round finished is a normal, un-skipped call.
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(2);
+    });
+
+    it('stop() resets the guard so a subsequent start() is never spuriously skipped', async () => {
+      let resolveSync: (() => void) | null = null;
+      const engine = makeEngine({
+        sync: jest.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveSync = resolve;
+            }),
+        ),
+      });
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+      });
+      scheduler.start(HH);
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+
+      // Household switch: stop while the round is STILL unresolved, then
+      // immediately start + requestSync for the new household.
+      scheduler.stop();
+      scheduler.start('hh-2');
+      scheduler.requestSync('hh-2', { immediate: true });
+      await flushMicrotasks();
+
+      expect(engine.sync).toHaveBeenCalledTimes(2);
+      expect(engine.sync).toHaveBeenLastCalledWith('hh-2');
+
+      resolveSync!();
+      await flushMicrotasks();
+    });
+  });
 });

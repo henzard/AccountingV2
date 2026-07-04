@@ -62,6 +62,7 @@ export type SnowballStackParamList = {
 export type SettingsStackParamList = {
   SettingsHome: undefined;
   NotificationPreferences: undefined;
+  SyncHealth: undefined;
   CrashLog: undefined;
 };
 
@@ -140,6 +141,8 @@ export type NotificationPreferencesScreenProps = NativeStackScreenProps<
   SettingsStackParamList,
   'NotificationPreferences'
 >;
+
+export type SyncHealthScreenProps = NativeStackScreenProps<SettingsStackParamList, 'SyncHealth'>;
 
 export type HouseholdPickerScreenProps = NativeStackScreenProps<
   RootStackParamList,

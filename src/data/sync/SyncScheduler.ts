@@ -117,6 +117,16 @@ export class SyncScheduler {
   private appStateSub: { remove(): void } | null = null;
   private realtimeChannel: RealtimeChannel | null = null;
   private started = false;
+  /** Re-entrancy guard (Task 4 review minor, closed here in Task 5): the
+   * underlying `engine.sync()` is already single-flight (SyncEngine's own
+   * `withLock`), but WITHOUT this flag two triggers landing at once (e.g. an
+   * immediate foreground trigger firing while a debounced after-write round
+   * is still in flight) would each still call `statusSink.setSyncing(true)`
+   * then `false` independently — the second call's `setSyncing(false)` can
+   * land BEFORE the first round actually finishes, flickering the UI back to
+   * "idle" mid-sync. Guarding here means only the round that's actually
+   * running drives the status sink. */
+  private syncing = false;
 
   constructor(deps: SyncSchedulerDeps) {
     this.engine = deps.engine;
@@ -218,6 +228,20 @@ export class SyncScheduler {
   }
 
   private async runSync(householdId: string): Promise<void> {
+    // Re-entrancy guard: `engine.sync()` is already single-flight internally,
+    // so this never causes duplicate work -- it only stops a second
+    // overlapping trigger from re-driving `statusSink` (see the `syncing`
+    // field doc-comment) while a round is already in progress. The skipped
+    // trigger is never "lost" -- whatever prompted it (a write/foreground/
+    // reconnect/nudge) will be covered by the CURRENTLY running round or the
+    // next trigger after it.
+    if (this.syncing) {
+      logger.info('SyncScheduler: sync already in flight, skipping overlapping trigger', {
+        householdId,
+      });
+      return;
+    }
+    this.syncing = true;
     this.statusSink.setSyncing(true);
     try {
       await this.engine.sync(householdId);
@@ -228,6 +252,7 @@ export class SyncScheduler {
       logger.warn('SyncScheduler: sync() failed', { householdId, error: message });
       this.statusSink.setError(message);
     } finally {
+      this.syncing = false;
       this.statusSink.setSyncing(false);
       this.refreshDiagnostics(householdId);
     }
@@ -266,5 +291,12 @@ export class SyncScheduler {
     }
     this.started = false;
     this.pendingHouseholdId = null;
+    // Reset the re-entrancy flag so a subsequent start() (e.g. a household
+    // switch right after stop()) never has its immediate requestSync
+    // spuriously skipped by a stale flag from the PREVIOUS household's round
+    // still finishing in the background (that round's own `finally` will
+    // still safely reset this again -- a plain boolean assignment is
+    // idempotent either way).
+    this.syncing = false;
   }
 }

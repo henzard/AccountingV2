@@ -63,6 +63,7 @@ const realSqlProject = {
   testPathIgnorePatterns: ['<rootDir>/tests/realsql/twoDevice/'],
   transform: nodeTierTransform,
   moduleNameMapper: nodeTierModuleNameMapper,
+  setupFiles: ['<rootDir>/tests/realsql/harness/setupGlobals.js'],
 };
 
 // Two-device convergence tier: drives the REAL sync_push/sync_pull RPCs against
@@ -73,6 +74,7 @@ const twoDeviceProject = {
   testMatch: ['<rootDir>/tests/realsql/twoDevice/**/*.test.ts'],
   transform: nodeTierTransform,
   moduleNameMapper: nodeTierModuleNameMapper,
+  setupFiles: ['<rootDir>/tests/realsql/harness/setupGlobals.js'],
 };
 
 module.exports = {

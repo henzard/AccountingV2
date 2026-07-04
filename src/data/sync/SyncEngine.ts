@@ -87,6 +87,19 @@ export interface SyncTransport {
     limit: number,
     signal: AbortSignal,
   ): Promise<ServerOplogRow[]>;
+  /** Fetches the current server state of one row (`public.sync_row_state`,
+   * membership-checked and table-allowlisted server-side) — Task 5's DLQ
+   * "discard" action (spec §6.10). Returns `null` if the row doesn't exist
+   * server-side (or the caller isn't a household member). Optional so
+   * existing push/pull-only test doubles remain valid without a rowState
+   * stub; the production transport (`createSupabaseSyncTransport`) always
+   * implements it. */
+  rowState?(
+    householdId: string,
+    table: string,
+    rowId: string,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown> | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +144,19 @@ export interface PullHealth {
   opIds?: string[];
   error?: string;
   blockedAt?: string;
+}
+
+/** One dead-lettered local op (Task 5's Sync Health / DLQ inbox). Deliberately
+ * NEVER includes `payload` (§7.4 — financial data): only enough metadata to
+ * show + action the row in the UI. */
+export interface DeadLetteredOp {
+  opId: string;
+  householdId: string;
+  table: string;
+  rowId: string;
+  opType: string;
+  deadLetteredAt: string;
+  retryCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +360,132 @@ export class SyncEngine {
       SELECT COUNT(*) AS c FROM oplog WHERE pushed_at IS NULL AND dead_lettered_at IS NULL
     `);
     return row ? Number(row.c) : 0;
+  }
+
+  /** Manual unblock for a household's poison-batch pull block (Task 5's Sync
+   * Health "Retry" action). `getPullHealth().blocked` otherwise clears only on
+   * a process restart (Task 3 review finding) — this lets the UI clear it
+   * in-process after a code fix ships (or to give a fresh set of retries),
+   * without waiting for the user to relaunch the app. Also resets the
+   * apply-failure/backoff counters for this household so the NEXT `pull()`
+   * gets a full fresh attempt cycle rather than re-blocking after one retry. */
+  clearPullBlock(householdId: string): void {
+    this.pullBlocked.delete(householdId);
+    this.pullApplyFailures.delete(householdId);
+    this.pullBackoff.delete(householdId);
+    logger.info('SyncEngine: pull block manually cleared', { householdId });
+  }
+
+  /** Lists this household's dead-lettered ops, newest-first (Task 5's DLQ
+   * inbox). Never returns `payload` (§7.4 — financial data). */
+  listDeadLettered(householdId: string): DeadLetteredOp[] {
+    const rows = this.db.all<{
+      op_id: string;
+      household_id: string;
+      table_name: string;
+      row_id: string;
+      op_type: string;
+      dead_lettered_at: string;
+      retry_count: number;
+    }>(sql`
+      SELECT op_id, household_id, table_name, row_id, op_type, dead_lettered_at, retry_count
+      FROM oplog
+      WHERE household_id = ${householdId} AND dead_lettered_at IS NOT NULL
+      ORDER BY dead_lettered_at DESC
+    `);
+    return rows.map((r) => ({
+      opId: r.op_id,
+      householdId: r.household_id,
+      table: r.table_name,
+      rowId: r.row_id,
+      opType: r.op_type,
+      deadLetteredAt: r.dead_lettered_at,
+      retryCount: r.retry_count,
+    }));
+  }
+
+  /** Requeues a dead-lettered op for the pusher: clears `dead_lettered_at` +
+   * resets `retry_count`/`next_attempt_at` so the NEXT `push()` picks it up
+   * immediately (it's back in `fetchPushable`'s eligible set). Guarded on
+   * `dead_lettered_at IS NOT NULL` so a stale/duplicate UI action is a no-op
+   * rather than clobbering an op that already pushed or was discarded.
+   * Idempotent — safe to call twice. */
+  retryDeadLettered(opId: string): void {
+    this.db.run(sql`
+      UPDATE oplog SET dead_lettered_at = NULL, retry_count = 0, next_attempt_at = NULL
+      WHERE op_id = ${opId} AND dead_lettered_at IS NOT NULL
+    `);
+    logger.info('SyncEngine: dead-lettered op requeued for retry', { opId });
+  }
+
+  /**
+   * Discards a dead-lettered op (Task 5's DLQ "discard" action, spec §6.10):
+   * fetches the row's CURRENT server state via `sync_row_state` and applies
+   * it locally (full replace), then removes the local op. This is the
+   * "re-pull the row" half of discard — a permanently-rejected local write
+   * must never leave the row silently diverged from the server forever. If
+   * the server has no such row (e.g. a permanently-rejected INSERT never
+   * existed server-side), the local phantom row is deleted instead, so
+   * discard always converges local state to server truth.
+   *
+   * Idempotent — a second call for an already-discarded/retried op_id is a
+   * no-op (the guarded SELECT below finds nothing). Throws (leaving the op
+   * dead-lettered, untouched) if the `sync_row_state` RPC itself fails —
+   * discard must never silently drop the op on a transient network error.
+   */
+  async discardDeadLettered(opId: string): Promise<void> {
+    const op = this.db.get<{
+      op_id: string;
+      household_id: string;
+      table_name: string;
+      row_id: string;
+    }>(sql`
+      SELECT op_id, household_id, table_name, row_id FROM oplog
+      WHERE op_id = ${opId} AND dead_lettered_at IS NOT NULL
+    `);
+    if (!op) return; // already discarded/retried/never existed -- idempotent no-op
+
+    const rowState = this.transport.rowState;
+    if (!rowState) {
+      throw new Error('SyncEngine.discardDeadLettered: transport does not support rowState');
+    }
+
+    let state: Record<string, unknown> | null;
+    try {
+      state = await this.withTimeout((signal) =>
+        rowState(op.household_id, op.table_name, op.row_id, signal),
+      );
+    } catch (err) {
+      logger.warn('SyncEngine.discardDeadLettered: sync_row_state failed, op left dead-lettered', {
+        opId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+
+    const table = assertIdent(op.table_name);
+    this.db.transaction((tx) => {
+      if (state) {
+        // Full replace with the server's current row -- converges local
+        // state to server truth regardless of what the rejected write left
+        // behind locally.
+        const keys = Object.keys(state).map(assertIdent);
+        const colList = sql.raw(keys.join(', '));
+        const values = sql.join(
+          keys.map((k) => sql`${coerceValue(state![k])}`),
+          sql.raw(', '),
+        );
+        tx.run(sql`INSERT OR REPLACE INTO ${sql.raw(table)} (${colList}) VALUES (${values})`);
+      } else {
+        // No server truth for this row -- remove the local phantom row so
+        // discard can't leave it silently diverged forever (spec §6.10).
+        tx.run(
+          sql`DELETE FROM ${sql.raw(table)} WHERE id = ${op.row_id} AND household_id = ${op.household_id}`,
+        );
+      }
+      tx.run(sql`DELETE FROM oplog WHERE op_id = ${opId}`);
+    });
+    logger.info('SyncEngine: dead-lettered op discarded, row refreshed from server', { opId });
   }
 
   // ----- pusher -------------------------------------------------------------
@@ -734,6 +886,17 @@ export function createSupabaseSyncTransport(supabase: SupabaseClient): SyncTrans
         .abortSignal(signal);
       if (error) throw new Error(`sync_pull failed: ${error.message}`);
       return (data ?? []) as ServerOplogRow[];
+    },
+    async rowState(householdId, table, rowId, signal): Promise<Record<string, unknown> | null> {
+      const { data, error } = await supabase
+        .rpc('sync_row_state', {
+          p_household_id: householdId,
+          p_table: table,
+          p_row_id: rowId,
+        })
+        .abortSignal(signal);
+      if (error) throw new Error(`sync_row_state failed: ${error.message}`);
+      return (data ?? null) as Record<string, unknown> | null;
     },
   };
 }
