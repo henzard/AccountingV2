@@ -13,9 +13,9 @@ we really are.
       |
 2. Schema baselines (server) + contract tests
       |
-3. UnitOfWork, derived balances, envelope scopes  <-- in review (this doc)
+3. UnitOfWork, derived balances, envelope scopes
       |
-4. Rollover engine + wizard (deterministic envelope ids)
+4. Rollover engine + wizard (deterministic envelope ids)  <-- in review (this doc)
       |
 5. SyncEngine + Realtime + DLQ inbox + boot rework (two-device harness gate)
       |
@@ -41,7 +41,11 @@ pgTAP 50/50. On the Play internal track alongside slice 1.
 
 ### Slice 3 — UnitOfWork, derived balances, envelope scopes
 
-**State: in-review (Task 6 of 6 complete; slice PR pending).**
+**State: DELIVERED + Play.** PR #115 merged, CD publish green. CodeRabbit caught 6 Major
+
+- 2 Minor on the slice PR (uuid crash risk fixed via `expo-crypto`, period leak,
+  cross-household write guard, non-atomic audit, over-broad catch, query scoping) — all
+  fixed before merge. On the Play internal track alongside slices 1-2.
 
 | Task | Summary                                                                                                                                                                               | Commit(s)                                                                                                           |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -50,7 +54,7 @@ pgTAP 50/50. On the Play internal track alongside slice 1.
 | 3    | Envelope + transaction use cases rewired onto UnitOfWork; no `spent_cents` writes; exactly-one-op verified                                                                            | `452bbf5`                                                                                                           |
 | 4    | Migration 0012 drops `envelopes.spent_cents` + `is_synced` (~25 files touched); repos wired to derived balances                                                                       | `7415c63` + fix `f4761b1` (SyncOrchestrator dead `isSynced` update removed — was throwing `SQLITE_ERROR` post-0012) |
 | 5    | Presentation layer verified/rewired onto derived balances; 0 raw `spent_cents` column reads remain; two deleted-machinery call sites documented as non-crashing (slice-5-owned) shims | `efea317`                                                                                                           |
-| 6    | EMF reconcile mechanism reviewed for removal — **kept, not removed** (see disposition below); status doc (this file); spec as-built note; final gate                                  | pending                                                                                                             |
+| 6    | EMF reconcile mechanism reviewed for removal — **kept, not removed** (see disposition below); status doc (this file); spec as-built note; final gate                                  | `0e7f856` (+ CodeRabbit fix `aea6360` pre-merge)                                                                    |
 
 **Carried forward (Critical, not a regression — pre-existing on the shipped build, recorded
 spec §4.5):** `ConfirmSlipUseCase.execute` wraps its multi-item write loop in
@@ -82,7 +86,32 @@ mechanism for real) or keep it as the permanent safety net.
 
 ### Slice 4 — Rollover engine + wizard
 
-**State: pending.** Not started.
+**State: in-review (Task 4 of 4 complete; slice PR pending).**
+
+| Task | Summary                                                                                                                                                                                                                                                                                 | Commit(s)           |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| 1    | `StartNewPeriodUseCase` — real period rollover: copies period-scoped envelopes forward, skips persistent/archived; deterministic `uuidv5` target ids for cross-device idempotency                                                                                                       | `0722ea8`           |
+| 2    | EMF create-time duplicate guard in `CreateEnvelopeUseCase` (rejects a second active `emergency_fund` per household); latent boolean-binding fix                                                                                                                                         | `8feaa43`           |
+| 3    | `RolloverWizard` (review → adjust → commit) replaces the lying `PeriodRolloverModal`                                                                                                                                                                                                    | `2bee155`           |
+| 4    | Baby Step 1/3 rollover regression test + fix (`ReconcileBabyStepsUseCase` read the EMF period-filtered instead of scope-aware — real remaining bug, fixed); 2 Task-3 minors folded in (dismiss-during-commit guard, allocation-state reset); status doc; spec as-built note; final gate | pending (this task) |
+
+**Product decision (surfaced for owner, default chosen):** the rollover wizard's
+dismiss-without-commit path does not acknowledge the period, so it re-pops on every
+dashboard visit until the user actually commits — a deliberate "forces the monthly
+review" default, stricter than the old (also-non-dismissible) modal. Owner can switch
+to an ack-on-dismiss "remind me later" behavior later if the forced-review default
+proves too aggressive in practice.
+
+**Baby Step regression disposition:** this was a real remaining bug, not already fixed
+by slices 3+4's balance/copy-forward work alone. Persistent EMF scope stops the
+_balance_ resetting monthly and the rollover engine correctly never recreates the EMF
+row, but `ReconcileBabyStepsUseCase`'s envelope read still filtered by strict
+`period_start` equality, which excludes the persistent EMF the instant the household
+rolls onto a new period (its `period_start` column is fixed at creation and never
+updated). Fixed by switching to the same `envelopeScopeCondition` predicate already used
+by `StartNewPeriodUseCase`/`getEnvelopeSpentCents`. Regression-proven both ways in
+`tests/realsql/babyStepRolloverRegression.test.ts` (fails pre-fix, passes post-fix,
+verified by reverting and re-applying the fix).
 
 ### Slice 5 — SyncEngine + Realtime + DLQ inbox + boot rework
 
@@ -99,7 +128,8 @@ e2e tier + CD hard-dependency on it.
 ## Notes
 
 - "DELIVERED + Play" means merged to `master` and live on the Google Play internal
-  testing track, per the existing CD pipeline (slice 1/2 only — slices 3+ are app-internal
-  refactors with no store-facing surface change yet).
+  testing track, per the existing CD pipeline (slices 1-3; slice 4+ are app-internal
+  refactors with no store-facing surface change yet, riding the same CD pipeline once
+  merged).
 - Slice 3's own plan: `docs/superpowers/plans/2026-07-03-slice3-unitofwork-derived-balances.md`.
 - Full target-state spec: `docs/superpowers/specs/2026-07-03-oplog-sync-correctness-design.md`.

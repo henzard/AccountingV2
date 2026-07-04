@@ -12,12 +12,21 @@
  * EnvelopeBalanceQuery's own unit/realsql tests. Every envelope fixture here
  * uses spentCents: 0, so an empty Map (spentCents defaults to 0 per envelope)
  * reproduces the same inputs to BudgetBalanceCalculator/BabyStepEvaluator.
+ *
+ * envelopeScopeCondition is stubbed to a harmless placeholder value (rather
+ * than left unmocked/undefined) — this test's `db.select().from().where()`
+ * mock ignores whatever condition object is passed to `.where()` entirely
+ * (it just returns the fixture rows for that call index), so the real
+ * period/persistent-scope SQL predicate is irrelevant here; only the
+ * envelope-row-query realsql tests (`tests/realsql/babyStepRolloverRegression.test.ts`)
+ * exercise the real predicate against a real SQLite engine.
  */
 
 import { ReconcileBabyStepsUseCase } from '../ReconcileBabyStepsUseCase';
 
 jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
+  envelopeScopeCondition: jest.fn(() => 'scope-condition'),
 }));
 
 beforeAll(() => {

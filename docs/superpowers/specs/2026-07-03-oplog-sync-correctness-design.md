@@ -156,6 +156,61 @@ What actually shipped for this section, task by task (full detail: `.superpowers
   either add a create-time uniqueness guard (then retire this mechanism for real) or keep
   it permanently.
 
+### Slice-4 as-built note (2026-07-04)
+
+What actually shipped for the rollover engine (full detail: `.superpowers/sdd/task-{1..4}-report.md`):
+
+- **`StartNewPeriodUseCase`** (`src/domain/budgets/StartNewPeriodUseCase.ts`): copies
+  every non-archived, non-deleted PERIOD-scoped envelope (`spending`/`income`/`utility`)
+  from `fromPeriodStart` forward into `toPeriodStart`, preserving `allocatedCents`;
+  PERSISTENT-scope envelopes (`sinking_fund`/`emergency_fund`/`savings`/`baby_step`) are
+  never touched — same row, all-time derived balance, exactly as §3 "Envelope scopes"
+  specifies. Confirms §6.6's resolution as built: each copy's target id is
+  `uuidv5(householdId:toPeriodStart:sourceEnvelopeId, APP_NAMESPACE)` (`uuid` package's
+  `v5()`, per the noted `expo-crypto` limitation), so two devices rolling the same
+  period offline compute the identical target id and converge instead of duplicating;
+  re-running `execute()` (crash retry, replayed op) skips any target id that already
+  exists rather than throwing or duplicating.
+- **EMF create-time duplicate guard**: `CreateEnvelopeUseCase` now rejects a second
+  active `emergency_fund` insert for the same household with `DUPLICATE_EMERGENCY_FUND`
+  (checked against non-archived, non-deleted rows) — this is the create-time uniqueness
+  guard slice 3's disposition flagged as the missing piece. `ReconcileEmergencyFundTypeUseCase`
+  / `emergencyFundReconcileStore` / the duplicate-EMF banner are kept in place as the
+  backstop for rows that still slip through (e.g. two offline devices each creating one
+  before ever syncing) — the source-level race is closed, not just the symptom.
+- **RolloverWizard** (`src/presentation/screens/budgets/RolloverWizard.tsx`): replaces
+  `PeriodRolloverModal`, which claimed "Your envelopes have been reset" while doing
+  nothing. The wizard actually runs `StartNewPeriodUseCase` through a 3-step
+  review → adjust → commit flow, applies any allocation edits as ordinary synced-repo
+  `update` ops (own oplog row, same as every other write), and acks the period only on
+  successful commit. Task 4 folded in two Task-3 minors: the close button / Android
+  `onRequestClose` / any dismiss path is now a no-op while a commit is in flight (guards
+  against racing the commit's own post-await state updates, backed by a mounted-ref
+  check mirroring the load effect's existing cancellation pattern), and the
+  per-envelope allocation-input state is cleared whenever the wizard resets for a new
+  period rather than carrying stale entries forward.
+- **Baby Step 1/3 regression — confirmed fixed, with one remaining gap closed.**
+  Persistent EMF scope (slice 3) means the emergency_fund row's balance never resets
+  monthly, and slice 4's copy-forward correctly never recreates or moves it. But
+  `ReconcileBabyStepsUseCase`'s envelope read was still `eq(envelopes.periodStart,
+currentPeriodStart)` — a strict equality filter that excludes the persistent EMF the
+  moment the household rolls onto a new period, since the EMF's `period_start` column is
+  fixed at whatever period it was created in and never updated. This reintroduced the
+  exact regression persistent scope was meant to close, just one layer up (the read
+  side, not the balance side). Fixed by switching the query to the same
+  `envelopeScopeCondition` predicate `StartNewPeriodUseCase` and `getEnvelopeSpentCents`
+  already use (period-scoped types filtered by period, persistent types read
+  unconditionally). Proven both ways in
+  `tests/realsql/babyStepRolloverRegression.test.ts` against a real migrated SQLite DB:
+  reverting the fix reproduces the regression (Step 1 flips to incomplete after
+  rollover); with the fix, Step 1 stays complete across a real `StartNewPeriodUseCase`
+  rollover.
+- **Boot safety.** Nothing in this slice touches the sync/oplog wiring itself — rollover
+  and EMF-guard writes append local oplog rows through the same `createSyncedRepo` /
+  `UnitOfWork` path every other domain write already uses (proven safe in slice 3), and
+  the oplog stays dark (no server push) until slice 5's SyncEngine ships. No new
+  boot-time throw paths were introduced.
+
 ## 4. Client sync engine & one-off fixes
 
 ### SyncEngine (replaces SyncOrchestrator + RestoreService + NetworkObserver wiring)

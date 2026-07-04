@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, Modal, TouchableOpacity } from 'react-native';
 import { Text, Button, TextInput, ActivityIndicator, Surface } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -123,6 +123,18 @@ export function RolloverWizard({
   const [commitError, setCommitError] = useState<string | null>(null);
   const [committedCount, setCommittedCount] = useState<number | null>(null);
 
+  // Mirrors the load effect's local `cancelled` flag, but at component scope:
+  // guards setState calls made after `handleCommit`'s awaits so a commit that
+  // resolves after the wizard has been unmounted (e.g. the screen navigated
+  // away mid-write) never touches state on an unmounted component.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => (): void => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
@@ -154,11 +166,19 @@ export function RolloverWizard({
   }, [visible, householdId, fromPeriodStart]);
 
   // Reset transient wizard state each time it is (re)opened for a new period.
+  // Clearing `allocationStr` here (not just step/commit state) matters because
+  // it's keyed by envelope id, and a different period generally has a
+  // different envelope id set — without this reset, a previous period's
+  // edited-string entries would linger in state (harmless for a truly new id,
+  // but wrong if a later period ever reused an id, and just dead memory
+  // otherwise). The load effect below repopulates fresh defaults once
+  // `loadPeriodScopedEnvelopes` resolves for the new `fromPeriodStart`.
   useEffect(() => {
     if (visible) {
       setStep('review');
       setCommitError(null);
       setCommittedCount(null);
+      setAllocationStr({});
     }
   }, [visible, toPeriodStart]);
 
@@ -195,8 +215,14 @@ export function RolloverWizard({
   }, []);
 
   const handleDismiss = useCallback((): void => {
+    // Guard against the close button, Android back button (onRequestClose)
+    // and any other dismiss path firing while a commit is in flight —
+    // dismissing mid-commit would call onDone() (typically unmounting/hiding
+    // this component) while handleCommit's awaited writes are still pending,
+    // racing its own post-await setState calls below.
+    if (committing) return;
     onDone();
-  }, [onDone]);
+  }, [committing, onDone]);
 
   const handleCommit = useCallback(async (): Promise<void> => {
     setCommitting(true);
@@ -204,6 +230,7 @@ export function RolloverWizard({
     try {
       const useCase = new StartNewPeriodUseCase(db, syncDeps ?? {});
       const result = await useCase.execute({ householdId, fromPeriodStart, toPeriodStart });
+      if (!mountedRef.current) return;
       if (!result.success) {
         setCommitError(result.error.message);
         return;
@@ -219,11 +246,14 @@ export function RolloverWizard({
       }
 
       await AsyncStorage.setItem(`period_ack_${toPeriodStart}`, 'true');
+      if (!mountedRef.current) return;
       setCommittedCount(result.data.count);
     } catch (err) {
-      setCommitError(err instanceof Error ? err.message : 'Failed to start new period');
+      if (mountedRef.current) {
+        setCommitError(err instanceof Error ? err.message : 'Failed to start new period');
+      }
     } finally {
-      setCommitting(false);
+      if (mountedRef.current) setCommitting(false);
     }
   }, [householdId, fromPeriodStart, toPeriodStart, edits, syncDeps]);
 
@@ -251,10 +281,12 @@ export function RolloverWizard({
           </Text>
           <TouchableOpacity
             onPress={handleDismiss}
+            disabled={committing}
             accessibilityRole="button"
             accessibilityLabel="Close rollover wizard"
+            accessibilityState={{ disabled: committing }}
             testID="rollover-dismiss"
-            style={styles.closeBtn}
+            style={[styles.closeBtn, committing && styles.closeBtnDisabled]}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
             <Text style={{ color: colors.onSurfaceVariant, fontSize: fontSize.lg }}>✕</Text>
@@ -477,6 +509,9 @@ const styles = StyleSheet.create({
     minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  closeBtnDisabled: {
+    opacity: 0.4,
   },
   container: { padding: spacing.base, paddingBottom: spacing.xxl, gap: spacing.sm },
   loadingRow: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },

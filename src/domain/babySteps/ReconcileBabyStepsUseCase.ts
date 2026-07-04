@@ -13,7 +13,7 @@
  * Spec §ReconcileBabyStepsUseCase.
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes, debts, babySteps } from '../../data/local/schema';
@@ -22,7 +22,10 @@ import { evaluate } from './BabyStepEvaluator';
 import type { BabyStepStatus, ReconcileResult } from './types';
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';
 import type { DebtEntity } from '../debtSnowball/DebtEntity';
-import { getEnvelopeSpentCents } from '../../data/local/balances/EnvelopeBalanceQuery';
+import {
+  envelopeScopeCondition,
+  getEnvelopeSpentCents,
+} from '../../data/local/balances/EnvelopeBalanceQuery';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 
@@ -31,14 +34,26 @@ export class ReconcileBabyStepsUseCase {
 
   async execute(householdId: string, currentPeriodStart: string): Promise<Result<ReconcileResult>> {
     try {
-      // 1. Read current-period envelopes
+      // 1. Read "current" envelopes: period-scoped types matching currentPeriodStart,
+      // PLUS persistent types (emergency_fund, sinking_fund, savings, baby_step)
+      // unconditionally — see `envelopeScopeCondition`. A plain
+      // `eq(envelopes.periodStart, currentPeriodStart)` would wrongly exclude the
+      // persistent emergency_fund envelope the moment a rollover moves the
+      // household onto a new period (its row's period_start is fixed at whatever
+      // period it was created in and never changes), which is exactly the "Baby
+      // Step 1/3 regress every month" bug: findEMF() in BabyStepEvaluator would see
+      // no envelopes at all and report Step 1/3 as incomplete even though the EMF
+      // balance never moved. Using the shared scope condition (same predicate
+      // StartNewPeriodUseCase and getEnvelopeSpentCents already use) reads the EMF
+      // period-agnostically instead.
       const envelopeRows = await this.db
         .select()
         .from(envelopes)
         .where(
           and(
             eq(envelopes.householdId, householdId),
-            eq(envelopes.periodStart, currentPeriodStart),
+            isNull(envelopes.deletedAt),
+            envelopeScopeCondition(currentPeriodStart),
           ),
         );
 

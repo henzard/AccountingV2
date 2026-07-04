@@ -272,6 +272,47 @@ describe('RolloverWizard', () => {
     expect(mockSetItem).toHaveBeenCalledTimes(1);
   });
 
+  it('disables the dismiss (close) button while a commit is in flight, and re-enables on completion', async () => {
+    let resolveExecute: ((value: { success: true; data: { count: number } }) => void) | undefined;
+    mockExecute.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveExecute = resolve;
+        }),
+    );
+
+    const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+    await findByTestId('rollover-step-review');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-adjust');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-commit');
+
+    const dismissBefore = getByTestId('rollover-dismiss');
+    expect(dismissBefore.props.accessibilityState?.disabled ?? dismissBefore.props.disabled).toBe(
+      false,
+    );
+
+    fireEvent.press(getByTestId('rollover-commit'));
+
+    await waitFor(() => {
+      const dismiss = getByTestId('rollover-dismiss');
+      expect(dismiss.props.accessibilityState?.disabled ?? dismiss.props.disabled).toBeTruthy();
+    });
+
+    // Pressing dismiss while committing must not call onDone.
+    fireEvent.press(getByTestId('rollover-dismiss'));
+    expect(baseProps.onDone).not.toHaveBeenCalled();
+
+    resolveExecute?.({ success: true, data: { count: 2 } });
+
+    await findByTestId('rollover-success');
+    const dismissAfter = getByTestId('rollover-dismiss');
+    expect(dismissAfter.props.accessibilityState?.disabled ?? dismissAfter.props.disabled).toBe(
+      false,
+    );
+  });
+
   it('shows a success state after commit and calls onDone from it', async () => {
     const onDone = jest.fn();
     const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} onDone={onDone} />);
