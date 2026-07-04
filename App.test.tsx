@@ -357,4 +357,57 @@ describe('App boot (Task 5)', () => {
     expect(mockSchedulerInstance.stop).toHaveBeenCalled();
     expect(mockSchedulerInstance.requestSync).toHaveBeenCalledWith('hh-2', { immediate: true });
   });
+
+  it('degrades gracefully instead of hanging on splash forever when local init throws (EnsureHouseholdUseCase rejects)', async () => {
+    // Regression test for the "splash hangs forever if local init throws"
+    // boot-hang: EnsureHouseholdUseCase.execute() is normally only ever
+    // mocked with mockResolvedValue in this file -- a REJECTED local init
+    // (a real SQLite constraint violation, null, schema mismatch, ...)
+    // previously rethrew out of the cold-start effect's un-.catch()'d async
+    // IIFE, skipping `setLocalBootReady(true)` so `bootDecided` never became
+    // true, `SplashScreen.hideAsync()` was never called, and the render gate
+    // returned `null` forever -- a permanent splash/blank screen with no
+    // error UI and no recovery. This test hangs (times out waiting for
+    // 'root-navigator') and fails against the pre-fix code; it passes once
+    // the cold-start effect catches the error, captures it via
+    // `captureBoot`, and still resolves boot instead of rethrowing.
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandledRejection);
+
+    try {
+      setSession({ user: { id: 'user-local-init-throws' } });
+      mockEnsureExecute.mockRejectedValue(new Error('local sqlite boom'));
+
+      const { findByTestId } = render(<App />);
+
+      // (a) Must NOT hang on splash forever -- the app renders SOMETHING
+      // (here, the mocked RootNavigator) instead of `return null` forever.
+      await findByTestId('root-navigator');
+
+      // Flush any pending microtask/macrotask queues so a stray unhandled
+      // rejection from the old (buggy) code path has a chance to surface
+      // before we assert on `unhandledRejections` below.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // (b) The native splash screen must actually be dismissed.
+      expect(SplashScreen.hideAsync).toHaveBeenCalled();
+
+      // Degrades to the SAME "no household resolved" state
+      // EnsureHouseholdUseCase returning `{ success: false }` already
+      // produces -- RootNavigator already renders the create/join choice
+      // screen for an authenticated user with no household, so this is a
+      // safe, already-handled degrade rather than a new render path.
+      expect(useAppStore.getState().householdId).toBeNull();
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+
+    // (c) No unhandled rejection should have escaped from the boot sequence.
+    expect(unhandledRejections).toEqual([]);
+  });
 });

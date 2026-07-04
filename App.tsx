@@ -364,8 +364,20 @@ export default function App(): React.JSX.Element | null {
         try {
           await initSessionOnce(session.user.id);
         } catch (err) {
+          // A local SQLite failure inside EnsureHouseholdUseCase (constraint
+          // violation, null, schema mismatch, ...) must NEVER brick boot.
+          // Capture it for diagnostics, then DEGRADE gracefully instead of
+          // rethrowing into this un-.catch()'d async IIFE -- rethrowing would
+          // skip `setLocalBootReady(true)` below and leave `bootDecided`
+          // false forever, so the native splash screen (and the `return
+          // null` render gate) would never resolve. `householdId` is left
+          // null here, which is the SAME state EnsureHouseholdUseCase
+          // returning `{ success: false }` already produces (see
+          // `initSessionLocal` above) -- RootNavigator already renders the
+          // create/join choice screen (`CreateHouseholdNavigator`) for an
+          // authenticated user with no household, so this is a safe,
+          // already-handled degrade, not a new render path.
           captureBoot('initSession (cold start, local phase)', err);
-          throw err;
         }
         if (cancelled) return;
         bindCelebrationStore();
@@ -399,7 +411,16 @@ export default function App(): React.JSX.Element | null {
         return;
       }
 
-      await initSessionOnce(session.user.id);
+      try {
+        await initSessionOnce(session.user.id);
+      } catch (err) {
+        // Same non-fatal degrade as the cold-start effect above: this
+        // callback isn't awaited by anything that could surface a rejection
+        // (Supabase's onAuthStateChange listener), so an uncaught throw here
+        // would become an unhandled promise rejection instead of merely a
+        // captured, degraded boot -- and would skip `bindCelebrationStore()`.
+        captureBoot('initSession (SIGNED_IN listener)', err);
+      }
       bindCelebrationStore();
     });
 
