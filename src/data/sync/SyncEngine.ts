@@ -322,6 +322,20 @@ export class SyncEngine {
     return b ? { blocked: true, ...b } : { blocked: false };
   }
 
+  /** Diagnostic surface (Task 4's `syncStore.pendingCount`, Task 5's Sync
+   * Health UI): count of local oplog ops not yet pushed and not
+   * dead-lettered. Read-only — mirrors `fetchPushable`'s eligibility
+   * predicate minus the backoff-window clause (pending means "not yet
+   * synced", whether or not it's currently backing off), never mutates
+   * state. Global (not household-scoped), matching the pusher's own
+   * household-agnostic drain. */
+  getPendingPushCount(): number {
+    const row = this.db.get<{ c: number }>(sql`
+      SELECT COUNT(*) AS c FROM oplog WHERE pushed_at IS NULL AND dead_lettered_at IS NULL
+    `);
+    return row ? Number(row.c) : 0;
+  }
+
   // ----- pusher -------------------------------------------------------------
 
   private async drainPush(): Promise<PushSummary> {

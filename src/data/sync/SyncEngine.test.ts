@@ -723,3 +723,61 @@ describe('SyncEngine.sync + single-flight', () => {
     raw.close();
   });
 });
+
+describe('SyncEngine.getPendingPushCount', () => {
+  it('is 0 with no oplog rows', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const t = new FakeTransport();
+    const engine = makeEngine(raw, t);
+    expect(engine.getPendingPushCount()).toBe(0);
+    raw.close();
+  });
+
+  it('counts unpushed, non-dead-lettered ops across households (push is household-agnostic)', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    seedHousehold(raw, 'hh-2');
+    insertOplog(raw, { household_id: 'hh-1' });
+    insertOplog(raw, { household_id: 'hh-2' });
+    const t = new FakeTransport();
+    const engine = makeEngine(raw, t);
+    expect(engine.getPendingPushCount()).toBe(2);
+    raw.close();
+  });
+
+  it('excludes pushed and dead-lettered ops, and drops to 0 after a full drain', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    insertOplog(raw); // will push successfully
+    const rejectedOpId = insertOplog(raw, { row_id: 'd2' });
+    const t = new FakeTransport();
+    t.pushImpl = async (ops) =>
+      ops.map((o) => ({
+        op_id: o.op_id,
+        status: o.op_id === rejectedOpId ? 'rejected' : 'applied',
+        code: o.op_id === rejectedOpId ? 'forbidden_column' : null,
+      }));
+    const engine = makeEngine(raw, t);
+
+    expect(engine.getPendingPushCount()).toBe(2);
+    await engine.push();
+    // One applied (pushed_at set) + one permanently rejected (dead-lettered) -> both excluded.
+    expect(engine.getPendingPushCount()).toBe(0);
+    raw.close();
+  });
+
+  it('reflects a backed-off (transient) op as still pending', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    insertOplog(raw);
+    const t = new FakeTransport();
+    t.pushImpl = async (ops) =>
+      ops.map((o) => ({ op_id: o.op_id, status: 'rejected', code: '23502' }));
+    const engine = makeEngine(raw, t);
+
+    await engine.push();
+    expect(engine.getPendingPushCount()).toBe(1);
+    raw.close();
+  });
+});
