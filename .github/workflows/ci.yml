@@ -51,6 +51,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
       - uses: supabase/setup-cli@v2
         with:
           version: latest
@@ -63,6 +71,15 @@ jobs:
 
       - name: Run pgTAP suite
         run: supabase test db
+
+      - name: Run two-device convergence tier (real sync_push/sync_pull)
+        run: npx jest --selectProjects twodevice
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: '54322'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: postgres
 
   e2e-android:
     if: github.ref == 'refs/heads/master'
