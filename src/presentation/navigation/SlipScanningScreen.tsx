@@ -20,7 +20,6 @@ import { DrizzleUserConsentRepository } from '../../data/repositories/DrizzleUse
 import { SupabaseSlipImageUploader } from '../../infrastructure/slipScanning/SupabaseSlipImageUploader';
 import { ExpoSlipImageCompressor } from '../../infrastructure/slipScanning/ExpoSlipImageCompressor';
 import { EdgeFunctionSlipExtractor } from '../../infrastructure/slipScanning/EdgeFunctionSlipExtractor';
-import { CreateTransactionUseCase } from '../../domain/transactions/CreateTransactionUseCase';
 import { AuditLogger } from '../../data/audit/AuditLogger';
 import { BudgetPeriodEngine } from '../../domain/shared/BudgetPeriodEngine';
 import { db } from '../../data/local/db';
@@ -101,21 +100,7 @@ export function SlipScanningScreen(): React.JSX.Element {
   const { start, progress } = useSlipScanner(slipFlow);
 
   const confirmSlipUseCase = useMemo(
-    () =>
-      new ConfirmSlipUseCase(
-        db,
-        (tx, input) =>
-          new CreateTransactionUseCase(tx as unknown as typeof db, slipAudit, {
-            householdId: input.householdId,
-            envelopeId: input.envelopeId,
-            amountCents: input.amountCents,
-            transactionDate: input.transactionDate,
-            payee: null,
-            description: input.description,
-            slipId: input.slipId,
-          }),
-        slipQueueRepo,
-      ),
+    () => new ConfirmSlipUseCase(db, slipQueueRepo, { audit: slipAudit }),
     [],
   );
 

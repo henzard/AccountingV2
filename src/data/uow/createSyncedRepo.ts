@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { randomUUID } from 'expo-crypto';
-import { runInUnitOfWork, type PortableDb } from './UnitOfWork';
+import { runInUnitOfWork, type PortableDb, type UnitOfWork } from './UnitOfWork';
 
 /** Clamp applied to an `increment` write's arithmetic. */
 export type IncrementClamp = 'none' | 'floor_zero';
@@ -182,6 +182,88 @@ function assertRowMatched(
 }
 
 /**
+ * Performs one row insert + its paired oplog append against an ALREADY-OPEN
+ * `uow` (the callback argument `runInUnitOfWork` hands to its `fn`), instead
+ * of opening a new transaction of its own. `createSyncedRepo(...).insert` is
+ * a thin wrapper around this for the common single-entity-per-transaction
+ * case.
+ *
+ * Call this directly — inside your own single `runInUnitOfWork` callback —
+ * when several writes across one or more tables must share ONE atomic
+ * transaction. `ConfirmSlipUseCase` is the motivating case (spec §4.5 fix):
+ * it inserts N transaction rows and flips the slip to 'completed', and every
+ * one of those writes must commit or roll back together. Looping calls to
+ * `createSyncedRepo(...).insert` would instead open N *separate*
+ * transactions — item 1 could commit while item 2 fails, the exact bug this
+ * primitive exists to avoid.
+ */
+export function insertRowWithinUow(
+  uow: UnitOfWork,
+  tableName: string,
+  row: Record<string, unknown>,
+  ctx: SyncedRepoCtx,
+): void {
+  assertSafeIdent(tableName);
+  const rowId = row.id;
+  const householdId = row.household_id;
+  if (typeof rowId !== 'string' || typeof householdId !== 'string') {
+    throw new Error('insertRowWithinUow: row.id and row.household_id must be strings');
+  }
+
+  const columns = Object.keys(row);
+  columns.forEach(assertSafeIdent);
+  const columnList = sql.raw(columns.join(', '));
+  const values = sql.join(
+    columns.map((column) => sql`${row[column]}`),
+    sql.raw(', '),
+  );
+  uow.db.run(sql`INSERT INTO ${sql.raw(tableName)} (${columnList}) VALUES (${values})`);
+
+  uow.appendOp({
+    opId: resolveOpId(ctx),
+    householdId,
+    tableName,
+    rowId,
+    opType: 'insert',
+    payload: row,
+    actorUserId: ctx.actorUserId,
+    deviceId: ctx.deviceId,
+    clientCreatedAt: ctx.clock(),
+  });
+}
+
+/**
+ * Same as `insertRowWithinUow`, but for an `update` — see that function's
+ * doc for when to reach for this instead of `createSyncedRepo(...).update`.
+ */
+export function updateRowWithinUow(
+  uow: UnitOfWork,
+  tableName: string,
+  id: string,
+  householdId: string,
+  fields: Record<string, unknown>,
+  ctx: SyncedRepoCtx,
+): void {
+  assertSafeIdent(tableName);
+  const result = uow.db.run(
+    sql`UPDATE ${sql.raw(tableName)} SET ${buildAssignments(fields)} WHERE id = ${id} AND household_id = ${householdId}`,
+  );
+  assertRowMatched(tableName, id, householdId, extractChanges(result));
+
+  uow.appendOp({
+    opId: resolveOpId(ctx),
+    householdId,
+    tableName,
+    rowId: id,
+    opType: 'update',
+    payload: fields,
+    actorUserId: ctx.actorUserId,
+    deviceId: ctx.deviceId,
+    clientCreatedAt: ctx.clock(),
+  });
+}
+
+/**
  * Derives a small write-only repository over `tableName`: every write
  * performs the entity write AND appends exactly one matching local `oplog`
  * row, in ONE `db.transaction` (via `runInUnitOfWork`). This replaces the
@@ -198,55 +280,13 @@ export function createSyncedRepo(db: PortableDb, config: CreateSyncedRepoConfig)
 
   return {
     insert(row, ctx) {
-      const rowId = row.id;
-      const householdId = row.household_id;
-      if (typeof rowId !== 'string' || typeof householdId !== 'string') {
-        throw new Error('createSyncedRepo.insert: row.id and row.household_id must be strings');
-      }
-
-      runInUnitOfWork(db, (uow) => {
-        const columns = Object.keys(row);
-        columns.forEach(assertSafeIdent);
-        const columnList = sql.raw(columns.join(', '));
-        const values = sql.join(
-          columns.map((column) => sql`${row[column]}`),
-          sql.raw(', '),
-        );
-        uow.db.run(sql`INSERT INTO ${sql.raw(tableName)} (${columnList}) VALUES (${values})`);
-
-        uow.appendOp({
-          opId: resolveOpId(ctx),
-          householdId,
-          tableName,
-          rowId,
-          opType: 'insert',
-          payload: row,
-          actorUserId: ctx.actorUserId,
-          deviceId: ctx.deviceId,
-          clientCreatedAt: ctx.clock(),
-        });
-      });
+      runInUnitOfWork(db, (uow) => insertRowWithinUow(uow, tableName, row, ctx));
     },
 
     update(id, householdId, fields, ctx) {
-      runInUnitOfWork(db, (uow) => {
-        const result = uow.db.run(
-          sql`UPDATE ${sql.raw(tableName)} SET ${buildAssignments(fields)} WHERE id = ${id} AND household_id = ${householdId}`,
-        );
-        assertRowMatched(tableName, id, householdId, extractChanges(result));
-
-        uow.appendOp({
-          opId: resolveOpId(ctx),
-          householdId,
-          tableName,
-          rowId: id,
-          opType: 'update',
-          payload: fields,
-          actorUserId: ctx.actorUserId,
-          deviceId: ctx.deviceId,
-          clientCreatedAt: ctx.clock(),
-        });
-      });
+      runInUnitOfWork(db, (uow) =>
+        updateRowWithinUow(uow, tableName, id, householdId, fields, ctx),
+      );
     },
 
     softDelete(id, householdId, ctx) {

@@ -139,8 +139,22 @@ describe('Non-Atomic Writes — DeleteTransactionUseCase (fixed: balance is deri
   });
 });
 
-describe('Non-Atomic Writes — ConfirmSlipUseCase (Correct Case)', () => {
-  it('verifies ConfirmSlipUseCase DOES use db.transaction()', () => {
+describe('Non-Atomic Writes — ConfirmSlipUseCase (FIXED: spec §4.5 carried Critical)', () => {
+  /**
+   * FIXED (slice 6, task 2): the old `await this.db.transaction(async (tx) =>
+   * {...})` looked atomic but wasn't — drizzle's expo-sqlite `db.transaction`
+   * runs its callback in SYNC mode and does not await an async callback, so
+   * COMMIT fired at the first `await` inside the loop (the first item's
+   * `await usecase.execute()`), before later items ran. A 2-item slip whose
+   * second item failed left the first item's transaction permanently
+   * committed. Every test in this describe block used to mock
+   * `db.transaction` as a function that ITSELF awaited the async callback —
+   * which faithfully emulates Node's Promise semantics but NOT expo-sqlite's
+   * real sync-mode driver, hiding the bug. See
+   * `tests/realsql/confirmSlipAtomicity.test.ts` for the real-driver proof
+   * that a mid-loop failure now rolls back every item.
+   */
+  it('verifies ConfirmSlipUseCase no longer wraps item writes in an async db.transaction() callback', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
@@ -148,7 +162,17 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (Correct Case)', () => {
       'utf8',
     );
 
-    expect(source).toContain('this.db.transaction(');
+    // The old non-atomic shape: an async callback handed to db.transaction()
+    // as a LIVE statement (the header comment above intentionally quotes
+    // this old shape as prose, so strip comments before checking for code).
+    const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(withoutComments).not.toMatch(/\.transaction\(/);
+    // The fixed shape: every item write + the slip completion go through ONE
+    // synchronous runInUnitOfWork call, using the low-level within-uow
+    // primitives directly rather than an async CreateTransactionUseCase.
+    expect(source).toContain('runInUnitOfWork(');
+    expect(source).toContain('insertRowWithinUow(');
+    expect(source).toContain('updateRowWithinUow(');
   });
 
   it('verifies ConfirmSlipUseCase marks slip as failed on rollback', () => {
@@ -163,42 +187,15 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (Correct Case)', () => {
     expect(source).toContain('SLIP_PARTIAL_SAVE_FAILED');
   });
 
-  it('confirms the transaction wrapper provides atomicity for multi-item slips', async () => {
-    let transactionCallbackCalled = false;
+  it('verifies ConfirmSlipUseCase guards against duplicate writes on a double-confirm', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../domain/slipScanning/ConfirmSlipUseCase.ts'),
+      'utf8',
+    );
 
-    const db = {
-      transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => {
-        transactionCallbackCalled = true;
-        const txProxy = {};
-        return callback(txProxy);
-      }),
-    } as any;
-
-    const successFactory = (_tx: any, input: any) => ({
-      execute: () => Promise.resolve({ success: true, data: { id: 'tx-' + input.envelopeId } }),
-    });
-
-    const repo = {
-      update: jest.fn().mockResolvedValue(undefined),
-    };
-
-    const { ConfirmSlipUseCase } = require('../../domain/slipScanning/ConfirmSlipUseCase');
-
-    const usecase = new ConfirmSlipUseCase(db, successFactory, repo);
-    const result = await usecase.execute({
-      slipId: 'slip-1',
-      householdId: HOUSEHOLDS.kruger.id,
-      transactionDate: '2026-06-15',
-      items: [
-        { description: 'Item 1', amountCents: 5000, envelopeId: KRUGER_ENVELOPES[0].id },
-        { description: 'Item 2', amountCents: 3000, envelopeId: KRUGER_ENVELOPES[1].id },
-      ],
-    });
-
-    expect(transactionCallbackCalled).toBe(true);
-    expect(result.success).toBe(true);
-    expect(result.data.transactionIds).toHaveLength(2);
-    expect(repo.update).toHaveBeenCalledWith('slip-1', { status: 'completed' });
+    expect(source).toMatch(/status === 'completed'/);
   });
 });
 
