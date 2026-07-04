@@ -1,9 +1,12 @@
 import { randomUUID } from 'expo-crypto';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
+import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
 import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
+import { isUniqueConstraintError } from '../../data/uow/createSyncedRepo';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
@@ -38,6 +41,44 @@ export class CreateEnvelopeUseCase {
       });
     }
 
+    // EMF create-time duplicate guard: only 'emergency_fund' is a household
+    // singleton (sinking funds and other persistent types are legitimately
+    // many). Without this, two devices — or two taps before the first
+    // insert lands — can each pass validation and insert their own active
+    // emergency_fund row, since nothing here previously checked for one.
+    // `ReconcileEmergencyFundTypeUseCase` / `emergencyFundReconcileStore`
+    // remain as an after-the-fact backstop for rows that still slip through
+    // (e.g. two offline devices creating one each before ever syncing), but
+    // this stops the common single-online-device double-tap/double-device
+    // race at the source.
+    //
+    // This SELECT-then-INSERT is itself a TOCTOU-vulnerable pre-check: two
+    // overlapping `execute()` calls on the same device/process can both
+    // pass this SELECT before either INSERT lands. The partial unique index
+    // `envelopes_one_active_emf_per_household` (0013_emf_unique.sql) is the
+    // actual DB-level guarantee — the `catch` around `repo.insert` below
+    // maps a same-device race loss to this same failure instead of letting
+    // it throw.
+    if (this.input.envelopeType === 'emergency_fund') {
+      const existingActive = await this.db
+        .select({ id: envelopes.id })
+        .from(envelopes)
+        .where(
+          and(
+            eq(envelopes.householdId, this.input.householdId),
+            eq(envelopes.envelopeType, 'emergency_fund'),
+            eq(envelopes.isArchived, false),
+            isNull(envelopes.deletedAt),
+          ),
+        );
+      if (existingActive.length > 0) {
+        return createFailure({
+          code: 'DUPLICATE_EMERGENCY_FUND',
+          message: 'An emergency fund envelope already exists for this household',
+        });
+      }
+    }
+
     const isSavingsLocked =
       this.input.envelopeType === 'savings' || this.input.envelopeType === 'emergency_fund';
 
@@ -66,8 +107,11 @@ export class CreateEnvelopeUseCase {
       name: envelope.name,
       allocated_cents: envelope.allocatedCents,
       envelope_type: envelope.envelopeType,
-      is_savings_locked: envelope.isSavingsLocked,
-      is_archived: envelope.isArchived,
+      // better-sqlite3 only binds numbers/strings/bigints/buffers/null —
+      // not JS booleans — so the boolean columns are written as 0/1 (same
+      // convention as StartNewPeriodUseCase's copy-forward insert).
+      is_savings_locked: envelope.isSavingsLocked ? 1 : 0,
+      is_archived: envelope.isArchived ? 1 : 0,
       period_start: envelope.periodStart,
       target_amount_cents: envelope.targetAmountCents,
       target_date: envelope.targetDate,
@@ -76,7 +120,22 @@ export class CreateEnvelopeUseCase {
     };
 
     const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
-    repo.insert(row, resolveSyncedRepoCtx(this.deps));
+    try {
+      repo.insert(row, resolveSyncedRepoCtx(this.deps));
+    } catch (err) {
+      // A same-device race that slipped past the pre-check above (two
+      // overlapping `execute()` calls both read "no existing active EMF")
+      // hits the partial unique index here instead. Translate that DB-level
+      // rejection into the same clean failure the pre-check returns, rather
+      // than letting a raw SqliteError escape to the caller.
+      if (this.input.envelopeType === 'emergency_fund' && isUniqueConstraintError(err)) {
+        return createFailure({
+          code: 'DUPLICATE_EMERGENCY_FUND',
+          message: 'An emergency fund envelope already exists for this household',
+        });
+      }
+      throw err;
+    }
 
     const envelopeRecord: Record<string, unknown> = {
       id: envelope.id,

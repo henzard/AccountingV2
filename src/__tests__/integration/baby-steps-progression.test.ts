@@ -29,6 +29,7 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => `uuid-${Date.now()}-${Math.r
 // (spentCents defaults to 0 per envelope) reproduces the same inputs.
 jest.mock('../../data/local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
+  envelopeScopeCondition: jest.fn(() => 'scope-condition'),
 }));
 
 beforeEach(() => resetFactoryCounter());

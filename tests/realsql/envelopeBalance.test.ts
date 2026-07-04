@@ -9,6 +9,28 @@ import {
 
 const NOW = '2026-01-01T00:00:00.000Z';
 
+/**
+ * Downgrades every `emergency_fund`-typed entry after the first to
+ * `spending`. `envelopes_one_active_emf_per_household` (0013_emf_unique.sql)
+ * now enforces at most one ACTIVE emergency_fund row per household at the
+ * DB level, so these fuzz/perf fixtures — which seed rows directly via raw
+ * SQL and don't otherwise care which type each row has — must not generate
+ * more than one for the same household. Only the type differs; the row
+ * count and shape stay identical, so this doesn't change what either test
+ * is actually verifying (total spend conservation / query performance).
+ */
+function dedupeEmergencyFund<T extends { envelopeType: string }>(entries: T[]): T[] {
+  let seenEmf = false;
+  return entries.map((entry) => {
+    if (entry.envelopeType !== 'emergency_fund') return entry;
+    if (!seenEmf) {
+      seenEmf = true;
+      return entry;
+    }
+    return { ...entry, envelopeType: 'spending' };
+  });
+}
+
 function seedHousehold(db: Database.Database, id: string): void {
   db.prepare(
     `INSERT INTO households (id, name, payday_day, created_at, updated_at)
@@ -220,7 +242,7 @@ describe('getEnvelopeSpentCents (real SQLite)', () => {
             const knownIndices = new Set(envelopeSeeds.map((e) => e.index));
 
             seedHousehold(raw, householdId);
-            for (const e of envelopeSeeds) {
+            for (const e of dedupeEmergencyFund(envelopeSeeds)) {
               seedEnvelope(raw, {
                 id: `env-${e.index}`,
                 householdId,
@@ -265,13 +287,18 @@ describe('getEnvelopeSpentCents (real SQLite)', () => {
 
       const types = ['spending', 'income', 'utility', 'savings', 'emergency_fund'];
       const envelopeIds: string[] = [];
-      for (let i = 0; i < 20; i++) {
-        const id = `env-perf-${i}`;
-        envelopeIds.push(id);
-        seedEnvelope(raw, {
-          id,
-          householdId,
+      const perfSeeds = dedupeEmergencyFund(
+        Array.from({ length: 20 }, (_, i) => ({
+          id: `env-perf-${i}`,
           envelopeType: types[i % types.length],
+        })),
+      );
+      for (const seed of perfSeeds) {
+        envelopeIds.push(seed.id);
+        seedEnvelope(raw, {
+          id: seed.id,
+          householdId,
+          envelopeType: seed.envelopeType,
           periodStart,
         });
       }

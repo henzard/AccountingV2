@@ -1,7 +1,7 @@
 /**
  * Consolidated tests for dashboard components.
  * Covers: BabyStepsBar, BudgetRingCard, EnvelopeTile, HeroSummaryCard,
- * RamseyScoreBadge, BabyStepsCard, PeriodRolloverModal.
+ * RamseyScoreBadge, BabyStepsCard.
  */
 
 import React from 'react';
@@ -113,7 +113,6 @@ import { EnvelopeTile } from '../../screens/dashboard/components/EnvelopeTile';
 import { HeroSummaryCard } from '../../screens/dashboard/components/HeroSummaryCard';
 import { RamseyScoreBadge } from '../../screens/dashboard/components/RamseyScoreBadge';
 import { BabyStepsCard } from '../../screens/dashboard/BabyStepsCard';
-import { PeriodRolloverModal } from '../../screens/dashboard/PeriodRolloverModal';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function makeStatuses(completedSteps: number[]): BabyStepStatus[] {
@@ -338,24 +337,5 @@ describe('BabyStepsCard', () => {
     const statuses = makeStatuses([1]);
     const { getByText } = render(<BabyStepsCard statuses={statuses} onPress={jest.fn()} />);
     expect(getByText('1 / 7')).toBeTruthy();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PeriodRolloverModal
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('PeriodRolloverModal', () => {
-  it('renders when visible=true', () => {
-    const { getByTestId } = render(
-      <PeriodRolloverModal visible={true} periodLabel="July" onAcknowledge={jest.fn()} />,
-    );
-    expect(getByTestId('period-rollover-modal')).toBeTruthy();
-  });
-
-  it('does not render content when visible=false', () => {
-    const { queryByTestId } = render(
-      <PeriodRolloverModal visible={false} periodLabel="July" onAcknowledge={jest.fn()} />,
-    );
-    expect(queryByTestId('period-rollover-acknowledge')).toBeNull();
   });
 });

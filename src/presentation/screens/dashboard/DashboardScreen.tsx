@@ -11,7 +11,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import { PeriodRolloverModal } from './PeriodRolloverModal';
+import { RolloverWizard } from '../budgets/RolloverWizard';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useBabySteps } from '../../hooks/useBabySteps';
@@ -27,7 +27,7 @@ import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepI
 import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
 import { formatCurrency } from '../../utils/currency';
 import { spacing, radius, fontSize } from '../../theme/tokens';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, subDays } from 'date-fns';
 import { db } from '../../../data/local/db';
 import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
@@ -45,6 +45,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = format(period.startDate, 'yyyy-MM-dd');
   const periodLabel = format(period.startDate, 'MMMM yyyy');
+  const previousPeriod = engine.getPeriodForDate(paydayDay, subDays(period.startDate, 1));
+  const previousPeriodStart = format(previousPeriod.startDate, 'yyyy-MM-dd');
 
   const hid = householdId ?? '';
   const { envelopes, loading, reload } = useEnvelopes(hid, periodStart);
@@ -78,10 +80,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     }, [reload, hid, period.endDate, periodStart, paydayDay]),
   );
 
-  const handleRolloverAcknowledge = useCallback((): void => {
+  // The wizard itself writes the `period_ack_${toPeriodStart}` key on commit (see
+  // RolloverWizard) — this only needs to close the wizard and refresh the envelope
+  // list so any newly-copied-forward envelopes show up immediately.
+  const handleRolloverDone = useCallback((): void => {
     setShowRollover(false);
-    void AsyncStorage.setItem(`period_ack_${periodStart}`, 'true');
-  }, [periodStart]);
+    void reload();
+  }, [reload]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
@@ -345,10 +350,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   );
 
   const rolloverModal = (
-    <PeriodRolloverModal
+    <RolloverWizard
       visible={showRollover}
+      householdId={hid}
+      fromPeriodStart={previousPeriodStart}
+      toPeriodStart={periodStart}
       periodLabel={periodLabel}
-      onAcknowledge={handleRolloverAcknowledge}
+      onDone={handleRolloverDone}
     />
   );
 
