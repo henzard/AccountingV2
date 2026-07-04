@@ -70,6 +70,14 @@ const withAndroidPlayCompliance: ConfigPlugin = (config) => {
 export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
   name: 'AccountingV2',
   slug: 'accountingv2',
+  // Custom URL scheme so Supabase password-recovery emails
+  // (`supabase.auth.resetPasswordForEmail(email, { redirectTo })`) can deep
+  // link back into the app to ResetPasswordScreen. NOTE: this is a native
+  // config change — an Android intent-filter for this scheme is only
+  // generated on the next `expo prebuild`/native build; it does not take
+  // effect on an already-built binary. See ResetPasswordScreen / App.tsx's
+  // deep-link handler and the task-4 report for the full caveat.
+  scheme: 'accountingv2',
   version: '1.0.0',
   icon: './assets/icon.png',
   newArchEnabled: false,

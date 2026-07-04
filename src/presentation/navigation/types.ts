@@ -17,6 +17,7 @@ export type OnboardingStackParamList = {
 export type AuthStackParamList = {
   Login: undefined;
   SignUp: undefined;
+  ForgotPassword: undefined;
   OnboardingWizard: undefined;
 };
 
@@ -84,11 +85,17 @@ export type RootStackParamList = {
   ShareInvite: { householdId: string; householdName: string };
   JoinHousehold: undefined;
   SlipScanning: undefined;
+  ResetPassword: undefined;
 };
 
 // --- Screen props ---
 
 export type LoginScreenProps = NativeStackScreenProps<AuthStackParamList, 'Login'>;
+
+export type ForgotPasswordScreenProps = NativeStackScreenProps<
+  AuthStackParamList,
+  'ForgotPassword'
+>;
 
 export type DashboardScreenProps = CompositeScreenProps<
   NativeStackScreenProps<DashboardStackParamList, 'DashboardHome'>,

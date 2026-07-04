@@ -10,6 +10,7 @@ import { HouseholdPickerScreen } from '../screens/household/HouseholdPickerScree
 import { CreateHouseholdScreen } from '../screens/household/CreateHouseholdScreen';
 import { ShareInviteScreen } from '../screens/household/ShareInviteScreen';
 import { JoinHouseholdScreen } from '../screens/household/JoinHouseholdScreen';
+import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
 import { LoadingSplash } from '../components/shared/LoadingSplash';
 import { useAppStore } from '../stores/appStore';
 import { useNotificationStore } from '../stores/notificationStore';
@@ -36,6 +37,7 @@ Notifications.setNotificationHandler({
 export function RootNavigator(): React.JSX.Element {
   const session = useAppStore((s) => s.session);
   const householdId = useAppStore((s) => s.householdId);
+  const passwordRecoveryPending = useAppStore((s) => s.passwordRecoveryPending);
   const paydayDay = useAppStore((s) => s.paydayDay);
   const { setPreferences, setPermissionsGranted } = useNotificationStore();
 
@@ -104,6 +106,13 @@ export function RootNavigator(): React.JSX.Element {
 
   // Determine which navigator to show
   const renderNavigator = (): React.JSX.Element => {
+    // Takes priority over everything else, including a signed-in session —
+    // the temporary recovery session App.tsx's deep-link handler establishes
+    // via `setSession` DOES make `isAuthenticated` true, but the user must
+    // set a new password before landing in the normal app.
+    if (passwordRecoveryPending) {
+      return <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />;
+    }
     if (!isAuthenticated) {
       return <Stack.Screen name="Auth" component={AuthNavigator} />;
     }

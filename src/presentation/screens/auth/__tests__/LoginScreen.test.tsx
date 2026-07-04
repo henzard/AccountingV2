@@ -121,6 +121,12 @@ describe('LoginScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('SignUp');
   });
 
+  it('navigates to ForgotPassword when the forgot-password link is pressed', () => {
+    const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
+    fireEvent.press(getByTestId('login-forgot-password-link'));
+    expect(mockNavigate).toHaveBeenCalledWith('ForgotPassword');
+  });
+
   it('shows validation error when password is empty but email is provided', async () => {
     const { getByTestId, queryByTestId } = render(
       <LoginScreen route={{} as never} navigation={{} as never} />,

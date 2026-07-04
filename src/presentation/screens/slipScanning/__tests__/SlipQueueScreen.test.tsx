@@ -31,7 +31,20 @@ jest.mock('react-native-paper', () => {
     textStyle?: object;
     [k: string]: unknown;
   }) => React.createElement('View', { testID, ...p }, React.createElement('Text', {}, children));
-  return { Text, Chip };
+  const FAB = ({
+    testID,
+    onPress,
+    accessibilityLabel,
+    accessibilityRole,
+  }: {
+    testID?: string;
+    onPress?: () => void;
+    accessibilityLabel?: string;
+    accessibilityRole?: string;
+    [k: string]: unknown;
+  }) =>
+    React.createElement('Pressable', { testID, onPress, accessibilityLabel, accessibilityRole });
+  return { Text, Chip, FAB };
 });
 
 const completedItem = {
@@ -175,5 +188,27 @@ describe('SlipQueueScreen', () => {
     mockSlipData = [];
     const { getAllByText } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
     expect(getAllByText(/No slips yet/i).length).toBeGreaterThan(0);
+  });
+
+  it('renders a camera FAB to start scanning', () => {
+    const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    const fab = getByTestId('slip-queue-camera-fab');
+    expect(fab).toBeTruthy();
+    expect(fab.props.accessibilityLabel).toBe('Scan a slip');
+    expect(fab.props.accessibilityRole).toBe('button');
+  });
+
+  it('navigates to SlipConsent when the camera FAB is pressed without consent', () => {
+    const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    fireEvent.press(getByTestId('slip-queue-camera-fab'));
+    expect(mockNavigate).toHaveBeenCalledWith('SlipConsent');
+  });
+
+  it('navigates straight to SlipCapture when the camera FAB is pressed with consent already given', () => {
+    const { getByTestId } = render(
+      <SlipQueueScreen repo={mockRepo} householdId="hh-1" hasConsented />,
+    );
+    fireEvent.press(getByTestId('slip-queue-camera-fab'));
+    expect(mockNavigate).toHaveBeenCalledWith('SlipCapture');
   });
 });

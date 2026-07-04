@@ -70,7 +70,9 @@ jest.mock('../../../data/repositories/DrizzleSlipQueueRepository', () => ({
   DrizzleSlipQueueRepository: jest.fn().mockImplementation(() => ({ update: jest.fn() })),
 }));
 jest.mock('../../../data/repositories/DrizzleUserConsentRepository', () => ({
-  DrizzleUserConsentRepository: jest.fn().mockImplementation(() => ({})),
+  DrizzleUserConsentRepository: jest.fn().mockImplementation(() => ({
+    get: jest.fn().mockResolvedValue(null),
+  })),
 }));
 jest.mock('../../../infrastructure/slipScanning/SupabaseSlipImageUploader', () => ({
   SupabaseSlipImageUploader: jest.fn().mockImplementation(() => ({})),

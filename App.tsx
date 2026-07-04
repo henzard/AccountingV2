@@ -54,6 +54,8 @@ import {
   hydrateThemeFromRemote,
   resetThemeStore,
 } from './src/presentation/stores/themeStore';
+import { parseRecoveryDeepLink } from './src/infrastructure/auth/parseRecoveryDeepLink';
+import { addUrlListener, getInitialURL } from './src/infrastructure/device/appLinking';
 
 // Install global crash handler as early as possible (after imports — module
 // evaluation order still puts this before any App code runs).
@@ -429,6 +431,21 @@ export default function App(): React.JSX.Element | null {
         return;
       }
 
+      // Defensive branch only — added per the deep-review fix without
+      // touching the SIGNED_IN-only filtering above/below. NOTE: on React
+      // Native, @supabase/auth-js's automatic `PASSWORD_RECOVERY` event is
+      // gated on `isBrowser()` (see GoTrueClient#_initialize) and never
+      // fires here in practice — the deep-link handler below (which parses
+      // `type=recovery` itself and flips `passwordRecoveryPending` directly)
+      // is the mechanism that actually works on this platform. This branch
+      // exists so a future SDK/platform change that DOES emit the event
+      // still routes correctly, without ever falling through to
+      // `initSessionOnce` for it.
+      if (event === 'PASSWORD_RECOVERY') {
+        useAppStore.getState().setPasswordRecoveryPending(true);
+        return;
+      }
+
       if (session.user?.id) {
         void hydrateThemeFromRemote(session.user.id);
       }
@@ -458,6 +475,41 @@ export default function App(): React.JSX.Element | null {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setSession, bindCelebrationStore]);
+
+  // ─── Password-recovery deep link ─────────────────────────────────────────────
+  //
+  // Consumes the link Supabase emails from `resetPasswordForEmail(email, {
+  // redirectTo })` (see ForgotPasswordScreen) once the OS hands it back to
+  // this app (`accountingv2://reset-password#access_token=...`).
+  // `parseRecoveryDeepLink` only returns tokens for a genuine `type=recovery`
+  // link — see its own doc comment for why we detect that ourselves instead
+  // of relying on the `PASSWORD_RECOVERY` auth event (which this SDK never
+  // emits outside a browser). Runs independently of the auth-listener effect
+  // above so it never interferes with the SIGNED_IN filtering there.
+  useEffect(() => {
+    const handleUrl = (url: string): void => {
+      const tokens = parseRecoveryDeepLink(url);
+      if (!tokens) return;
+      // Set BEFORE the async setSession call resolves so RootNavigator
+      // gates on the reset screen the instant the link is handled, rather
+      // than racing a SIGNED_IN-driven re-render.
+      useAppStore.getState().setPasswordRecoveryPending(true);
+      void supabase.auth
+        .setSession({ access_token: tokens.accessToken, refresh_token: tokens.refreshToken })
+        .catch((err) => captureBoot('setSession (recovery deep link)', err));
+    };
+
+    const subscription = addUrlListener(({ url }) => handleUrl(url));
+    void getInitialURL()
+      .then((url) => {
+        if (url) handleUrl(url);
+      })
+      .catch(() => {});
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   // ─── SyncScheduler lifecycle (Task 5 cutover) ───────────────────────────────
   //

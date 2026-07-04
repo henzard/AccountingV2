@@ -100,11 +100,34 @@ jest.mock('./src/data/remote/supabaseClient', () => ({
         data: { subscription: { unsubscribe: jest.fn() } },
         __callback: cb,
       })),
+      setSession: jest.fn(() =>
+        Promise.resolve({ data: { session: null, user: null }, error: null }),
+      ),
     },
     rpc: jest.fn(),
     channel: jest.fn(() => ({ on: jest.fn().mockReturnThis(), subscribe: jest.fn() })),
     removeChannel: jest.fn(),
   },
+}));
+
+// ─── appLinking (password-recovery deep link) ────────────────────────────────
+// Mocks OUR OWN thin wrapper (src/infrastructure/device/appLinking.ts) rather
+// than react-native's `Linking` directly — react-native's index defines most
+// exports (Linking included) as getter-backed properties on a non-extensible
+// module object for lazy native loading, which makes them effectively
+// unmockable in place (a plain assignment silently no-ops; spreading the
+// whole module eagerly evaluates unrelated native-only exports like DevMenu
+// and throws outside a real native runtime). Mocking our own wrapper module
+// sidesteps all of that, the same way `getDeviceId`/`networkObserver` do for
+// their native dependencies elsewhere in this file.
+const mockLinkingRemove = jest.fn();
+const mockAddUrlListener = jest.fn((_handler: (event: { url: string }) => void) => ({
+  remove: mockLinkingRemove,
+}));
+const mockGetInitialURL = jest.fn((): Promise<string | null> => Promise.resolve(null));
+jest.mock('./src/infrastructure/device/appLinking', () => ({
+  addUrlListener: (handler: (event: { url: string }) => void) => mockAddUrlListener(handler),
+  getInitialURL: () => mockGetInitialURL(),
 }));
 
 jest.mock('./src/domain/households/EnsureHouseholdUseCase', () => {
@@ -204,6 +227,7 @@ const supabaseMock = jest.requireMock('./src/data/remote/supabaseClient') as {
     auth: {
       getSession: jest.Mock;
       onAuthStateChange: jest.Mock;
+      setSession: jest.Mock;
     };
   };
 };
@@ -237,6 +261,11 @@ function getAuthCallback(): (event: string, session: unknown) => Promise<void> {
   return call[0] as (event: string, session: unknown) => Promise<void>;
 }
 
+function getDeepLinkHandler(): (event: { url: string }) => void {
+  const call = mockAddUrlListener.mock.calls[0];
+  return call[0] as (event: { url: string }) => void;
+}
+
 // Cleared in afterEach (not beforeEach): `preventAutoHideAsync` runs once at
 // App.tsx's MODULE LOAD, before the FIRST test's beforeEach would ever run --
 // clearing in beforeEach would wipe that call before any test body could
@@ -255,6 +284,11 @@ beforeEach(() => {
   mockSchedulerInstance.isStarted = false;
   SplashScreen.preventAutoHideAsync.mockResolvedValue(undefined);
   SplashScreen.hideAsync.mockResolvedValue(undefined);
+  mockGetInitialURL.mockResolvedValue(null);
+  supabaseMock.supabase.auth.setSession.mockResolvedValue({
+    data: { session: null, user: null },
+    error: null,
+  });
 });
 
 describe('App boot (Task 5)', () => {
@@ -409,5 +443,84 @@ describe('App boot (Task 5)', () => {
 
     // (c) No unhandled rejection should have escaped from the boot sequence.
     expect(unhandledRejections).toEqual([]);
+  });
+
+  describe('password recovery (Task 4)', () => {
+    it('PASSWORD_RECOVERY auth event sets passwordRecoveryPending and never runs initSession', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const authCallback = getAuthCallback();
+      await act(async () => {
+        await authCallback('PASSWORD_RECOVERY', { user: { id: 'user-recovery' } });
+      });
+
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(true);
+      expect(mockEnsureExecute).not.toHaveBeenCalled();
+    });
+
+    it('a genuine recovery deep link (via addEventListener) sets passwordRecoveryPending and calls setSession with the parsed tokens', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({
+          url: 'accountingv2://reset-password#access_token=at-1&refresh_token=rt-1&type=recovery',
+        });
+      });
+
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(true);
+      expect(supabaseMock.supabase.auth.setSession).toHaveBeenCalledWith({
+        access_token: 'at-1',
+        refresh_token: 'rt-1',
+      });
+    });
+
+    it('a recovery deep link present as the initial URL (cold start via the link) is handled the same way', async () => {
+      setSession(null);
+      mockGetInitialURL.mockResolvedValue(
+        'accountingv2://reset-password#access_token=at-2&refresh_token=rt-2&type=recovery',
+      );
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      await waitFor(() => {
+        expect(useAppStore.getState().passwordRecoveryPending).toBe(true);
+      });
+      expect(supabaseMock.supabase.auth.setSession).toHaveBeenCalledWith({
+        access_token: 'at-2',
+        refresh_token: 'rt-2',
+      });
+    });
+
+    it('ignores a deep link that is not a recovery link', async () => {
+      setSession(null);
+
+      const { findByTestId } = render(<App />);
+      await findByTestId('root-navigator');
+
+      const handleUrl = getDeepLinkHandler();
+      await act(async () => {
+        handleUrl({ url: 'accountingv2://some/other/path' });
+      });
+
+      expect(useAppStore.getState().passwordRecoveryPending).toBe(false);
+      expect(supabaseMock.supabase.auth.setSession).not.toHaveBeenCalled();
+    });
+
+    it('removes the deep-link listener on unmount', async () => {
+      setSession(null);
+      const { findByTestId, unmount } = render(<App />);
+      await findByTestId('root-navigator');
+
+      unmount();
+      expect(mockLinkingRemove).toHaveBeenCalled();
+    });
   });
 });

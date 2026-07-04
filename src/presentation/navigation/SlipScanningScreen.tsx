@@ -66,6 +66,31 @@ export function SlipScanningScreen(): React.JSX.Element {
   const paydayDay = useAppStore((s) => s.paydayDay);
   const periodStart = format(budgetEngine.getCurrentPeriod(paydayDay).startDate, 'yyyy-MM-dd');
   const [envelopes, setEnvelopes] = useState<EnvelopeOption[]>([]);
+  // Whether the current user has already granted slip-scan consent — read
+  // once per user so the queue's camera FAB can route straight to
+  // SlipCapture instead of always detouring through SlipConsent. Defaults to
+  // false (safe default) until resolved.
+  const [hasConsented, setHasConsented] = useState(false);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setHasConsented(false);
+      return;
+    }
+    let cancelled = false;
+    userConsentRepo
+      .get(userId)
+      .then((row) => {
+        if (!cancelled) setHasConsented(row?.slipScanConsentAt != null);
+      })
+      .catch(() => {
+        if (!cancelled) setHasConsented(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (!householdId) return;
@@ -108,6 +133,7 @@ export function SlipScanningScreen(): React.JSX.Element {
     () =>
       async (userId: string): Promise<{ success: boolean }> => {
         const result = await recordConsentUseCase.execute({ userId });
+        if (result.success) setHasConsented(true);
         return { success: result.success };
       },
     [],
@@ -150,6 +176,7 @@ export function SlipScanningScreen(): React.JSX.Element {
       householdId={householdId}
       createdBy={createdBy}
       recordConsent={recordConsent}
+      hasConsented={hasConsented}
       repo={slipQueueRepo}
       startScan={start}
       cancelSlip={cancelSlip}

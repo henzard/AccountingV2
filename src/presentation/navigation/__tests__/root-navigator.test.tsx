@@ -81,6 +81,16 @@ jest.mock('../../screens/household/JoinHouseholdScreen', () => {
   };
 });
 
+jest.mock('../../screens/auth/ResetPasswordScreen', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+  return {
+    ResetPasswordScreen: () => React.createElement(View, { testID: 'reset-password-screen' }),
+  };
+});
+
 jest.mock('../../navigation/SlipScanningScreen', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
