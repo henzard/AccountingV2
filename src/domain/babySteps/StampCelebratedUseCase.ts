@@ -11,11 +11,16 @@ import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { babySteps } from '../../data/local/schema';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 
 export class StampCelebratedUseCase {
-  constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
+  constructor(
+    private readonly db: ExpoSQLiteDatabase<typeof schema>,
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(householdId: string, stepNumber: number): Promise<Result<void>> {
     // Read the current row to check idempotency
@@ -38,14 +43,13 @@ export class StampCelebratedUseCase {
     }
 
     const now = new Date().toISOString();
-
-    await this.db
-      .update(babySteps)
-      .set({
-        celebratedAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(babySteps.householdId, householdId), eq(babySteps.stepNumber, stepNumber)));
+    const repo = resolveSyncedRepo(this.db, 'baby_steps', this.deps);
+    repo.update(
+      row.id,
+      householdId,
+      { celebrated_at: now, updated_at: now },
+      resolveSyncedRepoCtx(this.deps),
+    );
 
     return createSuccess(undefined);
   }

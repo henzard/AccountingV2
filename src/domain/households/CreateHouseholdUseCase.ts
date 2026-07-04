@@ -1,13 +1,11 @@
 import { randomUUID } from 'expo-crypto';
-import type { InferInsertModel } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
-import { households, householdMembers } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import { DrizzleHouseholdRepository } from '../../data/repositories/DrizzleHouseholdRepository';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
-import type { IHouseholdRepository } from '../ports/IHouseholdRepository';
+import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
@@ -20,19 +18,12 @@ interface CreateHouseholdInput {
 }
 
 export class CreateHouseholdUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-  private readonly repo: IHouseholdRepository;
-
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateHouseholdInput,
-    enqueuer?: ISyncEnqueuer,
-    repo?: IHouseholdRepository,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-    this.repo = repo ?? new DrizzleHouseholdRepository(db);
-  }
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(): Promise<Result<HouseholdSummary>> {
     const name = this.input.name.trim();
@@ -48,27 +39,52 @@ export class CreateHouseholdUseCase {
 
     const now = new Date().toISOString();
     const householdId = randomUUID();
+    const ctx = resolveSyncedRepoCtx(this.deps);
 
-    const newHousehold = {
-      id: householdId,
-      name,
-      paydayDay: this.input.paydayDay,
-      userLevel: 1,
-      createdAt: now,
-      updatedAt: now,
-    } satisfies InferInsertModel<typeof households>;
-    await this.repo.insert(newHousehold);
+    // `households` has no `household_id` column — a household IS its own
+    // scope (its `id` is the household id) — so it can't go through
+    // `createSyncedRepo`'s generic insert (which always requires a
+    // `row.household_id` distinct from `row.id`, see createSyncedRepo.ts).
+    // This drives `runInUnitOfWork` directly instead: same one-transaction
+    // atomicity guarantee, just without that column.
+    runInUnitOfWork(this.db, (uow) => {
+      uow.db.run(sql`
+        INSERT INTO households (id, name, payday_day, user_level, created_at, updated_at)
+        VALUES (${householdId}, ${name}, ${this.input.paydayDay}, 1, ${now}, ${now})
+      `);
+      uow.appendOp({
+        opId: ctx.genId ? ctx.genId() : randomUUID(),
+        householdId,
+        tableName: 'households',
+        rowId: householdId,
+        opType: 'insert',
+        payload: {
+          id: householdId,
+          name,
+          payday_day: this.input.paydayDay,
+          user_level: 1,
+          created_at: now,
+          updated_at: now,
+        },
+        actorUserId: ctx.actorUserId,
+        deviceId: ctx.deviceId,
+        clientCreatedAt: ctx.clock(),
+      });
+    });
 
     const memberId = randomUUID();
-    const memberRow: InferInsertModel<typeof householdMembers> = {
-      id: memberId,
-      householdId,
-      userId: this.input.userId,
-      role: 'owner',
-      joinedAt: now,
-      updatedAt: now,
-    };
-    await this.db.insert(householdMembers).values(memberRow);
+    const membersRepo = resolveSyncedRepo(this.db, 'household_members', this.deps);
+    membersRepo.insert(
+      {
+        id: memberId,
+        household_id: householdId,
+        user_id: this.input.userId,
+        role: 'owner',
+        joined_at: now,
+        updated_at: now,
+      },
+      ctx,
+    );
 
     await this.audit.log({
       householdId,
@@ -79,11 +95,8 @@ export class CreateHouseholdUseCase {
       newValue: { id: householdId, name, paydayDay: this.input.paydayDay },
     });
 
-    await this.enqueuer.enqueue('households', householdId, 'INSERT');
-    await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
-
     // Seed the 7 baby steps for the new household (idempotent)
-    const seeder = new SeedBabyStepsUseCase(this.db);
+    const seeder = new SeedBabyStepsUseCase(this.db, this.deps);
     await seeder.execute(householdId);
 
     return createSuccess({ id: householdId, name, paydayDay: this.input.paydayDay, userLevel: 1 });

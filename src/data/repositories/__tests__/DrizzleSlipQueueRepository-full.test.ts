@@ -1,12 +1,19 @@
-jest.mock('../PendingSyncEnqueuerAdapter', () => ({
-  PendingSyncEnqueuerAdapter: jest.fn().mockImplementation(() => ({
-    enqueue: jest.fn().mockResolvedValue(undefined),
-  })),
-}));
-
 import { DrizzleSlipQueueRepository } from '../DrizzleSlipQueueRepository';
+import type { SyncedRepo } from '../../uow/createSyncedRepo';
 
-const noopEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
+function makeFakeRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
+}
 
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -38,7 +45,7 @@ describe('DrizzleSlipQueueRepository', () => {
       };
       const db = { select: jest.fn().mockReturnValue(selectChain) } as any;
 
-      const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
+      const repo = new DrizzleSlipQueueRepository(db);
       const result = await repo.get('s1');
 
       expect(result).not.toBeNull();
@@ -55,7 +62,7 @@ describe('DrizzleSlipQueueRepository', () => {
       };
       const db = { select: jest.fn().mockReturnValue(selectChain) } as any;
 
-      const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
+      const repo = new DrizzleSlipQueueRepository(db);
       const result = await repo.get('nonexistent');
 
       expect(result).toBeNull();
@@ -64,45 +71,71 @@ describe('DrizzleSlipQueueRepository', () => {
 
   describe('update', () => {
     function makeUpdateDb() {
-      const setMock = jest.fn().mockReturnValue({
-        where: jest.fn().mockResolvedValue(undefined),
-      });
-      const updateMock = jest.fn().mockReturnValue({ set: setMock });
+      const selectChain = {
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([makeRow()]),
+      };
       return {
-        db: { update: updateMock } as any,
-        updateMock,
-        setMock,
-        enqueuer: { enqueue: jest.fn().mockResolvedValue(undefined) },
+        db: { select: jest.fn().mockReturnValue(selectChain) } as any,
+        repo: makeFakeRepo(),
       };
     }
 
-    const patchFields: Array<{ field: string; value: unknown; expected?: unknown }> = [
-      { field: 'status', value: 'completed' },
-      { field: 'errorMessage', value: 'parse error' },
-      { field: 'merchant', value: 'Pick n Pay' },
-      { field: 'slipDate', value: '2026-06-01' },
-      { field: 'totalCents', value: 9999 },
-      { field: 'rawResponseJson', value: '{"items":[]}' },
-      { field: 'imagesDeletedAt', value: '2026-06-19T00:00:00Z' },
-      { field: 'openaiCostCents', value: 42 },
-      { field: 'imageUris', value: ['a.jpg', 'b.jpg'], expected: '["a.jpg","b.jpg"]' },
+    const patchFields: Array<{
+      field: string;
+      value: unknown;
+      column: string;
+      expected?: unknown;
+    }> = [
+      { field: 'status', value: 'completed', column: 'status' },
+      { field: 'errorMessage', value: 'parse error', column: 'error_message' },
+      { field: 'merchant', value: 'Pick n Pay', column: 'merchant' },
+      { field: 'slipDate', value: '2026-06-01', column: 'slip_date' },
+      { field: 'totalCents', value: 9999, column: 'total_cents' },
+      { field: 'rawResponseJson', value: '{"items":[]}', column: 'raw_response_json' },
+      { field: 'imagesDeletedAt', value: '2026-06-19T00:00:00Z', column: 'images_deleted_at' },
+      { field: 'openaiCostCents', value: 42, column: 'openai_cost_cents' },
+      {
+        field: 'imageUris',
+        value: ['a.jpg', 'b.jpg'],
+        column: 'image_uris',
+        expected: '["a.jpg","b.jpg"]',
+      },
     ];
 
     it.each(patchFields)(
-      'patch field "$field" included in SET clause',
-      async ({ field, value, expected }) => {
-        const { db, setMock, enqueuer } = makeUpdateDb();
-        const repo = new DrizzleSlipQueueRepository(db, enqueuer);
+      'patch field "$field" included in the synced-repo update payload',
+      async ({ field, value, column, expected }) => {
+        const { db, repo } = makeUpdateDb();
+        const slipRepo = new DrizzleSlipQueueRepository(db, { repo });
 
-        await repo.update('s1', { [field]: value } as any);
+        await slipRepo.update('s1', { [field]: value } as any);
 
-        const setArg = setMock.mock.calls[0][0];
+        expect(repo.update).toHaveBeenCalledTimes(1);
+        const [id, householdId, setArg] = repo.update.mock.calls[0];
+        expect(id).toBe('s1');
+        expect(householdId).toBe('h1');
         const check = expected ?? value;
-        expect(setArg[field]).toBe(check);
-        expect(setArg.updatedAt).toBeDefined();
-        expect(enqueuer.enqueue).toHaveBeenCalledWith('slip_queue', 's1', 'UPDATE');
+        expect(setArg[column]).toBe(check);
+        expect(setArg.updated_at).toBeDefined();
       },
     );
+
+    it('no-ops when the row does not exist (no repo.update call)', async () => {
+      const selectChain = {
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([]),
+      };
+      const db = { select: jest.fn().mockReturnValue(selectChain) } as any;
+      const repo = makeFakeRepo();
+      const slipRepo = new DrizzleSlipQueueRepository(db, { repo });
+
+      await slipRepo.update('missing', { status: 'completed' });
+
+      expect(repo.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('listByHousehold', () => {
@@ -116,7 +149,7 @@ describe('DrizzleSlipQueueRepository', () => {
       };
       const db = { select: jest.fn().mockReturnValue(selectChain) } as any;
 
-      const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
+      const repo = new DrizzleSlipQueueRepository(db);
       const result = await repo.listByHousehold('h1', 10, 0);
 
       expect(result).toHaveLength(2);
@@ -135,7 +168,7 @@ describe('DrizzleSlipQueueRepository', () => {
       };
       const db = { select: jest.fn().mockReturnValue(selectChain) } as any;
 
-      const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
+      const repo = new DrizzleSlipQueueRepository(db);
       const result = await repo.listExpired('2026-06-01T00:00:00Z');
 
       expect(result).toHaveLength(1);
@@ -152,7 +185,7 @@ describe('DrizzleSlipQueueRepository', () => {
       };
       const db = { select: jest.fn().mockReturnValue(selectChain) } as any;
 
-      const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
+      const repo = new DrizzleSlipQueueRepository(db);
       const result = await repo.listProcessingOlderThan('2026-06-01T00:00:00Z');
 
       expect(result).toHaveLength(1);
@@ -169,7 +202,7 @@ describe('DrizzleSlipQueueRepository', () => {
       };
       const db = { select: jest.fn().mockReturnValue(selectChain) } as any;
 
-      const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
+      const repo = new DrizzleSlipQueueRepository(db);
       await expect(repo.get('s1')).rejects.toThrow();
     });
   });

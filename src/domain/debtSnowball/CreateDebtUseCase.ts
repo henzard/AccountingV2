@@ -4,10 +4,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { debts } from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import { DrizzleDebtRepository } from '../../data/repositories/DrizzleDebtRepository';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
-import type { IDebtRepository } from '../ports/IDebtRepository';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import type { DebtEntity, DebtType } from './DebtEntity';
@@ -22,19 +20,12 @@ export interface CreateDebtInput {
 }
 
 export class CreateDebtUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-  private readonly repo: IDebtRepository;
-
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly audit: AuditLogger,
     private readonly input: CreateDebtInput,
-    enqueuer?: ISyncEnqueuer,
-    repo?: IDebtRepository,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-    this.repo = repo ?? new DrizzleDebtRepository(db);
-  }
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(): Promise<Result<DebtEntity>> {
     if (this.input.outstandingBalanceCents <= 0) {
@@ -78,7 +69,27 @@ export class CreateDebtUseCase {
       updatedAt: now,
     };
 
-    await this.repo.insert(debt);
+    const row: Record<string, unknown> = {
+      id: debt.id,
+      household_id: debt.householdId,
+      creditor_name: debt.creditorName,
+      debt_type: debt.debtType,
+      outstanding_balance_cents: debt.outstandingBalanceCents,
+      initial_balance_cents: debt.initialBalanceCents,
+      interest_rate_percent: debt.interestRatePercent,
+      minimum_payment_cents: debt.minimumPaymentCents,
+      sort_order: debt.sortOrder,
+      // better-sqlite3 only binds numbers/strings/bigints/buffers/null — not
+      // JS booleans — so boolean columns are written as 0/1 (same convention
+      // CreateEnvelopeUseCase/StartNewPeriodUseCase use).
+      is_paid_off: debt.isPaidOff ? 1 : 0,
+      total_paid_cents: debt.totalPaidCents,
+      created_at: debt.createdAt,
+      updated_at: debt.updatedAt,
+    };
+
+    const repo = resolveSyncedRepo(this.db, 'debts', this.deps);
+    repo.insert(row, resolveSyncedRepoCtx(this.deps));
 
     await this.audit.log({
       householdId: this.input.householdId,
@@ -93,8 +104,6 @@ export class CreateDebtUseCase {
         outstandingBalanceCents: debt.outstandingBalanceCents,
       },
     });
-
-    await this.enqueuer.enqueue('debts', id, 'INSERT');
 
     return createSuccess(debt);
   }

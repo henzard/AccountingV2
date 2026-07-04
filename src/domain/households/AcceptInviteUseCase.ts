@@ -3,8 +3,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { householdMembers } from '../../data/local/schema';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
 import type { RestoreService } from '../../data/sync/RestoreService';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
 import type { Result } from '../shared/types';
@@ -35,17 +33,12 @@ function mapJoinError(message: string): { code: string; message: string } {
 }
 
 export class AcceptInviteUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
     private readonly restoreService: RestoreService,
     private readonly input: AcceptInviteInput,
-    enqueuer?: ISyncEnqueuer,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-  }
+  ) {}
 
   async execute(): Promise<Result<HouseholdSummary>> {
     const { data, error } = await this.supabase.rpc('join_household_via_invite', {
@@ -66,6 +59,15 @@ export class AcceptInviteUseCase {
     const householdId = join.household_id;
     const now = new Date().toISOString();
 
+    // The membership row is already created SERVER-SIDE by the
+    // join_household_via_invite RPC (spec: docs/superpowers/specs/2026-07-03-
+    // oplog-sync-correctness-design.md) — this is only this device's LOCAL
+    // copy catching up, not a new fact the server needs to learn. It is
+    // deliberately a plain local insert with NO oplog op: appending one here
+    // would re-push an `insert` for a row the server already has, which the
+    // server should (and does) reject/ignore, but is still the wrong shape —
+    // mirrors how RestoreService's own pulled-row inserts never enqueue/
+    // append ops either (see RestoreService.ts).
     const localMember: InferInsertModel<typeof householdMembers> = {
       id: memberId,
       householdId,
@@ -75,7 +77,6 @@ export class AcceptInviteUseCase {
       updatedAt: now,
     };
     await this.db.insert(householdMembers).values(localMember);
-    await this.enqueuer.enqueue('household_members', memberId, 'INSERT');
 
     let restored = await this.restoreService
       .restoreHousehold(householdId, 'member', this.input.userId)

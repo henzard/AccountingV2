@@ -268,7 +268,12 @@ describe('LogMeterReadingUseCase', () => {
     findByDate: jest.fn().mockResolvedValue(null),
   };
   const mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
-  const mockEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  const fakeSyncedRepo = {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
 
   const validInput = {
     householdId: 'hh-1',
@@ -287,7 +292,7 @@ describe('LogMeterReadingUseCase', () => {
       {} as any,
       mockAudit as any,
       validInput,
-      mockEnqueuer,
+      { repo: fakeSyncedRepo as any },
       mockRepo as any,
     );
     const result = await uc.execute();
@@ -303,7 +308,7 @@ describe('LogMeterReadingUseCase', () => {
       {} as any,
       mockAudit as any,
       { ...validInput, readingValue: 0 },
-      mockEnqueuer,
+      { repo: fakeSyncedRepo as any },
       mockRepo as any,
     );
     const result = await uc.execute();
@@ -317,7 +322,7 @@ describe('LogMeterReadingUseCase', () => {
       {} as any,
       mockAudit as any,
       { ...validInput, readingValue: -5 },
-      mockEnqueuer,
+      { repo: fakeSyncedRepo as any },
       mockRepo as any,
     );
     const result = await uc.execute();

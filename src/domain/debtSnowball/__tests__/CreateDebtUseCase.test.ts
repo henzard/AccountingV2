@@ -1,16 +1,28 @@
 import { CreateDebtUseCase } from '../CreateDebtUseCase';
+import type { SyncedRepo } from '../../../data/uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-debt-1' }));
 
-const mockInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
+function makeFakeRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
+}
+
 const mockSelect = jest.fn().mockReturnValue({
   from: jest.fn().mockReturnValue({
-    where: jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue([]), // PendingSyncEnqueuer dedup check → no existing rows
-    }),
+    where: jest.fn().mockResolvedValue([{ count: 0 }]),
   }),
 });
-const mockDb = { insert: mockInsert, select: mockSelect } as any;
+const mockDb = { select: mockSelect } as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
 
 const input = {
@@ -46,16 +58,27 @@ describe('CreateDebtUseCase', () => {
     if (!result.success) expect(result.error.code).toBe('INVALID_RATE');
   });
 
-  it('inserts debt and logs audit on success', async () => {
-    const uc = new CreateDebtUseCase(mockDb, mockAudit, input);
+  it('inserts debt via the synced repo (exactly one oplog op, not pending_sync) and logs audit', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateDebtUseCase(mockDb, mockAudit, input, { repo });
     const result = await uc.execute();
     expect(result.success).toBe(true);
-    expect(mockInsert).toHaveBeenCalledTimes(2); // 1 for debts, 1 for pending_sync_queue
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.increment).not.toHaveBeenCalled();
     expect(mockAudit.log).toHaveBeenCalledTimes(1);
+
+    const [row] = repo.insert.mock.calls[0];
+    expect(row.id).toBe('uuid-debt-1');
+    expect(row.household_id).toBe('h1');
+    expect(row.creditor_name).toBe('FNB Credit Card');
+    expect(row.outstanding_balance_cents).toBe(100000);
+    expect(row.is_paid_off).toBe(0);
   });
 
   it('returns entity with initialBalanceCents equal to outstandingBalanceCents', async () => {
-    const uc = new CreateDebtUseCase(mockDb, mockAudit, input);
+    const repo = makeFakeRepo();
+    const uc = new CreateDebtUseCase(mockDb, mockAudit, input, { repo });
     const result = await uc.execute();
     expect(result.success).toBe(true);
     if (result.success) {

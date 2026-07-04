@@ -1,19 +1,22 @@
-// Mock PendingSyncEnqueuerAdapter before importing the repo, to avoid pulling
-// in PendingSyncEnqueuer → expo-crypto (out-of-scope in Jest test environment).
-jest.mock('../PendingSyncEnqueuerAdapter', () => ({
-  PendingSyncEnqueuerAdapter: jest.fn().mockImplementation(() => ({
-    enqueue: jest.fn().mockResolvedValue(undefined),
-  })),
-}));
-
 import { DrizzleSlipQueueRepository } from '../DrizzleSlipQueueRepository';
+import type { SyncedRepo } from '../../uow/createSyncedRepo';
 
-// Provide a no-op enqueuer to bypass the default adapter when needed.
-const noopEnqueuer = { enqueue: jest.fn().mockResolvedValue(undefined) };
+function makeFakeRepo(): SyncedRepo & {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
+}
 
 describe('DrizzleSlipQueueRepository', () => {
-  it('creates a row and reads it back', async () => {
-    const insertChain = { values: jest.fn().mockResolvedValue(undefined) };
+  it('creates a row via the synced repo (one oplog op) and reads it back', async () => {
     const selectChain = {
       from: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -37,12 +40,12 @@ describe('DrizzleSlipQueueRepository', () => {
       ]),
     };
     const db = {
-      insert: jest.fn().mockReturnValue(insertChain),
       select: jest.fn().mockReturnValue(selectChain),
     } as any;
 
-    const repo = new DrizzleSlipQueueRepository(db, noopEnqueuer);
-    await repo.create({
+    const repo = makeFakeRepo();
+    const slipRepo = new DrizzleSlipQueueRepository(db, { repo });
+    await slipRepo.create({
       id: 's1',
       householdId: 'h1',
       createdBy: 'u1',
@@ -52,18 +55,19 @@ describe('DrizzleSlipQueueRepository', () => {
       updatedAt: 'now',
     });
 
-    expect(db.insert).toHaveBeenCalled();
-    expect(insertChain.values).toHaveBeenCalledWith(
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+    const [row] = repo.insert.mock.calls[0];
+    expect(row).toEqual(
       expect.objectContaining({
         id: 's1',
-        householdId: 'h1',
-        createdBy: 'u1',
-        imageUris: '["a/b/0.jpg"]',
+        household_id: 'h1',
+        created_by: 'u1',
+        image_uris: '["a/b/0.jpg"]',
         status: 'processing',
       }),
     );
-    const row = await repo.get('s1');
-    expect(row?.id).toBe('s1');
-    expect(row?.imageUris).toEqual(['a/b/0.jpg']);
+    const readBack = await slipRepo.get('s1');
+    expect(readBack?.id).toBe('s1');
+    expect(readBack?.imageUris).toEqual(['a/b/0.jpg']);
   });
 });

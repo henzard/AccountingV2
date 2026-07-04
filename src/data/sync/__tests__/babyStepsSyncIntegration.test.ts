@@ -310,7 +310,6 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
     }));
 
     const insertedRows: Record<string, unknown>[] = [];
-    const conflicting = new Set<string>();
 
     const db = {
       insert: () => ({
@@ -319,20 +318,37 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
             insertedRows.push(row);
             return Promise.resolve();
           }),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
-            const key = `${row.householdId}:${row.stepNumber}`;
-            if (!conflicting.has(key)) {
-              conflicting.add(key);
-              insertedRows.push(row);
-            }
-            return Promise.resolve();
-          }),
+        }),
+      }),
+      // The seeder's existence check reads whatever restoreTable already
+      // pulled (via onConflictDoUpdate above) for baby_steps.
+      select: () => ({
+        from: () => ({
+          where: () =>
+            Promise.resolve(
+              insertedRows
+                .filter((r) => 'stepNumber' in r)
+                .map((r) => ({ stepNumber: r.stepNumber })),
+            ),
         }),
       }),
     } as any;
 
+    // SeedBabyStepsUseCase now writes via the oplog synced repo rather than
+    // a raw onConflictDoNothing insert — inject a fake repo (via
+    // RestoreService's seedDeps) that also records into `insertedRows` so
+    // the assertions below see the backfilled steps.
+    const fakeRepo = {
+      insert: jest.fn((row: Record<string, unknown>) => {
+        insertedRows.push({ stepNumber: row.step_number });
+      }),
+      update: jest.fn(),
+      softDelete: jest.fn(),
+      increment: jest.fn(),
+    };
+
     const supabase = makeRestoreSupabase(remoteRows);
-    const svc = new RestoreService(db, supabase as any);
+    const svc = new RestoreService(db, supabase as any, { repo: fakeRepo as any });
     await svc.restoreHousehold('hh-restore', 'owner', 'user-1');
 
     // At minimum 7 distinct (householdId, stepNumber) pairs must be present
@@ -517,6 +533,15 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
         })),
       })),
       insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
+      // ReconcileEmergencyFundTypeUseCase now writes the EMF flip through the
+      // oplog synced repo (createSyncedRepo), which drives db.transaction()
+      // rather than db.update() directly — see ReconcileEmergencyFundTypeUseCase.ts.
+      // `run` must return a RunResult-shaped `{ changes }` — createSyncedRepo's
+      // `update()` reads this to confirm exactly one row matched (see
+      // extractChanges/assertRowMatched in createSyncedRepo.ts).
+      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+        fn({ run: jest.fn(() => ({ changes: 1 })) }),
+      ),
     } as any;
 
     const supabase = {} as any;
@@ -527,8 +552,9 @@ describe('6.4 — Multi-EMF integration: SyncOrchestrator triggers ReconcileEmer
     expect(result.failed).toBe(0);
     // fixer ran — emfFlipped = 1 (only the newer one flipped)
     expect(result.emfFlipped).toBe(1);
-    // update must have been called exactly once (for the newer envelope)
-    expect(db.update).toHaveBeenCalledTimes(1);
+    // The flip is now one db.transaction() call (entity write + oplog op),
+    // not a direct db.update() — see the doc comment on `transaction` above.
+    expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 
   it('clean sync with single EMF → fixer no-op, emfFlipped=0', async () => {
@@ -642,24 +668,49 @@ describe('6.7 — Seeder race cross-reference: RestoreService + concurrent SeedB
 
     const db = {
       insert: () => ({
-        values: (row: Record<string, unknown>) => ({
+        values: () => ({
           onConflictDoUpdate: jest.fn().mockImplementation(() => {
             // onConflictDoUpdate is used for household upsert
             return Promise.resolve();
           }),
-          onConflictDoNothing: jest.fn().mockImplementation(() => {
-            const key = `${row.householdId}:${row.stepNumber}`;
-            if (key && !rows.has(key)) {
-              rows.set(key, row);
-            }
-            return Promise.resolve();
-          }),
+        }),
+      }),
+      // SeedBabyStepsUseCase's existence pre-check reads from the same
+      // shared `rows` map both seeder invocations write into.
+      select: () => ({
+        from: () => ({
+          where: () =>
+            Promise.resolve(
+              Array.from(rows.keys())
+                .filter((k) => k.startsWith('hh-race:'))
+                .map((k) => ({ stepNumber: Number(k.split(':')[1]) })),
+            ),
         }),
       }),
     } as any;
 
-    const svc = new RestoreService(db, supabase);
-    const externalSeeder = new SeedBabyStepsUseCase(db as any);
+    // SeedBabyStepsUseCase now writes via the oplog synced repo. This fake
+    // reproduces the real `createSyncedRepo`'s race behavior: a second
+    // writer for the same (household_id, step_number) hits the same
+    // UNIQUE-constraint-shaped error, which the use case's own catch treats
+    // as an idempotent no-op (see SeedBabyStepsUseCase.ts).
+    const fakeRepo = {
+      insert: jest.fn((row: Record<string, unknown>) => {
+        const key = `${row.household_id}:${row.step_number}`;
+        if (rows.has(key)) {
+          throw new Error(
+            'UNIQUE constraint failed: baby_steps.household_id, baby_steps.step_number',
+          );
+        }
+        rows.set(key, row);
+      }),
+      update: jest.fn(),
+      softDelete: jest.fn(),
+      increment: jest.fn(),
+    };
+
+    const svc = new RestoreService(db, supabase, { repo: fakeRepo as any });
+    const externalSeeder = new SeedBabyStepsUseCase(db as any, { repo: fakeRepo as any });
 
     // Fire both concurrently: RestoreService (which internally calls seed once)
     // and an external seed() call for the same household.

@@ -14,8 +14,8 @@ import { and, eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
-import { PendingSyncEnqueuerAdapter } from '../../data/repositories/PendingSyncEnqueuerAdapter';
-import type { ISyncEnqueuer } from '../ports/ISyncEnqueuer';
+import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
 
@@ -25,14 +25,10 @@ export interface ReconcileEmergencyFundTypeResult {
 }
 
 export class ReconcileEmergencyFundTypeUseCase {
-  private readonly enqueuer: ISyncEnqueuer;
-
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
-    enqueuer?: ISyncEnqueuer,
-  ) {
-    this.enqueuer = enqueuer ?? new PendingSyncEnqueuerAdapter(db);
-  }
+    private readonly deps: SyncWriteDeps = {},
+  ) {}
 
   async execute(householdId: string): Promise<Result<ReconcileEmergencyFundTypeResult>> {
     // 1. Find all non-archived emergency_fund envelopes, ordered by createdAt ASC
@@ -58,16 +54,11 @@ export class ReconcileEmergencyFundTypeUseCase {
     // 2. Keep the oldest; flip the rest to 'savings'
     const [, ...toFlip] = sorted;
     const now = new Date().toISOString();
+    const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
+    const ctx = resolveSyncedRepoCtx(this.deps);
 
     for (const envelope of toFlip) {
-      await this.db
-        .update(envelopes)
-        .set({
-          envelopeType: 'savings',
-          updatedAt: now,
-        })
-        .where(and(eq(envelopes.id, envelope.id), eq(envelopes.householdId, householdId)));
-      await this.enqueuer.enqueue('envelopes', envelope.id, 'UPDATE');
+      repo.update(envelope.id, householdId, { envelope_type: 'savings', updated_at: now }, ctx);
     }
 
     return createSuccess({ flipped: toFlip.length });

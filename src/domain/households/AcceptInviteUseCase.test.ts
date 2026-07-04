@@ -51,7 +51,7 @@ describe('AcceptInviteUseCase', () => {
 });
 
 describe('AcceptInviteUseCase — success path', () => {
-  it('calls join_household_via_invite, inserts locally, enqueues sync, and triggers restore', async () => {
+  it('calls join_household_via_invite, inserts locally (no oplog op — server already has it), and triggers restore', async () => {
     const supabase = makeSupabase({
       joinData: { member_id: 'member-1', household_id: 'h1' },
     });
@@ -70,15 +70,10 @@ describe('AcceptInviteUseCase — success path', () => {
       }),
     };
 
-    const enqueuer = { enqueue: jest.fn() };
-
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restoreService as any,
-      { userId: 'user-b', code: 'abc123' },
-      enqueuer as any,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      userId: 'user-b',
+      code: 'abc123',
+    });
     const result = await uc.execute();
 
     expect(supabase.rpc).toHaveBeenCalledWith('join_household_via_invite', {
@@ -86,7 +81,9 @@ describe('AcceptInviteUseCase — success path', () => {
     });
     expect(result.success).toBe(true);
     expect(dbInsertMock).toHaveBeenCalled();
-    expect(enqueuer.enqueue).toHaveBeenCalledWith('household_members', 'member-1', 'INSERT');
+    const [row] = dbInsertMock.mock.results[0].value.values.mock.calls[0];
+    expect(row.id).toBe('member-1');
+    expect(row.householdId).toBe('h1');
     expect(restoreService.restoreHousehold).toHaveBeenCalledWith('h1', 'member', 'user-b');
   });
 });
@@ -101,15 +98,11 @@ describe('AcceptInviteUseCase — restore failure graceful degradation', () => {
       insert: jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) }),
     };
     const restoreService = { restoreHousehold: jest.fn().mockResolvedValue(null) };
-    const enqueuer = { enqueue: jest.fn() };
 
-    const uc = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restoreService as any,
-      { userId: 'user-c', code: 'XYZ789' },
-      enqueuer as any,
-    );
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      userId: 'user-c',
+      code: 'XYZ789',
+    });
 
     const resultPromise = uc.execute();
     await jest.runAllTimersAsync();
@@ -135,15 +128,11 @@ describe('AcceptInviteUseCase — uses join_household_via_invite RPC only', () =
     const restoreService = {
       restoreHousehold: jest.fn().mockResolvedValue({ id: 'h1', name: 'My House', paydayDay: 25 }),
     };
-    const enqueuer = { enqueue: jest.fn() };
 
-    const useCase = new AcceptInviteUseCase(
-      supabase as any,
-      db as any,
-      restoreService as any,
-      { code: 'ABC123', userId: 'user-b' },
-      enqueuer as any,
-    );
+    const useCase = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      code: 'ABC123',
+      userId: 'user-b',
+    });
 
     const result = await useCase.execute();
     expect(result.success).toBe(true);
