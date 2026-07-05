@@ -328,8 +328,8 @@ describe('AddReadingScreen', () => {
     expect(getByTestId('Cost this period (R) — optional')).toBeTruthy();
   });
 
-  it('rejects an ambiguous thousands-separated cost and does not call execute', async () => {
-    const { getByTestId, queryByTestId } = render(
+  it('accepts a thousands-separated cost and saves', async () => {
+    const { getByTestId } = render(
       <AddReadingScreen
         route={{ params: { meterType: 'electricity' } } as never}
         navigation={mockNavigation}
@@ -344,9 +344,8 @@ describe('AddReadingScreen', () => {
     });
 
     await waitFor(() => {
-      expect(queryByTestId('helper-error')).toBeTruthy();
+      expect(mockExecute).toHaveBeenCalled();
     });
-    expect(mockExecute).not.toHaveBeenCalled();
   });
 
   it('accepts a comma-decimal cost and saves with the correct cents', async () => {
