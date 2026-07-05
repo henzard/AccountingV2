@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { envelopes as envelopesTable } from '../../data/local/schema';
-import { getEnvelopeSpentCents } from '../../data/local/balances/EnvelopeBalanceQuery';
+import {
+  getEnvelopeSpentCents,
+  envelopeScopeCondition,
+} from '../../data/local/balances/EnvelopeBalanceQuery';
 import type { EnvelopeEntity } from '../../domain/envelopes/EnvelopeEntity';
 
 export interface UseEnvelopesResult {
@@ -21,14 +24,22 @@ export function useEnvelopes(householdId: string, periodStart: string): UseEnvel
     setLoading(true);
     setError(null);
     try {
+      // Scope must match DrizzleEnvelopeRepository.listByHousehold /
+      // getEnvelopeSpentCents: a raw `eq(periodStart, periodStart)` here used
+      // to permanently exclude persistent envelope types (sinking_fund,
+      // emergency_fund, savings, baby_step) from every period after the one
+      // they were created in, since those rows are never re-created per
+      // period and their `period_start` never advances. See
+      // EnvelopeBalanceQuery.envelopeScopeCondition for the scope rule.
       const rows = await db
         .select()
         .from(envelopesTable)
         .where(
           and(
             eq(envelopesTable.householdId, householdId),
-            eq(envelopesTable.periodStart, periodStart),
+            isNull(envelopesTable.deletedAt),
             eq(envelopesTable.isArchived, false),
+            envelopeScopeCondition(periodStart),
           ),
         );
       // spentCents is derived from the transaction ledger, not a stored column.

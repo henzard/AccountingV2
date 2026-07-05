@@ -15,6 +15,11 @@ jest.mock('../../../data/local/db', () => ({
 // existing fixtures (which already carry a `spentCents` value) round-trip
 // through the hook unchanged.
 jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  // envelopeScopeCondition must stay the REAL implementation: useEnvelopes
+  // now builds its WHERE clause with it (see C3 fix), and the mocked `where`
+  // below ignores its arguments anyway — only `getEnvelopeSpentCents` (the
+  // ledger-derived spend lookup) needs stubbing for these fixtures.
+  ...jest.requireActual('../../../data/local/balances/EnvelopeBalanceQuery'),
   getEnvelopeSpentCents: jest.fn(),
 }));
 
