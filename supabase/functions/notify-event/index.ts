@@ -258,12 +258,18 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   const serviceClient = deps.createAdminClient();
 
   // 3. Caller must be a member of the household.
+  // deleted_at IS NULL matches extract-slip's membership predicate — a
+  // soft-deleted/removed member must not retain push-send access, and
+  // without it a member who left-and-rejoined has 2 rows (one soft-deleted,
+  // one active) which makes .single() throw a spurious 403 forever.
+  // maybeSingle() tolerates a null result without throwing.
   const { data: membership } = await serviceClient
     .from('household_members')
     .select('user_id')
     .eq('household_id', householdId)
     .eq('user_id', user.id)
-    .single();
+    .is('deleted_at', null)
+    .maybeSingle();
 
   if (!membership) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
@@ -274,13 +280,15 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
 
   // Verify the target userId is also a member of the same household.
   // Without this check, an authenticated caller could send push
-  // notifications to any user in the system (IDOR).
+  // notifications to any user in the system (IDOR). Same deleted_at +
+  // maybeSingle() reasoning as the caller check above.
   const { data: targetMembership } = await serviceClient
     .from('household_members')
     .select('user_id')
     .eq('household_id', householdId)
     .eq('user_id', userId)
-    .single();
+    .is('deleted_at', null)
+    .maybeSingle();
 
   if (!targetMembership) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {

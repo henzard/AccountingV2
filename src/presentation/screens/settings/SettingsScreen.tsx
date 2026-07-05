@@ -7,6 +7,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { supabase } from '../../../data/remote/supabaseClient';
+import { unregisterFcmToken } from '../../../infrastructure/notifications/FcmTokenRegistrar';
 import { radius, spacing, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
@@ -42,6 +43,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const handleSignOut = async (): Promise<void> => {
+    // M17 fix: clear this device's FCM token BEFORE signing out — the
+    // delete relies on RLS (user_id = auth.uid()), which needs the
+    // still-authenticated session. Without this, a shared device's next
+    // user would silently keep receiving the previous user's push
+    // notifications (the FCM token identifies the device install, not the
+    // signed-in user, and survives a user switch otherwise).
+    if (userId) {
+      await unregisterFcmToken(userId);
+    }
     await supabase.auth.signOut();
     // reset() is owned by the onAuthStateChange listener in App.tsx — it runs
     // on any sign-out (including token expiry) so we don't duplicate it here.
@@ -171,7 +181,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             left={(props) => <List.Icon {...props} icon="shield-account-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
             onPress={() =>
-              (navigation as unknown as { navigate: (s: string) => void }).navigate('SlipConsent')
+              // M11 fix: 'SlipConsent' is not a route on this (Settings)
+              // stack — it lives inside SlipScanningStackNavigator, nested
+              // under the root 'SlipScanning' modal. Navigate through the
+              // nested-navigator convention (same one the "Slip history"
+              // row above uses for the root 'SlipScanning' route) so React
+              // Navigation descends into that stack instead of bubbling an
+              // unresolved action to the root (previously a silent no-op).
+              (
+                navigation as unknown as {
+                  navigate: (screen: string, params?: unknown) => void;
+                }
+              ).navigate('SlipScanning', { screen: 'SlipConsent' })
             }
             testID="slip-consent-item"
           />
