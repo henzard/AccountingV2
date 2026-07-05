@@ -27,17 +27,35 @@ export const CreateHouseholdScreen: React.FC = () => {
 
   const [name, setName] = useState('');
   const [paydayDay, setPaydayDayInput] = useState('25');
+  const [paydayError, setPaydayError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const handlePaydayChange = (value: string): void => {
+    setPaydayDayInput(value);
+    if (paydayError) setPaydayError(null);
+  };
 
   const handleCreate = async (): Promise<void> => {
     if (!session) return;
-    const day = parseInt(paydayDay, 10);
+
+    // `parseInt` yields NaN when the field is cleared, and NaN fails both
+    // `< 1` and `> 28` — so the use case's range guard silently lets it
+    // through. Validate here, before ever calling the use case, so a
+    // cleared/invalid payday shows an inline error and blocks submit
+    // instead of reaching CreateHouseholdUseCase with a NaN.
+    const parsedPayday = Number(paydayDay);
+    const isValidPayday = Number.isInteger(parsedPayday) && parsedPayday >= 1 && parsedPayday <= 28;
+    if (!isValidPayday) {
+      setPaydayError('Payday day must be a whole number between 1 and 28');
+      return;
+    }
+    setPaydayError(null);
     setLoading(true);
 
     const uc = new CreateHouseholdUseCase(db, audit, {
       userId: session.user.id,
       name,
-      paydayDay: day,
+      paydayDay: parsedPayday,
     });
     const result = await uc.execute();
     setLoading(false);
@@ -76,13 +94,23 @@ export const CreateHouseholdScreen: React.FC = () => {
         <TextInput
           label="Payday day of month (1–28)"
           value={paydayDay}
-          onChangeText={setPaydayDayInput}
+          onChangeText={handlePaydayChange}
           keyboardType="numeric"
           mode="outlined"
           testID="household-payday-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
+          error={!!paydayError}
         />
+        {paydayError ? (
+          <Text
+            variant="bodySmall"
+            style={[styles.paydayError, { color: colors.error }]}
+            testID="household-payday-error"
+          >
+            {paydayError}
+          </Text>
+        ) : null}
 
         <Button
           mode="contained"
@@ -114,6 +142,7 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, padding: spacing.xl, gap: spacing.base },
   description: { marginBottom: spacing.base },
   input: {},
+  paydayError: { marginTop: -spacing.sm },
   button: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
   joinLink: { marginTop: spacing.xs },

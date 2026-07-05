@@ -23,7 +23,10 @@ export class ArchiveEnvelopeUseCase {
       repo.update(
         this.envelope.id,
         this.envelope.householdId,
-        { is_archived: true, updated_at: now },
+        // better-sqlite3 only binds numbers/strings/bigints/buffers/null —
+        // not JS booleans — so the boolean column is written as 1 (archived),
+        // same convention as CreateEnvelopeUseCase/StartNewPeriodUseCase.
+        { is_archived: 1, updated_at: now },
         resolveSyncedRepoCtx(this.deps),
       );
     } catch {

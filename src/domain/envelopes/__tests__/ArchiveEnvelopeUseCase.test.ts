@@ -76,7 +76,7 @@ describe('ArchiveEnvelopeUseCase', () => {
       'env-1',
       'h-1',
       {
-        is_archived: true,
+        is_archived: 1,
         updated_at: '2026-06-18T12:00:00.000Z',
       },
       expect.any(Object),
