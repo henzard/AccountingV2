@@ -208,6 +208,14 @@ describe('EnsureHouseholdUseCase — legacy household catch-up (real SQLite)', (
     // INSIDE the unit-of-work transaction, AFTER the households catch-up op
     // was already appended.
     const now = '2026-01-01T00:00:00.000Z';
+    // Seed the parent household first so the collision row inserts cleanly and
+    // the test isolates the intended PK ('id-1') collision — not a stray FK error.
+    raw
+      .prepare(
+        `INSERT INTO households (id, name, payday_day, created_at, updated_at)
+         VALUES ('some-other-household', 'Other', 25, ?, ?)`,
+      )
+      .run(now, now);
     raw
       .prepare(
         `INSERT INTO household_members (id, household_id, user_id, role, joined_at)

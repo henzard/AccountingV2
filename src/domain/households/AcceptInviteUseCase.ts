@@ -126,17 +126,26 @@ export class AcceptInviteUseCase {
       }
 
       const localHousehold = toLocalRow(hh as Record<string, unknown>);
-      await this.db
-        .insert(households)
-        .values(localHousehold as typeof households.$inferInsert)
-        .onConflictDoUpdate({
-          target: households.id,
-          set: {
-            name: sql`excluded.name`,
-            paydayDay: sql`excluded.payday_day`,
-            updatedAt: sql`excluded.updated_at`,
-          },
+      try {
+        await this.db
+          .insert(households)
+          .values(localHousehold as typeof households.$inferInsert)
+          .onConflictDoUpdate({
+            target: households.id,
+            set: {
+              name: sql`excluded.name`,
+              paydayDay: sql`excluded.payday_day`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
+      } catch {
+        // A transient local SQLite failure here must not escape as an unhandled
+        // rejection — keep the Result contract every other path in execute() uses.
+        return createFailure({
+          code: 'HOUSEHOLD_RESTORE_FAILED',
+          message: 'Could not save the household locally after accepting the invite.',
         });
+      }
 
       restored = {
         id: hh.id as string,

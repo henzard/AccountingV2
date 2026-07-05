@@ -37,8 +37,15 @@ function parseReadingValue(raw: string): ParseReadingResult {
   if (trimmed.length === 0) {
     return { ok: false, error: 'Reading value must be a positive number' };
   }
-  if (!/^\d+([.,]\d+)?$/.test(trimmed)) {
+  const m = trimmed.match(/^\d+(?:[.,](\d+))?$/);
+  if (!m) {
     return { ok: false, error: 'Enter a valid reading value, e.g. 1234.5 or 1234,5' };
+  }
+  // A single separator followed by EXACTLY 3 digits is ambiguous with a
+  // thousands grouping ("1,234" could be 1.234 or 1234) — reject rather than
+  // silently coerce it ~1000x wrong.
+  if (m[1] && m[1].length === 3) {
+    return { ok: false, error: 'Enter a valid reading value (no thousands separators)' };
   }
   const value = Number(trimmed.replace(',', '.'));
   if (!Number.isFinite(value)) {
