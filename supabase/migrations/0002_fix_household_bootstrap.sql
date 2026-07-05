@@ -32,6 +32,19 @@
 --          UNDER the per-household advisory lock, blocks hijacking an existing
 --          (member-having) household; the user_id = caller guard blocks making
 --          anyone but yourself the owner.
+--
+--   SEC 4  (IMPORTANT-1) sync_push resolved authorization PER HOUSEHOLD, so an
+--          authorized batch (incl. a self-bootstrap) could carry EXTRA
+--          household_members insert ops for OTHER user_ids and apply them all —
+--          force-joining arbitrary users into the attacker's household.
+--          apply_one_op did no user_id/role check on membership writes. FIX:
+--          apply_one_op now authorizes household_members writes PER OP,
+--          regardless of the household-level gate — a caller may only write
+--          their OWN membership row (INSERT with payload.user_id = caller, or
+--          DELETE of their own row to leave); all other membership writes
+--          (other user_ids, any role update/increment) are rejected
+--          'forbidden_member'. Other members are added only via
+--          join_household_via_invite (SECURITY DEFINER), never sync_push.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------
@@ -71,6 +84,8 @@ DECLARE
   v_field    text;
   v_delta    text;
   v_clamp    text;
+  v_caller   text;
+  v_target_uid text;
 BEGIN
   -- Validation (pre-oplog): v must be 1, table allowlisted, op_type known.
   -- Rejected here => no oplog row is ever written.
@@ -90,6 +105,46 @@ BEGIN
     AND a.attnum > 0
     AND NOT a.attisdropped
     AND a.attname NOT IN ('id', 'household_id');
+
+  -- --------------------------------------------------------------------
+  -- 0002 IMPORTANT-1 (security): per-op authorization for household_members
+  -- writes, enforced REGARDLESS of the household-level authorization in
+  -- sync_push. sync_push authorizes a whole household for the caller (incl.
+  -- the owner self-bootstrap path); that gate must NOT be read as "the caller
+  -- may write ANY membership row for that household". Adding OTHER members and
+  -- changing roles is the sole job of join_household_via_invite / owner RPCs
+  -- (SECURITY DEFINER), which bypass sync_push entirely. So sync_push is not a
+  -- path to write another user's membership: through it a caller may only
+  -- touch their OWN household_members row, and only to
+  --   (a) INSERT their bootstrap owner row (payload.user_id = caller), or
+  --   (b) DELETE it — soft-delete — to leave the household (target row's
+  --       user_id = caller).
+  -- Everything else is rejected here, per-op:
+  --   * an INSERT whose payload.user_id != caller  -> a bootstrap batch cannot
+  --     smuggle in membership inserts that force-join OTHER user_ids;
+  --   * a DELETE of another user's membership row;
+  --   * ANY update/increment on a membership row -> roles/memberships are never
+  --     mutated through sync_push, so no member (existing or bootstrapping) can
+  --     elevate themselves or anyone else to owner via an update.
+  -- This is the tightest rule that still lets legitimate bootstrap and
+  -- leave-household (own soft-delete) work.
+  IF v_table = 'household_members' THEN
+    v_caller := (select auth.uid())::text;
+    IF v_op_type = 'insert' THEN
+      IF v_caller IS NULL OR (v_payload->>'user_id') IS DISTINCT FROM v_caller THEN
+        RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'forbidden_member');
+      END IF;
+    ELSIF v_op_type = 'delete' THEN
+      EXECUTE format('SELECT user_id FROM public.household_members WHERE id = %L', v_row_id)
+        INTO v_target_uid;
+      IF v_caller IS NULL OR v_target_uid IS DISTINCT FROM v_caller THEN
+        RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'forbidden_member');
+      END IF;
+    ELSE
+      -- update / increment on a membership row is never allowed via sync_push.
+      RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'forbidden_member');
+    END IF;
+  END IF;
 
   BEGIN  -- per-op savepoint
     -- Record first so a duplicate op_id short-circuits to 'applied'
@@ -126,8 +181,20 @@ BEGIN
     -- update/delete/increment must target a row whose ACTUAL household_id
     -- equals the op's household_id.
     IF v_op_type IN ('update', 'delete', 'increment') THEN
-      EXECUTE format('SELECT household_id FROM public.%I WHERE id = %L', v_table, v_row_id)
-        INTO v_actual;
+      IF v_table = 'households' THEN
+        -- 0002 IMPORTANT-2 (correctness): households has NO household_id column
+        -- (a household IS its own scope — its id is the household id). Selecting
+        -- household_id here raised 42703 ("column household_id does not exist"),
+        -- so EVERY households update/delete/increment op was rejected (e.g.
+        -- UpdateHouseholdPaydayDayUseCase's payday_day update never synced).
+        -- Scope on the row's own id instead: v_actual is the target
+        -- household's id (or NULL if it does not exist), compared to v_hh.
+        EXECUTE format('SELECT id FROM public.households WHERE id = %L', v_row_id)
+          INTO v_actual;
+      ELSE
+        EXECUTE format('SELECT household_id FROM public.%I WHERE id = %L', v_table, v_row_id)
+          INTO v_actual;
+      END IF;
       IF v_actual IS DISTINCT FROM v_hh THEN
         DELETE FROM public.oplog WHERE op_id = v_op_id::uuid;
         RETURN jsonb_build_object('op_id', v_op_id, 'status', 'rejected', 'code', 'wrong_household');
@@ -142,6 +209,18 @@ BEGIN
       IF v_table = 'households' THEN
         -- households IS its own scope (row_id = household id); there is NO
         -- household_id column to inject. Insert id + payload columns only.
+        -- MINOR-3 (defensive note): the household row is created with
+        -- id = v_row_id, but this op's oplog row was written with
+        -- household_id = v_hh (the op's top-level household_id). For a
+        -- well-formed households insert a client always sets row_id = household_id
+        -- (see CreateHouseholdUseCase / toWireOp), so the two are equal and the
+        -- DEFERRABLE oplog->households FK is satisfied at COMMIT. A MALFORMED op
+        -- with row_id != household_id would create households(v_row_id) while the
+        -- oplog row still references the non-existent households(v_hh) — the
+        -- deferred FK then fails at COMMIT and aborts the whole sync_push
+        -- transaction. That is self-inflicted (the client would have to hand-craft
+        -- an inconsistent op) and fails safe (nothing is committed); legit clients
+        -- never hit it, so no extra guard is added here.
         EXECUTE format(
           'INSERT INTO public.households (id%s) VALUES (%L%s) ON CONFLICT (id) DO NOTHING',
           CASE WHEN v_cols IS NULL THEN '' ELSE ', ' || v_cols END,
@@ -252,6 +331,17 @@ BEGIN
       -- valid for a household with NO existing active members. This is the
       -- anti-hijack guard — you cannot insert yourself as owner of a
       -- household that already has members.
+      -- MINOR-5 (isolation note): this "no existing members" EXISTS check runs
+      -- at sync_push's default isolation (READ COMMITTED). Correctness does not
+      -- rely on a snapshot — it relies on the per-household advisory lock taken
+      -- immediately above: any concurrent bootstrap/membership write for this
+      -- household serializes behind that lock, and READ COMMITTED means this
+      -- EXISTS sees the latest COMMITTED members once we hold the lock. So two
+      -- racing bootstraps of the same household cannot both pass (the second
+      -- blocks on the lock, then sees the first's committed owner row). Do NOT
+      -- switch this path to REPEATABLE READ expecting stronger guarantees — that
+      -- would instead risk the EXISTS reading a stale snapshot taken before the
+      -- lock was granted.
       IF v_bootstrap AND EXISTS (
         SELECT 1 FROM public.household_members
         WHERE household_id = v_hh AND deleted_at IS NULL

@@ -17,7 +17,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(12);
+select plan(20);
 
 -- Users only — NO households / household_members pre-seeded: the household is
 -- created through sync_push, which is the whole point.
@@ -173,6 +173,122 @@ select is((select res -> 0 ->> 'code' from t_wrong), 'not_member',
 select is(
   (select count(*)::int from public.households where id = 'hh-wrong'),
   0, 'P12: no household created when the owner user_id is not the caller');
+
+-- ===========================================================================
+-- IMPORTANT-1 injection: a legit bootstrap batch that ALSO smuggles in a
+-- household_members insert for a DIFFERENT user_id. The bootstrap qualifies
+-- the household, but the per-op membership check must reject ONLY the injected
+-- op (attacker cannot force-join another user_id via sync_push).
+-- ===========================================================================
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+
+-- P5 above ran `set constraints all immediate`, which flips the DEFERRABLE
+-- oplog->households FK to immediate mode for the REST of this single
+-- transaction. This injection section does a FRESH bootstrap (a new household),
+-- which — exactly like production sync_push — writes the households op's oplog
+-- row before the household row and relies on the FK staying deferred to COMMIT.
+-- Restore deferred mode so this test exercises real sync_push behavior (in
+-- production nothing calls SET CONSTRAINTS, so the FK is deferred throughout).
+set constraints all deferred;
+
+create temporary table t_inject as
+select public.sync_push(jsonb_build_array(
+  jsonb_build_object(
+    'v', '1', 'op_id', 'd1000000-0000-0000-0000-000000000001',
+    'household_id', 'hh-inject', 'table', 'households', 'row_id', 'hh-inject',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'name', 'Inject', 'payday_day', 25, 'user_level', 1,
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'devInject',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ),
+  jsonb_build_object(
+    'v', '1', 'op_id', 'd1000000-0000-0000-0000-000000000002',
+    'household_id', 'hh-inject', 'table', 'household_members', 'row_id', 'hm-inj-owner',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'user_id', '00000000-0000-0000-0000-00000000000a', 'role', 'owner',
+      'joined_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'devInject',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ),
+  -- Injected op: force-join a DIFFERENT user (victim, ...000d) into the household.
+  jsonb_build_object(
+    'v', '1', 'op_id', 'd1000000-0000-0000-0000-000000000003',
+    'household_id', 'hh-inject', 'table', 'household_members', 'row_id', 'hm-inj-victim',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'user_id', '00000000-0000-0000-0000-00000000000d', 'role', 'member',
+      'joined_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'devInject',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  )
+)) as res;
+
+select is((select res -> 1 ->> 'status' from t_inject), 'applied',
+  'P13: owner self-membership still applies in an injected batch');
+select is((select res -> 2 ->> 'status' from t_inject), 'rejected',
+  'P14: the smuggled foreign-user membership insert is rejected');
+select is((select res -> 2 ->> 'code' from t_inject), 'forbidden_member',
+  'P15: injected-membership rejection code is forbidden_member');
+select is(
+  (select count(*)::int from public.household_members
+     where household_id = 'hh-inject' and user_id = '00000000-0000-0000-0000-00000000000d'
+       and deleted_at is null),
+  0, 'P16: the victim user_id was NOT force-joined');
+
+-- ===========================================================================
+-- IMPORTANT-2: a households UPDATE op (payday_day) must APPLY for the owner
+-- (previously rejected 42703 because the ownership pre-check selected a
+-- non-existent households.household_id column), and be rejected for a
+-- non-member.
+-- ===========================================================================
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+
+create temporary table t_hhupd as
+select public.sync_push(jsonb_build_array(
+  jsonb_build_object(
+    'v', '1', 'op_id', 'e1000000-0000-0000-0000-000000000001',
+    'household_id', 'hh-boot', 'table', 'households', 'row_id', 'hh-boot',
+    'op_type', 'update',
+    'payload', jsonb_build_object('payday_day', 10, 'updated_at', '2026-02-01T00:00:00Z'),
+    'device_id', 'devBoot',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000a',
+    'client_created_at', '2026-02-01T00:00:00Z'
+  )
+)) as res;
+
+select is((select res -> 0 ->> 'status' from t_hhupd), 'applied',
+  'P17: owner households UPDATE (payday_day) applies (no 42703)');
+select is(
+  (select payday_day from public.households where id = 'hh-boot'),
+  10, 'P18: households.payday_day updated to 10');
+
+-- Non-member (attacker, ...000b) tries to update the household -> not_member.
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+
+create temporary table t_hhupd_bad as
+select public.sync_push(jsonb_build_array(
+  jsonb_build_object(
+    'v', '1', 'op_id', 'e1000000-0000-0000-0000-000000000002',
+    'household_id', 'hh-boot', 'table', 'households', 'row_id', 'hh-boot',
+    'op_type', 'update',
+    'payload', jsonb_build_object('payday_day', 3, 'updated_at', '2026-03-01T00:00:00Z'),
+    'device_id', 'devAttacker',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000b',
+    'client_created_at', '2026-03-01T00:00:00Z'
+  )
+)) as res;
+
+select is((select res -> 0 ->> 'code' from t_hhupd_bad), 'not_member',
+  'P19: a non-member households UPDATE is rejected not_member');
+select is(
+  (select payday_day from public.households where id = 'hh-boot'),
+  10, 'P20: households.payday_day unchanged after the rejected update');
 
 select * from finish();
 rollback;

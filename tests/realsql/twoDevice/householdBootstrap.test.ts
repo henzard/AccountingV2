@@ -248,4 +248,118 @@ describe('household bootstrap through real sync_push (no seedHousehold)', () => 
     const hh = await client.query('SELECT 1 FROM public.households WHERE id = $1', [householdId]);
     expect(hh.rowCount).toBe(0);
   });
+
+  it('rejects an EXTRA membership insert for a DIFFERENT user_id smuggled into a bootstrap batch (no force-join)', async () => {
+    const owner = randomUUID();
+    const victim = randomUUID(); // an unrelated user the attacker tries to force-join
+    const householdId = randomUUID();
+    await setSessionUser(client, owner);
+
+    // A legit bootstrap batch (households insert + owner self-membership) PLUS
+    // an injected household_members insert for a DIFFERENT user_id. The batch
+    // qualifies the household for bootstrap (the owner self-insert), so a
+    // per-HOUSEHOLD authorization gate would apply ALL three ops. The per-OP
+    // membership check must reject only the injected op.
+    const ops = createHouseholdOps(householdId, owner);
+    ops.push({
+      v: '1',
+      op_id: randomUUID(),
+      household_id: householdId,
+      table: 'household_members',
+      row_id: randomUUID(),
+      op_type: 'insert',
+      payload: { user_id: victim, role: 'member', joined_at: NOW, updated_at: NOW },
+      device_id: 'devBoot',
+      actor_user_id: owner,
+      client_created_at: clientCreatedAt(),
+    });
+
+    const results = await push(ops);
+    expect(results).toHaveLength(3);
+    // households insert + owner self-membership still apply...
+    expect(results[0].status).toBe('applied');
+    expect(results[1].status).toBe('applied');
+    // ...but the smuggled foreign-user membership is rejected per-op.
+    expect(results[2].status).toBe('rejected');
+    expect(results[2].code).toBe('forbidden_member');
+
+    // The victim was NOT force-joined: only the owner is a member.
+    const members = await client.query(
+      `SELECT user_id FROM public.household_members
+       WHERE household_id = $1 AND deleted_at IS NULL ORDER BY user_id`,
+      [householdId],
+    );
+    expect(members.rows.map((r) => r.user_id)).toEqual([owner]);
+    // And no oplog row leaked for the rejected op.
+    const oplog = await client.query(
+      `SELECT count(*)::int AS n FROM public.oplog WHERE household_id = $1`,
+      [householdId],
+    );
+    expect(oplog.rows[0].n).toBe(2);
+  });
+
+  it('applies a households UPDATE op (payday_day) for the owner and rejects a non-member’s households update', async () => {
+    const owner = randomUUID();
+    const stranger = randomUUID();
+    const householdId = randomUUID();
+
+    await setSessionUser(client, owner);
+    const boot = await push(createHouseholdOps(householdId, owner));
+    expect(boot.map((r) => r.status)).toEqual(['applied', 'applied']);
+
+    // Owner updates payday_day via a households UPDATE op — the exact shape
+    // UpdateHouseholdPaydayDayUseCase emits (row_id = household_id, no
+    // household_id column in payload). Before 0002's IMPORTANT-2 fix the
+    // ownership pre-check selected a non-existent households.household_id
+    // column (42703) and this op was always rejected.
+    const updateOp = [
+      {
+        v: '1',
+        op_id: randomUUID(),
+        household_id: householdId,
+        table: 'households',
+        row_id: householdId,
+        op_type: 'update',
+        payload: { payday_day: 10, updated_at: NOW },
+        device_id: 'devBoot',
+        actor_user_id: owner,
+        client_created_at: clientCreatedAt(),
+      },
+    ];
+    const upd = await push(updateOp);
+    expect(upd).toHaveLength(1);
+    expect(upd[0].status).toBe('applied');
+    expect(upd[0].code).toBeNull();
+
+    const hh = await client.query<{ payday_day: number }>(
+      'SELECT payday_day FROM public.households WHERE id = $1',
+      [householdId],
+    );
+    expect(hh.rows[0].payday_day).toBe(10);
+
+    // A non-member cannot update the household — rejected not_member, no change.
+    await setSessionUser(client, stranger);
+    const strangerUpd = await push([
+      {
+        v: '1',
+        op_id: randomUUID(),
+        household_id: householdId,
+        table: 'households',
+        row_id: householdId,
+        op_type: 'update',
+        payload: { payday_day: 3, updated_at: NOW },
+        device_id: 'devStranger',
+        actor_user_id: stranger,
+        client_created_at: clientCreatedAt(),
+      },
+    ]);
+    expect(strangerUpd[0].status).toBe('rejected');
+    expect(strangerUpd[0].code).toBe('not_member');
+
+    const hh2 = await client.query<{ payday_day: number }>(
+      'SELECT payday_day FROM public.households WHERE id = $1',
+      [householdId],
+    );
+    expect(hh2.rows[0].payday_day).toBe(10); // unchanged
+  });
 });
