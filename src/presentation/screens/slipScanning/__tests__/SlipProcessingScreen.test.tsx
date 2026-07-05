@@ -1,12 +1,19 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
+const mockReplace = jest.fn();
+const mockParentNavigate = jest.fn();
 
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
-  useNavigation: () => ({ navigate: mockNavigate, goBack: mockGoBack }),
+  useNavigation: () => ({
+    navigate: mockNavigate,
+    goBack: mockGoBack,
+    replace: mockReplace,
+    getParent: () => ({ navigate: mockParentNavigate }),
+  }),
   useRoute: () => ({
     key: 'SlipProcessing',
     name: 'SlipProcessing',
@@ -51,6 +58,8 @@ describe('SlipProcessingScreen', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockGoBack.mockReset();
+    mockReplace.mockReset();
+    mockParentNavigate.mockReset();
   });
 
   it('shows uploading progress label', () => {
@@ -107,6 +116,28 @@ describe('SlipProcessingScreen', () => {
         expect.objectContaining({ slipId: 's1' }),
       );
     });
+  });
+
+  it('routes "Log manually" through Main -> Transactions -> AddTransaction (M12)', () => {
+    const startScan = jest.fn().mockResolvedValue({ success: false });
+    const { getByTestId } = render(
+      <SlipProcessingScreen
+        startScan={startScan}
+        progress={{
+          stage: 'failed',
+          slipId: 's1',
+          error: { code: 'SLIP_OPENAI_UNREACHABLE', message: 'OpenAI down' },
+        }}
+      />,
+    );
+    fireEvent.press(getByTestId('log-manually-button'));
+    // Must go via the root's 'Main' route (the tabs) — NOT a non-existent
+    // 'Transactions' route on the root stack, which was a silent no-op.
+    expect(mockParentNavigate).toHaveBeenCalledWith('Main', {
+      screen: 'Transactions',
+      params: { screen: 'AddTransaction' },
+    });
+    expect(mockParentNavigate).not.toHaveBeenCalledWith('Transactions', expect.anything());
   });
 
   it('shows cancel button during processing', () => {

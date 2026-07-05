@@ -127,16 +127,22 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   if (!slipRow || slipRow.created_by !== callerId || slipRow.household_id !== household_id)
     return new Response('Forbidden', { status: 403 });
 
-  // 5. Idempotency + status guard
+  // 5. Idempotency + status guard.
+  // A completed slip with a cached extraction is returned as-is (idempotent).
   if (slipRow.status === 'completed' && slipRow.raw_response_json) {
     return new Response(slipRow.raw_response_json, {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   }
-  if (slipRow.status === 'processing') {
-    return new Response('Slip already processing', { status: 409 });
-  }
+  // A freshly-captured slip is persisted with status='processing' (the client
+  // CaptureSlipUseCase default AND the slip_queue column default), so
+  // 'processing' is the NORMAL pre-extraction state and must proceed — an
+  // earlier revision 409'd here, which made every real slip fail because no
+  // production path ever writes 'pending'. Concurrency for the same slip is
+  // guarded atomically below by check_and_reserve_slip_slot (per-household
+  // advisory lock + status-scoped reservation); a genuinely completed slip is
+  // short-circuited above. A re-extracted 'failed' slip also passes here.
 
   // 6. Payload size cap (5MB) — checked before reserving the slot so a
   //    rejected-too-large request never transitions the slip to processing.

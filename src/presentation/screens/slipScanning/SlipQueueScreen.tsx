@@ -9,9 +9,62 @@ import type {
   SlipQueueRow,
   ISlipQueueRepository,
 } from '../../../domain/ports/ISlipQueueRepository';
-import type { SlipStatus } from '../../../domain/slipScanning/types';
+import type { SlipExtraction, SlipStatus } from '../../../domain/slipScanning/types';
 
 const PAGE_SIZE = 20;
+
+/**
+ * Map a slip row's stored `rawResponseJson` into a camelCase `SlipExtraction`
+ * that SlipConfirmScreen can consume.
+ *
+ * The edge function persists `raw_response_json` as `JSON.stringify(parsed)`
+ * where `parsed` is the SNAKE_CASE OpenAI structured output
+ * (`slip_date` / `amount_cents` / `suggested_envelope_id`). The camelCase
+ * `SlipExtraction` shape is otherwise only ever built in-memory by
+ * EdgeFunctionSlipExtractor and is never persisted — so passing the raw parsed
+ * object straight through as `extraction` (the old H6 behaviour) produced
+ * items whose `amountCents`/`suggestedEnvelopeId` were all `undefined`,
+ * rendering "RNaN" and corrupting the ledger on save. This normalises it and
+ * returns `null` when the JSON is absent, unparseable, or the wrong shape so
+ * callers can fall back to a re-scan instead of crashing.
+ */
+function hydrateExtraction(item: SlipQueueRow): SlipExtraction | null {
+  if (!item.rawResponseJson) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(item.rawResponseJson);
+  } catch {
+    return null;
+  }
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as {
+    merchant?: string | null;
+    slip_date?: string | null;
+    total_cents?: number | null;
+    items?: Array<{
+      description?: string;
+      amount_cents?: number;
+      quantity?: number;
+      suggested_envelope_id?: string | null;
+      confidence?: number;
+    }>;
+  };
+  if (!Array.isArray(r.items)) return null;
+  return {
+    merchant: r.merchant ?? null,
+    slipDate: r.slip_date ?? null,
+    totalCents: r.total_cents ?? null,
+    items: r.items.map((i) => ({
+      description: i.description ?? '',
+      amountCents: i.amount_cents ?? 0,
+      quantity: i.quantity ?? 1,
+      suggestedEnvelopeId: i.suggested_envelope_id ?? null,
+      confidence: i.confidence ?? 0,
+    })),
+    rawResponseJson: item.rawResponseJson,
+    openaiCostCents: item.openaiCostCents,
+  };
+}
 
 export type SlipQueueScreenProps = {
   repo: ISlipQueueRepository;
@@ -144,26 +197,48 @@ export function SlipQueueScreen({
   const handlePress = useCallback(
     (item: SlipQueueRow): void => {
       switch (item.status as SlipStatus) {
-        case 'processing':
-          navigation.navigate('SlipProcessing', { slipId: item.id });
+        case 'processing': {
+          // M7: a slip stuck at 'processing' (app killed mid-scan) must carry
+          // the params SlipProcessingScreen requires — omitting them made its
+          // mount effect call startScan({ frameLocalUris: undefined }), which
+          // threw a TypeError and left the user on a permanent spinner. The
+          // captured frames are stored on the row (imageUris), so resume the
+          // scan from them rather than starting a blank one.
+          navigation.navigate('SlipProcessing', {
+            householdId: item.householdId,
+            createdBy: item.createdBy,
+            frameLocalUris: item.imageUris,
+          });
           break;
-        case 'failed':
-          // If extraction already succeeded (raw_response_json present), route to confirm
-          // so the user can review and save without re-scanning.
-          if (item.rawResponseJson) {
-            try {
-              const extraction = JSON.parse(item.rawResponseJson);
-              navigation.navigate('SlipConfirm', { slipId: item.id, extraction });
-            } catch {
-              navigation.navigate('SlipCapture', { householdId, slipId: item.id });
-            }
+        }
+        case 'failed': {
+          // H6: if extraction already succeeded (raw_response_json present),
+          // route to confirm so the user can review and save without
+          // re-scanning — but normalise the SNAKE_CASE stored JSON into a
+          // real SlipExtraction first (passing it raw gave undefined amounts).
+          // If there is no usable extraction, fall back to a re-scan.
+          const extraction = hydrateExtraction(item);
+          if (extraction) {
+            navigation.navigate('SlipConfirm', { slipId: item.id, extraction });
           } else {
             navigation.navigate('SlipCapture', { householdId, slipId: item.id });
           }
           break;
-        case 'completed':
-          navigation.navigate('SlipConfirm', { slipId: item.id });
+        }
+        case 'completed': {
+          // H5: a completed slip MUST carry its extraction — SlipConfirmScreen
+          // dereferences extraction.items and previously crashed when the tap
+          // navigated with only { slipId }. Hydrate it from the stored
+          // response; if it is somehow missing/corrupt, fall back to a re-scan
+          // rather than white-screening the confirm screen.
+          const extraction = hydrateExtraction(item);
+          if (extraction) {
+            navigation.navigate('SlipConfirm', { slipId: item.id, extraction });
+          } else {
+            navigation.navigate('SlipCapture', { householdId, slipId: item.id });
+          }
           break;
+        }
         default:
           break;
       }

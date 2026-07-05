@@ -13,6 +13,36 @@ function makeRequest(body: unknown, authHeader?: string): Request {
   });
 }
 
+type ReserveArgs = { p_household_id: string; p_user_id: string; p_slip_id: string };
+
+// Faithful emulation of the migration 0003 check_and_reserve_slip_slot body,
+// invoked exactly as the edge function invokes it (with the service-role admin
+// client, so there is NO auth.uid()/`sub` claim). The two load-bearing fixes
+// are encoded here:
+//   C2 — there is NO auth.uid() self-check; the RPC trusts p_user_id.
+//   C1 — a slot is reserved only when the slip is in a reservable status
+//        ('processing' for a freshly-captured slip, 'failed' for re-extraction).
+// This replaces the previous constant `{ allowed: true }` mock, which never
+// exercised the real no-auth reservation path and masked both defects.
+function makeReserveEmulator(
+  slipStatusById: Record<string, string> = { slip1: 'processing' },
+  onCall?: (args: ReserveArgs) => void,
+) {
+  return (_name: string, rawArgs: unknown) => {
+    const args = rawArgs as ReserveArgs;
+    onCall?.(args);
+    const status = slipStatusById[args.p_slip_id] ?? 'processing';
+    if (status === 'processing' || status === 'failed') {
+      slipStatusById[args.p_slip_id] = 'processing';
+      return Promise.resolve({ data: { allowed: true }, error: null });
+    }
+    return Promise.resolve({
+      data: { allowed: false, reason: 'slot_not_reserved' },
+      error: null,
+    });
+  };
+}
+
 function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
   const adminFrom = (table: string) => {
     if (table === 'household_members') {
@@ -44,7 +74,9 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
     if (table === 'slip_queue') {
       const slipRow = {
         id: 'slip1',
-        status: 'pending',
+        // Production writes 'processing' at capture (CaptureSlipUseCase +
+        // slip_queue default). 'pending' was never written by any real path.
+        status: 'processing',
         raw_response_json: null,
         created_by: 'u1',
         household_id: 'h1',
@@ -86,8 +118,9 @@ function makeBaseDeps(overrides: Partial<HandleDeps> = {}): HandleDeps {
 
   const adminSupabase = {
     from: adminFrom,
-    rpc: (_name: string, _args: unknown) =>
-      Promise.resolve({ data: { allowed: true }, error: null }),
+    // Emulates the fixed RPC (no auth.uid() check; reserves 'processing' /
+    // 'failed'), not a blanket allow.
+    rpc: makeReserveEmulator(),
   };
 
   const openAIFetch = () =>
@@ -762,7 +795,7 @@ Deno.test('returns 429 household_limit when check_and_reserve_slip_slot disallow
 
   const slipQueueRow429 = {
     id: 'slip1',
-    status: 'pending',
+    status: 'processing',
     raw_response_json: null,
     created_by: 'u1',
     household_id: 'h1',
@@ -806,22 +839,40 @@ Deno.test('returns 429 household_limit when check_and_reserve_slip_slot disallow
   assertEquals(await resp.text(), 'Household rate limit');
 });
 
-Deno.test('returns 409 when slip is already processing', async () => {
-  const baseDeps = makeBaseDeps();
+// C1: a freshly-captured slip is persisted with status='processing' (the only
+// value production ever writes). It must PROCEED to extraction — the previous
+// step-5 guard 409'd here, which made every real slip fail. This is the exact
+// scenario the old "returns 409 when slip is already processing" test locked in
+// as correct; it is now inverted to assert the slip is extracted.
+Deno.test('C1: a freshly-captured processing slip proceeds to extraction (no 409)', async () => {
+  const deps = makeBaseDeps(); // base slipRow.status is now 'processing'
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['abc'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 200);
+  const body = await resp.json();
+  assertEquals(body.merchant, 'Pick n Pay');
+  assertEquals(body.items.length, 1);
+});
 
-  const slipQueueRow409 = {
+// C1: re-extracting a slip whose prior extraction FAILED must work — the
+// reserve RPC reserves 'failed' as well as 'processing'.
+Deno.test('C1: a failed slip can be re-extracted', async () => {
+  const baseDeps = makeBaseDeps();
+  const failedRow = {
     id: 'slip1',
-    status: 'processing',
+    status: 'failed',
     raw_response_json: null,
     created_by: 'u1',
     household_id: 'h1',
   };
   // deno-lint-ignore no-explicit-any
-  const chainedEq409: any = {
-    eq: () => chainedEq409,
-    maybeSingle: () => Promise.resolve({ data: slipQueueRow409, error: null }),
+  const chainedEqFailed: any = {
+    eq: () => chainedEqFailed,
+    maybeSingle: () => Promise.resolve({ data: failedRow, error: null }),
   };
-
   const deps: HandleDeps = {
     ...baseDeps,
     createAdminClient: () => {
@@ -831,21 +882,50 @@ Deno.test('returns 409 when slip is already processing', async () => {
         from: (table: string) => {
           if (table === 'slip_queue') {
             return {
-              select: () => ({ eq: () => chainedEq409 }),
+              select: () => ({ eq: () => chainedEqFailed }),
               update: () => ({ eq: () => Promise.resolve({ error: null }) }),
             };
           }
           return base.from(table);
         },
+        rpc: makeReserveEmulator({ slip1: 'failed' }),
       };
     },
   };
-
   const req = makeRequest(
     { slip_id: 'slip1', household_id: 'h1', images_base64: ['abc'] },
     'Bearer tok',
   );
   const resp = await handle(req, deps);
-  assertEquals(resp.status, 409);
-  assertEquals(await resp.text(), 'Slip already processing');
+  assertEquals(resp.status, 200);
+});
+
+// C2: the reserve RPC is called with the service-role admin client, so
+// auth.uid() is NULL. The fixed RPC trusts p_user_id (the caller was already
+// authenticated + membership-verified by the edge function), so the reservation
+// succeeds and the request is NOT spuriously rejected with a 429. The emulator
+// asserts the caller id is forwarded as p_user_id.
+Deno.test('C2: reserve succeeds for a service-role caller with no auth.uid()', async () => {
+  const baseDeps = makeBaseDeps();
+  const seen: ReserveArgs[] = [];
+  const deps: HandleDeps = {
+    ...baseDeps,
+    createAdminClient: () => {
+      const base = baseDeps.createAdminClient();
+      return {
+        ...base,
+        rpc: makeReserveEmulator({ slip1: 'processing' }, (args) => seen.push(args)),
+      };
+    },
+  };
+  const req = makeRequest(
+    { slip_id: 'slip1', household_id: 'h1', images_base64: ['abc'] },
+    'Bearer tok',
+  );
+  const resp = await handle(req, deps);
+  assertEquals(resp.status, 200); // not a spurious 429
+  assertEquals(seen.length, 1);
+  assertEquals(seen[0].p_user_id, 'u1');
+  assertEquals(seen[0].p_household_id, 'h1');
+  assertEquals(seen[0].p_slip_id, 'slip1');
 });
