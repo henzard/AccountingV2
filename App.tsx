@@ -49,7 +49,10 @@ import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImage
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
 import { BootRecoveryGate } from './src/presentation/boot/BootRecoveryGate';
 import { BootErrorBoundary } from './src/presentation/boot/BootErrorBoundary';
-import { registerFcmToken } from './src/infrastructure/notifications/FcmTokenRegistrar';
+import {
+  registerFcmToken,
+  subscribeToTokenRefresh,
+} from './src/infrastructure/notifications/FcmTokenRegistrar';
 import {
   hydrateThemeFromLocal,
   hydrateThemeFromRemote,
@@ -252,6 +255,17 @@ async function initSessionRemote(userId: string): Promise<void> {
 
   // Register FCM token for push notifications (fire-and-forget — non-fatal).
   void registerFcmToken(userId).catch(() => {});
+
+  // Subscribe to FCM token rotation (M16) — without this, a token rotated
+  // mid-session (app reinstall/restore, GMS refresh) is never written back
+  // to user_fcm_tokens, so pushes to this device silently go to a dead
+  // token until the next full cold-start sign-in. Tear down any stale
+  // subscription from a prior session first (defensive — initSessionOnce
+  // already guards against re-running this per userId, but a fresh sign-in
+  // as a DIFFERENT user on the same device must not leave the previous
+  // user's listener registered).
+  tokenRefreshUnsubscribe?.();
+  tokenRefreshUnsubscribe = subscribeToTokenRefresh(userId);
 }
 
 async function initSession(userId: string): Promise<void> {
@@ -271,6 +285,15 @@ async function initSession(userId: string): Promise<void> {
 let initSessionInFlightUserId: string | null = null;
 let initSessionCompletedUserId: string | null = null;
 
+// M16 wiring: holds the `subscribeToTokenRefresh` unsubscribe for the
+// CURRENT session, set inside `initSessionRemote` right alongside
+// `registerFcmToken`. Torn down in `resetAllStoresOnSignOut` so a signed-out
+// (or about-to-sign-in-as-someone-else) device stops re-registering a
+// rotated token under the previous user's id. Module-level (not component
+// state) because `initSessionRemote`/`resetAllStoresOnSignOut` are plain
+// functions outside the component, mirroring the guard variables above.
+let tokenRefreshUnsubscribe: (() => void) | null = null;
+
 async function initSessionOnce(userId: string): Promise<void> {
   if (initSessionInFlightUserId === userId || initSessionCompletedUserId === userId) return;
   initSessionInFlightUserId = userId;
@@ -288,6 +311,11 @@ function resetInitSessionGuard(): void {
 }
 
 function resetAllStoresOnSignOut(): void {
+  // Stop listening for FCM token rotation for the just-ended session —
+  // otherwise a rotated token after sign-out would still be upserted under
+  // the signed-out user's id.
+  tokenRefreshUnsubscribe?.();
+  tokenRefreshUnsubscribe = null;
   useAppStore.getState().reset();
   useSyncStore.getState().reset();
   resetThemeStore();

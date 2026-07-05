@@ -50,12 +50,12 @@ export async function registerFcmToken(userId: string): Promise<void> {
  * same row shape). Returns the unsubscribe function `onTokenRefresh` gives
  * back, so the caller can tear the listener down (e.g. on sign-out).
  *
- * WIRING NOTE (not owned by this fix): the sole current caller of
- * `registerFcmToken` is `initSessionRemote` in App.tsx (~line 253-254). That
- * boot path should also call `subscribeToTokenRefresh(userId)` right next to
- * it and hold onto the returned unsubscribe for its own session-teardown
- * logic (`resetAllStoresOnSignOut`, App.tsx ~290) — this file only owns the
- * subscription helper itself, not App.tsx's boot/teardown wiring.
+ * WIRING: `initSessionRemote` in App.tsx calls this right alongside
+ * `registerFcmToken`, holding the returned unsubscribe in the module-level
+ * `tokenRefreshUnsubscribe`. `resetAllStoresOnSignOut` calls that unsubscribe
+ * (and clears it) so a signed-out session's listener never fires again, and
+ * a fresh sign-in as a different user on the same device never leaves two
+ * listeners registered.
  */
 export function subscribeToTokenRefresh(userId: string): () => void {
   return messaging().onTokenRefresh((token: string) => {

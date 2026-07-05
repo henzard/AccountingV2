@@ -21,13 +21,12 @@ import { SupabaseSlipImageUploader } from '../../infrastructure/slipScanning/Sup
 import { ExpoSlipImageCompressor } from '../../infrastructure/slipScanning/ExpoSlipImageCompressor';
 import { EdgeFunctionSlipExtractor } from '../../infrastructure/slipScanning/EdgeFunctionSlipExtractor';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { BudgetPeriodEngine } from '../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../domain/shared/BudgetPeriodEngine';
 import { db } from '../../data/local/db';
 import { supabase } from '../../data/remote/supabaseClient';
 import { envelopes as envelopesTable } from '../../data/local/schema';
 import { getEnvelopeSpentCents } from '../../data/local/balances/EnvelopeBalanceQuery';
 import { eq, ne, and } from 'drizzle-orm';
-import { format } from 'date-fns';
 import { useAppStore } from '../stores/appStore';
 import type { EnvelopeOption } from '../screens/slipScanning/components/EnvelopePickerSheet';
 
@@ -64,7 +63,7 @@ export function SlipScanningScreen(): React.JSX.Element {
   const session = useAppStore((s) => s.session);
   const createdBy = session?.user?.id ?? '';
   const paydayDay = useAppStore((s) => s.paydayDay);
-  const periodStart = format(budgetEngine.getCurrentPeriod(paydayDay).startDate, 'yyyy-MM-dd');
+  const periodStart = formatPeriodDateKey(budgetEngine.getCurrentPeriod(paydayDay).startDate);
   const [envelopes, setEnvelopes] = useState<EnvelopeOption[]>([]);
   // Whether the current user has already granted slip-scan consent — read
   // once per user so the queue's camera FAB can route straight to

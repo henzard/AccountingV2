@@ -22,7 +22,7 @@ import { CurrentStepHero } from './components/CurrentStepHero';
 import { StepSealMark } from './components/StepSealMark';
 import { useBabySteps } from '../../hooks/useBabySteps';
 import { useAppStore } from '../../stores/appStore';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
 import { fontSize, spacing, radius } from '../../theme/tokens';
@@ -41,7 +41,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
   const paydayDay = useAppStore((s) => s.paydayDay);
   const periodStart = useMemo(() => {
     const period = engine.getCurrentPeriod(paydayDay);
-    return format(period.startDate, 'yyyy-MM-dd');
+    return formatPeriodDateKey(period.startDate);
   }, [paydayDay]);
 
   const { statuses, loading, reconcile, toggleManualStep } = useBabySteps(

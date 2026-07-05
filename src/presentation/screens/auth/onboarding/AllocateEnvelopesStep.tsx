@@ -4,11 +4,13 @@ import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
-import { format } from 'date-fns';
 import { db } from '../../../../data/local/db';
 import { AuditLogger } from '../../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../../domain/envelopes/CreateEnvelopeUseCase';
-import { BudgetPeriodEngine } from '../../../../domain/shared/BudgetPeriodEngine';
+import {
+  BudgetPeriodEngine,
+  formatPeriodDateKey,
+} from '../../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../../stores/appStore';
 import { useToastStore } from '../../../stores/toastStore';
 import { useAppTheme } from '../../../theme/useAppTheme';
@@ -90,7 +92,7 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
     setLoading(true);
     try {
       const period = engine.getCurrentPeriod(paydayDay);
-      const periodStart = format(period.startDate, 'yyyy-MM-dd');
+      const periodStart = formatPeriodDateKey(period.startDate);
       for (const category of categories) {
         const result = allocResults[category];
         const cents = result.ok ? result.cents : 0;

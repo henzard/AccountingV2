@@ -177,6 +177,7 @@ jest.mock('./src/domain/babySteps/SeedBabyStepsUseCase', () => ({
 
 jest.mock('./src/infrastructure/notifications/FcmTokenRegistrar', () => ({
   registerFcmToken: jest.fn().mockResolvedValue(undefined),
+  subscribeToTokenRefresh: jest.fn(() => jest.fn()),
 }));
 
 jest.mock('./src/infrastructure/monitoring/crashlytics', () => ({
@@ -255,6 +256,9 @@ const supabaseMock = jest.requireMock('./src/data/remote/supabaseClient') as {
 const { hydrateThemeFromRemote: mockHydrateThemeFromRemote } = jest.requireMock(
   './src/presentation/stores/themeStore',
 ) as { hydrateThemeFromRemote: jest.Mock };
+const { subscribeToTokenRefresh: mockSubscribeToTokenRefresh } = jest.requireMock(
+  './src/infrastructure/notifications/FcmTokenRegistrar',
+) as { subscribeToTokenRefresh: jest.Mock };
 const { __mockExecute: mockEnsureExecute } = jest.requireMock(
   './src/domain/households/EnsureHouseholdUseCase',
 ) as { __mockExecute: jest.Mock };
@@ -391,6 +395,41 @@ describe('App boot (Task 5)', () => {
       await authCallback('SIGNED_IN', { user: { id: userId } });
     });
     expect(mockEnsureExecute).toHaveBeenCalledTimes(1);
+  });
+
+  // M16 wiring: `initSessionRemote` must subscribe to FCM token rotation
+  // (not just register the token once at boot), and sign-out must tear that
+  // subscription down -- otherwise a token rotated mid-session is never
+  // re-registered, and a stale listener from a previous user would keep
+  // firing after sign-out.
+  it('remote session init subscribes to FCM token refresh; sign-out unsubscribes it', async () => {
+    const userId = 'user-token-refresh-test';
+    const unsubscribe = jest.fn();
+    mockSubscribeToTokenRefresh.mockReturnValue(unsubscribe);
+    // initSessionRemote awaits restoreService.restore() before reaching the
+    // FCM registration/subscription calls -- the module default (a Promise
+    // that never resolves) would leave this test hanging forever.
+    mockRestore.mockResolvedValue([]);
+    mockEnsureExecute.mockResolvedValue(successResult('hh-token-refresh-test'));
+    setSession(null);
+
+    const { findByTestId } = render(<App />);
+    await findByTestId('root-navigator');
+
+    const authCallback = getAuthCallback();
+    await act(async () => {
+      await authCallback('SIGNED_IN', { user: { id: userId } });
+    });
+
+    await waitFor(() => expect(mockSubscribeToTokenRefresh).toHaveBeenCalledWith(userId));
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    // Signing out must tear the subscription down so a token rotated after
+    // sign-out is never upserted under the just-signed-out user's id.
+    await act(async () => {
+      await authCallback('SIGNED_OUT', null);
+    });
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('household switch re-points the scheduler: stop old, start new, immediate sync requested', async () => {

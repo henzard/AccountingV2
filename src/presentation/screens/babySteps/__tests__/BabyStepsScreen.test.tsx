@@ -111,6 +111,15 @@ jest.mock('../../../../domain/shared/BudgetPeriodEngine', () => ({
       label: 'April 2026',
     })),
   })),
+  // `formatPeriodDateKey` (L7 tz-consistent period key) is a plain exported
+  // function, not a class member — the screen now imports it alongside
+  // `BudgetPeriodEngine`, so this manual module mock must also provide it.
+  formatPeriodDateKey: (date: Date): string => {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  },
 }));
 
 // ─── useWindowDimensions mock ─────────────────────────────────────────────────

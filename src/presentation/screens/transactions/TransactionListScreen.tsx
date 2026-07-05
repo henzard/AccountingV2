@@ -13,7 +13,7 @@ import { CurrencyText } from '../../components/shared/CurrencyText';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { SectionHeader } from '../../components/shared/SectionHeader';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
@@ -47,7 +47,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   const paydayDay = useAppStore((s) => s.paydayDay);
   const enqueue = useToastStore((s) => s.enqueue);
   const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = format(period.startDate, 'yyyy-MM-dd');
+  const periodStart = formatPeriodDateKey(period.startDate);
 
   const hid = householdId ?? '';
   const { transactions, loading, error, reload } = useTransactions(hid, periodStart);

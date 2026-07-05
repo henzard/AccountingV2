@@ -12,7 +12,7 @@ import {
 } from '../../../data/local/balances/EnvelopeBalanceQuery';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTransactionUseCase';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
 import { spacing } from '../../theme/tokens';
@@ -43,7 +43,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
   const enqueue = useToastStore((s) => s.enqueue);
 
   const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = format(period.startDate, 'yyyy-MM-dd');
+  const periodStart = formatPeriodDateKey(period.startDate);
 
   const [envelopes, setEnvelopes] = useState<EnvelopeOption[]>([]);
   const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeOption | null>(null);
