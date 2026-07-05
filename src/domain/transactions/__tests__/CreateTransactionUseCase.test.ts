@@ -100,7 +100,7 @@ describe('CreateTransactionUseCase', () => {
         payee: 'Pick n Pay',
         description: null,
         transaction_date: '2026-04-10',
-        is_business_expense: false,
+        is_business_expense: 0,
         spending_trigger_note: null,
         slip_id: null,
       }),

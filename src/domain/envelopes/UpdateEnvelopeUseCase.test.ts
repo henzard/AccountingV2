@@ -278,7 +278,7 @@ describe('ArchiveEnvelopeUseCase', () => {
     expect(repo.update).toHaveBeenCalledWith(
       'env-1',
       'hh-1',
-      expect.objectContaining({ is_archived: true }),
+      expect.objectContaining({ is_archived: 1 }),
       expect.any(Object),
     );
   });

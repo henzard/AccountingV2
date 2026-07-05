@@ -74,8 +74,8 @@ jest.mock('react-native-paper', () => {
   TextInput.Affix = () => null;
   TextInput.Icon = () => null;
   return {
-    Text: ({ children }: { children?: React.ReactNode }) =>
-      React.createElement('Text', null, children),
+    Text: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
+      React.createElement('Text', { testID }, children),
     TextInput,
     Button: ({
       children,
@@ -155,5 +155,49 @@ describe('CreateHouseholdScreen', () => {
       expect(mockEnqueue).toHaveBeenCalledWith('Name is required', 'error');
     });
     expect(mockSetHouseholdId).not.toHaveBeenCalled();
+  });
+
+  // Regression: `parseInt(paydayDay, 10)` on a cleared/invalid field yields
+  // NaN, and NaN fails both `< 1` and `> 28` — so CreateHouseholdUseCase's
+  // range guard silently let it through. The screen must now validate BEFORE
+  // calling the use case at all.
+  it('shows an inline error and does not call the use case when payday is cleared', async () => {
+    const { getByTestId, getByText, queryByText } = render(<CreateHouseholdScreen />);
+    fireEvent.changeText(getByTestId('household-name-input'), 'Test Home');
+    fireEvent.changeText(getByTestId('household-payday-input'), '');
+    fireEvent.press(getByText('Create Household'));
+
+    await waitFor(() => {
+      expect(getByTestId('household-payday-error')).toBeTruthy();
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockSetHouseholdId).not.toHaveBeenCalled();
+    expect(queryByText(/whole number between 1 and 28/)).toBeTruthy();
+  });
+
+  it('shows an inline error and does not call the use case when payday is out of range', async () => {
+    const { getByTestId, getByText } = render(<CreateHouseholdScreen />);
+    fireEvent.changeText(getByTestId('household-name-input'), 'Test Home');
+    fireEvent.changeText(getByTestId('household-payday-input'), '29');
+    fireEvent.press(getByText('Create Household'));
+
+    await waitFor(() => {
+      expect(getByTestId('household-payday-error')).toBeTruthy();
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('clears the inline payday error once the user edits the field again', async () => {
+    const { getByTestId, getByText, queryByTestId } = render(<CreateHouseholdScreen />);
+    fireEvent.changeText(getByTestId('household-payday-input'), '');
+    fireEvent.press(getByText('Create Household'));
+    await waitFor(() => {
+      expect(getByTestId('household-payday-error')).toBeTruthy();
+    });
+
+    fireEvent.changeText(getByTestId('household-payday-input'), '10');
+    await waitFor(() => {
+      expect(queryByTestId('household-payday-error')).toBeNull();
+    });
   });
 });

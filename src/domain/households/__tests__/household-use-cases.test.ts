@@ -38,13 +38,15 @@ function makeFakeRepo() {
 // ---------------------------------------------------------------------------
 
 describe('CreateHouseholdUseCase', () => {
+  let lastTxRun: jest.Mock;
   function makeDb() {
-    // households insert is a raw runInUnitOfWork write; household_members
-    // insert (+ baby_steps seeding, mocked above) goes through deps.repo.
+    // households insert AND the owner household_members insert are both raw
+    // runInUnitOfWork writes sharing ONE transaction (atomicity fix). Only
+    // baby_steps seeding (mocked above) goes through deps.repo. `lastTxRun`
+    // captures the raw statements run inside that transaction.
+    lastTxRun = jest.fn(() => ({ changes: 1 }));
     return {
-      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
-        fn({ run: jest.fn(() => ({ changes: 1 })) }),
-      ),
+      transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ run: lastTxRun })),
     };
   }
 
@@ -71,7 +73,11 @@ describe('CreateHouseholdUseCase', () => {
       expect(result.data.userLevel).toBe(1);
     }
     expect(db.transaction).toHaveBeenCalledTimes(1);
-    expect(repo.insert).toHaveBeenCalledTimes(1); // household_members only (baby steps mocked)
+    // household + owner-membership commit in ONE transaction now; baby steps
+    // are mocked, so nothing goes through the injected synced-repo fake.
+    expect(repo.insert).toHaveBeenCalledTimes(0);
+    // 2 entity inserts + 2 oplog appends inside the single transaction.
+    expect(lastTxRun).toHaveBeenCalledTimes(4);
   });
 
   it('trims whitespace from name', async () => {
@@ -187,7 +193,7 @@ describe('CreateHouseholdUseCase', () => {
     if (result.success) expect(result.data.paydayDay).toBe(28);
   });
 
-  it('inserts the household_members row via the synced repo', async () => {
+  it('inserts the owner household_members row inside the same unit of work', async () => {
     const db = makeDb();
     const audit = makeAudit();
     const repo = makeFakeRepo();
@@ -199,10 +205,15 @@ describe('CreateHouseholdUseCase', () => {
     );
     await uc.execute();
 
-    expect(repo.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: 'u1', role: 'owner' }),
-      expect.anything(),
-    );
+    // The owner membership is now written raw inside the household transaction
+    // (not via the injected synced-repo fake), so it commits atomically with
+    // the household. Its entity insert + oplog op carry role='owner' and the
+    // session user_id — assert on the raw statements the transaction ran.
+    const runText = JSON.stringify(lastTxRun.mock.calls);
+    expect(runText).toContain('household_members');
+    expect(runText).toContain('owner');
+    expect(runText).toContain('u1');
+    expect(repo.insert).not.toHaveBeenCalled();
   });
 });
 

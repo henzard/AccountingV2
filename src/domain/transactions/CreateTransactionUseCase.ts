@@ -91,7 +91,10 @@ export class CreateTransactionUseCase {
       payee: tx.payee,
       description: tx.description,
       transaction_date: tx.transactionDate,
-      is_business_expense: tx.isBusinessExpense,
+      // better-sqlite3 only binds numbers/strings/bigints/buffers/null — not
+      // JS booleans — so the boolean column is written as 0/1 (same
+      // convention as CreateEnvelopeUseCase/CreateDebtUseCase).
+      is_business_expense: tx.isBusinessExpense ? 1 : 0,
       spending_trigger_note: tx.spendingTriggerNote,
       slip_id: this.input.slipId ?? null,
       created_at: tx.createdAt,
