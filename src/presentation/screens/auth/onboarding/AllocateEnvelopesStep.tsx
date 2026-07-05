@@ -14,18 +14,14 @@ import { useToastStore } from '../../../stores/toastStore';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import { spacing } from '../../../theme/tokens';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { parseMoneyInput } from '../../../utils/parseMoneyInput';
+import type { ParseMoneyResult } from '../../../utils/parseMoneyInput';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'AllocateEnvelopes'>;
 type Route = RouteProp<OnboardingStackParamList, 'AllocateEnvelopes'>;
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
-
-function toCents(str: string): number {
-  const n = parseFloat(String(str).replace(',', '.'));
-  if (isNaN(n)) return 0;
-  return Math.round(n * 100);
-}
 
 function fromCents(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -61,11 +57,26 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const totalAllocatedCents = categories.reduce((s, c) => s + toCents(allocStr[c] ?? '0'), 0);
+  const allocResults = useMemo<Record<string, ParseMoneyResult>>(() => {
+    const out: Record<string, ParseMoneyResult> = {};
+    for (const c of categories) out[c] = parseMoneyInput(allocStr[c] ?? '0');
+    return out;
+  }, [categories, allocStr]);
+
+  const totalAllocatedCents = categories.reduce((s, c) => {
+    const result = allocResults[c];
+    return s + (result.ok ? result.cents : 0);
+  }, 0);
   const toAssignCents = incomeCents - totalAllocatedCents;
 
   const handleNext = async (): Promise<void> => {
     setError(null);
+    const invalidCategory = categories.find((c) => !allocResults[c].ok);
+    if (invalidCategory !== undefined) {
+      const result = allocResults[invalidCategory];
+      setError(`${invalidCategory}: ${result.ok ? '' : result.error}`);
+      return;
+    }
     if (toAssignCents !== 0) {
       setError(
         `Your allocations must total exactly R${fromCents(incomeCents)}. Currently off by R${fromCents(Math.abs(toAssignCents))}.`,
@@ -81,7 +92,8 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
       const period = engine.getCurrentPeriod(paydayDay);
       const periodStart = format(period.startDate, 'yyyy-MM-dd');
       for (const category of categories) {
-        const cents = toCents(allocStr[category] ?? '0');
+        const result = allocResults[category];
+        const cents = result.ok ? result.cents : 0;
         const uc = new CreateEnvelopeUseCase(db, audit, {
           householdId,
           name: category,
@@ -134,22 +146,30 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
           </Text>
         </View>
 
-        {categories.map((c) => (
-          <View key={c} style={styles.row}>
-            <Text variant="titleMedium" style={[styles.rowLabel, { color: colors.onSurface }]}>
-              {c}
-            </Text>
-            <TextInput
-              mode="outlined"
-              value={allocStr[c]}
-              onChangeText={(v): void => setAllocStr((prev) => ({ ...prev, [c]: v }))}
-              keyboardType="decimal-pad"
-              left={<TextInput.Affix text="R" />}
-              testID={`alloc-input-${c}`}
-              style={styles.rowInput}
-            />
-          </View>
-        ))}
+        {categories.map((c) => {
+          const result = allocResults[c];
+          return (
+            <View key={c} style={styles.row}>
+              <Text variant="titleMedium" style={[styles.rowLabel, { color: colors.onSurface }]}>
+                {c}
+              </Text>
+              <TextInput
+                mode="outlined"
+                value={allocStr[c]}
+                onChangeText={(v): void => setAllocStr((prev) => ({ ...prev, [c]: v }))}
+                keyboardType="decimal-pad"
+                left={<TextInput.Affix text="R" />}
+                testID={`alloc-input-${c}`}
+                style={styles.rowInput}
+              />
+              {!result.ok && (
+                <HelperText type="error" visible testID={`alloc-error-${c}`}>
+                  {result.error}
+                </HelperText>
+              )}
+            </View>
+          );
+        })}
 
         {error && <HelperText type="error">{error}</HelperText>}
 

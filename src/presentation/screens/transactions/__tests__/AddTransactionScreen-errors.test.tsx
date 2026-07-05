@@ -131,6 +131,7 @@ jest.mock('../../../../data/local/db', () => ({
 // `spentCents` value) flow straight through unchanged.
 jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn(),
+  envelopeScopeCondition: jest.fn(() => 'scope-condition'),
 }));
 
 // ─── AuditLogger mock ─────────────────────────────────────────────────────────
