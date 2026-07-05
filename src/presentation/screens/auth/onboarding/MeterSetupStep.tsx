@@ -3,70 +3,39 @@ import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, Button, List, Switch } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { randomUUID } from 'expo-crypto';
-import { format } from 'date-fns';
-import { db } from '../../../../data/local/db';
-import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../../../../domain/shared/syncWrite';
-// Routing this screen through LogMeterReadingUseCase is NOT a drop-in swap:
-// that use case rejects `readingValue <= 0`, but this screen seeds an
-// intentional zero-value "Opening baseline" reading, so switching would
-// break onboarding. It writes through the same slice-3/5 oplog-backed
-// synced repo LogMeterReadingUseCase itself uses, just inlined here for the
-// zero-value case (see task-1-report.md, "meter readings" section).
-import { useAppStore } from '../../../stores/appStore';
-import { radius, spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
+import { radius, spacing } from '../../../theme/tokens';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'MeterSetup'>;
 
-type MeterType = 'electricity' | 'water' | 'odometer';
-
+// This step used to seed a `reading_value: 0` "Opening baseline" meter_readings
+// row per enabled meter, dated today. That was a genuine double defect (audit
+// 2026-07-05, M9 + L4):
+//   - M9: meter readings are CUMULATIVE absolute values, not deltas — so
+//     UnitRateCalculator diffed the user's first REAL reading against 0,
+//     making the whole meter face value read as one period's consumption
+//     (e.g. a 45230 kWh reading looked like 45230 kWh used, at ~2c/kWh
+//     instead of the real ~R2.50/kWh).
+//   - L4: the baseline was dated TODAY, so LogMeterReadingUseCase's
+//     DUPLICATE_READING guard (same householdId/meterType/readingDate)
+//     blocked the user from logging their real first reading the same day.
+// Fix: don't seed a fake baseline at all. The user's first real reading
+// (via AddReadingScreen -> LogMeterReadingUseCase) simply becomes the
+// baseline — MeterReadingCard/RateHistoryScreen already handle "only one
+// reading exists yet" by showing no consumption/rate until a second reading
+// exists, which is the correct behavior for a brand-new meter anyway. This
+// screen is now purely a UI preview of which meters the user intends to
+// track; nothing is persisted until the user logs a real reading.
 export function MeterSetupStep(): React.JSX.Element {
   const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
-  const householdId = useAppStore((s) => s.householdId)!;
 
   const [electricity, setElectricity] = useState(false);
   const [water, setWater] = useState(false);
   const [odometer, setOdometer] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  const handleNext = async (): Promise<void> => {
-    setLoading(true);
-    try {
-      const repo = resolveSyncedRepo(db, 'meter_readings', {});
-      const ctx = resolveSyncedRepoCtx({});
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const now = new Date().toISOString();
-
-      const enabledTypes: MeterType[] = [];
-      if (electricity) enabledTypes.push('electricity');
-      if (water) enabledTypes.push('water');
-      if (odometer) enabledTypes.push('odometer');
-
-      for (const meterType of enabledTypes) {
-        const id = randomUUID();
-        repo.insert(
-          {
-            id,
-            household_id: householdId,
-            meter_type: meterType,
-            reading_value: 0,
-            reading_date: today,
-            cost_cents: null,
-            vehicle_id: null,
-            notes: 'Opening baseline',
-            created_at: now,
-            updated_at: now,
-          },
-          ctx,
-        );
-      }
-    } finally {
-      setLoading(false);
-    }
-
+  const handleNext = (): void => {
     navigation.navigate('ScoreIntro');
   };
 
@@ -112,8 +81,6 @@ export function MeterSetupStep(): React.JSX.Element {
       <Button
         mode="contained"
         onPress={handleNext}
-        loading={loading}
-        disabled={loading}
         style={styles.button}
         contentStyle={styles.buttonContent}
       >

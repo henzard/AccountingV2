@@ -21,7 +21,7 @@ import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetRingCard } from './components/BudgetRingCard';
 import { BabyStepsBar } from './components/BabyStepsBar';
 import { P } from './components/HeroSummaryCard';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
 import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
@@ -43,10 +43,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const paydayDay = useAppStore((s) => s.paydayDay);
 
   const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = format(period.startDate, 'yyyy-MM-dd');
+  // `periodStart`/`previousPeriodStart`/`periodEnd` (below) are SCOPE KEYS —
+  // exact-match query params and the seed for the deterministic rollover id
+  // — so they must read `period.startDate`'s UTC calendar fields, matching
+  // how `BudgetPeriodEngine` built the Date via `Date.UTC(...)`.
+  // `date-fns format()` reads the HOST's LOCAL calendar fields instead, which
+  // is off by one day on UTC-negative devices and silently misses the
+  // period's own rows (L7, 2026-07-05 audit). `periodLabel` below is a pure
+  // DISPLAY string (not a key), so it correctly keeps using local `format()`.
+  const periodStart = formatPeriodDateKey(period.startDate);
   const periodLabel = format(period.startDate, 'MMMM yyyy');
   const previousPeriod = engine.getPeriodForDate(paydayDay, subDays(period.startDate, 1));
-  const previousPeriodStart = format(previousPeriod.startDate, 'yyyy-MM-dd');
+  const previousPeriodStart = formatPeriodDateKey(previousPeriod.startDate);
 
   const hid = householdId ?? '';
   const { envelopes, loading, reload } = useEnvelopes(hid, periodStart);
@@ -63,7 +71,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       resolveBabyStepIsActive(db, hid).then((isActive) => {
         if (!cancelled) setBabyStepIsActive(isActive);
       });
-      const periodEnd = format(period.endDate, 'yyyy-MM-dd');
+      const periodEnd = formatPeriodDateKey(period.endDate);
       resolveLoggingDays(db, hid, periodStart, periodEnd).then((days) => {
         if (!cancelled) setLoggingDaysCount(days);
       });
