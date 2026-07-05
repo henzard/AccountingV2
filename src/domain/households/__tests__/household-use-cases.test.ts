@@ -235,7 +235,12 @@ describe('AcceptInviteUseCase', () => {
   }
 
   function makeDb() {
-    const valuesFn = jest.fn().mockResolvedValue(undefined);
+    // `.values(...)` supports both the plain household_members insert (just
+    // awaited directly) and the M10 fallback's `.onConflictDoUpdate(...)`
+    // chain for the local `households` upsert.
+    const valuesFn = jest.fn().mockReturnValue({
+      onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
+    });
     const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
     return { insert: insertFn };
   }
@@ -331,12 +336,47 @@ describe('AcceptInviteUseCase', () => {
     if (!result.success) expect(result.error.code).toBe('INVITE_ALREADY_USED');
   });
 
-  it('returns fallback summary when restore fails', async () => {
+  // M10 (exhaustive audit, 2026-07-05): when both RestoreService attempts
+  // fail, the use case no longer fabricates paydayDay: 25 / name:
+  // 'My Household' — it falls back to a direct household fetch (persisting
+  // a local `households` row) or fails cleanly. This replaces the old
+  // "returns fallback summary when restore fails" test, which asserted the
+  // fabricated values.
+  it('falls back to a direct household fetch (real data, never fabricated) when restore fails twice', async () => {
     jest.useRealTimers();
-    const supabase = makeSupabase({
-      data: { member_id: 'member-1', household_id: 'hh-1' },
-      error: null,
-    });
+    const supabase = {
+      rpc: jest.fn().mockImplementation((name: string) => {
+        if (name === 'join_household_via_invite') {
+          return Promise.resolve({
+            data: { member_id: 'member-1', household_id: 'hh-1' },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: null, error: null });
+      }),
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'households') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: {
+                    id: 'hh-1',
+                    name: 'The Real House',
+                    payday_day: 12,
+                    user_level: 1,
+                    created_at: '2026-01-01T00:00:00.000Z',
+                    updated_at: '2026-01-01T00:00:00.000Z',
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    };
     const db = makeDb();
     const restore = {
       restoreHousehold: jest.fn().mockRejectedValue(new Error('network')),
@@ -351,9 +391,55 @@ describe('AcceptInviteUseCase', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.id).toBe('hh-1');
-      expect(result.data.name).toBe('My Household');
-      expect(result.data.paydayDay).toBe(25);
+      // The REAL fetched values — never the old fabricated 'My Household' / 25.
+      expect(result.data.name).toBe('The Real House');
+      expect(result.data.paydayDay).toBe(12);
     }
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-19T10:00:00.000Z'));
+  }, 15000);
+
+  it('returns a clean failure (never fabricated data) when restore fails twice AND the direct household fetch also fails', async () => {
+    jest.useRealTimers();
+    const supabase = {
+      rpc: jest.fn().mockImplementation((name: string) => {
+        if (name === 'join_household_via_invite') {
+          return Promise.resolve({
+            data: { member_id: 'member-1', household_id: 'hh-1' },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: null, error: null });
+      }),
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'households') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: null,
+                  error: { message: 'network error' },
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    };
+    const db = makeDb();
+    const restore = {
+      restoreHousehold: jest.fn().mockRejectedValue(new Error('network')),
+    };
+
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restore as any, {
+      code: 'VALID1',
+      userId: 'u2',
+    });
+    const result = await uc.execute();
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('HOUSEHOLD_RESTORE_FAILED');
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-06-19T10:00:00.000Z'));
   }, 15000);
@@ -445,11 +531,17 @@ describe('EnsureHouseholdUseCase', () => {
     const fromFn = jest.fn().mockReturnValue({ where: whereFn });
     const selectFn = jest.fn().mockReturnValue({ from: fromFn });
 
+    // Captures every raw SQL run inside the unit-of-work transaction — L1
+    // (exhaustive audit) made the households catch-up op + owner
+    // household_members insert commit atomically in ONE db.transaction()
+    // call, so this test asserts against `txRun` rather than the
+    // deps-injected synced-repo fake (which the legacy branch no longer
+    // uses for the membership write).
+    const txRun = jest.fn(() => ({ changes: 1 }));
     return {
       select: selectFn,
-      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
-        fn({ run: jest.fn(() => ({ changes: 1 })) }),
-      ),
+      transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ run: txRun })),
+      _txRun: txRun,
     };
   }
 
@@ -480,14 +572,15 @@ describe('EnsureHouseholdUseCase', () => {
       expect(result.data.id).toBe('u1');
       expect(result.data.name).toBe('Legacy House');
     }
-    // household_members insert (new local row) via the synced repo
-    expect(repo.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ household_id: 'u1', user_id: 'u1', role: 'owner' }),
-      expect.anything(),
-    );
-    // households catch-up op (row already exists locally — no repo.insert,
-    // just an oplog append via db.transaction)
-    expect(db.transaction).toHaveBeenCalled();
+
+    // L1 (exhaustive audit): the households catch-up op and the owner
+    // household_members insert now commit atomically in ONE
+    // db.transaction() call (previously two separate transactions, member
+    // op first — the reverse of the required bootstrap order).
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    // Inside that one transaction: households oplog insert (1 run) + the
+    // owner household_members raw INSERT + its oplog insert (2 runs) = 3.
+    expect(db._txRun).toHaveBeenCalledTimes(3);
   });
 
   it('returns no_household when neither membership nor legacy exists', async () => {

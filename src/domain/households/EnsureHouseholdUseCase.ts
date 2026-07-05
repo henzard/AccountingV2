@@ -4,7 +4,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { households, householdMembers } from '../../data/local/schema';
 import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
-import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import { insertRowWithinUow } from '../../data/uow/createSyncedRepo';
+import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
@@ -64,27 +65,26 @@ export class EnsureHouseholdUseCase {
       const memberId = randomUUID();
       const ctx = resolveSyncedRepoCtx(this.deps);
 
-      const membersRepo = resolveSyncedRepo(this.db, 'household_members', this.deps);
-      membersRepo.insert(
-        {
-          id: memberId,
-          household_id: legacy.id,
-          user_id: this.userId,
-          role: 'owner',
-          joined_at: now,
-          updated_at: now,
-        },
-        ctx,
-      );
-
+      // L1 (exhaustive audit): the household catch-up op and the owner
+      // membership insert used to run in TWO separate `runInUnitOfWork`
+      // transactions, member-before-household — the reverse of the order
+      // CreateHouseholdUseCase's atomic transaction documents as required
+      // for server bootstrap (household op must land before/with the member
+      // op). A crash between the two transactions could leave the member
+      // row + its op committed with the household catch-up op never
+      // appended, permanently orphaning the membership server-side. Both
+      // now commit in ONE transaction, household op first, mirroring
+      // CreateHouseholdUseCase's ordering exactly.
+      //
       // The `legacy` household row itself already exists locally (created
       // before this device ever had sync) — there is nothing to (re)insert
-      // into the local `households` table. But the server has never seen
-      // it, so it still needs an oplog `insert` op carrying its full
-      // snapshot to (re)create it there. `runInUnitOfWork` is used directly
-      // (rather than `createSyncedRepo.insert`, which always pairs the op
-      // with a literal local INSERT) purely to append this one "catch-up"
-      // op — see task-1-report.md, "household" section.
+      // into the local `households` table, only an oplog `insert` op
+      // carrying its full snapshot so the server (which has never seen it)
+      // can (re)create it there — see task-1-report.md, "household"
+      // section. The owner membership row DOES need a literal local insert,
+      // so it uses `insertRowWithinUow` to share this same transaction
+      // rather than opening a second one (same primitive
+      // CreateHouseholdUseCase uses for its owner-membership insert).
       runInUnitOfWork(this.db, (uow) => {
         uow.appendOp({
           opId: ctx.genId ? ctx.genId() : randomUUID(),
@@ -104,6 +104,20 @@ export class EnsureHouseholdUseCase {
           deviceId: ctx.deviceId,
           clientCreatedAt: ctx.clock(),
         });
+
+        insertRowWithinUow(
+          uow,
+          'household_members',
+          {
+            id: memberId,
+            household_id: legacy.id,
+            user_id: this.userId,
+            role: 'owner',
+            joined_at: now,
+            updated_at: now,
+          },
+          ctx,
+        );
       });
 
       // Seed baby steps for legacy household (idempotent — fills any gaps)

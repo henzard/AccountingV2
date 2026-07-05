@@ -284,4 +284,43 @@ describe('ReconcileBabyStepsUseCase', () => {
     expect(result.data.newlyRegressed).toHaveLength(0);
     expect(repo.update).not.toHaveBeenCalled();
   });
+
+  // L5 (exhaustive audit, 2026-07-05): a device joining a household can
+  // reconcile before its baby_steps rows have synced down (e.g. mid-restore)
+  // while its envelopes already qualify a step as complete. The completion
+  // branch used to push `newlyCompleted` UNCONDITIONALLY, before checking
+  // whether a persisted row exists to actually write `is_completed` to —
+  // so a missing row still fired the celebration even though nothing was
+  // persisted, and the very next reconcile re-detected the same
+  // incomplete->complete transition (the persisted flag never flipped) and
+  // re-fired the celebration again, looping until the row finally synced.
+  it('does NOT report newlyCompleted for a step with no persisted baby_steps row (nothing to celebrate a transition FROM)', async () => {
+    const envelopeRow = makeEnvelopeRow({
+      envelopeType: 'emergency_fund',
+      allocatedCents: 100_000,
+      spentCents: 0,
+    });
+    // Step 1's row is MISSING entirely (simulates baby_steps restore not
+    // having landed yet) — only steps 2-7 are persisted.
+    const bsRows = [2, 3, 4, 5, 6, 7].map((n) => makeBabyStepRow(n, { isCompleted: false }));
+
+    const db = makeDb({
+      envelopeRows: [envelopeRow],
+      debtRows: [],
+      babyStepRows: bsRows,
+    });
+    const repo = makeFakeRepo();
+
+    const uc = new ReconcileBabyStepsUseCase(db as any, { repo });
+    const result = await uc.execute(HOUSEHOLD_ID, PERIOD_START);
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    // Step 1 evaluates as complete (EMF funded) but has no persisted row —
+    // must NOT be reported as newly-completed (no spurious celebration).
+    expect(result.data.newlyCompleted).not.toContain(1);
+    // And since there's no row to update, no write for step 1 was attempted.
+    expect(repo.update.mock.calls.some((call) => call[0] === 'bs-1')).toBe(false);
+  });
 });

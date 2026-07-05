@@ -18,6 +18,7 @@ import { useDatabaseMigrations } from './src/data/local/db';
 import { useFonts } from './src/presentation/theme/useFonts';
 import { useAppTheme } from './src/presentation/theme/useAppTheme';
 import { RootNavigator } from './src/presentation/navigation/RootNavigator';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from './src/data/remote/supabaseClient';
 import { useAppStore } from './src/presentation/stores/appStore';
 import { db } from './src/data/local/db';
@@ -389,8 +390,23 @@ export default function App(): React.JSX.Element | null {
       // round-trip to the server to validate the token, so this never blocks
       // on network. A revoked/stale session is caught later by the ordinary
       // 401 path on the first authenticated request, not here.
-      const { data } = await supabase.auth.getSession();
-      const session = data.session ?? null;
+      //
+      // This await is wrapped in try/catch (H9, exhaustive audit): the
+      // persisted-session read CAN reject (SecureStore/keychain error after
+      // an OS update, a biometric-locked keystore, a corrupted session
+      // entry), and with no try/catch here that rejection would propagate
+      // out of this un-`.catch()`'d IIFE and skip `setLocalBootReady(true)`
+      // below — leaving `bootDecided` false forever, so the native splash
+      // screen (and the `return null` render gate) would never resolve.
+      // Degrade to a signed-out boot instead: `session` stays null, which
+      // RootNavigator already renders correctly (the Auth screen).
+      let session: Session | null = null;
+      try {
+        const { data } = await supabase.auth.getSession();
+        session = data.session ?? null;
+      } catch (err) {
+        captureBoot('getSession (cold start)', err);
+      }
       if (cancelled) return;
       setSession(session);
 

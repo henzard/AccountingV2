@@ -471,6 +471,57 @@ describe('App boot (Task 5)', () => {
     expect(unhandledRejections).toEqual([]);
   });
 
+  it('degrades gracefully instead of hanging on splash forever when getSession() itself rejects (H9)', async () => {
+    // Regression test for H9 (exhaustive audit, 2026-07-05): the cold-start
+    // IIFE's `await supabase.auth.getSession()` previously had NO try/catch
+    // around it (unlike `initSessionOnce`, covered by the test above). A
+    // persisted-session read failure (SecureStore/keychain error, corrupted
+    // session entry, biometric-locked keystore after an OS update) rejects
+    // getSession() and, pre-fix, that rejection propagated straight out of
+    // the un-`.catch()`'d IIFE, skipping `setLocalBootReady(true)` entirely
+    // -- `bootDecided` never became true, the splash screen was never
+    // hidden, and the render gate returned `null` forever with no error UI
+    // and no recovery. This test hangs (times out waiting for
+    // 'root-navigator') and fails against the pre-fix code; it passes once
+    // getSession() is wrapped in try/catch and still reaches
+    // `setLocalBootReady(true)`, degrading to a signed-out boot.
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandledRejection);
+
+    try {
+      supabaseMock.supabase.auth.getSession.mockRejectedValue(
+        new Error('SecureStore.getItemAsync failed'),
+      );
+
+      const { findByTestId } = render(<App />);
+
+      // (a) Must NOT hang on splash forever -- the app renders SOMETHING
+      // (here, the mocked RootNavigator) instead of `return null` forever.
+      await findByTestId('root-navigator');
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // (b) The native splash screen must actually be dismissed.
+      expect(SplashScreen.hideAsync).toHaveBeenCalled();
+
+      // Degrades to a signed-out boot (no session, no household) -- the
+      // same state a `getSession()` resolving to `{ session: null }`
+      // already produces, so this is a safe, already-handled degrade.
+      expect(useAppStore.getState().session).toBeNull();
+      expect(useAppStore.getState().householdId).toBeNull();
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+
+    // (c) No unhandled rejection should have escaped from the boot sequence.
+    expect(unhandledRejections).toEqual([]);
+  });
+
   describe('password recovery (Task 4)', () => {
     it('PASSWORD_RECOVERY auth event sets passwordRecoveryPending and never runs initSession', async () => {
       setSession(null);

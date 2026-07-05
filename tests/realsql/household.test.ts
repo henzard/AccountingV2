@@ -1,9 +1,25 @@
+// Deterministic, counter-based UUIDs (reset per test below) so the L1
+// atomicity test can predict the `memberId` EnsureHouseholdUseCase's legacy
+// branch will generate and pre-seed a colliding household_members primary
+// key — mirrors `tests/realsql/householdCreateAtomicity.test.ts`. Every
+// other test in this file only asserts business fields/counts, never exact
+// generated ids, so swapping real UUIDs for this deterministic sequence is
+// safe for them too.
+let mockUuidCounter = 0;
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => `id-${++mockUuidCounter}`,
+}));
+
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import type Database from 'better-sqlite3';
 import { openMigratedDb } from './harness/openMigratedDb';
 import { CreateHouseholdUseCase } from '../../src/domain/households/CreateHouseholdUseCase';
 import { UpdateHouseholdPaydayDayUseCase } from '../../src/domain/households/UpdateHouseholdPaydayDayUseCase';
 import { EnsureHouseholdUseCase } from '../../src/domain/households/EnsureHouseholdUseCase';
+
+beforeEach(() => {
+  mockUuidCounter = 0;
+});
 
 interface HouseholdRow {
   id: string;
@@ -144,6 +160,78 @@ describe('EnsureHouseholdUseCase — legacy household catch-up (real SQLite)', (
     const membersOp = ops.find((o) => o.table_name === 'household_members');
     expect(membersOp?.op_type).toBe('insert');
     expect(ops.filter((o) => o.table_name === 'baby_steps')).toHaveLength(7);
+
+    raw.close();
+  });
+
+  // L1 (exhaustive audit, 2026-07-05): the households catch-up op and the
+  // owner household_members insert used to run in TWO separate
+  // `runInUnitOfWork` transactions, member-before-household — the reverse
+  // of the order CreateHouseholdUseCase's atomic transaction documents as
+  // required for server bootstrap. A crash between the two transactions
+  // could leave the member row + its op committed with the household
+  // catch-up op never appended, permanently orphaning the membership
+  // server-side. These two tests prove the fix: one transaction, household
+  // op first — mirroring `tests/realsql/householdCreateAtomicity.test.ts`'s
+  // coverage of the equivalent CreateHouseholdUseCase invariant.
+  it('commits the households catch-up op BEFORE the owner household_members op (bootstrap order)', async () => {
+    const raw = openMigratedDb();
+    seedLegacyHousehold(raw, 'user-legacy-order');
+    const db = drizzle(raw);
+
+    const uc = new EnsureHouseholdUseCase(db as any, 'user-legacy-order');
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+
+    // Local oplog insertion order (rowid) must place the households catch-up
+    // op before the owner household_members insert op.
+    const ops = raw
+      .prepare(
+        `SELECT table_name FROM oplog
+         WHERE household_id = ? AND table_name IN ('households','household_members')
+         ORDER BY rowid`,
+      )
+      .all('user-legacy-order') as { table_name: string }[];
+    expect(ops.map((o) => o.table_name)).toEqual(['households', 'household_members']);
+
+    raw.close();
+  });
+
+  it('rolls back the households catch-up op when the owner-membership insert fails (all-or-nothing)', async () => {
+    const raw = openMigratedDb();
+    seedLegacyHousehold(raw, 'user-legacy-atomic');
+    const db = drizzle(raw);
+
+    // The use case's legacy branch will generate: memberId = 'id-1' (the
+    // FIRST randomUUID() call). Pre-seed a household_members row with that
+    // same primary key so the owner-membership INSERT collides and throws
+    // INSIDE the unit-of-work transaction, AFTER the households catch-up op
+    // was already appended.
+    const now = '2026-01-01T00:00:00.000Z';
+    raw
+      .prepare(
+        `INSERT INTO household_members (id, household_id, user_id, role, joined_at)
+         VALUES ('id-1', 'some-other-household', 'someone-else', 'member', ?)`,
+      )
+      .run(now);
+
+    const uc = new EnsureHouseholdUseCase(db as any, 'user-legacy-atomic');
+
+    // The colliding membership insert propagates out of runInUnitOfWork.
+    await expect(uc.execute()).rejects.toBeTruthy();
+
+    // No households catch-up op leaked for this household — it rolled back
+    // together with the failed membership insert (same transaction).
+    const ops = raw
+      .prepare('SELECT * FROM oplog WHERE household_id = ?')
+      .all('user-legacy-atomic') as OplogRow[];
+    expect(ops).toHaveLength(0);
+
+    // No new membership row for this user leaked either.
+    const memberRows = raw
+      .prepare('SELECT * FROM household_members WHERE household_id = ?')
+      .all('user-legacy-atomic');
+    expect(memberRows).toHaveLength(0);
 
     raw.close();
   });

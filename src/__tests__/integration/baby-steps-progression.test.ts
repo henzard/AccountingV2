@@ -492,6 +492,24 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
 
     const debtRows = KRUGER_DEBTS.map((d) => ({ ...d }));
 
+    // A persisted (not-yet-completed) step-1 row — required for the
+    // incomplete->complete transition to actually be reported (L5,
+    // exhaustive audit 2026-07-05): newlyCompleted only reports a step once
+    // its persisted row is confirmed written, so a step with NO persisted
+    // row at all (the old fixture here returned `[]`) must NOT appear in
+    // newlyCompleted — there'd be nothing to celebrate a transition FROM,
+    // and reporting it anyway was exactly the spurious-celebration bug.
+    const persistedStep1 = {
+      id: 'bs-1',
+      householdId: HOUSEHOLDS.kruger.id,
+      stepNumber: 1,
+      isCompleted: false,
+      isManual: false,
+      completedAt: null,
+      celebratedAt: null,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+
     let selectCallIdx = 0;
     const mockDb = {
       select: jest.fn().mockImplementation(() => ({
@@ -500,7 +518,56 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
             selectCallIdx++;
             if (selectCallIdx === 1) return Promise.resolve(envelopeRows);
             if (selectCallIdx === 2) return Promise.resolve(debtRows);
-            return Promise.resolve([]); // baby_steps rows (none persisted yet)
+            return Promise.resolve([persistedStep1]); // baby_steps rows
+          }),
+        })),
+      })),
+      update: jest.fn().mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue(undefined),
+        }),
+      }),
+      // The step1 completion transition below writes via the oplog synced
+      // repo (createSyncedRepo), which drives db.transaction() — `run` must
+      // return a RunResult-shaped `{ changes }` so createSyncedRepo's
+      // extractChanges/assertRowMatched see one row matched.
+      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+        fn({ run: jest.fn(() => ({ changes: 1 })) }),
+      ),
+    } as any;
+
+    const uc = new ReconcileBabyStepsUseCase(mockDb);
+    const result = await uc.execute(HOUSEHOLDS.kruger.id, '2026-01-01');
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const step1 = result.data.statuses.find((s) => s.stepNumber === 1)!;
+      expect(step1.isCompleted).toBe(true);
+      expect(result.data.newlyCompleted).toContain(1);
+    }
+  });
+
+  it('does NOT report Step 1 as newlyCompleted when it evaluates complete but has no persisted baby_steps row (L5)', async () => {
+    const emf = makeEmf(100_000);
+    const incomes = makeIncomeEnvelopes();
+
+    const envelopeRows = [emf, ...incomes].map((e) => ({
+      ...e,
+      targetAmountCents: e.targetAmountCents ?? null,
+      targetDate: e.targetDate ?? null,
+    }));
+
+    const debtRows = KRUGER_DEBTS.map((d) => ({ ...d }));
+
+    let selectCallIdx = 0;
+    const mockDb = {
+      select: jest.fn().mockImplementation(() => ({
+        from: jest.fn().mockImplementation(() => ({
+          where: jest.fn().mockImplementation(() => {
+            selectCallIdx++;
+            if (selectCallIdx === 1) return Promise.resolve(envelopeRows);
+            if (selectCallIdx === 2) return Promise.resolve(debtRows);
+            return Promise.resolve([]); // no baby_steps rows persisted at all
           }),
         })),
       })),
@@ -517,8 +584,11 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       const step1 = result.data.statuses.find((s) => s.stepNumber === 1)!;
+      // Evaluated state is still correctly "complete" (EMF is funded)...
       expect(step1.isCompleted).toBe(true);
-      expect(result.data.newlyCompleted).toContain(1);
+      // ...but with no persisted row to write the transition to, it must
+      // NOT be reported as newly-completed (no spurious celebration).
+      expect(result.data.newlyCompleted).not.toContain(1);
     }
   });
 
