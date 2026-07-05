@@ -3,6 +3,7 @@ import { parseMoneyInput } from '../parseMoneyInput';
 describe('parseMoneyInput', () => {
   describe('accepted inputs', () => {
     const cases: Array<[string, number]> = [
+      // Plain amounts + decimals (comma OR period, af-ZA + en-ZA).
       ['1,50', 150],
       ['1.50', 150],
       ['1.5', 150],
@@ -15,13 +16,32 @@ describe('parseMoneyInput', () => {
       ['R42', 4200],
       ['$42', 4200],
       ['$ 42.50', 4250],
-      ['  1234.56  ', 123456], // surrounding whitespace on the whole string
-      ['12.3', 1230], // single trailing decimal digit, padded
+      ['  1234.56  ', 123456],
+      ['12.3', 1230],
       ['12,3', 1230],
-      ['007', 700], // leading zeros
+      ['007', 700],
+      // Thousands separators — the behaviour this fix adds.
+      ['1 500', 150000], // space thousands (SA standard)
+      ['150 000', 15000000],
+      ['1 000 000', 100000000],
+      ['1,500', 150000], // comma thousands (3 trailing digits => grouping)
+      ['1,234', 123400],
+      ['1,234,567', 123456700], // multi-group comma thousands
+      ['1.000.000', 100000000], // period thousands (European)
+      ['1.234.567', 123456700],
+      // Thousands + decimal combined (last separator is the decimal).
+      ['1 500.00', 150000],
+      ['1 500,00', 150000],
+      ['1,000.50', 100050],
+      ['1 000,50', 100050],
+      ['1.500,00', 150000], // European: '.' thousands, ',' decimal
+      ['10 000.50', 1000050],
+      ['1500.5', 150050],
+      // 3 trailing digits after a single separator = grouping, not a fraction.
+      ['12.345', 1234500],
     ];
 
-    it.each(cases)('parses %s -> %i cents', (input, expectedCents) => {
+    it.each(cases)('parses %j -> %i cents', (input, expectedCents) => {
       const result = parseMoneyInput(input);
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -30,24 +50,25 @@ describe('parseMoneyInput', () => {
     });
   });
 
-  describe('rejected inputs', () => {
+  describe('rejected inputs (ambiguous / malformed are refused, never coerced)', () => {
     const cases: string[] = [
-      '1,234.56', // two separators — thousands + decimal
-      '1.234.567', // two separators
-      '1 000', // space between digits
-      '12.345', // more than 2 decimal places
       'abc', // non-numeric
       '-5', // negative
       '', // empty
       '   ', // whitespace-only
-      '.', // bare separator
-      ',', // bare separator
-      '1,234', // ambiguous: thousands-sep or 3-decimal — reject either way
+      '.', // bare separator, no digit
+      ',', // bare separator, no digit
       'R', // currency symbol with nothing after it
-      '1..5', // malformed
+      '1..5', // doubled separator
       '1-5', // stray character
-      '1,5,6', // multiple separators
-      '1 .5', // space before separator
+      '1,5,6', // decimal tail with malformed integer grouping
+      '1 .5', // space before the separator
+      // Malformed thousands grouping — groups must be exactly 3 digits.
+      '1,00,000', // 2-digit inner group
+      '1 2 3', // 1-digit groups
+      '12 34', // 2-digit trailing group
+      '100 00', // 2-digit trailing group
+      '1,2,3', // 1-digit groups
     ];
 
     it.each(cases)('rejects %j', (input) => {
@@ -60,13 +81,11 @@ describe('parseMoneyInput', () => {
   });
 
   it('gives a specific error for negative amounts', () => {
-    const result = parseMoneyInput('-5');
-    expect(result).toEqual({ ok: false, error: 'Amount cannot be negative' });
+    expect(parseMoneyInput('-5')).toEqual({ ok: false, error: 'Amount cannot be negative' });
   });
 
   it('gives a specific error for empty input', () => {
-    const result = parseMoneyInput('');
-    expect(result).toEqual({ ok: false, error: 'Enter an amount' });
+    expect(parseMoneyInput('')).toEqual({ ok: false, error: 'Enter an amount' });
   });
 
   it('rejects non-string input defensively', () => {
@@ -77,14 +96,21 @@ describe('parseMoneyInput', () => {
 
   describe('whole-part overflow guard', () => {
     it('rejects a whole part longer than the safe-integer cap (would lose precision)', () => {
-      // 20 leading digits — parseInt(...) * 100 blows past Number.MAX_SAFE_INTEGER
-      // and would silently yield an imprecise cents value.
-      const result = parseMoneyInput('99999999999999999999');
-      expect(result).toEqual({ ok: false, error: 'Amount is too large' });
+      expect(parseMoneyInput('99999999999999999999')).toEqual({
+        ok: false,
+        error: 'Amount is too large',
+      });
     });
 
     it('rejects an over-cap whole part even with a decimal fraction', () => {
       const result = parseMoneyInput('123456789012345.99');
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe('Amount is too large');
+    });
+
+    it('rejects an over-cap whole part expressed with thousands separators', () => {
+      // 16 whole digits via grouping -> still over the 13-digit cap.
+      const result = parseMoneyInput('9 999 999 999 999 999');
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toBe('Amount is too large');
     });
@@ -96,6 +122,12 @@ describe('parseMoneyInput', () => {
         expect(result.cents).toBe(999999999999999);
         expect(Number.isSafeInteger(result.cents)).toBe(true);
       }
+    });
+
+    it('accepts the same large amount written with thousands separators', () => {
+      const result = parseMoneyInput('9 999 999 999 999.99');
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.cents).toBe(999999999999999);
     });
   });
 });

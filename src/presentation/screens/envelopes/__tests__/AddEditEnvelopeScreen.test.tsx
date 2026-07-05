@@ -158,8 +158,8 @@ describe('AddEditEnvelopeScreen', () => {
     });
   });
 
-  it('rejects an ambiguous thousands-separated budget amount and does not call the use case', async () => {
-    const { getByTestId, queryByTestId } = render(
+  it('accepts a thousands-separated budget amount and calls the use case', async () => {
+    const { getByTestId } = render(
       <AddEditEnvelopeScreen
         route={{ params: {} } as never}
         navigation={
@@ -173,10 +173,13 @@ describe('AddEditEnvelopeScreen', () => {
     fireEvent.press(getByTestId('envelope-save'));
 
     await waitFor(() => {
-      expect(queryByTestId('snackbar')).toBeTruthy();
+      expect(mockCreateExecute).toHaveBeenCalled();
     });
-    expect(MockCreateEnvelopeUseCase).not.toHaveBeenCalled();
-    expect(mockCreateExecute).not.toHaveBeenCalled();
+    expect(MockCreateEnvelopeUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ allocatedCents: 123456 }),
+    );
   });
 
   it('accepts a comma-decimal budget amount and saves with the correct cents', async () => {

@@ -191,8 +191,8 @@ describe('AddDebtScreen', () => {
     });
   });
 
-  it('rejects an ambiguous thousands-separated balance and does not call execute', async () => {
-    const { getByTestId, queryByTestId } = render(
+  it('accepts a thousands-separated balance and saves with correct cents', async () => {
+    const { getByTestId } = render(
       <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
     );
 
@@ -206,14 +206,17 @@ describe('AddDebtScreen', () => {
     });
 
     await waitFor(() => {
-      expect(queryByTestId('helper-error')).toBeTruthy();
+      expect(mockExecute).toHaveBeenCalled();
     });
-    expect(MockCreateDebtUseCase).not.toHaveBeenCalled();
-    expect(mockExecute).not.toHaveBeenCalled();
+    expect(MockCreateDebtUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ outstandingBalanceCents: 123456, minimumPaymentCents: 50000 }),
+    );
   });
 
-  it('rejects an ambiguous thousands-separated minimum payment and does not call execute', async () => {
-    const { getByTestId, queryByTestId } = render(
+  it('accepts a thousands-separated minimum payment and saves with correct cents', async () => {
+    const { getByTestId } = render(
       <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
     );
 
@@ -227,10 +230,13 @@ describe('AddDebtScreen', () => {
     });
 
     await waitFor(() => {
-      expect(queryByTestId('helper-error')).toBeTruthy();
+      expect(mockExecute).toHaveBeenCalled();
     });
-    expect(MockCreateDebtUseCase).not.toHaveBeenCalled();
-    expect(mockExecute).not.toHaveBeenCalled();
+    expect(MockCreateDebtUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ outstandingBalanceCents: 500000, minimumPaymentCents: 100000 }),
+    );
   });
 
   it('accepts comma-decimal balance and minimum payment and saves with correct cents', async () => {

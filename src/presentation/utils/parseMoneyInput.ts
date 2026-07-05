@@ -1,55 +1,57 @@
 /**
  * Locale-safe money input parser (en-ZA / af-ZA).
  *
- * South African convention accepts both `.` and `,` as the DECIMAL separator
- * ("1,50" and "1.50" both mean one rand fifty). This parser never treats a
- * separator as a THOUSANDS separator — any input with more than one
- * separator, or a separator followed by more than two digits, is rejected
- * outright rather than guessed at. Silently coercing an ambiguous string
- * (e.g. "1,234.56" or "1 000") into a number is exactly the bug this module
- * exists to prevent: it can turn a valid amount into a wildly wrong one
- * while still reporting success.
+ * Accepts thousands separators (space, `.`, or `,`) AND both `.`/`,` as the
+ * DECIMAL separator, because South African users type amounts many ways:
+ * "1 500", "1,500", "1 500.00", "1 500,00", "1.500,00" (European), "1500.5".
+ * The hard rule remains: never SILENTLY coerce an ambiguous string into a
+ * wrong number — anything that isn't unambiguously a valid amount is rejected
+ * with an inline error so the caller blocks the save.
  *
- * Grammar (input is trimmed first):
- *   money      := prefix? digits (separator digits{1,2})?
- *   prefix     := ("R" | "$") whitespace*
- *   separator  := "." | ","
- *   digits     := [0-9]+
+ * Disambiguation (the crux):
+ *   - The DECIMAL separator is the LAST `.`/`,` that is immediately followed
+ *     by exactly 1 or 2 digits at the end of the string. Everything before it
+ *     is the integer section; those trailing digits are the fraction.
+ *       "1 500,00" -> decimal ",", integer "1 500", fraction "00"  -> 150000c
+ *       "1,234.56" -> decimal ".", integer "1,234", fraction "56"  -> 123456c
+ *   - A separator followed by exactly 3 digits is a THOUSANDS grouping, not a
+ *     decimal (a 3-digit fraction is invalid anyway):
+ *       "1,000" -> 1000 ,  "1.000.000" -> 1000000
+ *   - "1,50" / "1.50" -> 150 (comma OR period decimal, af-ZA + en-ZA).
  *
- * Rejected (never coerced):
- *   - empty / whitespace-only input
- *   - a leading "-" (negative amounts are not valid money input here)
- *   - more than one separator, or a separator with >2 trailing digits —
- *     this deliberately also rejects plain "1,234" style thousands
- *     groupings; there is no reliable way to distinguish
- *     "1,234" (thousands, invalid) from "1,234" being a 3-decimal amount
- *     (also invalid, decimals are capped at 2), so both readings reject.
- *   - any whitespace between digits (e.g. "1 000")
- *   - non-numeric input
- *   - a bare separator with no digits ("." or ",")
- *   - a whole part so long that the resulting cents value would exceed
- *     `Number.MAX_SAFE_INTEGER` — `parseInt(...) * 100` silently loses
- *     precision there, producing a wrong amount. Rejecting is the whole point
- *     of this module (a "silently wrong amount" is exactly what it prevents),
- *     so an over-cap number is refused rather than coerced.
+ * Integer-section grouping is VALIDATED: it must be either plain digits
+ * ("1500") or valid 3-digit groups ("1 500", "1,234,567", "1.000.000").
+ * Malformed grouping is REJECTED, not guessed — "1,00,000", "1 2 3", "12 34",
+ * "1,2,3" all fail rather than silently producing a wrong amount.
+ *
+ * Rejected (never coerced): empty/whitespace-only; a leading "-"; a bare or
+ * trailing-only separator; >2 decimal digits with a leading-digit decimal;
+ * any non [0-9 . ,] character; malformed grouping; and a value so large the
+ * resulting cents would exceed Number.MAX_SAFE_INTEGER.
  */
 
 export type ParseMoneyResult = { ok: true; cents: number } | { ok: false; error: string };
 
 const CURRENCY_PREFIX_RE = /^[R$]\s*/;
-// Anchored, whole-string match: digits, optionally one separator followed by
-// 1-2 digits. No whitespace or additional separators are permitted anywhere.
-const MONEY_RE = /^\d+([.,]\d{1,2})?$/;
+// Only digits, spaces and separators may appear (after prefix stripping).
+const ALLOWED_RE = /^[\d ,.]+$/;
+// The decimal tail: an integer section ending in a digit, then one separator,
+// then exactly 1-2 digits at end of string. If this does NOT match, there is
+// no decimal part (a trailing 3-digit group is thousands, not a fraction).
+const DECIMAL_RE = /^(.*[0-9])([.,])(\d{1,2})$/;
+// A valid integer section: plain digits, OR 1-3 digits then any number of
+// 3-digit groups each introduced by a space/comma/period.
+const PLAIN_DIGITS_RE = /^\d+$/;
+const GROUPED_RE = /^\d{1,3}([ ,.]\d{3})*$/;
 
 const ERR_EMPTY = 'Enter an amount';
 const ERR_NEGATIVE = 'Amount cannot be negative';
-const ERR_INVALID =
-  'Enter a valid amount, e.g. 150.00 or 150,00 (no thousands separators or spaces)';
+const ERR_INVALID = 'Enter a valid amount, e.g. 1 500.00 or 1 500,00';
 const ERR_TOO_LARGE = 'Amount is too large';
 
-// Cap the whole-number part. 13 digits (up to 9,999,999,999,999.99) keeps the
-// resulting cents value well inside Number.MAX_SAFE_INTEGER (~9.0e15); beyond
-// this, `parseInt(wholePart, 10) * 100` starts losing integer precision.
+// Cap the whole-number digit count. 13 digits (up to 9,999,999,999,999.99)
+// keeps cents well inside Number.MAX_SAFE_INTEGER (~9.0e15); beyond this,
+// parseInt(...) * 100 starts losing integer precision.
 const MAX_WHOLE_DIGITS = 13;
 
 /**
@@ -71,21 +73,33 @@ export function parseMoneyInput(raw: string): ParseMoneyResult {
   }
 
   const body = trimmed.replace(CURRENCY_PREFIX_RE, '');
-  if (body.length === 0) {
-    return { ok: false, error: ERR_INVALID };
-  }
-  if (!MONEY_RE.test(body)) {
+  if (body.length === 0 || !ALLOWED_RE.test(body) || !/\d/.test(body)) {
     return { ok: false, error: ERR_INVALID };
   }
 
-  const [wholePart, fractionPartRaw] = body.split(/[.,]/);
-  if (wholePart.length > MAX_WHOLE_DIGITS) {
+  // Split off the decimal fraction, if any.
+  const decMatch = body.match(DECIMAL_RE);
+  const integerSection = decMatch ? decMatch[1] : body;
+  const fractionRaw = decMatch ? decMatch[3] : '';
+
+  // The integer section may carry thousands separators; its grouping must be
+  // valid (plain digits or 3-digit groups) or we reject rather than guess.
+  if (!PLAIN_DIGITS_RE.test(integerSection) && !GROUPED_RE.test(integerSection)) {
+    return { ok: false, error: ERR_INVALID };
+  }
+
+  const wholeDigits = integerSection.replace(/[ ,.]/g, '');
+  if (wholeDigits.length === 0) {
+    return { ok: false, error: ERR_INVALID };
+  }
+  if (wholeDigits.length > MAX_WHOLE_DIGITS) {
     return { ok: false, error: ERR_TOO_LARGE };
   }
-  const fractionPart = (fractionPartRaw ?? '').padEnd(2, '0');
-  const cents = parseInt(wholePart, 10) * 100 + parseInt(fractionPart, 10);
-  // Defence in depth: the digit-cap above is the primary guard, but reject any
-  // value that still isn't an exact integer rather than return a wrong amount.
+
+  const fractionPart = fractionRaw.padEnd(2, '0');
+  const cents = parseInt(wholeDigits, 10) * 100 + parseInt(fractionPart, 10);
+  // Defence in depth: reject any value that still isn't an exact integer
+  // rather than return a silently-wrong amount.
   if (!Number.isSafeInteger(cents)) {
     return { ok: false, error: ERR_TOO_LARGE };
   }
