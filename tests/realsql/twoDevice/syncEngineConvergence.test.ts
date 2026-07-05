@@ -124,6 +124,34 @@ function spent(dev: Device, id: string): number {
   return row ? Number(row.s) : NaN;
 }
 
+function creditor(dev: Device, id: string): string | undefined {
+  const row = dev.raw.prepare('SELECT creditor_name AS s FROM debts WHERE id = ?').get(id) as
+    | { s: string }
+    | undefined;
+  return row?.s;
+}
+
+function tombstone(dev: Device, id: string): string | null {
+  const row = dev.raw.prepare('SELECT deleted_at AS s FROM debts WHERE id = ?').get(id) as
+    | { s: string | null }
+    | undefined;
+  return row ? row.s : null;
+}
+
+function balance(dev: Device, id: string): number {
+  const row = dev.raw
+    .prepare('SELECT outstanding_balance_cents AS s FROM debts WHERE id = ?')
+    .get(id) as { s: number } | undefined;
+  return row ? Number(row.s) : NaN;
+}
+
+function paidOff(dev: Device, id: string): number {
+  const row = dev.raw.prepare('SELECT is_paid_off AS s FROM debts WHERE id = ?').get(id) as
+    | { s: number }
+    | undefined;
+  return row ? Number(row.s) : NaN;
+}
+
 describe('SyncEngine two-device convergence (real server RPCs)', () => {
   it('two engines create different debts -> both converge to both', async () => {
     const { h, a, b, ea, eb } = await twoEngines();
@@ -360,5 +388,171 @@ describe('SyncEngine two-device convergence (real server RPCs)', () => {
       }),
       { numRuns: 25 },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Audit 2026-07-05 divergence regressions (H4 / M5 / M6). Each of these
+  // exercises CONCURRENT writes to the SAME row — the case the pre-existing
+  // suite never drove, which is exactly why the divergence bugs hid. Each test
+  // FAILS on the pre-fix engine (permanent divergence) and CONVERGES post-fix.
+  // -------------------------------------------------------------------------
+
+  it('H4: concurrent update of the SAME row converges to the server-seq last write (stable, self-heals)', async () => {
+    const { h, a, b, ea, eb } = await twoEngines();
+    try {
+      a.write({
+        kind: 'insert',
+        table: 'debts',
+        row: debtRow('debt-1', HH, { creditor_name: 'Groceries' }),
+      });
+      await ea.push();
+      await eb.pull(HH);
+      expect(creditor(a, 'debt-1')).toBe('Groceries');
+      expect(creditor(b, 'debt-1')).toBe('Groceries');
+
+      // Concurrent rename of the SAME field on both devices.
+      a.write({
+        kind: 'update',
+        table: 'debts',
+        id: 'debt-1',
+        householdId: HH,
+        fields: { creditor_name: 'Food' },
+      });
+      b.write({
+        kind: 'update',
+        table: 'debts',
+        id: 'debt-1',
+        householdId: HH,
+        fields: { creditor_name: 'Petrol' },
+      });
+
+      // A pushes first -> op_A gets the LOWER server seq; B's op wins (higher seq).
+      await ea.push();
+      await eb.push();
+      // Settle both directions TWICE to prove stability (no flip-flop / self-heal).
+      await ea.pull(HH);
+      await eb.pull(HH);
+      await ea.pull(HH);
+      await eb.pull(HH);
+
+      // Server-seq last write is 'Petrol' (op_B, higher seq); BOTH converge to it.
+      // Pre-fix: A skips its own op and shows 'Petrol', B skips its own op and
+      // shows 'Food' -> permanent divergence.
+      expect(creditor(a, 'debt-1')).toBe('Petrol');
+      expect(creditor(b, 'debt-1')).toBe('Petrol');
+      expect(h.snapshot(a, 'debts', HH)).toEqual(h.snapshot(b, 'debts', HH));
+    } finally {
+      h.closeAll();
+    }
+  });
+
+  it('M5: concurrent double-delete converges to ONE tombstone value on both replicas', async () => {
+    const { h, a, b, ea, eb } = await twoEngines();
+    try {
+      a.write({ kind: 'insert', table: 'debts', row: debtRow('debt-1', HH) });
+      await ea.push();
+      await eb.pull(HH);
+
+      // Both soft-delete concurrently -> distinct origin clocks -> distinct deleted_at.
+      a.write({ kind: 'delete', table: 'debts', id: 'debt-1', householdId: HH });
+      b.write({ kind: 'delete', table: 'debts', id: 'debt-1', householdId: HH });
+      await ea.push();
+      await eb.push();
+      await ea.pull(HH);
+      await eb.pull(HH);
+      await ea.pull(HH);
+      await eb.pull(HH);
+
+      const da = tombstone(a, 'debt-1');
+      const db = tombstone(b, 'debt-1');
+      expect(da).not.toBeNull();
+      expect(db).not.toBeNull();
+      // Pre-fix each replica kept the OTHER device's timestamp (da !== db).
+      // Post-fix both converge on the higher-seq op's tombstone.
+      expect(da).toBe(db);
+      expect(h.snapshot(a, 'debts', HH)).toEqual(h.snapshot(b, 'debts', HH));
+    } finally {
+      h.closeAll();
+    }
+  });
+
+  it('M5: delete-vs-update ordering converges (delete-wins terminal; update applied in seq order)', async () => {
+    const { h, a, b, ea, eb } = await twoEngines();
+    try {
+      a.write({
+        kind: 'insert',
+        table: 'debts',
+        row: debtRow('debt-1', HH, { creditor_name: 'Orig' }),
+      });
+      await ea.push();
+      await eb.pull(HH);
+
+      // Concurrent: A renames, B deletes. A pushes first (update = lower seq),
+      // delete lands at the higher seq -> row ends deleted with name 'Renamed'.
+      a.write({
+        kind: 'update',
+        table: 'debts',
+        id: 'debt-1',
+        householdId: HH,
+        fields: { creditor_name: 'Renamed' },
+      });
+      b.write({ kind: 'delete', table: 'debts', id: 'debt-1', householdId: HH });
+      await ea.push();
+      await eb.push();
+      await ea.pull(HH);
+      await eb.pull(HH);
+      await ea.pull(HH);
+      await eb.pull(HH);
+
+      expect(tombstone(a, 'debt-1')).not.toBeNull();
+      expect(tombstone(b, 'debt-1')).not.toBeNull();
+      expect(creditor(a, 'debt-1')).toBe('Renamed');
+      expect(creditor(b, 'debt-1')).toBe('Renamed');
+      expect(h.snapshot(a, 'debts', HH)).toEqual(h.snapshot(b, 'debts', HH));
+    } finally {
+      h.closeAll();
+    }
+  });
+
+  it('M6: pulling an increment that zeros a debt sets is_paid_off locally (mirrors server trigger)', async () => {
+    const { h, a, b, ea, eb } = await twoEngines();
+    try {
+      a.write({
+        kind: 'insert',
+        table: 'debts',
+        row: debtRow('debt-1', HH, { outstanding_balance_cents: 5000 }),
+      });
+      await ea.push();
+      await eb.pull(HH);
+      expect(paidOff(a, 'debt-1')).toBe(0);
+      expect(paidOff(b, 'debt-1')).toBe(0);
+
+      // A logs a FULL payment. LogDebtPaymentUseCase does this as ONE local
+      // statement (balance -= applied AND is_paid_off = balance<=0) plus the
+      // balance `increment` op it pushes; model that origin compute here.
+      a.write({
+        kind: 'increment',
+        table: 'debts',
+        id: 'debt-1',
+        householdId: HH,
+        field: 'outstanding_balance_cents',
+        delta: -5000,
+        clamp: 'floor_zero',
+      });
+      a.raw.exec(
+        "UPDATE debts SET is_paid_off = (outstanding_balance_cents <= 0) WHERE id = 'debt-1'",
+      );
+
+      await settle(ea, eb);
+
+      // Non-origin device B recomputes is_paid_off when it applies the pulled
+      // increment (was permanently 0 at balance 0 pre-fix).
+      expect(balance(b, 'debt-1')).toBe(0);
+      expect(paidOff(b, 'debt-1')).toBe(1);
+      expect(paidOff(a, 'debt-1')).toBe(1);
+      expect(h.snapshot(a, 'debts', HH)).toEqual(h.snapshot(b, 'debts', HH));
+    } finally {
+      h.closeAll();
+    }
   });
 });
