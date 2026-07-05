@@ -86,4 +86,45 @@ describe('SnowballPayoffProjector', () => {
     const result = projector.project([debt], 0);
     expect(result.debtFreeDate).toEqual(result.projections[0].payoffDate);
   });
+
+  describe('H8 fix: focus follows CURRENT balance, not stale sortOrder', () => {
+    it('gives the snowball to the smaller-CURRENT-balance debt even though it has the LATER sortOrder', () => {
+      // debtA was entered FIRST (sortOrder 0, e.g. a bond) but has since been
+      // paid down to R4000. debtB was entered SECOND (sortOrder 1, e.g. a
+      // credit card) and — via real payments made after creation — now sits
+      // at R1000, BELOW debtA. Trusting the create-time sortOrder (the H8
+      // bug) would keep pouring the snowball into debtA (sortOrder 0)
+      // forever; the fix must redirect it to debtB, the true smallest
+      // CURRENT balance, per the Ramsey snowball method.
+      const debtA = makeDebt('debtA', 400000, 50000, 0); // R4000, sortOrder 0
+      const debtB = makeDebt('debtB', 100000, 50000, 1); // R1000, sortOrder 1 (smaller balance)
+
+      const result = projector.project([debtA, debtB], 100000); // R1000/month extra
+
+      const byId = Object.fromEntries(result.projections.map((p) => [p.debtId, p]));
+
+      // debtB (smaller CURRENT balance) is paid off first — proof the
+      // snowball focus followed the balance, not creation order.
+      expect(byId.debtB.monthsToPayoff).toBeLessThan(byId.debtA.monthsToPayoff);
+      // Concretely: with R500 min + R1000 snowball, debtB's R1000 balance
+      // clears in month 1 — it could only receive the snowball THIS month if
+      // the projector focused it ahead of debtA despite the sortOrder.
+      expect(byId.debtB.monthsToPayoff).toBe(1);
+    });
+
+    it('projections are ordered smallest-current-balance-first regardless of sortOrder', () => {
+      const bigSortOrderZero = makeDebt('big', 900000, 10000, 0);
+      const smallSortOrderOne = makeDebt('small', 50000, 10000, 1);
+      const result = projector.project([bigSortOrderZero, smallSortOrderOne], 0);
+      expect(result.projections.map((p) => p.debtId)).toEqual(['small', 'big']);
+    });
+
+    it('falls back to sortOrder as a stable tie-break when balances are equal', () => {
+      const first = makeDebt('first', 100000, 10000, 0);
+      const second = makeDebt('second', 100000, 10000, 1);
+      // Order given reversed on purpose — output must still be sortOrder-stable.
+      const result = projector.project([second, first], 0);
+      expect(result.projections.map((p) => p.debtId)).toEqual(['first', 'second']);
+    });
+  });
 });

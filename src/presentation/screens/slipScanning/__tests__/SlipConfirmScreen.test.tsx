@@ -28,13 +28,19 @@ const mockExtraction = {
   openaiCostCents: 1,
 };
 
+// Mutable so individual tests can exercise a missing/malformed param (H5 guard).
+let mockRouteParams: { slipId: string; extraction?: unknown } = {
+  slipId: 's1',
+  extraction: mockExtraction,
+};
+
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ navigate: mockNavigate, goBack: mockGoBack }),
   useRoute: () => ({
     key: 'SlipConfirm',
     name: 'SlipConfirm',
-    params: { slipId: 's1', extraction: mockExtraction },
+    params: mockRouteParams,
   }),
 }));
 
@@ -191,6 +197,14 @@ describe('SlipConfirmScreen', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockGoBack.mockReset();
+    mockRouteParams = { slipId: 's1', extraction: mockExtraction };
+  });
+
+  it('does not crash when the extraction param is missing (H5 defensive guard)', () => {
+    mockRouteParams = { slipId: 's1' }; // no `extraction`
+    expect(() =>
+      render(<SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={jest.fn()} />),
+    ).not.toThrow();
   });
 
   it('shows unassigned chip when items lack envelopes', () => {

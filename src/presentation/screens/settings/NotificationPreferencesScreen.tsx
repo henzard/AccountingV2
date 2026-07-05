@@ -18,10 +18,24 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   const { colors } = useAppTheme();
   const { preferences, setPreferences, permissionsGranted } = useNotificationStore();
   const paydayDay = useAppStore((s) => s.paydayDay);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // L10 fix: one timer PER FIELD (keyed by the update's own key), not one
+  // shared timer for the whole screen — a shared timer meant editing hour
+  // then minute within the debounce window cleared hour's pending callback
+  // before it ever fired, silently dropping that edit.
+  const debounceTimers = useRef<
+    Partial<Record<keyof NotificationPreferences, ReturnType<typeof setTimeout>>>
+  >({});
 
   const updatePref = async (update: Partial<NotificationPreferences>): Promise<void> => {
-    const updated = { ...preferences, ...update };
+    // L10 fix: merge against the FRESHEST store state (read via getState()),
+    // not the `preferences` closed over at render time. With per-field
+    // debounce timers, two fields edited within the debounce window each
+    // schedule their own callback from the SAME render's `preferences`
+    // snapshot; if we merged against that stale closure, the field whose
+    // timer fires second would still clobber the first field's already-
+    // persisted change back to its old value.
+    const latest = useNotificationStore.getState().preferences;
+    const updated = { ...latest, ...update };
     setPreferences(updated);
     await repo.save(updated);
 
@@ -49,11 +63,18 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
 
   const debouncedUpdatePref = useCallback(
     (update: Partial<NotificationPreferences>) => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(() => void updatePref(update), 600);
+      // Each call site passes a single-key partial (e.g. {eveningLogPromptHour}),
+      // so the update's own key is a stable per-field timer slot.
+      const keys = Object.keys(update) as Array<keyof NotificationPreferences>;
+      const key = keys[0];
+      if (!key) return;
+      const timers = debounceTimers.current;
+      const existing = timers[key];
+      if (existing) clearTimeout(existing);
+      timers[key] = setTimeout(() => void updatePref(update), 600);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [preferences, permissionsGranted, paydayDay],
+    [permissionsGranted, paydayDay],
   );
 
   return (
@@ -168,16 +189,30 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
             )}
           />
           <Divider />
+          {/*
+            L9 fix: envelopeWarningEnabled was a fully inert toggle — persisted
+            but never read by any scheduler or notify-event call (no overspend
+            alert mechanism exists yet, local or remote). Rather than leave a
+            control that silently does nothing (a user enabling it believed
+            they'd be alerted and never would be), it's disabled with an
+            honest "coming soon" description until a real overspend-alert path
+            is built. It intentionally still reads/displays the persisted
+            preference value (so a future wiring pass doesn't need a data
+            migration) but cannot be toggled.
+          */}
           <List.Item
             title="Envelope overspend warning"
-            description="Alert when an envelope nears its limit"
+            description="Coming soon — not yet wired to an alert"
             right={() => (
               <Switch
                 value={preferences.envelopeWarningEnabled}
                 onValueChange={(v) => updatePref({ envelopeWarningEnabled: v })}
+                disabled
                 color={colors.primary}
+                testID="envelope-warning-switch"
               />
             )}
+            testID="envelope-warning-item"
           />
         </Surface>
       </List.Section>

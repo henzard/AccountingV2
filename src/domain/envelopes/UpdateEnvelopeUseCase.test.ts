@@ -215,6 +215,95 @@ describe('UpdateEnvelopeUseCase', () => {
   });
 });
 
+describe('UpdateEnvelopeUseCase — recomputes is_savings_locked on envelope_type change (L3)', () => {
+  // L3 (exhaustive audit, 2026-07-05): the use case used to change
+  // envelope_type without ever recomputing/writing is_savings_locked, so an
+  // envelope EDITED into 'savings'/'emergency_fund' persisted
+  // is_savings_locked=0 (diverging from an envelope CREATED-AS
+  // savings/emergency_fund via CreateEnvelopeUseCase, which persists 1) —
+  // and the reverse edit left a stale 1 on a non-locked type.
+
+  it('spending -> savings: sets isSavingsLocked true and writes is_savings_locked=1', async () => {
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing, // envelopeType: 'spending', isSavingsLocked: false
+      { name: 'Emergency Buffer', allocatedCents: 400000, envelopeType: 'savings' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.isSavingsLocked).toBe(true);
+
+    const [, , fields] = repo.update.mock.calls[0];
+    expect(fields.is_savings_locked).toBe(1);
+  });
+
+  it('spending -> emergency_fund: sets isSavingsLocked true and writes is_savings_locked=1', async () => {
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing,
+      { name: 'EMF', allocatedCents: 400000, envelopeType: 'emergency_fund' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.isSavingsLocked).toBe(true);
+
+    const [, , fields] = repo.update.mock.calls[0];
+    expect(fields.is_savings_locked).toBe(1);
+  });
+
+  it('savings -> spending: sets isSavingsLocked false and writes is_savings_locked=0 (no stale lock)', async () => {
+    const savingsEnvelope: EnvelopeEntity = {
+      ...existing,
+      envelopeType: 'savings',
+      isSavingsLocked: true,
+    };
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      savingsEnvelope,
+      { name: 'Groceries', allocatedCents: 400000, envelopeType: 'spending' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.isSavingsLocked).toBe(false);
+
+    const [, , fields] = repo.update.mock.calls[0];
+    expect(fields.is_savings_locked).toBe(0);
+  });
+
+  it('leaving envelopeType unspecified preserves the current type and its locked flag', async () => {
+    const savingsEnvelope: EnvelopeEntity = {
+      ...existing,
+      envelopeType: 'savings',
+      isSavingsLocked: true,
+    };
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      savingsEnvelope,
+      { name: 'Groceries', allocatedCents: 400000 }, // envelopeType omitted
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.envelopeType).toBe('savings');
+      expect(result.data.isSavingsLocked).toBe(true);
+    }
+    const [, , fields] = repo.update.mock.calls[0];
+    expect(fields.is_savings_locked).toBe(1);
+  });
+});
+
 describe('UpdateEnvelopeUseCase — income envelope guard', () => {
   const incomeEnvelope: EnvelopeEntity = {
     ...existing,

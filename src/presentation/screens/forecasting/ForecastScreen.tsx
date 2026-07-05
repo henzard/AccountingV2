@@ -2,10 +2,9 @@ import React, { useCallback, useMemo } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
-import { format } from 'date-fns';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { CashFlowForecaster } from '../../../domain/forecasting/CashFlowForecaster';
 import { formatCurrency } from '../../utils/currency';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
@@ -27,8 +26,8 @@ export function ForecastScreen(): React.JSX.Element {
   const householdId = useAppStore((s) => s.householdId) ?? '';
   const paydayDay = useAppStore((s) => s.paydayDay);
   const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = format(period.startDate, 'yyyy-MM-dd');
-  const periodEnd = format(period.endDate, 'yyyy-MM-dd');
+  const periodStart = formatPeriodDateKey(period.startDate);
+  const periodEnd = formatPeriodDateKey(period.endDate);
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
 

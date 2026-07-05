@@ -6,14 +6,9 @@ import { useAppStore } from '../../../stores/appStore';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
+import { parseMoneyInput } from '../../../utils/parseMoneyInput';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Income'>;
-
-function toCents(str: string): number {
-  const n = parseFloat(str.replace(',', '.'));
-  if (isNaN(n)) return 0;
-  return Math.round(n * 100);
-}
 
 export function IncomeStep(): React.JSX.Element {
   const { colors } = useAppTheme();
@@ -24,7 +19,12 @@ export function IncomeStep(): React.JSX.Element {
 
   const handleNext = async (): Promise<void> => {
     setError(null);
-    const cents = toCents(amountStr);
+    const parsed = parseMoneyInput(amountStr);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    const cents = parsed.cents;
     if (cents <= 0) {
       setError('Please enter a valid monthly income amount');
       return;

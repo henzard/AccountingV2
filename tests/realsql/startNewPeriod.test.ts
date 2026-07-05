@@ -244,4 +244,89 @@ describe('StartNewPeriodUseCase (real SQLite)', () => {
 
     raw.close();
   });
+
+  // M14 (2026-07-05 audit) real-driver proof: the old implementation called
+  // `repo.insert(row, ctx)` per envelope inside a `forEach`, and
+  // `createSyncedRepo.insert` opens its OWN `runInUnitOfWork` per call — N
+  // envelopes meant N independent SQLite transactions, so a throw partway
+  // through left the earlier envelopes permanently committed (a partial
+  // rollover). The fix batches every copy into ONE `runInUnitOfWork` call
+  // using `insertRowWithinUow`, mirroring `ConfirmSlipUseCase`. This test
+  // forces a real mid-transaction failure against the ACTUAL better-sqlite3
+  // driver (not a mock) by making the copy's own oplog op_id generator
+  // collide with a pre-seeded oplog row, and asserts NOTHING from the whole
+  // rollover persisted.
+  it('rolls back ALL copies when a later insert fails mid-transaction (all-or-nothing, M14)', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, HOUSEHOLD_ID);
+    seedEnvelope(raw, {
+      id: 'env-a',
+      householdId: HOUSEHOLD_ID,
+      name: 'Envelope A',
+      envelopeType: 'spending',
+      periodStart: FROM_PERIOD,
+      allocatedCents: 10000,
+    });
+    seedEnvelope(raw, {
+      id: 'env-b',
+      householdId: HOUSEHOLD_ID,
+      name: 'Envelope B',
+      envelopeType: 'spending',
+      periodStart: FROM_PERIOD,
+      allocatedCents: 20000,
+    });
+    seedEnvelope(raw, {
+      id: 'env-c',
+      householdId: HOUSEHOLD_ID,
+      name: 'Envelope C',
+      envelopeType: 'spending',
+      periodStart: FROM_PERIOD,
+      allocatedCents: 30000,
+    });
+
+    // Pre-seed an oplog row whose op_id ('op-2') collides with the SECOND
+    // op id the use case will generate below — that envelope's row INSERT
+    // succeeds, but the immediately-following `appendOp` throws a real
+    // UNIQUE-constraint violation (op_id is the oplog PRIMARY KEY), partway
+    // through the single transaction.
+    raw
+      .prepare(
+        `INSERT INTO oplog (op_id, household_id, table_name, row_id, op_type, payload, actor_user_id, device_id, client_created_at)
+         VALUES ('op-2', ?, 'envelopes', 'pre-existing-row', 'insert', '{}', NULL, 'device-x', ?)`,
+      )
+      .run(HOUSEHOLD_ID, NOW);
+
+    const db = makeDb(raw);
+    let opCounter = 0;
+    const useCase = new StartNewPeriodUseCase(db, {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      genId: () => `op-${++opCounter}`,
+    });
+
+    await expect(
+      useCase.execute({
+        householdId: HOUSEHOLD_ID,
+        fromPeriodStart: FROM_PERIOD,
+        toPeriodStart: TO_PERIOD,
+      }),
+    ).rejects.toBeTruthy();
+
+    // NONE of the three envelopes were copied forward — all-or-nothing, not
+    // "the first one or two committed before the throw".
+    const toPeriodRows = raw
+      .prepare('SELECT COUNT(*) AS n FROM envelopes WHERE period_start = ?')
+      .get(TO_PERIOD) as { n: number };
+    expect(toPeriodRows.n).toBe(0);
+
+    // No oplog insert op for any of the three copies leaked either — the
+    // entity rows and their oplog ops share one rolled-back transaction.
+    const idA = uuidv5(`${HOUSEHOLD_ID}:${TO_PERIOD}:env-a`, APP_NAMESPACE);
+    const idB = uuidv5(`${HOUSEHOLD_ID}:${TO_PERIOD}:env-b`, APP_NAMESPACE);
+    const idC = uuidv5(`${HOUSEHOLD_ID}:${TO_PERIOD}:env-c`, APP_NAMESPACE);
+    const leaked = raw.prepare('SELECT * FROM oplog WHERE row_id IN (?, ?, ?)').all(idA, idB, idC);
+    expect(leaked).toHaveLength(0);
+
+    raw.close();
+  });
 });

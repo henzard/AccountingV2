@@ -78,7 +78,6 @@ export function useBabySteps(
     }
 
     const { reconcileUseCase, scheduler } = resolvedDeps;
-    const isActive = AppState.currentState === 'active';
 
     const promise = (async (): Promise<ReconcileResult | null> => {
       setLoading(true);
@@ -93,6 +92,21 @@ export function useBabySteps(
 
         const { statuses: newStatuses, newlyCompleted, newlyRegressed } = result.data;
         setStatuses(newStatuses);
+
+        // L6 (exhaustive audit, 2026-07-05): every CALL SITE of reconcile()
+        // gates on `AppState.currentState === 'active'` (the mount effect,
+        // the AppState listener's background->active transition, and
+        // toggleManualStep), so reading `AppState.currentState` BEFORE the
+        // `await reconcileUseCase.execute(...)` above made `isActive`
+        // trivially always true — the backgrounded branch below was
+        // provably dead code (verified: reconcile() never actually runs
+        // while backgrounded in production). Re-reading it HERE, AFTER the
+        // real async DB work, makes the branch genuinely reachable: the app
+        // can legitimately move to the background WHILE `execute()` is
+        // in-flight (the user backgrounds the app mid-reconcile), in which
+        // case the state has changed by the time we get here and the
+        // notification path below correctly fires instead of the modal.
+        const isActive = AppState.currentState === 'active';
 
         if (isActive) {
           // Foreground path: enqueue celebration modals

@@ -4,14 +4,13 @@ import { FAB } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { SinkingFundCard } from '../../components/envelopes/SinkingFundCard';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { format } from 'date-fns';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DashboardStackParamList } from '../../navigation/types';
 
@@ -26,7 +25,7 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId) ?? '';
   const paydayDay = useAppStore((s) => s.paydayDay);
-  const periodStart = format(engine.getCurrentPeriod(paydayDay).startDate, 'yyyy-MM-dd');
+  const periodStart = formatPeriodDateKey(engine.getCurrentPeriod(paydayDay).startDate);
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
 

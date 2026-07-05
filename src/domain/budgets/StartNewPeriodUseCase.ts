@@ -5,7 +5,9 @@ import { envelopes } from '../../data/local/schema';
 import { envelopeScopeCondition } from '../../data/local/balances/EnvelopeBalanceQuery';
 import { getEnvelopeScope } from '../envelopes/EnvelopeEntity';
 import type { EnvelopeType } from '../envelopes/EnvelopeEntity';
-import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
+import { insertRowWithinUow } from '../../data/uow/createSyncedRepo';
+import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
@@ -124,16 +126,25 @@ export class StartNewPeriodUseCase {
       .where(inArray(envelopes.id, targetIds));
     const existingIds = new Set(existingRows.map((row) => row.id));
 
-    const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
     const ctx = resolveSyncedRepoCtx(this.deps);
     const now = ctx.clock();
 
-    let count = 0;
+    // Build every row to copy FIRST (no writes yet), then insert them all
+    // inside ONE `runInUnitOfWork` transaction below — see the class doc
+    // comment. The old code called `repo.insert(row, ctx)` per envelope
+    // inside this forEach; `createSyncedRepo.insert` opens its OWN
+    // `runInUnitOfWork`/`db.transaction` per call, so N envelopes meant N
+    // independent transactions and a mid-loop failure (or a kill) could
+    // leave the new period with only SOME of its envelopes copied forward
+    // (M14, 2026-07-05 audit). Using `insertRowWithinUow` directly — the
+    // same primitive `ConfirmSlipUseCase` uses for its N-item atomic write —
+    // makes the whole copy all-or-nothing.
+    const rowsToInsert: Record<string, unknown>[] = [];
     sourceEnvelopes.forEach((source, index) => {
       const targetId = targetIds[index];
       if (existingIds.has(targetId)) return;
 
-      const row: Record<string, unknown> = {
+      rowsToInsert.push({
         id: targetId,
         household_id: householdId,
         name: source.name,
@@ -148,12 +159,19 @@ export class StartNewPeriodUseCase {
         target_date: source.targetDate,
         created_at: now,
         updated_at: now,
-      };
-
-      repo.insert(row, ctx);
-      count += 1;
+      });
     });
 
-    return createSuccess({ count });
+    if (rowsToInsert.length === 0) {
+      return createSuccess({ count: 0 });
+    }
+
+    runInUnitOfWork(this.db, (uow) => {
+      for (const row of rowsToInsert) {
+        insertRowWithinUow(uow, 'envelopes', row, ctx);
+      }
+    });
+
+    return createSuccess({ count: rowsToInsert.length });
   }
 }

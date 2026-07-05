@@ -47,12 +47,22 @@ export class UpdateEnvelopeUseCase {
     }
 
     const now = new Date().toISOString();
+    const envelopeType =
+      this.input.envelopeType !== undefined ? this.input.envelopeType : this.current.envelopeType;
+    // L3 (exhaustive audit): editing envelope_type into/out of 'savings' or
+    // 'emergency_fund' must recompute is_savings_locked the same way
+    // CreateEnvelopeUseCase derives it at creation — otherwise the flag
+    // diverges depending on whether an envelope was created-as vs
+    // edited-into a savings/emergency_fund type (e.g. a spending envelope
+    // edited to 'savings' would persist is_savings_locked=0, while an
+    // envelope created fresh as 'savings' persists 1).
+    const isSavingsLocked = envelopeType === 'savings' || envelopeType === 'emergency_fund';
     const updated: EnvelopeEntity = {
       ...this.current,
       name: trimmedName,
       allocatedCents: this.input.allocatedCents,
-      envelopeType:
-        this.input.envelopeType !== undefined ? this.input.envelopeType : this.current.envelopeType,
+      envelopeType,
+      isSavingsLocked,
       targetAmountCents:
         this.input.targetAmountCents !== undefined
           ? this.input.targetAmountCents
@@ -66,6 +76,10 @@ export class UpdateEnvelopeUseCase {
       name: updated.name,
       allocated_cents: updated.allocatedCents,
       envelope_type: updated.envelopeType,
+      // better-sqlite3 only binds numbers/strings/bigints/buffers/null — not
+      // JS booleans — so boolean columns are written as 0/1 (same convention
+      // CreateEnvelopeUseCase uses).
+      is_savings_locked: updated.isSavingsLocked ? 1 : 0,
       target_amount_cents: updated.targetAmountCents,
       target_date: updated.targetDate,
       updated_at: now,

@@ -376,4 +376,85 @@ describe('AddReadingScreen', () => {
       expect.objectContaining({ costCents: 150 }),
     );
   });
+
+  // ── Reading value locale parsing (M8, 2026-07-05 exhaustive audit) ─────
+  // The reading VALUE (kWh/kL/km) used to be parsed with raw `parseFloat`,
+  // which silently truncates af-ZA/en-ZA comma-decimal input ("123,45" ->
+  // 123 instead of 123.45). It's not money, but still needs a locale-safe
+  // decimal parse rather than the raw truncating one.
+  it('accepts a comma-decimal reading value and saves with the correct value', async () => {
+    const { getByTestId } = render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('Current reading (kWh)'), '1234,56');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalled();
+    });
+
+    const { LogMeterReadingUseCase } = jest.requireMock(
+      '../../../../domain/meterReadings/LogMeterReadingUseCase',
+    ) as { LogMeterReadingUseCase: jest.Mock };
+    expect(LogMeterReadingUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ readingValue: 1234.56 }),
+    );
+  });
+
+  it('accepts a period-decimal reading value and saves with the correct value', async () => {
+    const { getByTestId } = render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('Current reading (kWh)'), '1234.5');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalled();
+    });
+
+    const { LogMeterReadingUseCase } = jest.requireMock(
+      '../../../../domain/meterReadings/LogMeterReadingUseCase',
+    ) as { LogMeterReadingUseCase: jest.Mock };
+    expect(LogMeterReadingUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ readingValue: 1234.5 }),
+    );
+  });
+
+  it('rejects a garbled reading value (multiple separators) with an inline error and blocks save', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('Current reading (kWh)'), '1,234,56');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('helper-error')).toBeTruthy();
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
 });

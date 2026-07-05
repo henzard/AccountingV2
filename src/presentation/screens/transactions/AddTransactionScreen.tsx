@@ -6,10 +6,13 @@ import { and, eq, ne } from 'drizzle-orm';
 import { format } from 'date-fns';
 import { db } from '../../../data/local/db';
 import { envelopes as envelopesTable } from '../../../data/local/schema';
-import { getEnvelopeSpentCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
+import {
+  envelopeScopeCondition,
+  getEnvelopeSpentCents,
+} from '../../../data/local/balances/EnvelopeBalanceQuery';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTransactionUseCase';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
 import { spacing } from '../../theme/tokens';
@@ -40,7 +43,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
   const enqueue = useToastStore((s) => s.enqueue);
 
   const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = format(period.startDate, 'yyyy-MM-dd');
+  const periodStart = formatPeriodDateKey(period.startDate);
 
   const [envelopes, setEnvelopes] = useState<EnvelopeOption[]>([]);
   const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeOption | null>(null);
@@ -73,7 +76,13 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       .where(
         and(
           eq(envelopesTable.householdId, householdId),
-          eq(envelopesTable.periodStart, periodStart),
+          // envelopeScopeCondition (not a raw period_start equality) so
+          // PERSISTENT envelope types (sinking_fund, emergency_fund, savings,
+          // baby_step) still show up in the picker after the period has
+          // rolled forward past their creation period — see C3 in the
+          // 2026-07-05 exhaustive audit; same fix already applied to
+          // useEnvelopes.
+          envelopeScopeCondition(periodStart),
           eq(envelopesTable.isArchived, false),
           // Exclude income-type envelopes per domain rule
           ne(envelopesTable.envelopeType, 'income'),

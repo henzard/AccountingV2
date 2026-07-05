@@ -77,4 +77,65 @@ describe('AllocateEnvelopesStep', () => {
     });
     expect(mockExecute).not.toHaveBeenCalled();
   });
+
+  // ── Money parsing (M3, 2026-07-05 exhaustive audit) ────────────────────
+  // Allocation amounts used to be parsed with a local `toCents`
+  // (`parseFloat(str.replace(',', '.'))`), mis-parsing grouped input like
+  // "1,000" -> R1.00 instead of R1000 and turning a legitimate entry into a
+  // spurious "off by" rejection (or, worse, silently persisting the wrong
+  // allocatedCents). It now uses the locale-safe `parseMoneyInput`.
+  it('accepts a thousands-separated allocation and creates the envelope with the correct cents', async () => {
+    const { getByTestId, getByText } = render(wrap(<AllocateEnvelopesStep />));
+    // R30 000 income; put it all behind Groceries via a thousands-separated entry.
+    fireEvent.changeText(getByTestId('alloc-input-Groceries'), '30,000');
+    fireEvent.changeText(getByTestId('alloc-input-Rent'), '0');
+    fireEvent.changeText(getByTestId('alloc-input-Transport'), '0');
+
+    fireEvent.press(getByText('Next'));
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalledTimes(3);
+    });
+    const { CreateEnvelopeUseCase: MockCreateEnvelopeUseCase } = jest.requireMock(
+      '../../../../../domain/envelopes/CreateEnvelopeUseCase',
+    ) as { CreateEnvelopeUseCase: jest.Mock };
+    expect(MockCreateEnvelopeUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ name: 'Groceries', allocatedCents: 3_000_000 }),
+    );
+  });
+
+  it('accepts a comma-decimal allocation and creates the envelope with the correct cents', async () => {
+    const { getByTestId, getByText } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.changeText(getByTestId('alloc-input-Groceries'), '10000,50');
+    fireEvent.changeText(getByTestId('alloc-input-Rent'), '9999,50');
+    fireEvent.changeText(getByTestId('alloc-input-Transport'), '10000');
+
+    fireEvent.press(getByText('Next'));
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalledTimes(3);
+    });
+    const { CreateEnvelopeUseCase: MockCreateEnvelopeUseCase } = jest.requireMock(
+      '../../../../../domain/envelopes/CreateEnvelopeUseCase',
+    ) as { CreateEnvelopeUseCase: jest.Mock };
+    expect(MockCreateEnvelopeUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ name: 'Groceries', allocatedCents: 1_000_050 }),
+    );
+  });
+
+  it('rejects a malformed-grouping allocation with an inline error and does not proceed', async () => {
+    const { getByTestId, getByText, queryByTestId } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.changeText(getByTestId('alloc-input-Groceries'), '1,00,000');
+
+    fireEvent.press(getByText('Next'));
+
+    await waitFor(() => {
+      expect(queryByTestId('alloc-error-Groceries')).toBeTruthy();
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
 });

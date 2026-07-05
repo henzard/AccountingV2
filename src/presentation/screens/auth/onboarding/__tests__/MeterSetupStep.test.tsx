@@ -1,10 +1,14 @@
 /**
- * MeterSetupStep.test.tsx — B1
+ * MeterSetupStep.test.tsx — B1 + M9/L4 fix regression (2026-07-05 audit)
  *
  * Tests:
  *   - Three toggles render (electricity, water, odometer).
- *   - Skip button text shown when no toggles are on.
- *   - Pressing skip (no toggles) navigates to ScoreIntro.
+ *   - Skip button text shown when no toggles are on; Next when any is on.
+ *   - Pressing Next/Skip always navigates to ScoreIntro and NEVER writes a
+ *     meter_readings row — the old zero-value "Opening baseline" seed (M9:
+ *     wrong consumption/rate math against a 0 baseline; L4: blocked the
+ *     first same-day real reading via the DUPLICATE_READING guard) is gone.
+ *     The user's first real reading now simply becomes the baseline.
  */
 
 import React from 'react';
@@ -69,19 +73,13 @@ jest.mock('react-native-paper', () => {
   return { Text, Button, List, Switch };
 });
 
-// ─── appStore mock ────────────────────────────────────────────────────────────
-jest.mock('../../../../stores/appStore', () => ({
-  useAppStore: jest.fn((selector: (s: object) => unknown) => selector({ householdId: 'hh-test' })),
-}));
-
-// ─── DB mock ──────────────────────────────────────────────────────────────────
-// MeterSetupStep now writes through the shared oplog synced repo
-// (resolveSyncedRepo/resolveSyncedRepoCtx) instead of a raw db.insert +
-// PendingSyncEnqueuer pair — see MeterSetupStep.tsx's doc comment. `db` only
-// needs to exist as an identity for resolveSyncedRepo to key off of; the
-// synced-repo fake below is what actually gets exercised.
-jest.mock('../../../../../data/local/db', () => ({ db: {} }));
-
+// ─── Detects any write attempt ─────────────────────────────────────────────────
+// The fixed screen must never write through the synced-repo path at all —
+// spying on resolveSyncedRepo lets the regression test assert that
+// directly, rather than only inferring it from an absence of navigation
+// side-effects. (MeterSetupStep no longer imports this module at all, but
+// the mock is harmless to keep in place as a belt-and-braces guard in case
+// a future edit re-adds a write.)
 const mockRepoInsert = jest.fn();
 jest.mock('../../../../../domain/shared/syncWrite', () => ({
   resolveSyncedRepo: jest.fn(() => ({
@@ -95,11 +93,6 @@ jest.mock('../../../../../domain/shared/syncWrite', () => ({
     actorUserId: null,
     clock: () => '2026-01-01T00:00:00.000Z',
   })),
-}));
-
-// ─── expo-crypto mock ─────────────────────────────────────────────────────────
-jest.mock('expo-crypto', () => ({
-  randomUUID: jest.fn(() => 'mock-uuid-1234'),
 }));
 
 import { MeterSetupStep } from '../MeterSetupStep';
@@ -121,29 +114,46 @@ describe('MeterSetupStep', () => {
     expect(getByText('Skip')).toBeTruthy();
   });
 
+  it('shows "Next" button text once a toggle is enabled', () => {
+    const { getByTestId, getByText } = render(<MeterSetupStep />);
+    fireEvent(getByTestId('switch-water'), 'touchEnd');
+    expect(getByText('Next')).toBeTruthy();
+  });
+
   it('pressing skip (no toggles) navigates to ScoreIntro without inserting rows', async () => {
     const { getByText } = render(<MeterSetupStep />);
     fireEvent.press(getByText('Skip'));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
-      expect(mockRepoInsert).not.toHaveBeenCalled();
     });
+    expect(mockRepoInsert).not.toHaveBeenCalled();
   });
 
-  it('pressing Next with a toggle enabled seeds a zero-value baseline reading via the synced repo', async () => {
+  it('pressing Next with a toggle enabled navigates to ScoreIntro WITHOUT seeding any baseline reading (M9/L4 fix)', async () => {
     const { getByTestId, getByText } = render(<MeterSetupStep />);
     fireEvent(getByTestId('switch-electricity'), 'touchEnd');
     fireEvent.press(getByText('Next'));
 
     await waitFor(() => {
-      expect(mockRepoInsert).toHaveBeenCalledTimes(1);
       expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
     });
 
-    const [row] = mockRepoInsert.mock.calls[0];
-    expect(row.household_id).toBe('hh-test');
-    expect(row.meter_type).toBe('electricity');
-    expect(row.reading_value).toBe(0);
-    expect(row.notes).toBe('Opening baseline');
+    // No meter_readings row (zero-value or otherwise) is ever written from
+    // this screen — the first REAL reading logged via AddReadingScreen is
+    // now the only baseline that ever exists.
+    expect(mockRepoInsert).not.toHaveBeenCalled();
+  });
+
+  it('pressing Next with ALL toggles enabled still writes nothing', async () => {
+    const { getByTestId, getByText } = render(<MeterSetupStep />);
+    fireEvent(getByTestId('switch-electricity'), 'touchEnd');
+    fireEvent(getByTestId('switch-water'), 'touchEnd');
+    fireEvent(getByTestId('switch-odometer'), 'touchEnd');
+    fireEvent.press(getByText('Next'));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
+    });
+    expect(mockRepoInsert).not.toHaveBeenCalled();
   });
 });

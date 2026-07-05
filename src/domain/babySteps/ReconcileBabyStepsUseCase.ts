@@ -147,7 +147,6 @@ export class ReconcileBabyStepsUseCase {
 
         if (current.isCompleted && !previouslyCompleted) {
           // Transition: incomplete → complete
-          newlyCompleted.push(current.stepNumber);
           completedAt = now;
 
           if (persisted) {
@@ -158,6 +157,17 @@ export class ReconcileBabyStepsUseCase {
               { is_completed: 1, completed_at: completedAt, updated_at: now },
               ctx,
             );
+            // L5 (exhaustive audit): only report the step as newly-completed
+            // AFTER confirming the row actually persisted. Pushing this
+            // unconditionally (the old behavior) meant a MISSING baby_steps
+            // row (e.g. a joining device whose baby_steps restore hasn't
+            // landed yet) still triggered a celebration even though nothing
+            // was written — since the persisted `is_completed` flag never
+            // flips, the very next reconcile re-detects the same
+            // incomplete→complete transition and re-enqueues the
+            // celebration modal in a loop, with no persistence ever backing
+            // it.
+            newlyCompleted.push(current.stepNumber);
           }
         } else if (!current.isCompleted && previouslyCompleted) {
           // Transition: complete → incomplete (regression)

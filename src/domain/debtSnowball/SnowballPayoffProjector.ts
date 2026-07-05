@@ -18,7 +18,18 @@ export class SnowballPayoffProjector {
 
   /**
    * Simulates the Dave Ramsey snowball method month-by-month.
-   * Debts are processed in sortOrder ascending (smallest balance first by default).
+   * Debts are processed by CURRENT outstandingBalanceCents ascending — the
+   * actual smallest-balance-first snowball order — NOT by the stored
+   * `sortOrder`. `sortOrder` is only ever set once, at debt-creation time,
+   * from insertion order (see `CreateDebtUseCase`); it is never
+   * re-derived as balances change from payments, so trusting it here would
+   * let the focus debt drift away from the true smallest balance as soon as
+   * balances diverge from creation order (H8, 2026-07-05 audit) — the exact
+   * opposite of the Ramsey method this projector implements. Sorting by the
+   * live balance instead means the projected focus debt always reflects
+   * reality, no matter what order debts were entered in. Ties (equal
+   * balances) fall back to `sortOrder` purely for a stable, deterministic
+   * projection — Ramsey's method itself is silent on tie-breaking.
    * All debts receive minimum payments each month. The focus debt (smallest first)
    * receives the extra snowball amount. When a debt is paid off, its minimum rolls
    * into the snowball for the next focus debt.
@@ -26,7 +37,10 @@ export class SnowballPayoffProjector {
   project(debts: DebtEntity[], extraMonthlyPaymentCents = 0): SnowballPlan {
     const activeDebts = debts
       .filter((d) => !d.isPaidOff && d.outstandingBalanceCents > 0)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+      .sort(
+        (a, b) =>
+          a.outstandingBalanceCents - b.outstandingBalanceCents || a.sortOrder - b.sortOrder,
+      );
 
     if (activeDebts.length === 0) {
       return { projections: [], debtFreeDate: null };

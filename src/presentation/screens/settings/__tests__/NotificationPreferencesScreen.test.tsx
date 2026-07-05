@@ -2,7 +2,7 @@
  * NotificationPreferencesScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render, waitFor, act } from '@testing-library/react-native';
+import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
 
 const mockSave = jest.fn().mockResolvedValue(undefined);
 jest.mock('../../../../infrastructure/notifications/NotificationPreferencesRepository', () => ({
@@ -28,7 +28,12 @@ jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
 }));
 
-const mockSetPreferences = jest.fn();
+// Mirrors the real zustand store: setPreferences actually updates the
+// backing state so getState().preferences (used by the L10 fix) reflects
+// what a real store would after each commit.
+const mockSetPreferences = jest.fn((updated: typeof mockPreferences) => {
+  mockPreferences = updated;
+});
 let mockPreferences = {
   eveningLogPromptEnabled: true,
   eveningLogPromptHour: 20,
@@ -40,13 +45,17 @@ let mockPreferences = {
 };
 let mockPermissionsGranted = false;
 
-jest.mock('../../../stores/notificationStore', () => ({
-  useNotificationStore: jest.fn(() => ({
+jest.mock('../../../stores/notificationStore', () => {
+  const fn = jest.fn(() => ({
     preferences: mockPreferences,
     setPreferences: mockSetPreferences,
     permissionsGranted: mockPermissionsGranted,
-  })),
-}));
+  })) as jest.Mock & { getState?: () => { preferences: typeof mockPreferences } };
+  // getState() must reflect the LATEST mockPreferences too (L10 fix reads
+  // fresh state via getState() instead of the hook's render-time snapshot).
+  fn.getState = () => ({ preferences: mockPreferences });
+  return { useNotificationStore: fn };
+});
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((sel: (s: { paydayDay: number }) => unknown) => sel({ paydayDay: 25 })),
 }));
@@ -60,16 +69,19 @@ jest.mock('react-native-paper', () => {
       value,
       onValueChange,
       testID,
+      disabled,
     }: {
       value?: boolean;
       onValueChange?: (v: boolean) => void;
       testID?: string;
       color?: string;
+      disabled?: boolean;
     }) =>
       React.createElement('Switch', {
         testID: testID ?? 'switch',
         value,
         onValueChange,
+        disabled,
         accessibilityValue: { text: String(value) },
       }),
     Divider: () => React.createElement('View', null),
@@ -219,6 +231,18 @@ describe('NotificationPreferencesScreen', () => {
     expect(getAllByText(/overspend/i).length).toBeGreaterThan(0);
   });
 
+  // L9 — envelopeWarningEnabled had no scheduler/notify-event path reading
+  // it, so the toggle was a decorative no-op. Fixed by disabling the
+  // control and being honest about it in the description, rather than
+  // leaving a fake "this does something" control.
+  it('disables the envelope overspend warning switch and labels it as not yet wired', () => {
+    const { getByTestId, getAllByText } = render(
+      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+    );
+    expect(getByTestId('envelope-warning-switch').props.disabled).toBe(true);
+    expect(getAllByText(/coming soon/i).length).toBeGreaterThan(0);
+  });
+
   it('renders month-start pre-flight toggle', () => {
     const { getAllByText } = render(
       <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
@@ -299,5 +323,53 @@ describe('NotificationPreferencesScreen', () => {
     expect(getAllByText(/Daily Log Prompt/i).length).toBeGreaterThan(0);
     expect(getAllByText(/Meter Reading Reminder/i).length).toBeGreaterThan(0);
     expect(getAllByText(/Budget Period/i).length).toBeGreaterThan(0);
+  });
+
+  // L10 — a single shared debounce timer meant editing hour then minute
+  // within 600ms cleared hour's pending callback before it fired, silently
+  // dropping the hour edit. Fixed with per-field timers + merging against
+  // the freshest store state (getState()) instead of a stale render-time
+  // closure (which would otherwise let the later field's save clobber the
+  // earlier field's already-persisted value back to its old value).
+  describe('L10 — per-field debounce', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('persists both the hour and minute edits when both change within the debounce window', async () => {
+      mockPreferences = {
+        ...mockPreferences,
+        eveningLogPromptEnabled: true,
+        eveningLogPromptHour: 19,
+        eveningLogPromptMinute: 0,
+      };
+      const { getByTestId } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+
+      act(() => {
+        fireEvent.changeText(getByTestId('Hour (0-23)'), '20');
+      });
+      act(() => {
+        jest.advanceTimersByTime(200);
+      });
+      act(() => {
+        fireEvent.changeText(getByTestId('Minute (0-59)'), '30');
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(700);
+      });
+
+      expect(mockSave).toHaveBeenCalled();
+      const lastSaved = mockSave.mock.calls[mockSave.mock.calls.length - 1][0];
+      expect(lastSaved).toMatchObject({
+        eveningLogPromptHour: 20,
+        eveningLogPromptMinute: 30,
+      });
+    });
   });
 });

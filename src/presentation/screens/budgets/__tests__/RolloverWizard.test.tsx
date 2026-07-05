@@ -269,6 +269,93 @@ describe('RolloverWizard', () => {
     );
   });
 
+  // ── Money parsing (H2/M1/L8, 2026-07-05 exhaustive audit) ──────────────
+  // Allocation edits used to go through a local `toCents`
+  // (`parseFloat(str.replace(',', '.'))`, returning 0 on non-finite input),
+  // which silently zeroed an emptied field and mis-parsed grouped/comma
+  // input. It now uses the locale-safe `parseMoneyInput` and blocks
+  // advancing past the 'adjust' step while any allocation is invalid.
+  it('accepts a thousands-separated allocation edit and commits the correct cents', async () => {
+    const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+    await findByTestId('rollover-step-review');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-adjust');
+
+    fireEvent.changeText(getByTestId('rollover-alloc-input-env-1'), '1,500');
+
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-commit');
+    fireEvent.press(getByTestId('rollover-commit'));
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+    });
+    const [, , fields] = mockUpdate.mock.calls[0];
+    expect(fields).toEqual({ allocated_cents: 150000 });
+  });
+
+  it('accepts a comma-decimal allocation edit and commits the correct cents', async () => {
+    const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+    await findByTestId('rollover-step-review');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-adjust');
+
+    fireEvent.changeText(getByTestId('rollover-alloc-input-env-1'), '750,50');
+
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-commit');
+    fireEvent.press(getByTestId('rollover-commit'));
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+    });
+    const [, , fields] = mockUpdate.mock.calls[0];
+    expect(fields).toEqual({ allocated_cents: 75050 });
+  });
+
+  it('rejects an emptied allocation field instead of silently zeroing it, and blocks advancing past adjust', async () => {
+    const { findByTestId, getByTestId, queryByTestId } = render(<RolloverWizard {...baseProps} />);
+    await findByTestId('rollover-step-review');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-adjust');
+
+    fireEvent.changeText(getByTestId('rollover-alloc-input-env-1'), '');
+
+    await waitFor(() => {
+      expect(queryByTestId('rollover-alloc-error-env-1')).toBeTruthy();
+    });
+
+    // The mocked Button nils out onPress while `disabled` is true (see the
+    // react-native-paper mock above), so this proves the Next button is
+    // actually disabled while the allocation is invalid.
+    expect(getByTestId('rollover-next').props.onPress).toBeUndefined();
+
+    // ...and — the authoritative gate — `handleNext` itself refuses to leave
+    // 'adjust' while any allocation is invalid, so pressing Next (e.g. via
+    // an assistive-tech action that bypasses the visual disabled state)
+    // still cannot silently zero this envelope's allocation on commit.
+    fireEvent.press(getByTestId('rollover-next'));
+    expect(queryByTestId('rollover-step-adjust')).toBeTruthy();
+    expect(queryByTestId('rollover-step-commit')).toBeNull();
+  });
+
+  it('rejects a malformed-grouping allocation edit with an inline error and blocks advancing', async () => {
+    const { findByTestId, getByTestId, queryByTestId } = render(<RolloverWizard {...baseProps} />);
+    await findByTestId('rollover-step-review');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-adjust');
+
+    fireEvent.changeText(getByTestId('rollover-alloc-input-env-1'), '1,00,000');
+
+    await waitFor(() => {
+      expect(queryByTestId('rollover-alloc-error-env-1')).toBeTruthy();
+    });
+
+    expect(getByTestId('rollover-next').props.onPress).toBeUndefined();
+    fireEvent.press(getByTestId('rollover-next'));
+    expect(queryByTestId('rollover-step-commit')).toBeNull();
+  });
+
   it('acknowledges the new period (writes the ack key) exactly once on commit', async () => {
     const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
     await findByTestId('rollover-step-review');

@@ -47,17 +47,34 @@ jest.mock('react-native-paper', () => {
   return { Text, Chip, FAB };
 });
 
+// Stored raw_response_json is the SNAKE_CASE OpenAI output the edge function
+// persists (JSON.stringify(parsed)) — NOT a camelCase SlipExtraction.
+const completedRawResponse = JSON.stringify({
+  merchant: 'PnP',
+  slip_date: '2026-04-13',
+  total_cents: 15000,
+  items: [
+    {
+      description: 'Bread',
+      amount_cents: 5000,
+      quantity: 1,
+      suggested_envelope_id: 'e1',
+      confidence: 0.9,
+    },
+  ],
+});
+
 const completedItem = {
   id: 'sq-1',
   householdId: 'hh-1',
   createdBy: 'user-1',
-  imageUris: '[]',
+  imageUris: ['file:///f1.jpg'],
   status: 'completed',
   merchant: 'PnP',
   slipDate: '2026-04-13',
   totalCents: 15000,
   errorMessage: null,
-  rawResponseJson: null,
+  rawResponseJson: completedRawResponse,
   imagesDeletedAt: null,
   openaiCostCents: 1,
   createdAt: '2026-04-13T10:00:00Z',
@@ -89,13 +106,41 @@ const processingItem = {
   status: 'processing',
   merchant: null,
   totalCents: null,
+  rawResponseJson: null,
+  imageUris: ['file:///frame-a.jpg', 'file:///frame-b.jpg'],
   createdAt: '2026-04-14T10:00:00Z',
   updatedAt: '2026-04-14T10:00:00Z',
 };
 
+// A failed slip whose extraction had actually succeeded (raw populated) — the
+// stored JSON is SNAKE_CASE, so it must be normalised before it can be handed
+// to SlipConfirmScreen as a SlipExtraction.
+const failedRawResponse = JSON.stringify({
+  merchant: 'Checkers',
+  slip_date: '2026-04-12',
+  total_cents: 20000,
+  items: [
+    {
+      description: 'Chips',
+      amount_cents: 20000,
+      quantity: 1,
+      suggested_envelope_id: null,
+      confidence: 0.7,
+    },
+  ],
+});
+
 const failedWithExtraction = {
   ...failedItem,
   id: 'sq-4',
+  rawResponseJson: failedRawResponse,
+};
+
+// A failed slip whose raw response is present but malformed (not a valid
+// extraction) — must fall back to a re-scan rather than crash.
+const failedWithGarbageExtraction = {
+  ...failedItem,
+  id: 'sq-5',
   rawResponseJson: JSON.stringify({ merchant: 'Checkers', total: 200 }),
 };
 
@@ -152,10 +197,28 @@ describe('SlipQueueScreen', () => {
     expect(getAllByText('R150.00').length).toBeGreaterThan(0);
   });
 
-  it('navigates to SlipConfirm when completed item is pressed', () => {
+  it('navigates to SlipConfirm with a hydrated extraction when completed item is pressed (H5)', () => {
     const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
     fireEvent.press(getByTestId('slip-item-sq-1'));
-    expect(mockNavigate).toHaveBeenCalledWith('SlipConfirm', { slipId: 'sq-1' });
+    expect(mockNavigate).toHaveBeenCalledWith('SlipConfirm', {
+      slipId: 'sq-1',
+      extraction: expect.objectContaining({
+        merchant: 'PnP',
+        slipDate: '2026-04-13',
+        totalCents: 15000,
+        items: [
+          expect.objectContaining({
+            description: 'Bread',
+            amountCents: 5000,
+            suggestedEnvelopeId: 'e1',
+          }),
+        ],
+      }),
+    });
+    // The extraction is a real SlipExtraction, never the raw snake_case object.
+    const [, params] = mockNavigate.mock.calls[0];
+    expect(params.extraction.items[0].amountCents).toBe(5000);
+    expect(params.extraction.items[0]).not.toHaveProperty('amount_cents');
   });
 
   it('navigates to SlipCapture when failed item (no extraction) is pressed', () => {
@@ -167,21 +230,50 @@ describe('SlipQueueScreen', () => {
     });
   });
 
-  it('navigates to SlipProcessing when processing item is pressed', () => {
+  it('navigates to SlipProcessing with the required resume params when processing item is pressed (M7)', () => {
     mockSlipData = [processingItem];
     const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
     fireEvent.press(getByTestId('slip-item-sq-3'));
-    expect(mockNavigate).toHaveBeenCalledWith('SlipProcessing', { slipId: 'sq-3' });
+    // Must carry householdId/createdBy/frameLocalUris — NOT just { slipId } —
+    // otherwise SlipProcessingScreen starts a scan with undefined frames.
+    expect(mockNavigate).toHaveBeenCalledWith('SlipProcessing', {
+      householdId: 'hh-1',
+      createdBy: 'user-1',
+      frameLocalUris: ['file:///frame-a.jpg', 'file:///frame-b.jpg'],
+    });
+    const [, params] = mockNavigate.mock.calls[0];
+    expect(params.frameLocalUris).toBeDefined();
   });
 
-  it('navigates to SlipConfirm for failed item with valid extraction', () => {
+  it('navigates to SlipConfirm for failed item with a hydrated (camelCase) extraction (H6)', () => {
     mockSlipData = [failedWithExtraction];
     const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
     fireEvent.press(getByTestId('slip-item-sq-4'));
     expect(mockNavigate).toHaveBeenCalledWith('SlipConfirm', {
       slipId: 'sq-4',
-      extraction: { merchant: 'Checkers', total: 200 },
+      extraction: expect.objectContaining({
+        merchant: 'Checkers',
+        slipDate: '2026-04-12',
+        totalCents: 20000,
+        items: [expect.objectContaining({ description: 'Chips', amountCents: 20000 })],
+      }),
     });
+    // Never the raw snake_case object (the old H6 bug passed data.raw_response).
+    const [, params] = mockNavigate.mock.calls[0];
+    expect(params.extraction.items[0].amountCents).toBe(20000);
+    expect(params.extraction.items[0].amountCents).not.toBeUndefined();
+  });
+
+  it('falls back to SlipCapture when a failed slip has a malformed extraction (H6 guard)', () => {
+    mockSlipData = [failedWithGarbageExtraction];
+    const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    fireEvent.press(getByTestId('slip-item-sq-5'));
+    expect(mockNavigate).toHaveBeenCalledWith('SlipCapture', {
+      householdId: 'hh-1',
+      slipId: 'sq-5',
+    });
+    // Must NOT navigate to SlipConfirm with a bad shape.
+    expect(mockNavigate).not.toHaveBeenCalledWith('SlipConfirm', expect.anything());
   });
 
   it('shows empty state when no slips', () => {

@@ -55,16 +55,18 @@ jest.mock('react-native-paper', () => {
       title,
       description,
       onPress,
+      testID,
     }: {
       title?: string;
       description?: string;
       onPress?: () => void;
       left?: (p: object) => React.ReactNode;
       right?: (p: object) => React.ReactNode;
+      testID?: string;
     }) =>
       React.createElement(
         'TouchableOpacity',
-        { onPress },
+        { onPress, testID },
         React.createElement('Text', {}, title),
         description ? React.createElement('Text', {}, description) : null,
       ),
@@ -109,6 +111,12 @@ jest.mock('../../../../data/remote/supabaseClient', () => ({
       signOut: jest.fn(),
     },
   },
+}));
+
+// ─── FcmTokenRegistrar mock (M17) ─────────────────────────────────────────────
+const mockUnregisterFcmToken = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../../infrastructure/notifications/FcmTokenRegistrar', () => ({
+  unregisterFcmToken: (...args: unknown[]) => mockUnregisterFcmToken(...args),
 }));
 
 // ─── appStore mock ────────────────────────────────────────────────────────────
@@ -162,6 +170,7 @@ describe('SettingsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSignOut.mockResolvedValue({ error: null });
+    mockUnregisterFcmToken.mockResolvedValue(undefined);
     // Re-attach getState after clearAllMocks
     (useAppStore as any).getState = () => ({ reset: mockReset });
   });
@@ -202,5 +211,43 @@ describe('SettingsScreen', () => {
     });
     // reset() is NOT called from SettingsScreen — the auth listener owns it.
     expect(mockReset).not.toHaveBeenCalled();
+  });
+
+  // M17 — sign-out must clear this device's FCM token BEFORE signing out
+  // (RLS needs the still-authenticated session), so a shared device's next
+  // user doesn't keep receiving the previous user's push notifications.
+  it('destructive sign-out action clears this device FCM token before calling supabase.auth.signOut', async () => {
+    const callOrder: string[] = [];
+    mockUnregisterFcmToken.mockImplementation(async () => {
+      callOrder.push('unregisterFcmToken');
+    });
+    mockSignOut.mockImplementation(async () => {
+      callOrder.push('signOut');
+      return { error: null };
+    });
+    jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
+      const destructive = buttons?.find((b) => b.style === 'destructive');
+      destructive?.onPress?.();
+    });
+
+    const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+    fireEvent.press(getByTestId('sign-out-button'));
+
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalled();
+    });
+
+    expect(mockUnregisterFcmToken).toHaveBeenCalledWith('user-1');
+    expect(callOrder).toEqual(['unregisterFcmToken', 'signOut']);
+  });
+
+  // M11 — the "Privacy — Slip scanning consent" item must navigate through
+  // the nested SlipScanning stack (SlipConsent isn't a route on Settings'
+  // own stack), mirroring how the "Slip history" row above reaches the root
+  // 'SlipScanning' route.
+  it('pressing the slip-consent item navigates into the nested SlipScanning stack', () => {
+    const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+    fireEvent.press(getByTestId('slip-consent-item'));
+    expect(mockNavigate).toHaveBeenCalledWith('SlipScanning', { screen: 'SlipConsent' });
   });
 });

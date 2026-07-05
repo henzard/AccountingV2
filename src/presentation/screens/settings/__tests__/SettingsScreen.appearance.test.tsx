@@ -14,6 +14,13 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 jest.mock('../../../../data/remote/supabaseClient', () => ({
   supabase: { auth: { signOut: jest.fn() } },
 }));
+// SettingsScreen imports FcmTokenRegistrar (M17 sign-out fix), which in turn
+// imports the native @react-native-firebase/messaging module — unavailable
+// outside a native runtime. This test only exercises the appearance/theme
+// section, so the registrar module is mocked out entirely.
+jest.mock('../../../../infrastructure/notifications/FcmTokenRegistrar', () => ({
+  unregisterFcmToken: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((selector: (s: object) => unknown) =>
     selector({

@@ -13,6 +13,7 @@ import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { LogPaymentScreenProps } from '../../navigation/types';
+import { parseMoneyInput } from '../../utils/parseMoneyInput';
 
 const audit = new AuditLogger(db);
 
@@ -42,8 +43,13 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
 
   const handleSave = async (): Promise<void> => {
     if (!debt) return;
-    const amountCents = Math.round(parseFloat(amountRands) * 100);
-    if (isNaN(amountCents) || amountCents <= 0) {
+    const parsedAmount = parseMoneyInput(amountRands);
+    if (!parsedAmount.ok) {
+      setError(parsedAmount.error);
+      return;
+    }
+    const amountCents = parsedAmount.cents;
+    if (amountCents <= 0) {
       setError('Enter a valid payment amount');
       return;
     }

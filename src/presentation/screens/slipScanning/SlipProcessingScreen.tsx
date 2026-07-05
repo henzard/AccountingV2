@@ -146,7 +146,16 @@ export function SlipProcessingScreen({
       : null;
 
   const handleLogManually = useCallback((): void => {
-    navigation.getParent()?.navigate('Transactions', { screen: 'AddTransaction' });
+    // M12: this screen lives in the SlipScanning stack, so getParent() is the
+    // ROOT stack — which has no 'Transactions' route (that is a tab inside
+    // 'Main' -> MainTabNavigator, and 'AddTransaction' is inside that tab's
+    // TransactionsStackNavigator). The old call navigated the root to a
+    // non-existent 'Transactions' route and was a silent no-op, stranding the
+    // user on the failed-scan modal. Route through 'Main' with nested params.
+    navigation.getParent()?.navigate('Main', {
+      screen: 'Transactions',
+      params: { screen: 'AddTransaction' },
+    });
   }, [navigation]);
 
   return (

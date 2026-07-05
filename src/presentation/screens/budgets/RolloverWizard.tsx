@@ -21,6 +21,8 @@ import type { SyncWriteDeps } from '../../../domain/shared/syncWrite';
 import { formatCurrency } from '../../utils/currency';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { spacing, radius, fontSize } from '../../theme/tokens';
+import { parseMoneyInput } from '../../utils/parseMoneyInput';
+import type { ParseMoneyResult } from '../../utils/parseMoneyInput';
 
 export interface RolloverWizardProps {
   visible: boolean;
@@ -83,11 +85,6 @@ async function loadPeriodScopedEnvelopes(
     allocatedCents: row.allocatedCents,
     spentCents: spentByEnvelope.get(row.id) ?? 0,
   }));
-}
-
-function toCents(str: string): number {
-  const n = parseFloat(String(str).replace(',', '.'));
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
 function fromCents(cents: number): string {
@@ -190,22 +187,49 @@ export function RolloverWizard({
     return { totalAllocated, totalSpent, overspent, onBudget };
   }, [lastPeriod]);
 
+  // Each envelope's raw allocation string parsed through the locale-safe
+  // parser — empty/garbage/ambiguous input is REJECTED (not coerced to 0),
+  // and the 'adjust' step's Next button is blocked while any entry is
+  // invalid (see `hasAllocationErrors` below), rather than silently writing
+  // a wrong or zeroed allocated_cents on commit.
+  const allocationResults = useMemo<Record<string, ParseMoneyResult>>(() => {
+    const out: Record<string, ParseMoneyResult> = {};
+    lastPeriod.forEach((e) => {
+      out[e.id] = parseMoneyInput(allocationStr[e.id] ?? fromCents(e.allocatedCents));
+    });
+    return out;
+  }, [lastPeriod, allocationStr]);
+
+  const hasAllocationErrors = lastPeriod.some((e) => !allocationResults[e.id]?.ok);
+
   const edits = useMemo(
     () =>
       lastPeriod
-        .map((e) => ({ envelope: e, editedCents: toCents(allocationStr[e.id] ?? '0') }))
+        .map((e) => {
+          const result = allocationResults[e.id];
+          return { envelope: e, result };
+        })
+        .filter(
+          (entry): entry is { envelope: EnvelopeSummary; result: { ok: true; cents: number } } =>
+            entry.result?.ok === true,
+        )
+        .map(({ envelope, result }) => ({ envelope, editedCents: result.cents }))
         .filter(({ envelope, editedCents }) => editedCents !== envelope.allocatedCents),
-    [lastPeriod, allocationStr],
+    [lastPeriod, allocationResults],
   );
 
   const stepIndex = STEP_ORDER.indexOf(step) + 1;
 
   const handleNext = useCallback((): void => {
     setStep((s) => {
+      // Authoritative block (not just the Next button's `disabled` prop):
+      // refuse to leave the 'adjust' step while any allocation is invalid,
+      // so an invalid entry can never reach `edits`/commit.
+      if (s === 'adjust' && hasAllocationErrors) return s;
       const idx = STEP_ORDER.indexOf(s);
       return STEP_ORDER[Math.min(idx + 1, STEP_ORDER.length - 1)];
     });
-  }, []);
+  }, [hasAllocationErrors]);
 
   const handleBack = useCallback((): void => {
     setStep((s) => {
@@ -381,23 +405,41 @@ export function RolloverWizard({
               <Text style={{ color: colors.onSurfaceVariant, marginTop: spacing.xs }}>
                 These carry forward from last period — adjust anything before we start.
               </Text>
-              {lastPeriod.map((e) => (
-                <View key={e.id} style={styles.allocRow}>
-                  <Text style={[styles.allocLabel, { color: colors.onSurface }]} numberOfLines={1}>
-                    {e.name}
-                  </Text>
-                  <TextInput
-                    mode="outlined"
-                    value={allocationStr[e.id] ?? fromCents(e.allocatedCents)}
-                    onChangeText={(v): void => setAllocationStr((prev) => ({ ...prev, [e.id]: v }))}
-                    keyboardType="decimal-pad"
-                    left={<TextInput.Affix text="R" />}
-                    testID={`rollover-alloc-input-${e.id}`}
-                    accessibilityLabel={`Allocation for ${e.name}`}
-                    style={styles.allocInput}
-                  />
-                </View>
-              ))}
+              {lastPeriod.map((e) => {
+                const result = allocationResults[e.id];
+                return (
+                  <View key={e.id}>
+                    <View style={styles.allocRow}>
+                      <Text
+                        style={[styles.allocLabel, { color: colors.onSurface }]}
+                        numberOfLines={1}
+                      >
+                        {e.name}
+                      </Text>
+                      <TextInput
+                        mode="outlined"
+                        value={allocationStr[e.id] ?? fromCents(e.allocatedCents)}
+                        onChangeText={(v): void =>
+                          setAllocationStr((prev) => ({ ...prev, [e.id]: v }))
+                        }
+                        keyboardType="decimal-pad"
+                        left={<TextInput.Affix text="R" />}
+                        testID={`rollover-alloc-input-${e.id}`}
+                        accessibilityLabel={`Allocation for ${e.name}`}
+                        style={styles.allocInput}
+                      />
+                    </View>
+                    {result && !result.ok && (
+                      <Text
+                        testID={`rollover-alloc-error-${e.id}`}
+                        style={{ color: colors.error, marginTop: spacing.xs }}
+                      >
+                        {result.error}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
               <Text style={{ color: colors.onSurfaceVariant, marginTop: spacing.base }}>
                 Savings, sinking fund, emergency fund and baby step envelopes carry over
                 automatically and aren&apos;t shown here.
@@ -467,7 +509,7 @@ export function RolloverWizard({
                   contentStyle={styles.footerBtnContent}
                   testID="rollover-next"
                   accessibilityLabel="Continue to next step"
-                  disabled={loading || !!loadError}
+                  disabled={loading || !!loadError || (step === 'adjust' && hasAllocationErrors)}
                 >
                   Next
                 </Button>

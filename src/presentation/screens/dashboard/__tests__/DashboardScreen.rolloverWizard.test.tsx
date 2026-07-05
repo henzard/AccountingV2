@@ -59,7 +59,18 @@ jest.mock('../../../../domain/shared/BudgetPeriodEngine', () => {
       return true;
     }
   }
-  return { BudgetPeriodEngine };
+  // `formatPeriodDateKey` (L7 fix) is a plain exported function, not a class
+  // member — DashboardScreen now imports it alongside `BudgetPeriodEngine`,
+  // so this manual module mock must also provide it. Mirrors the real
+  // implementation (UTC calendar fields), just re-derived here so this test
+  // stays self-contained.
+  function formatPeriodDateKey(date: Date): string {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return { BudgetPeriodEngine, formatPeriodDateKey };
 });
 
 jest.mock('@react-native-async-storage/async-storage', () => ({

@@ -66,7 +66,9 @@ function makeAdminSupabase(overrides: FakeAdminOverrides = {}) {
         select: () => ({
           eq: () => ({
             eq: () => ({
-              single: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+              is: () => ({
+                maybeSingle: () => Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+              }),
             }),
           }),
         }),
@@ -419,7 +421,11 @@ Deno.test('returns 403 when caller is not a household member', async () => {
             return {
               select: () => ({
                 eq: () => ({
-                  eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }),
+                  eq: () => ({
+                    is: () => ({
+                      maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                    }),
+                  }),
                 }),
               }),
             };
@@ -432,6 +438,109 @@ Deno.test('returns 403 when caller is not a household member', async () => {
   const resp = await handle(makeRequest(validPayload, 'Bearer tok'), deps);
   assertEquals(resp.status, 403);
 });
+
+// H3 regression tests — membership check must exclude soft-deleted rows and
+// must not throw when a member left-and-rejoined (2 rows: one soft-deleted,
+// one active). Mirrors extract-slip's membership-check test coverage.
+
+Deno.test(
+  'membership check queries household_members with household_id, user_id, and deleted_at IS NULL',
+  async () => {
+    const calls: { eq: Array<[string, string]>; is: Array<[string, unknown]> } = {
+      eq: [],
+      is: [],
+    };
+    const deps = makeBaseDeps({
+      createAdminClient: () =>
+        ({
+          from: (table: string) => {
+            if (table === 'household_members') {
+              return {
+                select: () => ({
+                  eq: (col: string, val: string) => {
+                    calls.eq.push([col, val]);
+                    return {
+                      eq: (col2: string, val2: string) => {
+                        calls.eq.push([col2, val2]);
+                        return {
+                          is: (col3: string, val3: unknown) => {
+                            calls.is.push([col3, val3]);
+                            return {
+                              maybeSingle: () =>
+                                Promise.resolve({ data: { user_id: 'u1' }, error: null }),
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                }),
+              };
+            }
+            if (table === 'user_fcm_tokens') {
+              return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+            }
+            return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+          },
+          rpc: () => Promise.resolve({ data: true, error: null }),
+        }) as any,
+    });
+    await handle(makeRequest(validPayload, 'Bearer tok'), deps);
+    // Two membership checks (caller + target), each filtering deleted_at IS NULL.
+    assertEquals(calls.is, [
+      ['deleted_at', null],
+      ['deleted_at', null],
+    ]);
+  },
+);
+
+Deno.test(
+  'removed (soft-deleted) member is forbidden even if a stale row still matches',
+  async () => {
+    // A soft-deleted membership row is excluded by .is('deleted_at', null) —
+    // the fake driver models this by resolving to null, exactly as a real
+    // deleted_at IS NULL filter would for a removed member.
+    const deps = makeBaseDeps({
+      createAdminClient: () =>
+        ({
+          from: (table: string) => {
+            if (table === 'household_members') {
+              return {
+                select: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      is: () => ({
+                        maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                      }),
+                    }),
+                  }),
+                }),
+              };
+            }
+            return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+          },
+          rpc: () => Promise.resolve({ data: true, error: null }),
+        }) as any,
+    });
+    const resp = await handle(makeRequest(validPayload, 'Bearer tok'), deps);
+    assertEquals(resp.status, 403);
+  },
+);
+
+Deno.test(
+  'left-and-rejoined member (2 underlying rows) does not throw — maybeSingle resolves to the active row',
+  async () => {
+    // Simulates real Postgres behaviour once .is('deleted_at', null) is
+    // applied: the soft-deleted row is filtered out server-side, so only
+    // the active row is returned to maybeSingle() — no PGRST116 "multiple
+    // (or no) rows returned" error, unlike the old .single() call.
+    const deps = makeBaseDeps({
+      createAdminClient: () => makeAdminSupabase({ tokens: [{ token: 'tok-1' }] }) as any,
+    });
+    const resp = await handle(makeRequest(validPayload, 'Bearer tok'), deps);
+    assertEquals(resp.status, 200);
+  },
+);
 
 Deno.test('rejects payload with oversized title', async () => {
   const deps = makeBaseDeps();

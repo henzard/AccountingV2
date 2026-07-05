@@ -14,13 +14,34 @@ jest.mock('../../data/local/db', () => ({
 }));
 
 // ─── drizzle-orm mock ─────────────────────────────────────────────────────────
-jest.mock('drizzle-orm', () => ({
-  and: jest.fn((...a: unknown[]) => a),
-  eq: jest.fn((c: unknown, v: unknown) => ({ c, v })),
-  gte: jest.fn((c: unknown, v: unknown) => ({ c, v })),
-  asc: jest.fn((c: unknown) => c),
-  desc: jest.fn((c: unknown) => c),
-}));
+// `sql` must be mocked too: useEnvelopes now builds its WHERE clause via
+// EnvelopeBalanceQuery.envelopeScopeCondition (real, unmocked), which uses
+// drizzle-orm's `sql` tagged template + `sql.raw`/`sql.join`. These tests only
+// exercise the error-rejection path through the mocked `db.select().where()`
+// chain, so the mock just needs to not throw while building the arguments.
+// The `sql` mock (incl. its `.raw`/`.join` statics) is built entirely inside
+// the factory itself, rather than as an outer variable assigned to afterward
+// — babel-plugin-jest-hoist hoists this factory above other module-level
+// code, so an outer `mockSql.raw = ...` assignment is not guaranteed to have
+// run yet by the time the factory is invoked.
+jest.mock('drizzle-orm', () => {
+  const mockSql = jest.fn((strings: unknown, ...values: unknown[]) => ({
+    strings,
+    values,
+  })) as jest.Mock & Record<string, unknown>;
+  mockSql.raw = jest.fn((s: string) => s);
+  mockSql.join = jest.fn((arr: unknown[], sep: unknown) => ({ arr, sep }));
+
+  return {
+    and: jest.fn((...a: unknown[]) => a),
+    eq: jest.fn((c: unknown, v: unknown) => ({ c, v })),
+    gte: jest.fn((c: unknown, v: unknown) => ({ c, v })),
+    isNull: jest.fn((c: unknown) => ({ c })),
+    asc: jest.fn((c: unknown) => c),
+    desc: jest.fn((c: unknown) => c),
+    sql: mockSql,
+  };
+});
 
 // ─── Schema mock ──────────────────────────────────────────────────────────────
 jest.mock('../../data/local/schema', () => ({
@@ -28,6 +49,7 @@ jest.mock('../../data/local/schema', () => ({
     householdId: 'householdId',
     periodStart: 'periodStart',
     isArchived: 'isArchived',
+    deletedAt: 'deletedAt',
   },
   transactions: {
     householdId: 'householdId',

@@ -39,7 +39,15 @@ export function SlipConfirmScreen({
   }>();
 
   const { slipId, extraction } = route.params;
-  const items = extraction.items;
+  // Defensive guard (H5): every caller is now expected to pass a fully-shaped
+  // `extraction`, but if it is ever missing/malformed (e.g. a stale deep link
+  // or a future call site regressing), render a recoverable empty state
+  // instead of throwing a TypeError on `extraction.items` and white-screening.
+  // Memoised so the reference is stable across renders (hook-dep safe).
+  const items: SlipExtractionItem[] = useMemo(
+    () => (Array.isArray(extraction?.items) ? extraction.items : []),
+    [extraction],
+  );
 
   const listRef = useRef<FlatList<SlipExtractionItem>>(null);
 
@@ -54,7 +62,7 @@ export function SlipConfirmScreen({
   // NOTE: All items share a single transaction date (slip-level date).
   // Per-item date is a v2 spec change — deferred. See PR #8 review finding #24.
   const [transactionDate, setTransactionDate] = useState<Date>(
-    extraction.slipDate ? new Date(extraction.slipDate) : new Date(),
+    extraction?.slipDate ? new Date(extraction.slipDate) : new Date(),
   );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pickerTargetIdx, setPickerTargetIdx] = useState<number | null>(null);
@@ -112,8 +120,8 @@ export function SlipConfirmScreen({
     const result = await confirmSlip({
       slipId,
       items: payload,
-      merchant: extraction.merchant,
-      totalCents: extraction.totalCents,
+      merchant: extraction?.merchant ?? null,
+      totalCents: extraction?.totalCents ?? null,
     });
     setSaving(false);
     if (result.success) {
@@ -136,9 +144,9 @@ export function SlipConfirmScreen({
         {/* Header */}
         <View style={[styles.header, { borderBottomColor: colors.outlineVariant }]}>
           <Text variant="titleLarge" style={{ color: colors.onSurface, marginBottom: 4 }}>
-            {extraction.merchant ?? 'Unknown merchant'}
+            {extraction?.merchant ?? 'Unknown merchant'}
           </Text>
-          {extraction.totalCents !== null && (
+          {extraction?.totalCents != null && (
             <Text variant="bodyLarge" style={{ color: colors.onSurface, marginBottom: 4 }}>
               Total: R{(extraction.totalCents / 100).toFixed(2)}
             </Text>

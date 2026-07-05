@@ -177,6 +177,7 @@ jest.mock('./src/domain/babySteps/SeedBabyStepsUseCase', () => ({
 
 jest.mock('./src/infrastructure/notifications/FcmTokenRegistrar', () => ({
   registerFcmToken: jest.fn().mockResolvedValue(undefined),
+  subscribeToTokenRefresh: jest.fn(() => jest.fn()),
 }));
 
 jest.mock('./src/infrastructure/monitoring/crashlytics', () => ({
@@ -255,6 +256,9 @@ const supabaseMock = jest.requireMock('./src/data/remote/supabaseClient') as {
 const { hydrateThemeFromRemote: mockHydrateThemeFromRemote } = jest.requireMock(
   './src/presentation/stores/themeStore',
 ) as { hydrateThemeFromRemote: jest.Mock };
+const { subscribeToTokenRefresh: mockSubscribeToTokenRefresh } = jest.requireMock(
+  './src/infrastructure/notifications/FcmTokenRegistrar',
+) as { subscribeToTokenRefresh: jest.Mock };
 const { __mockExecute: mockEnsureExecute } = jest.requireMock(
   './src/domain/households/EnsureHouseholdUseCase',
 ) as { __mockExecute: jest.Mock };
@@ -393,6 +397,41 @@ describe('App boot (Task 5)', () => {
     expect(mockEnsureExecute).toHaveBeenCalledTimes(1);
   });
 
+  // M16 wiring: `initSessionRemote` must subscribe to FCM token rotation
+  // (not just register the token once at boot), and sign-out must tear that
+  // subscription down -- otherwise a token rotated mid-session is never
+  // re-registered, and a stale listener from a previous user would keep
+  // firing after sign-out.
+  it('remote session init subscribes to FCM token refresh; sign-out unsubscribes it', async () => {
+    const userId = 'user-token-refresh-test';
+    const unsubscribe = jest.fn();
+    mockSubscribeToTokenRefresh.mockReturnValue(unsubscribe);
+    // initSessionRemote awaits restoreService.restore() before reaching the
+    // FCM registration/subscription calls -- the module default (a Promise
+    // that never resolves) would leave this test hanging forever.
+    mockRestore.mockResolvedValue([]);
+    mockEnsureExecute.mockResolvedValue(successResult('hh-token-refresh-test'));
+    setSession(null);
+
+    const { findByTestId } = render(<App />);
+    await findByTestId('root-navigator');
+
+    const authCallback = getAuthCallback();
+    await act(async () => {
+      await authCallback('SIGNED_IN', { user: { id: userId } });
+    });
+
+    await waitFor(() => expect(mockSubscribeToTokenRefresh).toHaveBeenCalledWith(userId));
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    // Signing out must tear the subscription down so a token rotated after
+    // sign-out is never upserted under the just-signed-out user's id.
+    await act(async () => {
+      await authCallback('SIGNED_OUT', null);
+    });
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
   it('household switch re-points the scheduler: stop old, start new, immediate sync requested', async () => {
     setSession({ user: { id: 'user-household-switch-test' } });
     mockEnsureExecute.mockResolvedValue(successResult('hh-1'));
@@ -462,6 +501,57 @@ describe('App boot (Task 5)', () => {
       // produces -- RootNavigator already renders the create/join choice
       // screen for an authenticated user with no household, so this is a
       // safe, already-handled degrade rather than a new render path.
+      expect(useAppStore.getState().householdId).toBeNull();
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+
+    // (c) No unhandled rejection should have escaped from the boot sequence.
+    expect(unhandledRejections).toEqual([]);
+  });
+
+  it('degrades gracefully instead of hanging on splash forever when getSession() itself rejects (H9)', async () => {
+    // Regression test for H9 (exhaustive audit, 2026-07-05): the cold-start
+    // IIFE's `await supabase.auth.getSession()` previously had NO try/catch
+    // around it (unlike `initSessionOnce`, covered by the test above). A
+    // persisted-session read failure (SecureStore/keychain error, corrupted
+    // session entry, biometric-locked keystore after an OS update) rejects
+    // getSession() and, pre-fix, that rejection propagated straight out of
+    // the un-`.catch()`'d IIFE, skipping `setLocalBootReady(true)` entirely
+    // -- `bootDecided` never became true, the splash screen was never
+    // hidden, and the render gate returned `null` forever with no error UI
+    // and no recovery. This test hangs (times out waiting for
+    // 'root-navigator') and fails against the pre-fix code; it passes once
+    // getSession() is wrapped in try/catch and still reaches
+    // `setLocalBootReady(true)`, degrading to a signed-out boot.
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandledRejection);
+
+    try {
+      supabaseMock.supabase.auth.getSession.mockRejectedValue(
+        new Error('SecureStore.getItemAsync failed'),
+      );
+
+      const { findByTestId } = render(<App />);
+
+      // (a) Must NOT hang on splash forever -- the app renders SOMETHING
+      // (here, the mocked RootNavigator) instead of `return null` forever.
+      await findByTestId('root-navigator');
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // (b) The native splash screen must actually be dismissed.
+      expect(SplashScreen.hideAsync).toHaveBeenCalled();
+
+      // Degrades to a signed-out boot (no session, no household) -- the
+      // same state a `getSession()` resolving to `{ session: null }`
+      // already produces, so this is a safe, already-handled degrade.
+      expect(useAppStore.getState().session).toBeNull();
       expect(useAppStore.getState().householdId).toBeNull();
     } finally {
       process.off('unhandledRejection', onUnhandledRejection);

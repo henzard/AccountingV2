@@ -334,6 +334,52 @@ describe('useBabySteps', () => {
     expect(mockCelebrationEnqueue).toHaveBeenCalledWith(2);
   });
 
+  // L6 (exhaustive audit, 2026-07-05): every real call site of reconcile()
+  // (mount effect, the AppState background->active listener,
+  // toggleManualStep) gates on `AppState.currentState === 'active'` BEFORE
+  // calling it — so reading `AppState.currentState` up front, before the
+  // async DB work, made the backgrounded branch provably unreachable in
+  // production (isActive was always true whenever it ran). The fix re-reads
+  // AppState.currentState AFTER `reconcileUseCase.execute()` resolves,
+  // making the branch reachable for the real scenario it exists for: the
+  // app backgrounds WHILE a reconcile that started in the foreground is
+  // still in flight.
+  it('fires the notification scheduler (not the celebration modal) when the app backgrounds WHILE reconcile() is in flight (L6 reachability)', async () => {
+    mockAppStateStore.currentState = 'active';
+    let resolveExecute: (value: ReturnType<typeof makeSuccessResult>) => void = () => {};
+    const { deps, mockFireCelebration } = makeDeps(
+      () =>
+        new Promise((resolve) => {
+          resolveExecute = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
+
+    // reconcile() is invoked while the app is ACTIVE...
+    let reconcilePromise!: Promise<unknown>;
+    act(() => {
+      reconcilePromise = result.current.reconcile();
+    });
+
+    // ...the app backgrounds WHILE the DB work is still in flight...
+    mockAppStateStore.currentState = 'background';
+
+    // ...and only THEN does the reconcile call resolve, with a newly
+    // completed step.
+    await act(async () => {
+      resolveExecute(makeSuccessResult({ newlyCompleted: [3] }));
+      await reconcilePromise;
+    });
+
+    // The app is backgrounded by the time newlyCompleted is processed, so
+    // the notification path fires instead of the celebration modal — this
+    // is the exact case that was dead code pre-fix (isActive was captured
+    // before the await and could never reflect a mid-flight backgrounding).
+    expect(mockFireCelebration).toHaveBeenCalledWith(3);
+    expect(mockCelebrationEnqueue).not.toHaveBeenCalled();
+  });
+
   // ─── Cleanup ───────────────────────────────────────────────────────────────
 
   it('removes AppState listener on unmount', () => {

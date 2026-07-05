@@ -490,18 +490,28 @@ describe('SyncEngine.pull — cursor + apply', () => {
     raw.close();
   });
 
-  it('skips own-device ops but still advances the cursor past them', async () => {
+  it('skips OWN-device increment ops (already folded in locally) but advances the cursor', async () => {
+    // Own increments must NOT be re-applied on pull — they were already folded
+    // into local state at creation time and increment is non-idempotent, so a
+    // replay would double-count (money corruption). The cursor still advances.
     const raw = openMigratedDb();
     seedHousehold(raw);
+    raw
+      .prepare(
+        `INSERT INTO debts (id, household_id, creditor_name, debt_type, outstanding_balance_cents,
+           interest_rate_percent, minimum_payment_cents, total_paid_cents, created_at, updated_at)
+         VALUES ('d1', ?, 'Visa', 'credit_card', 100000, 19.9, 5000, 300, ?, ?)`,
+      )
+      .run(HH, NOW, NOW);
     const t = new FakeTransport();
     t.pullBatches = [
       [
         serverRow({
           seq: 9,
-          op_id: 'mine',
+          op_id: 'mine-inc',
           device_id: 'devA',
-          op_type: 'insert',
-          payload: debtRowPayload(),
+          op_type: 'increment',
+          payload: { field: 'total_paid_cents', delta: 300, clamp: 'none' },
         }),
       ],
       [],
@@ -509,11 +519,92 @@ describe('SyncEngine.pull — cursor + apply', () => {
     const engine = makeEngine(raw, t, { deviceId: 'devA' });
     const summary = await engine.pull(HH);
     expect(summary).toMatchObject({ applied: 0 });
-    expect(raw.prepare('SELECT id FROM debts WHERE id = ?').get('d1')).toBeUndefined();
+    // NOT double-counted: total_paid_cents stays 300, not 600.
+    const debt = raw.prepare('SELECT total_paid_cents AS s FROM debts WHERE id = ?').get('d1') as
+      | { s: number }
+      | undefined;
+    expect(debt?.s).toBe(300);
     const cursor = raw
       .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
       .get(HH) as { s: number };
     expect(cursor.s).toBe(9);
+    raw.close();
+  });
+
+  it('RE-APPLIES own-device insert/update ops in seq order (H4 convergence) and advances the cursor', async () => {
+    // H4: own absolute-value ops MUST be replayed from the oplog in server-seq
+    // order so every replica converges to the highest-seq write. Skipping them
+    // (the old behavior) let a lower-seq remote op win locally forever.
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const t = new FakeTransport();
+    t.pullBatches = [
+      [
+        // Own insert (idempotent INSERT OR IGNORE) then own update, both replayed.
+        serverRow({
+          seq: 9,
+          op_id: 'mine-ins',
+          device_id: 'devA',
+          op_type: 'insert',
+          payload: debtRowPayload({ creditor_name: 'Old' }),
+        }),
+        serverRow({
+          seq: 10,
+          op_id: 'mine-upd',
+          device_id: 'devA',
+          op_type: 'update',
+          payload: { creditor_name: 'New' },
+        }),
+      ],
+      [],
+    ];
+    const engine = makeEngine(raw, t, { deviceId: 'devA' });
+    const summary = await engine.pull(HH);
+    expect(summary).toMatchObject({ applied: 2 });
+    const debt = raw.prepare('SELECT creditor_name AS s FROM debts WHERE id = ?').get('d1') as
+      | { s: string }
+      | undefined;
+    expect(debt?.s).toBe('New');
+    const cursor = raw
+      .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
+      .get(HH) as { s: number };
+    expect(cursor.s).toBe(10);
+    raw.close();
+  });
+
+  it('recomputes debts.is_paid_off when applying a pulled balance increment (M6)', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const t = new FakeTransport();
+    t.pullBatches = [
+      [
+        serverRow({
+          seq: 1,
+          op_id: 'ins',
+          device_id: 'peer',
+          op_type: 'insert',
+          payload: debtRowPayload({ outstanding_balance_cents: 5000 }),
+        }),
+        serverRow({
+          seq: 2,
+          op_id: 'pay',
+          device_id: 'peer',
+          op_type: 'increment',
+          payload: { field: 'outstanding_balance_cents', delta: -5000, clamp: 'floor_zero' },
+        }),
+      ],
+      [],
+    ];
+    const engine = makeEngine(raw, t, { deviceId: 'devA' });
+    await engine.pull(HH);
+    const debt = raw
+      .prepare(
+        'SELECT outstanding_balance_cents AS bal, is_paid_off AS paid FROM debts WHERE id = ?',
+      )
+      .get('d1') as { bal: number; paid: number } | undefined;
+    expect(debt?.bal).toBe(0);
+    // Mirrors the server BEFORE-UPDATE trigger: balance 0 -> paid off.
+    expect(debt?.paid).toBe(1);
     raw.close();
   });
 

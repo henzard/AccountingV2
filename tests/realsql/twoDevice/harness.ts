@@ -251,8 +251,12 @@ export class Device {
             .run(...(keys.map((k) => payload[k]) as never[]), op.row_id, op.household_id);
         }
       } else if (op.op_type === 'delete') {
-        // R4: stamp the ORIGIN's deleted_at so every replica converges on the
-        // same tombstone value; never re-stamp to a local "now".
+        // R4 + M5: stamp the ORIGIN's deleted_at (never a local "now"). Applied
+        // for OWN delete ops too (see pull()); a double-delete converges by
+        // LAST-WRITER-BY-SEQ — both replicas replay in seq order and end on the
+        // higher-seq tombstone. No `deleted_at IS NULL` guard: the server's
+        // apply is unconditional last-write, so a guard would diverge from it
+        // (mirrors SyncEngine.applyOne).
         const deletedAt =
           typeof payload.deleted_at === 'string' ? payload.deleted_at : new Date().toISOString();
         this.raw
@@ -265,6 +269,15 @@ export class Device {
         this.raw
           .prepare(`UPDATE ${table} SET ${field} = ${expr} WHERE id = ? AND household_id = ?`)
           .run(delta, op.row_id, op.household_id);
+        // M6: mirror the server's is_paid_off trigger locally when a debts
+        // balance increment is applied (mirrors SyncEngine.applyOne).
+        if (table === 'debts' && field === 'outstanding_balance_cents') {
+          this.raw
+            .prepare(
+              `UPDATE debts SET is_paid_off = (outstanding_balance_cents <= 0) WHERE id = ? AND household_id = ?`,
+            )
+            .run(op.row_id, op.household_id);
+        }
       }
     });
     tx();
@@ -334,7 +347,14 @@ export class TwoDeviceHarness {
       if (rows.length === 0) break;
       for (const row of rows) {
         const seq = Number(row.seq);
-        if (row.device_id !== dev.id) {
+        // Convergence (H4/M5): re-apply this device's OWN absolute-value ops
+        // (insert/update/delete) in server-`seq` order — the server oplog seq is
+        // the single authoritative total order, so replaying every op (own +
+        // remote) in that order makes all replicas converge to the highest-seq
+        // write. Only own `increment` ops are skipped (already folded in locally
+        // at creation + non-idempotent, so re-applying would double-count).
+        // Mirrors src/data/sync/SyncEngine.applyPulledBatch.
+        if (!(row.device_id === dev.id && row.op_type === 'increment')) {
           dev.applyPulled(row);
         }
         if (seq > cursor) cursor = seq;

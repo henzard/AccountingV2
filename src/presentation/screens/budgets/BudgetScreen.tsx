@@ -10,7 +10,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { View, StyleSheet, SectionList, RefreshControl, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { format } from 'date-fns';
 import { BudgetBalanceBanner } from './components/BudgetBalanceBanner';
 import { DuplicateEmfBanner } from './components/DuplicateEmfBanner';
 import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
@@ -18,7 +17,7 @@ import { EmptyState } from '../../components/shared/EmptyState';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 
@@ -30,7 +29,7 @@ export const BudgetScreen: React.FC = () => {
   const paydayDay = useAppStore((s) => s.paydayDay);
 
   const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = format(period.startDate, 'yyyy-MM-dd');
+  const periodStart = formatPeriodDateKey(period.startDate);
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
 

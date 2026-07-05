@@ -741,10 +741,27 @@ export class SyncEngine {
 
   /**
    * Applies one pulled batch and advances the cursor IN ONE TRANSACTION (R6).
-   * Ops are already `seq`-ordered by the server (R8). Own-device ops are skipped
-   * (already applied locally) but still advance the cursor. Idempotent per op_id
-   * via `oplog_applied` (R5). Any throw rolls back BOTH the applied rows AND the
+   * Ops are already `seq`-ordered by the server (R8). Idempotent per op_id via
+   * `oplog_applied` (R5). Any throw rolls back BOTH the applied rows AND the
    * cursor advance — the cursor never leads the data.
+   *
+   * CONVERGENCE (H4/M5): absolute-value ops (`insert`/`update`/`delete`) are
+   * re-applied FROM THE OPLOG in server-`seq` order even for THIS device's own
+   * ops. The server oplog `seq` is the single authoritative total order; every
+   * replica replays the exact same op sequence and therefore converges to the
+   * same final value (the highest-seq write wins). The previous "skip all own
+   * ops" shortcut applied an own op only at local creation time and NEVER
+   * re-interleaved it against concurrent remote ops in seq order, so a lower-seq
+   * remote op could permanently overwrite this device's own higher-seq write
+   * with no self-heal (the H4 divergence). Re-applying an own `insert`
+   * (INSERT OR IGNORE) or `update` (idempotent value-set) is a safe no-op or a
+   * same-value write; `oplog_applied` still makes a re-delivered op a no-op.
+   *
+   * `increment` is the ONE exception: it is commutative but NOT idempotent, and
+   * an own increment was already folded into local state at creation time — so
+   * re-applying an own increment would DOUBLE-COUNT the delta (money
+   * corruption). Own increments therefore stay skipped; remote increments
+   * commute into the same total regardless of arrival order.
    */
   private applyPulledBatch(
     householdId: string,
@@ -757,7 +774,8 @@ export class SyncEngine {
       for (const row of rows) {
         const seq = Number(row.seq);
         if (seq > maxSeq) maxSeq = seq;
-        if (row.device_id === this.deviceId) continue; // own op: already local
+        // Own increments only: already folded in locally + non-idempotent.
+        if (row.device_id === this.deviceId && row.op_type === 'increment') continue;
         const seen = tx.get(sql`SELECT 1 AS x FROM oplog_applied WHERE op_id = ${row.op_id}`);
         if (seen) continue; // R5: already applied -> no-op
         tx.run(sql`INSERT OR IGNORE INTO oplog_applied (op_id) VALUES (${row.op_id})`);
@@ -809,8 +827,26 @@ export class SyncEngine {
         );
       }
     } else if (row.op_type === 'delete') {
-      // R4: stamp the ORIGIN's deleted_at so replicas converge on one tombstone;
-      // never re-stamp to a local "now".
+      // R4 + M5: stamp the ORIGIN's deleted_at so replicas converge on one
+      // tombstone; never re-stamp to a local "now". This is now applied for
+      // OWN delete ops too (own-skip is restricted to `increment` above), so a
+      // concurrent double-delete converges by LAST-WRITER-BY-SEQ: both replicas
+      // replay [op_lo, op_hi] in the same server-`seq` order and both end on the
+      // higher-seq op's tombstone value — closing the M5 divergence where each
+      // replica kept the OTHER device's timestamp because it skipped its own op.
+      //
+      // NOTE (deliberate, see .superpowers/sdd/fix-sync-report.md): a
+      // `deleted_at IS NULL` guard is intentionally NOT added. The server's own
+      // delete apply (private.apply_one_op, migration 0002) is an UNCONDITIONAL
+      // `SET deleted_at = now()` with no guard — last-writer-by-seq. A client
+      // IS NULL guard would (a) make the client's ordering rule DIVERGE from the
+      // server's and (b) fail to converge a double-delete anyway, because each
+      // device already stamped its OWN tombstone at local creation time, so the
+      // guard would just freeze each replica on its own value. Unconditional
+      // seq-ordered replay is what actually converges both replicas AND matches
+      // the server. delete-wins stays terminal: nothing in the domain clears
+      // deleted_at, and a re-create is INSERT OR IGNORE (a no-op on the
+      // tombstoned row).
       const deletedAt = typeof payload.deleted_at === 'string' ? payload.deleted_at : fallbackNow;
       tx.run(
         sql`UPDATE ${sql.raw(table)} SET deleted_at = ${deletedAt} WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
@@ -834,6 +870,20 @@ export class SyncEngine {
       tx.run(
         sql`UPDATE ${sql.raw(table)} SET ${sql.raw(field)} = ${expr} WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
       );
+      // M6: debts.is_paid_off is a SERVER-derived column (a BEFORE UPDATE
+      // trigger sets it to `outstanding_balance_cents <= 0` on every write —
+      // see supabase/migrations/0001_baseline.sql §9g). The local SQLite schema
+      // has no such trigger, so an increment that zeros the balance on a
+      // NON-origin device would leave is_paid_off stale (0 at balance 0),
+      // diverging from the server and mis-rendering the "PAID OFF" badge / Log
+      // Payment affordance. Mirror the server trigger (and the origin device's
+      // in-statement compute in LogDebtPaymentUseCase) locally so the flag
+      // matches the balance this op just wrote.
+      if (table === 'debts' && field === 'outstanding_balance_cents') {
+        tx.run(
+          sql`UPDATE debts SET is_paid_off = (outstanding_balance_cents <= 0) WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
+        );
+      }
     } else {
       throw new Error(`SyncEngine: unsupported pulled op_type "${row.op_type}"`);
     }

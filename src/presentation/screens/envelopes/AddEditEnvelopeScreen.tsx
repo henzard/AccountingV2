@@ -9,14 +9,13 @@ import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../domain/envelopes/CreateEnvelopeUseCase';
 import { UpdateEnvelopeUseCase } from '../../../domain/envelopes/UpdateEnvelopeUseCase';
 import { ArchiveEnvelopeUseCase } from '../../../domain/envelopes/ArchiveEnvelopeUseCase';
-import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddEditEnvelopeScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity, EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
-import { format } from 'date-fns';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
 
 const audit = new AuditLogger(db);
@@ -101,7 +100,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
       }
       const allocatedCents = parsedAmount.cents;
       const period = engine.getCurrentPeriod(paydayDay);
-      const periodStart = format(period.startDate, 'yyyy-MM-dd');
+      const periodStart = formatPeriodDateKey(period.startDate);
 
       let targetAmountCents: number | null = null;
       // Trim before the truthiness check so a whitespace-only entry counts as

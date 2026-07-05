@@ -23,6 +23,37 @@ import { parseMoneyInput } from '../../utils/parseMoneyInput';
 const audit = new AuditLogger(db);
 const anomalyDetector = new AnomalyDetector();
 
+type ParseReadingResult = { ok: true; value: number } | { ok: false; error: string };
+
+// The meter reading VALUE (kWh/kL/km) is not money, so it doesn't go through
+// parseMoneyInput's cents rounding — but it still needs the same locale-safe
+// disambiguation: raw `parseFloat` stops at the first non-digit character,
+// so af-ZA/en-ZA comma-decimal input like "123,45" silently truncates to 123
+// instead of 123.45. Only a single decimal separator (comma or period) is
+// accepted; anything else (letters, multiple separators, thousands grouping)
+// is rejected rather than guessed.
+function parseReadingValue(raw: string): ParseReadingResult {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: 'Reading value must be a positive number' };
+  }
+  const m = trimmed.match(/^\d+(?:[.,](\d+))?$/);
+  if (!m) {
+    return { ok: false, error: 'Enter a valid reading value, e.g. 1234.5 or 1234,5' };
+  }
+  // A single separator followed by EXACTLY 3 digits is ambiguous with a
+  // thousands grouping ("1,234" could be 1.234 or 1234) — reject rather than
+  // silently coerce it ~1000x wrong.
+  if (m[1] && m[1].length === 3) {
+    return { ok: false, error: 'Enter a valid reading value (no thousands separators)' };
+  }
+  const value = Number(trimmed.replace(',', '.'));
+  if (!Number.isFinite(value)) {
+    return { ok: false, error: 'Enter a valid reading value' };
+  }
+  return { ok: true, value };
+}
+
 export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, route }) => {
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
@@ -88,8 +119,13 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
   );
 
   const handleSave = async (): Promise<void> => {
-    const value = parseFloat(readingValue);
-    if (isNaN(value) || value <= 0) {
+    const parsedReading = parseReadingValue(readingValue);
+    if (!parsedReading.ok) {
+      setError(parsedReading.error);
+      return;
+    }
+    const value = parsedReading.value;
+    if (value <= 0) {
       setError('Reading value must be a positive number');
       return;
     }
