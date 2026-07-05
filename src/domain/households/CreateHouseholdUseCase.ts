@@ -4,7 +4,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
 import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
-import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import { insertRowWithinUow } from '../../data/uow/createSyncedRepo';
+import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
@@ -39,14 +40,22 @@ export class CreateHouseholdUseCase {
 
     const now = new Date().toISOString();
     const householdId = randomUUID();
+    const memberId = randomUUID();
     const ctx = resolveSyncedRepoCtx(this.deps);
 
-    // `households` has no `household_id` column — a household IS its own
-    // scope (its `id` is the household id) — so it can't go through
-    // `createSyncedRepo`'s generic insert (which always requires a
-    // `row.household_id` distinct from `row.id`, see createSyncedRepo.ts).
-    // This drives `runInUnitOfWork` directly instead: same one-transaction
-    // atomicity guarantee, just without that column.
+    // Household + owner-membership creation MUST be atomic: a crash between the
+    // two inserts would otherwise leave a household with no owner (unclaimable,
+    // and — post 0002 — un-bootstrappable through sync_push). Both entity rows
+    // and both oplog ops therefore commit inside ONE `runInUnitOfWork`
+    // transaction, in the order the server's bootstrap authorization requires
+    // (household insert op, then the owner household_members insert op).
+    //
+    // `households` has no `household_id` column — a household IS its own scope
+    // (its `id` is the household id) — so it can't go through the generic
+    // synced-repo insert (which requires a `row.household_id` distinct from
+    // `row.id`). It is written raw here; the owner membership row DOES have a
+    // `household_id`, so it uses `insertRowWithinUow` to share this same
+    // transaction rather than opening a second one.
     runInUnitOfWork(this.db, (uow) => {
       uow.db.run(sql`
         INSERT INTO households (id, name, payday_day, user_level, created_at, updated_at)
@@ -70,21 +79,21 @@ export class CreateHouseholdUseCase {
         deviceId: ctx.deviceId,
         clientCreatedAt: ctx.clock(),
       });
-    });
 
-    const memberId = randomUUID();
-    const membersRepo = resolveSyncedRepo(this.db, 'household_members', this.deps);
-    membersRepo.insert(
-      {
-        id: memberId,
-        household_id: householdId,
-        user_id: this.input.userId,
-        role: 'owner',
-        joined_at: now,
-        updated_at: now,
-      },
-      ctx,
-    );
+      insertRowWithinUow(
+        uow,
+        'household_members',
+        {
+          id: memberId,
+          household_id: householdId,
+          user_id: this.input.userId,
+          role: 'owner',
+          joined_at: now,
+          updated_at: now,
+        },
+        ctx,
+      );
+    });
 
     await this.audit.log({
       householdId,

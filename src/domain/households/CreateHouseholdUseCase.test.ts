@@ -5,20 +5,23 @@ jest.mock('expo-crypto', () => ({
 import { CreateHouseholdUseCase } from './CreateHouseholdUseCase';
 
 describe('CreateHouseholdUseCase', () => {
+  // Captures every raw SQL run inside the unit-of-work transaction so the test
+  // can assert the household + owner-membership rows (and their oplog ops) all
+  // land in ONE transaction.
+  let txRun: jest.Mock;
   const makeDb = () => {
-    // households insert is a raw runInUnitOfWork write (no household_id
-    // column on `households` itself) — needs db.transaction(); baby_steps
-    // seeding + household_members insert go through the synced-repo fake
-    // injected via deps.repo below, so this db only needs the read side
-    // (SeedBabyStepsUseCase's existence check) plus `.transaction`.
+    // households insert AND the owner household_members insert are now both
+    // raw runInUnitOfWork writes sharing ONE db.transaction() (atomicity fix);
+    // only baby_steps seeding goes through the synced-repo fake injected via
+    // deps.repo. This db needs the read side (SeedBabyStepsUseCase's existence
+    // check) plus `.transaction`.
+    txRun = jest.fn(() => ({ changes: 1 }));
     return {
       select: jest.fn().mockReturnValue({
         from: jest.fn().mockReturnThis(),
         where: jest.fn().mockResolvedValue([]),
       }),
-      transaction: jest.fn((fn: (tx: unknown) => unknown) =>
-        fn({ run: jest.fn(() => ({ changes: 1 })) }),
-      ),
+      transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ run: txRun })),
     };
   };
   const makeAudit = () => ({ log: jest.fn().mockResolvedValue(undefined) });
@@ -65,15 +68,18 @@ describe('CreateHouseholdUseCase', () => {
     const result = await uc.execute();
     expect(result.success).toBe(true);
 
-    // households insert: 1 raw db.transaction() call.
+    // household + owner-membership now commit in ONE db.transaction() call
+    // (atomicity fix): no separate membership transaction can be interrupted.
     expect(db.transaction).toHaveBeenCalledTimes(1);
-    // household_members insert + 7 baby_steps inserts, all via the synced repo fake.
-    expect(repo.insert).toHaveBeenCalledTimes(8);
 
-    const memberRow = repo.insert.mock.calls.find((call) => call[0].role === 'owner')?.[0];
-    expect(memberRow).toBeTruthy();
-    expect(memberRow.user_id).toBe('u1');
+    // Inside that one transaction: households INSERT + its oplog op, then the
+    // owner household_members INSERT + its oplog op = 4 raw `run` calls, all
+    // sharing the single transaction.
+    expect(txRun).toHaveBeenCalledTimes(4);
 
+    // Only the 7 baby_steps inserts now go through the injected synced-repo
+    // fake; the owner membership no longer does (it shares the UoW above).
+    expect(repo.insert).toHaveBeenCalledTimes(7);
     const babyStepRows = repo.insert.mock.calls.filter((call) => 'step_number' in call[0]);
     expect(babyStepRows).toHaveLength(7);
   });
