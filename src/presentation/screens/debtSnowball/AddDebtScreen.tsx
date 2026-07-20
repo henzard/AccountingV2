@@ -93,7 +93,11 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text variant="titleMedium" style={[styles.sectionLabel, { color: colors.onSurface }]}>
         Debt Type
       </Text>
@@ -162,6 +166,7 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   container: { padding: spacing.base, gap: spacing.sm },
   sectionLabel: { fontFamily: 'PlusJakartaSans_600SemiBold' },
   segmented: { marginBottom: spacing.sm },

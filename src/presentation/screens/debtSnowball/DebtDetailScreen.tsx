@@ -42,7 +42,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator animating color={colors.primary} />
       </View>
     );
@@ -50,7 +50,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 
   if (!debt) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
         <Text variant="titleMedium" style={{ color: colors.onSurface, marginBottom: spacing.md }}>
           Debt not found
         </Text>
@@ -66,7 +66,10 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
   const progress = getPayoffProgressPercent(debt);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.container}
+    >
       <Surface style={[styles.card, { backgroundColor: colors.surface }]} elevation={1}>
         <Text variant="titleLarge" style={[styles.creditor, { color: colors.onSurface }]}>
           {debt.creditorName}
@@ -123,6 +126,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 };
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   container: { padding: spacing.base },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   card: { borderRadius: radius.lg, padding: spacing.base },

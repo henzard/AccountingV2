@@ -78,7 +78,10 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.container}
+    >
       {!permissionsGranted && (
         <Surface
           style={[styles.permWarning, { backgroundColor: colors.warningContainer }]}
@@ -221,6 +224,7 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
 };
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   container: { padding: spacing.base },
   permWarning: {
     padding: spacing.base,

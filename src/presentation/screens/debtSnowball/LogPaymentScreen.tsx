@@ -77,7 +77,11 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+    >
       {debt && (
         <Text variant="bodyMedium" style={[styles.hint, { color: colors.onSurfaceVariant }]}>
           {`Outstanding: ${formatCurrency(debt.outstandingBalanceCents)}`}
@@ -114,6 +118,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
 };
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   container: { padding: spacing.base, gap: spacing.sm },
   hint: { marginBottom: spacing.sm },
   input: {},
