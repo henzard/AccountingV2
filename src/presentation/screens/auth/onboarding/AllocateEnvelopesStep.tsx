@@ -93,6 +93,24 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
     try {
       const period = engine.getCurrentPeriod(paydayDay);
       const periodStart = formatPeriodDateKey(period.startDate);
+
+      // Persist the entered income as a period-scoped 'income' envelope so it
+      // becomes a real, editable value (shown on the Budget screen and carried
+      // forward each period) rather than a one-off number discarded after the
+      // split. Without this the budget has no income envelope at all, so the
+      // zero-based balance reads as fully overcommitted and there is nowhere to
+      // update income month to month.
+      if (incomeCents > 0) {
+        const incomeUc = new CreateEnvelopeUseCase(db, audit, {
+          householdId,
+          name: 'Monthly Income',
+          allocatedCents: incomeCents,
+          envelopeType: 'income',
+          periodStart,
+        });
+        await incomeUc.execute();
+      }
+
       for (const category of categories) {
         const result = allocResults[category];
         const cents = result.ok ? result.cents : 0;
