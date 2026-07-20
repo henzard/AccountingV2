@@ -160,7 +160,11 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text variant="titleMedium" style={[styles.label, { color: colors.onSurface }]}>
         Meter Type
       </Text>
@@ -239,6 +243,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
 };
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   container: { padding: spacing.base, gap: spacing.sm },
   label: { fontFamily: 'PlusJakartaSans_600SemiBold' },
   segmented: { marginBottom: spacing.sm },

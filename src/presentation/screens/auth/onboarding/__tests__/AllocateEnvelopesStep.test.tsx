@@ -59,13 +59,34 @@ describe('AllocateEnvelopesStep', () => {
     expect(getByTestId('to-assign').props.children).toContain('-5');
   });
 
-  it('creates one envelope per category with its allocation on Next', async () => {
+  it('creates one envelope per category plus the income envelope on Next', async () => {
     const { getByText } = render(wrap(<AllocateEnvelopesStep />));
     fireEvent.press(getByText('Next'));
     await waitFor(() => {
-      expect(mockExecute).toHaveBeenCalledTimes(3);
+      // 3 category envelopes + 1 'Monthly Income' envelope
+      expect(mockExecute).toHaveBeenCalledTimes(4);
     });
     expect(mockNavigate).toHaveBeenCalledWith('Payday');
+  });
+
+  it('persists the entered income as a Monthly Income income envelope', async () => {
+    const { getByText } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.press(getByText('Next'));
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalledTimes(4);
+    });
+    const { CreateEnvelopeUseCase: MockCreateEnvelopeUseCase } = jest.requireMock(
+      '../../../../../domain/envelopes/CreateEnvelopeUseCase',
+    ) as { CreateEnvelopeUseCase: jest.Mock };
+    expect(MockCreateEnvelopeUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        name: 'Monthly Income',
+        envelopeType: 'income',
+        allocatedCents: 3_000_000,
+      }),
+    );
   });
 
   it('blocks Next when To Assign is not zero', async () => {
@@ -94,7 +115,7 @@ describe('AllocateEnvelopesStep', () => {
     fireEvent.press(getByText('Next'));
 
     await waitFor(() => {
-      expect(mockExecute).toHaveBeenCalledTimes(3);
+      expect(mockExecute).toHaveBeenCalledTimes(4);
     });
     const { CreateEnvelopeUseCase: MockCreateEnvelopeUseCase } = jest.requireMock(
       '../../../../../domain/envelopes/CreateEnvelopeUseCase',
@@ -115,7 +136,7 @@ describe('AllocateEnvelopesStep', () => {
     fireEvent.press(getByText('Next'));
 
     await waitFor(() => {
-      expect(mockExecute).toHaveBeenCalledTimes(3);
+      expect(mockExecute).toHaveBeenCalledTimes(4);
     });
     const { CreateEnvelopeUseCase: MockCreateEnvelopeUseCase } = jest.requireMock(
       '../../../../../domain/envelopes/CreateEnvelopeUseCase',

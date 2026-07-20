@@ -4,9 +4,11 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
 
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useFocusEffect: jest.fn(),
+  useNavigation: () => ({ navigate: mockNavigate }),
 }));
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 
@@ -38,6 +40,17 @@ jest.mock('react-native-paper', () => {
 
 jest.mock('../components/BudgetBalanceBanner', () => ({
   BudgetBalanceBanner: () => null,
+}));
+jest.mock('../components/MonthlyIncomeCard', () => ({
+  MonthlyIncomeCard: ({ incomeCents, hasIncome }: { incomeCents: number; hasIncome: boolean }) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const React = require('react');
+    return React.createElement('View', {
+      testID: 'monthly-income-card',
+      'data-income': incomeCents,
+      'data-has-income': hasIncome,
+    });
+  },
 }));
 jest.mock('../components/DuplicateEmfBanner', () => ({
   DuplicateEmfBanner: () => null,
@@ -116,6 +129,31 @@ describe('BudgetScreen', () => {
     expect(getByTestId('envelope-card-Groceries')).toBeTruthy();
     expect(getByTestId('section-Income')).toBeTruthy();
     expect(getByTestId('section-Expenses')).toBeTruthy();
+  });
+
+  it('always renders the monthly income card, even with no envelopes', () => {
+    const { getByTestId } = render(<BudgetScreen />);
+    const card = getByTestId('monthly-income-card');
+    expect(card).toBeTruthy();
+    expect(card.props['data-has-income']).toBe(false);
+    expect(card.props['data-income']).toBe(0);
+  });
+
+  it('sums all income envelopes into the monthly income card total', () => {
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [
+        makeEnvelope('e1', 'Salary', 'income'),
+        makeEnvelope('e2', 'Side gig', 'income'),
+        makeEnvelope('e3', 'Groceries', 'spending'),
+      ],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(<BudgetScreen />);
+    const card = getByTestId('monthly-income-card');
+    expect(card.props['data-has-income']).toBe(true);
+    // 50000 + 50000 income envelopes
+    expect(card.props['data-income']).toBe(100000);
   });
 
   // Hook error is not surfaced — useEnvelopes returns envelopes: [] on error
