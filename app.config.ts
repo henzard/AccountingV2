@@ -86,7 +86,11 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     resizeMode: 'contain',
     backgroundColor: '#ffffff',
   },
-  platforms: ['android'],
+  platforms: ['android', 'web'],
+  web: {
+    output: 'single',
+    favicon: './assets/icon.png',
+  },
   android: {
     package: 'com.henza.accountingv2',
     adaptiveIcon: {
