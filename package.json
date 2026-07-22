@@ -29,6 +29,7 @@
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
+    "@expo/metro-runtime": "55.0.12",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.6.0",
     "@react-native-community/netinfo": "11.5.2",
@@ -58,12 +59,14 @@
     "expo-sqlite": "~55.0.15",
     "expo-status-bar": "~3.0.9",
     "react": "^19.2.0",
+    "react-dom": "19.2.0",
     "react-native": "^0.83.4",
     "react-native-paper": "^5.15.0",
     "react-native-safe-area-context": "~5.6.2",
     "react-native-screens": "~4.23.0",
     "react-native-svg": "15.15.3",
     "react-native-vector-icons": "^10.3.0",
+    "react-native-web": "0.21.2",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -94,6 +97,7 @@
     "lint-staged": "^16.4.0",
     "patch-package": "^8.0.1",
     "pg": "^8.22.0",
+    "playwright": "1.56.1",
     "prettier": "^3.8.2",
     "react-test-renderer": "^19.2.0",
     "typescript": "~5.9.2"

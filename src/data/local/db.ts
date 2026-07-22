@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import migrations from './migrations/migrations';
@@ -82,13 +83,28 @@ function runMigrationsOnce(): Promise<void> {
         if (applied.has(name)) continue;
         const checksum = djb2Hex(sql);
         const cleanSql = sql.replace(STATEMENT_BREAKPOINT_RE, '');
-        await expo.withExclusiveTransactionAsync(async (tx) => {
-          await tx.execAsync(cleanSql);
-          await tx.runAsync(
-            `INSERT INTO \`${MIGRATIONS_TABLE}\` (name, applied_at, checksum) VALUES (?, ?, ?)`,
-            [name, new Date().toISOString(), checksum],
-          );
-        });
+        if (Platform.OS === 'web') {
+          // wa-sqlite (expo-sqlite's web backend) does not implement
+          // `withExclusiveTransactionAsync` (it throws "not supported on web").
+          // A regular transaction is sufficient here: migrations run once at
+          // startup, before any concurrent access, so the exclusive-connection
+          // guarantee the native path wants is not needed.
+          await expo.withTransactionAsync(async () => {
+            await expo.execAsync(cleanSql);
+            await expo.runAsync(
+              `INSERT INTO \`${MIGRATIONS_TABLE}\` (name, applied_at, checksum) VALUES (?, ?, ?)`,
+              [name, new Date().toISOString(), checksum],
+            );
+          });
+        } else {
+          await expo.withExclusiveTransactionAsync(async (tx) => {
+            await tx.execAsync(cleanSql);
+            await tx.runAsync(
+              `INSERT INTO \`${MIGRATIONS_TABLE}\` (name, applied_at, checksum) VALUES (?, ?, ?)`,
+              [name, new Date().toISOString(), checksum],
+            );
+          });
+        }
       }
     })();
   }

@@ -56,3 +56,6 @@ deno.lock
 
 # coverage artifacts
 coverage-output.txt
+
+# Web build output (expo export --platform web)
+dist-web/
