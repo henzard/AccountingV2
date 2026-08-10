@@ -25,9 +25,11 @@ allprojects {
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
 
-// Pin targetSdkVersion to 35 (Android 15). SDK 36 enables 16 KB native page
-// alignment; expo-sqlite's prebuilt .so is not 16-KB aligned and SIGSEGVs in
-// the JS thread on the first sqlite3 JSI call.
+// Previously pinned to 35 (Android 15) because SDK 36's 16 KB native page
+// alignment SIGSEGV'd expo-sqlite's prebuilt .so on the first sqlite3 JSI
+// call. Fixed upstream in Expo SDK 53 (expo/expo#37446); this project is on
+// SDK 55, so the pin is no longer needed. Google Play requires targeting 36+
+// from 2026-08-31.
 ext {
-    targetSdkVersion = 35
+    targetSdkVersion = 36
 }
