@@ -3,6 +3,22 @@ import path from 'path';
 
 const repoRoot = path.resolve(__dirname, '../../..');
 
+/**
+ * Return the body of the Gradle block that starts at `header` (e.g. 'release {'),
+ * bounded by its matching closing brace. Slicing to end-of-file instead would let
+ * unrelated config further down the file satisfy the assertions below.
+ */
+function gradleBlock(source: string, header: string, from = 0): string {
+  const start = source.indexOf(header, from);
+  if (start < 0) throw new Error(`block not found: ${header}`);
+  let depth = 0;
+  for (let i = start + header.indexOf('{'); i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}' && --depth === 0) return source.slice(start, i + 1);
+  }
+  throw new Error(`unbalanced braces in block: ${header}`);
+}
+
 describe('Android Play Console compliance configuration', () => {
   it('disables expo-camera barcode scanning in app.config.ts', () => {
     const configSource = fs.readFileSync(path.join(repoRoot, 'app.config.ts'), 'utf8');
@@ -38,9 +54,8 @@ describe('Android Play Console compliance configuration', () => {
 
   it('wires the release build type to R8 with the optimised ProGuard baseline', () => {
     const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
-    const releaseBlock = buildGradle.slice(
-      buildGradle.indexOf('release {', buildGradle.indexOf('buildTypes {')),
-    );
+    const buildTypes = gradleBlock(buildGradle, 'buildTypes {');
+    const releaseBlock = gradleBlock(buildTypes, 'release {');
     // minifyEnabled must read the gradle.properties flag, not a hardcoded false.
     expect(releaseBlock).toMatch(/minifyEnabled\s+enableMinifyInReleaseBuilds/);
     expect(buildGradle).toMatch(
