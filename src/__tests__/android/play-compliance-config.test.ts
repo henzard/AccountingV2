@@ -31,6 +31,22 @@ describe('Android Play Console compliance configuration', () => {
     expect(manifest).toContain('tools:node="remove"');
   });
 
+  it('enables R8 minification for release builds', () => {
+    const gradleProps = fs.readFileSync(path.join(repoRoot, 'android/gradle.properties'), 'utf8');
+    expect(gradleProps).toMatch(/^android\.enableMinifyInReleaseBuilds=true$/m);
+  });
+
+  it('keeps line-number attributes so Crashlytics can deobfuscate R8 stack traces', () => {
+    const proguard = fs.readFileSync(path.join(repoRoot, 'android/app/proguard-rules.pro'), 'utf8');
+    expect(proguard).toContain('-keepattributes SourceFile,LineNumberTable');
+    expect(proguard).toContain('-renamesourcefileattribute SourceFile');
+  });
+
+  it('leaves resource shrinking off (RN resolves some drawables by name at runtime)', () => {
+    const gradleProps = fs.readFileSync(path.join(repoRoot, 'android/gradle.properties'), 'utf8');
+    expect(gradleProps).not.toMatch(/^android\.enableShrinkResourcesInReleaseBuilds=true$/m);
+  });
+
   it('does not set deprecated status bar colors in AppTheme styles', () => {
     const styles = fs.readFileSync(
       path.join(repoRoot, 'android/app/src/main/res/values/styles.xml'),
