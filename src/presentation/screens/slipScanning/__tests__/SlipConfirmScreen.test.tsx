@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { format } from 'date-fns';
 
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
@@ -205,6 +206,34 @@ describe('SlipConfirmScreen', () => {
     expect(() =>
       render(<SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={jest.fn()} />),
     ).not.toThrow();
+  });
+
+  it.each([
+    ['unparseable OCR text', 'N/A'],
+    ['day-first format', '13/04/2026'],
+    ['an impossible calendar date', '2026-04-31'],
+    ['an empty string', ''],
+    ['null', null],
+  ])('does not crash when slipDate is %s', (_label, slipDate) => {
+    mockRouteParams = { slipId: 's1', extraction: { ...mockExtraction, slipDate } };
+    expect(() =>
+      render(<SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={jest.fn()} />),
+    ).not.toThrow();
+  });
+
+  it('falls back to today when slipDate is unparseable', () => {
+    mockRouteParams = { slipId: 's1', extraction: { ...mockExtraction, slipDate: 'N/A' } };
+    const { getByText } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={jest.fn()} />,
+    );
+    expect(getByText(format(new Date(), 'd MMM yyyy'))).toBeTruthy();
+  });
+
+  it('uses the extracted slip date when it is a valid ISO date', () => {
+    const { getByText } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={jest.fn()} />,
+    );
+    expect(getByText('13 Apr 2026')).toBeTruthy();
   });
 
   it('shows unassigned chip when items lack envelopes', () => {

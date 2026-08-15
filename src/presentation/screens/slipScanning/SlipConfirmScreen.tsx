@@ -3,7 +3,7 @@ import { View, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { Text, Button, Chip } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { LineItemRow } from './components/LineItemRow';
@@ -25,6 +25,17 @@ export type SlipConfirmScreenProps = {
     totalCents: number | null;
   }) => Promise<{ success: boolean }>;
 };
+
+// `slipDate` is OCR/LLM-derived (edge function `extract-slip`), so it can be
+// absent or unparseable ("N/A", "13/04/2026", "2026-04-31"). `new Date(...)` on
+// those yields an Invalid Date, and every `format(...)` below then throws
+// `RangeError: Invalid time value`, white-screening the confirm step. Fall back
+// to today so the user can correct it with the date picker.
+function parseSlipDate(slipDate: string | null | undefined): Date {
+  if (!slipDate) return new Date();
+  const parsed = parseISO(slipDate);
+  return isValid(parsed) ? parsed : new Date();
+}
 
 export function SlipConfirmScreen({
   envelopes,
@@ -61,8 +72,8 @@ export function SlipConfirmScreen({
   );
   // NOTE: All items share a single transaction date (slip-level date).
   // Per-item date is a v2 spec change — deferred. See PR #8 review finding #24.
-  const [transactionDate, setTransactionDate] = useState<Date>(
-    extraction?.slipDate ? new Date(extraction.slipDate) : new Date(),
+  const [transactionDate, setTransactionDate] = useState<Date>(() =>
+    parseSlipDate(extraction?.slipDate),
   );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pickerTargetIdx, setPickerTargetIdx] = useState<number | null>(null);
