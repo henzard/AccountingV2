@@ -11,4 +11,11 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# Crashlytics: keep source file and line numbers so obfuscated release stack
+# traces stay readable once the mapping file is uploaded (the CD workflow runs
+# uploadCrashlyticsMappingFileRelease). -renamesourcefileattribute hides the
+# original file names while keeping the attribute R8 needs.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
 # Add any project specific keep options here:
