@@ -36,6 +36,28 @@ describe('Android Play Console compliance configuration', () => {
     expect(gradleProps).toMatch(/^android\.enableMinifyInReleaseBuilds=true$/m);
   });
 
+  it('wires the release build type to R8 with the optimised ProGuard baseline', () => {
+    const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
+    const releaseBlock = buildGradle.slice(
+      buildGradle.indexOf('release {', buildGradle.indexOf('buildTypes {')),
+    );
+    // minifyEnabled must read the gradle.properties flag, not a hardcoded false.
+    expect(releaseBlock).toMatch(/minifyEnabled\s+enableMinifyInReleaseBuilds/);
+    expect(buildGradle).toMatch(
+      /enableMinifyInReleaseBuilds\s*=\s*\(findProperty\('android\.enableMinifyInReleaseBuilds'\)/,
+    );
+    // proguard-android.txt sets -dontoptimize, which would disable R8's
+    // optimisation passes; the project's own keep rules must also be applied.
+    expect(releaseBlock).toMatch(
+      /getDefaultProguardFile\("proguard-android-optimize\.txt"\),\s*"proguard-rules\.pro"/,
+    );
+    expect(releaseBlock).not.toContain('getDefaultProguardFile("proguard-android.txt")');
+    // Resource shrinking stays opt-in via property, defaulting to false.
+    expect(releaseBlock).toMatch(
+      /findProperty\('android\.enableShrinkResourcesInReleaseBuilds'\)\s*\?:\s*'false'/,
+    );
+  });
+
   it('keeps line-number attributes so Crashlytics can deobfuscate R8 stack traces', () => {
     const proguard = fs.readFileSync(path.join(repoRoot, 'android/app/proguard-rules.pro'), 'utf8');
     expect(proguard).toContain('-keepattributes SourceFile,LineNumberTable');
