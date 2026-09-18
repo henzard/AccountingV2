@@ -8,6 +8,7 @@ A personal finance and household budgeting app for Android, built on Dave Ramsey
 
 - **Envelope budgeting** — Allocate monthly income across spending categories; track spend vs. budget in real time
 - **Transactions** — Log spending against envelopes, grouped by budget period
+- **CSV Import** — Batch-load transactions from bank statement CSVs with automatic deduplication and envelope mapping
 - **Debt snowball** — Add debts, log payments, simulate payoff timeline with minimum payment rollover
 - **Meter readings** — Track electricity, water, and vehicle odometer consumption; anomaly detection flags readings >20% outside the 3-month rolling average
 - **Ramsey Score** — 0–100 gamification score across logging consistency, envelope discipline, meter tracking, and Baby Steps progress
@@ -19,16 +20,16 @@ A personal finance and household budgeting app for Android, built on Dave Ramsey
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Expo SDK 55 (Android only) |
-| Language | TypeScript 5.9 (strict mode) |
-| UI | React Native 0.83 + React Native Paper 5 + React Navigation 7 |
-| Local DB | Expo SQLite + Drizzle ORM 0.45 |
-| Cloud | Supabase (auth + PostgreSQL sync) |
-| State | Zustand 5 |
-| Notifications | expo-notifications + Firebase Cloud Messaging |
-| Testing | Jest 30 + jest-expo + @testing-library/react-native |
+| Layer         | Technology                                                    |
+| ------------- | ------------------------------------------------------------- |
+| Framework     | Expo SDK 55 (Android only)                                    |
+| Language      | TypeScript 5.9 (strict mode)                                  |
+| UI            | React Native 0.83 + React Native Paper 5 + React Navigation 7 |
+| Local DB      | Expo SQLite + Drizzle ORM 0.45                                |
+| Cloud         | Supabase (auth + PostgreSQL sync)                             |
+| State         | Zustand 5                                                     |
+| Notifications | expo-notifications + Firebase Cloud Messaging                 |
+| Testing       | Jest 30 + jest-expo + @testing-library/react-native           |
 
 ---
 
@@ -117,18 +118,18 @@ Domain → Data → Infrastructure → Presentation
 
 Database file: `accountingv2.db` (created in the app's document directory on first launch)
 
-| Table | Purpose |
-|-------|---------|
-| `households` | Household entity; multi-user scope |
-| `household_members` | Household membership (userId, role) |
-| `envelopes` | Budget categories with `allocatedCents` / `spentCents` |
-| `transactions` | Spending log tied to envelopes |
-| `debts` | Debt entries for snowball tracking |
-| `meter_readings` | Utility and vehicle readings |
-| `audit_events` | Immutable write log (entityType, action, before/after JSON) |
-| `baby_steps` | Dave Ramsey Baby Steps progress |
-| `pending_sync` | Queue of rows waiting to sync to Supabase |
-| `slip_queue` | Receipt/slip OCR queue |
+| Table               | Purpose                                                     |
+| ------------------- | ----------------------------------------------------------- |
+| `households`        | Household entity; multi-user scope                          |
+| `household_members` | Household membership (userId, role)                         |
+| `envelopes`         | Budget categories with `allocatedCents` / `spentCents`      |
+| `transactions`      | Spending log tied to envelopes                              |
+| `debts`             | Debt entries for snowball tracking                          |
+| `meter_readings`    | Utility and vehicle readings                                |
+| `audit_events`      | Immutable write log (entityType, action, before/after JSON) |
+| `baby_steps`        | Dave Ramsey Baby Steps progress                             |
+| `pending_sync`      | Queue of rows waiting to sync to Supabase                   |
+| `slip_queue`        | Receipt/slip OCR queue                                      |
 
 Migrations live in `src/data/local/migrations/` and run automatically on app startup via `useDatabaseMigrations()`.
 
@@ -184,12 +185,12 @@ Runs on every push to `master`:
 
 #### Required GitHub Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `KEYSTORE_BASE64` | Release keystore, base64-encoded |
-| `KEYSTORE_STORE_PASSWORD` | Keystore store password |
-| `KEYSTORE_KEY_ALIAS` | Key alias |
-| `KEYSTORE_KEY_PASSWORD` | Key password |
+| Secret                             | Description                          |
+| ---------------------------------- | ------------------------------------ |
+| `KEYSTORE_BASE64`                  | Release keystore, base64-encoded     |
+| `KEYSTORE_STORE_PASSWORD`          | Keystore store password              |
+| `KEYSTORE_KEY_ALIAS`               | Key alias                            |
+| `KEYSTORE_KEY_PASSWORD`            | Key password                         |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Google Play API service account JSON |
 
 ---
