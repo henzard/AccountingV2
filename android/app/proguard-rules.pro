@@ -18,4 +18,12 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
+# expo-modules-core Record conversion: keep the records package itself (the
+# @Field/@Required annotations and RecordTypeConverter), not just the Record
+# implementations its consumer rules cover. With R8 optimisation on, leaving
+# it unkept makes every JS object -> Record argument fail with a bare
+# NullPointerException. expo-sqlite's openDatabaseSync(name, options) runs at
+# bundle load, so that surfaced as a SIGABRT on launch in 1.1.127.
+-keep class expo.modules.kotlin.records.** { *; }
+
 # Add any project specific keep options here:
