@@ -79,6 +79,11 @@ const twoDeviceProject = {
 
 module.exports = {
   projects: [appProject, realSqlProject, twoDeviceProject],
+  // The first test in a heavy screen suite pays that file's whole module-load
+  // cost. Under coverage instrumentation on a CI runner that alone exceeded
+  // Jest's 5s default and failed the release gate (RolloverWizard, and
+  // AddTransactionScreen before it) with nothing actually wrong.
+  testTimeout: 15000,
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/index.ts',
