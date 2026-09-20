@@ -1,0 +1,49 @@
+name: Slip image retention
+
+# SEC2-9: nightly trigger for supabase/functions/cleanup-slip-images, which
+# replaces the broken public.cleanup_old_slip_images() cron job (it called
+# storage.delete_object, which does not exist on Supabase storage, so it
+# deleted nothing — see 0015_security_followups.sql). This is NOT scheduled
+# from pg_cron/SQL because authorizing a cron-invoked HTTP call to an edge
+# function needs a vault-stored secret, which this remediation does not set
+# up; a GitHub Actions schedule with repo secrets is the simplest path that
+# doesn't require one.
+on:
+  schedule:
+    # 01:17 UTC daily — off the hour, clear of 0001's original 03:00 slot,
+    # to make it easy to tell the two apart in job_log during the cutover.
+    - cron: '17 1 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  cleanup-slip-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required secrets are configured
+        id: check
+        run: |
+          if [ -z "${{ secrets.SUPABASE_FUNCTIONS_URL }}" ] || [ -z "${{ secrets.CLEANUP_SECRET }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip — secrets not configured
+        if: steps.check.outputs.skip == 'true'
+        run: |
+          echo "::notice::SUPABASE_FUNCTIONS_URL and/or CLEANUP_SECRET repo secrets are not configured — skipping the slip-retention run. Configure both to enable it."
+
+      - name: Call cleanup-slip-images
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          status=$(curl -sS -o /tmp/response.json -w '%{http_code}' \
+            -X POST \
+            -H "x-cleanup-secret: ${{ secrets.CLEANUP_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.SUPABASE_FUNCTIONS_URL }}/cleanup-slip-images")
+          echo "HTTP status: $status"
+          cat /tmp/response.json || true
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::cleanup-slip-images returned HTTP $status"
+            exit 1
+          fi

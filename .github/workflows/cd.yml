@@ -99,29 +99,49 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: postgres
 
-  # e2e-gate builds a debug APK against a fresh local Supabase stack and runs
-  # the tier-4 authenticated Detox journey (sign up → onboard → create
-  # envelope → add transaction → verify).
+  # e2e-gate builds the `e2e` build type (a release-shaped, non-debuggable,
+  # minified variant — see android/app/build.gradle) against a fresh local
+  # Supabase stack and runs the tier-4 authenticated Detox journey (sign up →
+  # onboard → create envelope → add transaction → verify).
   #
-  # DECISION (deep-review OPS-1/OPS-5): this job has been failing 11/11 tests
-  # for over two months with "app has unexpectedly disconnected from Detox
-  # server", but every one of those runs was reported GREEN, because
+  # HISTORY (deep-review OPS-1/OPS-5): this job failed 11/11 for over two
+  # months with "app has unexpectedly disconnected from Detox server", but
+  # every one of those runs was reported GREEN, because
   # reactivecircus/android-emulator-runner executes each `script:` line in
   # its own `sh -c` — `DETOX_EXIT=$?`/`exit $DETOX_EXIT` on separate lines
   # meant the final `exit` always ran with no captured status (bare `exit` =
   # 0), and `LOGCAT_PID=$!` was lost the same way, so the logcat dump was
-  # always empty and the root cause stayed invisible. Both bugs are fixed by
+  # always empty and the root cause stayed invisible. Both bugs were fixed by
   # moving the whole thing into scripts/ci/run-detox.sh (one shell, one
-  # `script:` line), which now makes this job go correctly red — but the
-  # actual Detox connection failure is still unresolved, so it is
-  # `continue-on-error: true` and removed from build-and-publish's `needs:`
-  # below rather than blocking every release while it's investigated.
-  # Artifacts/logs keep uploading so the failure is debuggable.
+  # `script:` line), which made this job go correctly red — but the actual
+  # Detox connection failure was still unresolved at that point.
+  #
+  # NEW HYPOTHESIS (2026-09-20): the job was building+testing the `debug`
+  # build type. This Expo app sets `debuggableVariants = []`
+  # (android/app/build.gradle react{} block) — comment there says it's
+  # required so debug embeds the JS bundle for CI, since Metro never runs
+  # here — but the app also depends on `expo-dev-client`, which makes a
+  # debug APK boot straight into the dev-launcher UI instead of the app
+  # regardless of whether a bundle is embedded, so Detox connects to a
+  # screen with none of the app's testIDs and eventually reports the app as
+  # disconnected. This job now builds/tests the dedicated `e2e` build type
+  # instead (release-shaped: minified, non-debuggable, no dev-launcher
+  # entry), with a scoped cleartext allowance for 10.0.2.2/localhost only
+  # (android/app/src/e2e/ manifest + network security config) so it can
+  # still reach the local Supabase stack. What the next run will actually
+  # show: whether the app now boots past the dev-launcher and Detox gets a
+  # connection at all (evidence the hypothesis was right), vs. some other
+  # failure now surfacing once that layer is fixed (e.g. R8 stripping
+  # something Detox/the app needs — the Detox proguard rules are already
+  # applied, but this is unverified until a real CI run). Either way the now
+  # non-empty, unfiltered logcat artifact should make the actual failure
+  # visible for the first time. It stays `continue-on-error: true` and out
+  # of build-and-publish's `needs:` below until a run is observed green.
   #
   # To restore this as a hard release gate: get a genuinely green run (all
-  # journeys passing) with the real logcat evidence (not empty) attached,
-  # then remove `continue-on-error` here and add `e2e-gate` back to
-  # build-and-publish's `needs:`.
+  # journeys passing) with real logcat evidence attached, then remove
+  # `continue-on-error` here and add `e2e-gate` back to build-and-publish's
+  # `needs:`.
   e2e-gate:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
@@ -182,12 +202,16 @@ jobs:
           echo "/usr/local/lib/android/sdk/platform-tools" >> $GITHUB_PATH
           /usr/local/lib/android/sdk/platform-tools/adb start-server
 
-      - name: Build debug APK
-        run: detox build --configuration android.emu.debug
+      - name: Build e2e APK + test APK
+        run: detox build --configuration android.emu.e2e
         env:
-          # See DECISION note on ci.yml's e2e-android job: points at the local
-          # Supabase stack (10.0.2.2 = emulator's alias for the runner's host
-          # loopback), never at production.
+          # This is the RELEASE-shaped `e2e` build type (android/app/build.gradle):
+          # unlike debug, it bundles JS at build time, so these values must be
+          # present here, not just at runtime. Points at the local Supabase
+          # stack (10.0.2.2 = emulator's alias for the runner's host loopback),
+          # never at production — the `e2e` build type's scoped network
+          # security config (android/app/src/e2e/) only allows cleartext to
+          # that address and localhost.
           EXPO_PUBLIC_SUPABASE_URL: http://10.0.2.2:54321
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supa.outputs.anon_key }}
 
@@ -200,7 +224,15 @@ jobs:
           avd-name: Pixel_API_34
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 2048
-          script: bash scripts/ci/run-detox.sh android.emu.debug
+          script: bash scripts/ci/run-detox.sh android.emu.e2e /tmp/logcat-e2e-gate.txt
+
+      - name: Upload e2e-gate logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-gate-logcat
+          path: /tmp/logcat-e2e-gate.txt
+          if-no-files-found: warn
 
   # release-smoke (deep-review OPS-2): installs and launches the actual
   # MINIFIED release APK on an emulator and fails if it crashes — the check

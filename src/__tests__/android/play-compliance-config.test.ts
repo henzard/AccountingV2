@@ -176,4 +176,68 @@ describe('Android Play Console compliance configuration', () => {
     );
     expect(debugManifest).toContain('android.permission.SYSTEM_ALERT_WINDOW');
   });
+
+  describe('Detox e2e build type (CD e2e-gate)', () => {
+    it('reads testBuildType from a system property, defaulting to debug', () => {
+      // Without this, `-DtestBuildType=e2e` (.detoxrc.js / cd.yml) is a no-op
+      // and `:app:assembleAndroidTest` silently keeps building androidTestDebug.
+      const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
+      expect(buildGradle).toMatch(/testBuildType\s+System\.getProperty\('testBuildType',\s*'debug'\)/);
+    });
+
+    it('defines an e2e build type based on release, not debug', () => {
+      const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
+      const buildTypes = gradleBlock(buildGradle, 'buildTypes {');
+      const e2eBlock = gradleBlock(buildTypes, 'e2e {');
+      expect(e2eBlock).toMatch(/initWith\s+release/);
+      expect(e2eBlock).toMatch(/debuggable\s+false/);
+      // Fallback is required so Gradle can resolve dependencies (including
+      // the local :detox project) that only publish debug/release variants.
+      expect(e2eBlock).toMatch(/matchingFallbacks\s*=\s*\['release'\]/);
+    });
+
+    it('applies the Detox proguard rules to the e2e build type', () => {
+      const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
+      const buildTypes = gradleBlock(buildGradle, 'buildTypes {');
+      const e2eBlock = gradleBlock(buildTypes, 'e2e {');
+      expect(e2eBlock).toContain(
+        "proguardFile \"${rootProject.projectDir}/../node_modules/detox/android/detox/proguard-rules-app.pro\"",
+      );
+      // The file must actually exist at that path, or a minified e2e build
+      // silently skips Detox's keep rules instead of failing loudly.
+      expect(
+        fs.existsSync(
+          path.join(repoRoot, 'node_modules/detox/android/detox/proguard-rules-app.pro'),
+        ),
+      ).toBe(true);
+    });
+
+    it('registers the :detox androidTest dependency and instrumentation runner', () => {
+      const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
+      expect(buildGradle).toContain("androidTestImplementation(project(':detox'))");
+      expect(buildGradle).toContain('testInstrumentationRunner "com.wix.detox.DetoxJUnitRunner"');
+    });
+
+    it('scopes the e2e cleartext allowance to the emulator loopback and localhost only', () => {
+      const e2eManifest = fs.readFileSync(
+        path.join(repoRoot, 'android/app/src/e2e/AndroidManifest.xml'),
+        'utf8',
+      );
+      // Must reference a network security config, not a blanket allowance —
+      // unlike the debug/debugOptimized manifests, which permit cleartext to
+      // any host via android:usesCleartextTraffic="true" on <application>.
+      expect(e2eManifest).not.toMatch(/<application[^>]*usesCleartextTraffic/);
+      expect(e2eManifest).toContain('android:networkSecurityConfig="@xml/network_security_config_e2e"');
+
+      const networkConfig = fs.readFileSync(
+        path.join(repoRoot, 'android/app/src/e2e/res/xml/network_security_config_e2e.xml'),
+        'utf8',
+      );
+      expect(networkConfig).toContain('<domain includeSubdomains="false">10.0.2.2</domain>');
+      expect(networkConfig).toContain('<domain includeSubdomains="false">localhost</domain>');
+      // Must be scoped via <domain-config>, never a blanket <base-config>
+      // (which would permit cleartext to any host, not just the local stack).
+      expect(networkConfig).not.toContain('<base-config');
+    });
+  });
 });
