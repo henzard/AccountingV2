@@ -119,6 +119,12 @@ export function RolloverWizard({
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [committedCount, setCommittedCount] = useState<number | null>(null);
+  // `contributedCents` from `StartNewPeriodUseCase`'s result — money actually
+  // moved into persistent envelopes' (savings/emergency fund/sinking
+  // fund/baby step) saved balance by this rollover, surfaced below so the
+  // user sees where that money went instead of it silently updating a
+  // balance they'd only notice on another screen.
+  const [contributedCents, setContributedCents] = useState<number | null>(null);
 
   // Mirrors the load effect's local `cancelled` flag, but at component scope:
   // guards setState calls made after `handleCommit`'s awaits so a commit that
@@ -175,6 +181,7 @@ export function RolloverWizard({
       setStep('review');
       setCommitError(null);
       setCommittedCount(null);
+      setContributedCents(null);
       setAllocationStr({});
     }
   }, [visible, toPeriodStart]);
@@ -272,6 +279,7 @@ export function RolloverWizard({
       await AsyncStorage.setItem(`period_ack_${toPeriodStart}`, 'true');
       if (!mountedRef.current) return;
       setCommittedCount(result.data.count);
+      setContributedCents(result.data.contributedCents);
     } catch (err) {
       if (mountedRef.current) {
         setCommitError(err instanceof Error ? err.message : 'Failed to start new period');
@@ -342,6 +350,14 @@ export function RolloverWizard({
                   ? 'No envelopes needed copying forward.'
                   : `${committedCount} envelope${committedCount === 1 ? '' : 's'} carried forward with your allocations.`}
               </Text>
+              {!!contributedCents && contributedCents > 0 && (
+                <Text
+                  testID="rollover-contributed-cents"
+                  style={{ color: colors.success, textAlign: 'center' }}
+                >
+                  {`Moved ${formatCurrency(contributedCents)} into your savings funds`}
+                </Text>
+              )}
             </View>
           )}
 

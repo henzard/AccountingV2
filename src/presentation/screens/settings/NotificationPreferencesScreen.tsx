@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { List, Switch, Divider, Text, TextInput, Surface } from 'react-native-paper';
+import { List, Switch, Text, TextInput, Surface } from 'react-native-paper';
 import { NotificationPreferencesRepository } from '../../../infrastructure/notifications/NotificationPreferencesRepository';
 import { LocalNotificationScheduler } from '../../../infrastructure/notifications/LocalNotificationScheduler';
 import * as Notifications from 'expo-notifications';
@@ -190,32 +190,6 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 color={colors.primary}
               />
             )}
-          />
-          <Divider />
-          {/*
-            L9 fix: envelopeWarningEnabled was a fully inert toggle — persisted
-            but never read by any scheduler or notify-event call (no overspend
-            alert mechanism exists yet, local or remote). Rather than leave a
-            control that silently does nothing (a user enabling it believed
-            they'd be alerted and never would be), it's disabled with an
-            honest "coming soon" description until a real overspend-alert path
-            is built. It intentionally still reads/displays the persisted
-            preference value (so a future wiring pass doesn't need a data
-            migration) but cannot be toggled.
-          */}
-          <List.Item
-            title="Envelope overspend warning"
-            description="Coming soon — not yet wired to an alert"
-            right={() => (
-              <Switch
-                value={preferences.envelopeWarningEnabled}
-                onValueChange={(v) => updatePref({ envelopeWarningEnabled: v })}
-                disabled
-                color={colors.primary}
-                testID="envelope-warning-switch"
-              />
-            )}
-            testID="envelope-warning-item"
           />
         </Surface>
       </List.Section>

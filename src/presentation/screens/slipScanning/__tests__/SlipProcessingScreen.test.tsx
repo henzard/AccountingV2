@@ -52,6 +52,14 @@ jest.mock('react-native-paper', () => {
   return { Text, Button, ActivityIndicator };
 });
 
+// UX: Alert.alert is a no-op on web (react-native-web) — "Cancel scan?" now
+// goes through the shared promise-based `confirm()` (ConfirmDialogHost),
+// same as other destructive-action confirmations in the app.
+const mockConfirm = jest.fn();
+jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
+  confirm: (...args: unknown[]) => mockConfirm(...args),
+}));
+
 import { SlipProcessingScreen } from '../SlipProcessingScreen';
 
 describe('SlipProcessingScreen', () => {
@@ -60,6 +68,8 @@ describe('SlipProcessingScreen', () => {
     mockGoBack.mockReset();
     mockReplace.mockReset();
     mockParentNavigate.mockReset();
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(true);
   });
 
   it('shows uploading progress label', () => {
@@ -149,5 +159,46 @@ describe('SlipProcessingScreen', () => {
       />,
     );
     expect(getByTestId('cancel-button')).toBeTruthy();
+  });
+
+  describe('cancel confirmation (promise-based confirm(), not Alert.alert)', () => {
+    it('asks for confirmation via confirm() and goes back when confirmed', async () => {
+      const startScan = jest.fn().mockResolvedValue({ success: false });
+      const cancelSlip = jest.fn().mockResolvedValue(undefined);
+      const { getByTestId } = render(
+        <SlipProcessingScreen
+          startScan={startScan}
+          progress={{ stage: 'uploading', slipId: 's1' }}
+          cancelSlip={cancelSlip}
+        />,
+      );
+
+      fireEvent.press(getByTestId('cancel-button'));
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(
+          expect.objectContaining({ title: 'Cancel scan?', destructive: true }),
+        );
+      });
+      await waitFor(() => {
+        expect(mockGoBack).toHaveBeenCalled();
+      });
+    });
+
+    it('does NOT go back when the user dismisses the confirm dialog', async () => {
+      mockConfirm.mockResolvedValue(false);
+      const startScan = jest.fn().mockResolvedValue({ success: false });
+      const { getByTestId } = render(
+        <SlipProcessingScreen
+          startScan={startScan}
+          progress={{ stage: 'uploading', slipId: 's1' }}
+        />,
+      );
+
+      fireEvent.press(getByTestId('cancel-button'));
+
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      expect(mockGoBack).not.toHaveBeenCalled();
+    });
   });
 });

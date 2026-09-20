@@ -356,4 +356,68 @@ describe('AddDebtScreen', () => {
       expect(mockGoBack).toHaveBeenCalled();
     });
   });
+
+  it('accepts comma-decimal interest rate and saves with correct value', async () => {
+    const { getByTestId } = render(
+      <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
+    );
+
+    fireEvent.changeText(getByTestId('Creditor / Account name'), 'Visa');
+    fireEvent.changeText(getByTestId('Outstanding balance (R)'), '5000');
+    fireEvent.changeText(getByTestId('Interest rate (%)'), '12,5');
+    fireEvent.changeText(getByTestId('Minimum monthly payment (R)'), '500');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalled();
+    });
+    expect(MockCreateDebtUseCase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ interestRatePercent: 12.5 }),
+    );
+  });
+
+  it('shows error when interest rate exceeds 100', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
+    );
+
+    fireEvent.changeText(getByTestId('Creditor / Account name'), 'Visa');
+    fireEvent.changeText(getByTestId('Outstanding balance (R)'), '5000');
+    fireEvent.changeText(getByTestId('Interest rate (%)'), '101');
+    fireEvent.changeText(getByTestId('Minimum monthly payment (R)'), '500');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('helper-error')).toBeTruthy();
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('shows error when interest rate has invalid characters', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddDebtScreen route={{} as never} navigation={mockNavigation} />,
+    );
+
+    fireEvent.changeText(getByTestId('Creditor / Account name'), 'Visa');
+    fireEvent.changeText(getByTestId('Outstanding balance (R)'), '5000');
+    fireEvent.changeText(getByTestId('Interest rate (%)'), '1 2');
+    fireEvent.changeText(getByTestId('Minimum monthly payment (R)'), '500');
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('helper-error')).toBeTruthy();
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
 });

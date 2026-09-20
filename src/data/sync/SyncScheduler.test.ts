@@ -56,6 +56,7 @@ jest.mock('../../infrastructure/logging/Logger', () => ({
 }));
 
 import { SyncScheduler, type SyncRunner, type ReconnectSource } from './SyncScheduler';
+import type { SyncSummary } from './SyncEngine';
 import { onOplogWrite } from '../uow/UnitOfWork';
 import { logger } from '../../infrastructure/logging/Logger';
 
@@ -89,21 +90,31 @@ function makeSupabase(channel: FakeChannel): {
   };
 }
 
+/** A round that reached the server and applied cleanly (SYNC-10). */
+const OK_SUMMARY: SyncSummary = { transportFailed: false, pullBlocked: false, skipped: false };
+
 function makeEngine(overrides: Partial<SyncRunner> = {}): jest.Mocked<SyncRunner> {
   return {
-    sync: jest.fn().mockResolvedValue(undefined),
+    sync: jest.fn().mockResolvedValue(OK_SUMMARY),
     getPullHealth: jest.fn().mockReturnValue({ blocked: false }),
     getPendingPushCount: jest.fn().mockReturnValue(0),
     ...overrides,
   } as jest.Mocked<SyncRunner>;
 }
 
-function makeReconnectSource(): ReconnectSource & { fire: () => Promise<void> } {
+function makeReconnectSource(): ReconnectSource & {
+  fire: () => Promise<void>;
+  listenerCount: () => number;
+} {
   let cb: (() => Promise<void>) | null = null;
   return {
     onConnected: (callback) => {
       cb = callback;
+      return () => {
+        cb = null;
+      };
     },
+    listenerCount: () => (cb ? 1 : 0),
     fire: async () => {
       if (cb) await cb();
     },
@@ -637,6 +648,262 @@ describe('SyncScheduler', () => {
     });
   });
 
+  describe('deferred trigger + round outcome (SYNC-7 / SYNC-10)', () => {
+    it('a trigger arriving mid-round causes a SECOND sync once the round finishes', async () => {
+      let resolveSync: (() => void) | null = null;
+      const engine = makeEngine({
+        sync: jest.fn(
+          () =>
+            new Promise<SyncSummary>((resolve) => {
+              resolveSync = () => resolve(OK_SUMMARY);
+            }),
+        ),
+      });
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        debounceMs: 400,
+      });
+      scheduler.start(HH);
+
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+
+      // A write commits while the round is in flight. The running round may
+      // already have read the oplog, so dropping this would strand the write.
+      capturedWriteListener!(HH);
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+
+      resolveSync!();
+      await flushMicrotasks();
+      jest.advanceTimersByTime(400);
+      await flushMicrotasks();
+
+      expect(engine.sync).toHaveBeenCalledTimes(2);
+      expect(engine.sync).toHaveBeenLastCalledWith(HH);
+    });
+
+    it('a transport failure does NOT update lastSyncedAt and reports an error', async () => {
+      const engine = makeEngine({
+        sync: jest
+          .fn()
+          .mockResolvedValue({ transportFailed: true, pullBlocked: false, skipped: false }),
+      });
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const sink = {
+        setSyncing: jest.fn(),
+        setLastSyncedAt: jest.fn(),
+        setPendingCount: jest.fn(),
+        setError: jest.fn(),
+        setPullBlocked: jest.fn(),
+      };
+      const onSyncSuccess = jest.fn().mockResolvedValue(undefined);
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        statusSink: sink,
+        onSyncSuccess,
+      });
+      scheduler.start(HH);
+
+      fireAppStateChange('active');
+      await flushMicrotasks();
+
+      expect(sink.setLastSyncedAt).not.toHaveBeenCalled();
+      expect(sink.setError).toHaveBeenCalledWith(expect.stringContaining('could not reach'));
+      expect(onSyncSuccess).not.toHaveBeenCalled();
+      expect(sink.setSyncing).toHaveBeenLastCalledWith(false);
+    });
+
+    it('a pull-blocked round does NOT update lastSyncedAt either', async () => {
+      const engine = makeEngine({
+        sync: jest
+          .fn()
+          .mockResolvedValue({ transportFailed: false, pullBlocked: true, skipped: false }),
+      });
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const sink = {
+        setSyncing: jest.fn(),
+        setLastSyncedAt: jest.fn(),
+        setPendingCount: jest.fn(),
+        setError: jest.fn(),
+        setPullBlocked: jest.fn(),
+      };
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        statusSink: sink,
+      });
+      scheduler.start(HH);
+
+      fireAppStateChange('active');
+      await flushMicrotasks();
+
+      expect(sink.setLastSyncedAt).not.toHaveBeenCalled();
+      expect(sink.setError).toHaveBeenCalledWith(expect.stringContaining('blocked'));
+    });
+  });
+
+  describe('lifecycle (SYNC-7)', () => {
+    it('requestSync is a no-op before start() and after stop()', async () => {
+      const engine = makeEngine();
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+      });
+
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+      expect(engine.sync).not.toHaveBeenCalled();
+
+      scheduler.start(HH);
+      scheduler.stop();
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+      expect(engine.sync).not.toHaveBeenCalled();
+    });
+
+    it('stop() unsubscribes the reconnect callback', () => {
+      const engine = makeEngine();
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const reconnect = makeReconnectSource();
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: reconnect,
+      });
+
+      scheduler.start(HH);
+      expect(reconnect.listenerCount()).toBe(1);
+      scheduler.stop();
+      expect(reconnect.listenerCount()).toBe(0);
+    });
+  });
+
+  describe('syncNow (await-able immediate round)', () => {
+    function makeScheduler(engine: jest.Mocked<SyncRunner>): SyncScheduler {
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      return new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        debounceMs: 400,
+      });
+    }
+
+    it('resolves only after the round it started has completed', async () => {
+      let resolveSync: (() => void) | null = null;
+      const engine = makeEngine({
+        sync: jest.fn(
+          () =>
+            new Promise<SyncSummary>((resolve) => {
+              resolveSync = () => resolve(OK_SUMMARY);
+            }),
+        ),
+      });
+      const scheduler = makeScheduler(engine);
+      scheduler.start(HH);
+
+      let settled = false;
+      const pending = scheduler.syncNow(HH).then(() => {
+        settled = true;
+      });
+
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+      expect(settled).toBe(false);
+
+      resolveSync!();
+      await pending;
+      expect(settled).toBe(true);
+    });
+
+    it('waits out an in-flight round and then runs a FRESH one', async () => {
+      const resolvers: (() => void)[] = [];
+      const engine = makeEngine({
+        sync: jest.fn(
+          () =>
+            new Promise<SyncSummary>((resolve) => {
+              resolvers.push(() => resolve(OK_SUMMARY));
+            }),
+        ),
+      });
+      const scheduler = makeScheduler(engine);
+      scheduler.start(HH);
+
+      // A trigger-driven round is already draining.
+      scheduler.requestSync(HH, { immediate: true });
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+
+      const pending = scheduler.syncNow(HH);
+      await flushMicrotasks();
+      // Still only the first round — syncNow is waiting, not piggybacking on
+      // a round that may have read the oplog before the caller's write.
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+
+      resolvers[0]();
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(2);
+
+      resolvers[1]();
+      await expect(pending).resolves.toMatchObject({ transportFailed: false });
+    });
+
+    it('rejects when the round could not reach the server', async () => {
+      const engine = makeEngine({
+        sync: jest
+          .fn()
+          .mockResolvedValue({ transportFailed: true, pullBlocked: false, skipped: false }),
+      });
+      const scheduler = makeScheduler(engine);
+      scheduler.start(HH);
+
+      await expect(scheduler.syncNow(HH)).rejects.toThrow(/could not reach the server/);
+    });
+
+    it('rejects with the underlying error when engine.sync() throws', async () => {
+      const engine = makeEngine({ sync: jest.fn().mockRejectedValue(new Error('rpc exploded')) });
+      const scheduler = makeScheduler(engine);
+      scheduler.start(HH);
+
+      await expect(scheduler.syncNow(HH)).rejects.toThrow('rpc exploded');
+    });
+
+    it('rejects when the scheduler is not started', async () => {
+      const scheduler = makeScheduler(makeEngine());
+      await expect(scheduler.syncNow(HH)).rejects.toThrow(/not started/);
+    });
+
+    it('cancels a pending debounce rather than double-syncing after it', async () => {
+      const engine = makeEngine();
+      const scheduler = makeScheduler(engine);
+      scheduler.start(HH);
+
+      capturedWriteListener!(HH); // schedules a debounced round
+      await scheduler.syncNow(HH);
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(1000);
+      await flushMicrotasks();
+      expect(engine.sync).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('requestSync', () => {
     it('immediate: true bypasses the debounce entirely, even mid-window', async () => {
       const engine = makeEngine();
@@ -670,8 +937,8 @@ describe('SyncScheduler', () => {
       const engine = makeEngine({
         sync: jest.fn(
           () =>
-            new Promise<void>((resolve) => {
-              resolveSync = resolve;
+            new Promise<SyncSummary>((resolve) => {
+              resolveSync = () => resolve(OK_SUMMARY);
             }),
         ),
       });
@@ -729,8 +996,8 @@ describe('SyncScheduler', () => {
       const engine = makeEngine({
         sync: jest.fn(
           () =>
-            new Promise<void>((resolve) => {
-              resolveSync = resolve;
+            new Promise<SyncSummary>((resolve) => {
+              resolveSync = () => resolve(OK_SUMMARY);
             }),
         ),
       });

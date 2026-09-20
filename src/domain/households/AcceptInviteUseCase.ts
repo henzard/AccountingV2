@@ -22,6 +22,23 @@ interface JoinHouseholdRpcResult {
 
 function mapJoinError(message: string): { code: string; message: string } {
   const lower = message.toLowerCase();
+  // supabase/migrations/0007_harden_membership_and_rpcs.sql (DB-5): the
+  // server now throttles guessing (10 failed attempts/hour) and collapses
+  // not-found/already-used/expired into ONE generic message ("invite code
+  // is invalid") so a client can no longer use distinct error text to
+  // enumerate valid codes. These two branches match the CURRENT server;
+  // the branches below them are kept for an older server (pre-0007) that
+  // still raises the specific messages.
+  if (lower.includes('too many attempts')) {
+    return { code: 'INVITE_THROTTLED', message: 'Too many attempts. Try again in an hour.' };
+  }
+  if (lower.includes('invite code is invalid')) {
+    return {
+      code: 'INVITE_INVALID',
+      message:
+        "That invite code isn't valid. Check it with the person who invited you — codes expire and can only be used once.",
+    };
+  }
   if (lower.includes('expired')) {
     return { code: 'INVITE_EXPIRED', message: 'This invite code has expired' };
   }

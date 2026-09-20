@@ -238,6 +238,40 @@ describe('RolloverWizard', () => {
     });
   });
 
+  it('shows a "Moved ... into your savings funds" line when the commit funded persistent envelopes', async () => {
+    mockExecute.mockResolvedValue({
+      success: true,
+      data: { count: 2, contributionCount: 1, contributedCents: 50000 },
+    });
+    const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+    await findByTestId('rollover-step-review');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-adjust');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-commit');
+    fireEvent.press(getByTestId('rollover-commit'));
+
+    const contributedLine = await findByTestId('rollover-contributed-cents');
+    expect(contributedLine.props.children).toContain('R500');
+  });
+
+  it('does not show the contributed-cents line when nothing was contributed', async () => {
+    mockExecute.mockResolvedValue({
+      success: true,
+      data: { count: 2, contributionCount: 0, contributedCents: 0 },
+    });
+    const { findByTestId, getByTestId, queryByTestId } = render(<RolloverWizard {...baseProps} />);
+    await findByTestId('rollover-step-review');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-adjust');
+    fireEvent.press(getByTestId('rollover-next'));
+    await findByTestId('rollover-step-commit');
+    fireEvent.press(getByTestId('rollover-commit'));
+
+    await findByTestId('rollover-success');
+    expect(queryByTestId('rollover-contributed-cents')).toBeNull();
+  });
+
   it('an edited allocation produces a synced-repo update; an unedited one does not', async () => {
     const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
     await findByTestId('rollover-step-review');

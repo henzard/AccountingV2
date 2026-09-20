@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
-import { and, eq, gte, desc } from 'drizzle-orm';
+import { and, eq, gte, desc, isNull } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { transactions as transactionsTable } from '../../data/local/schema';
 import type { TransactionEntity } from '../../domain/transactions/TransactionEntity';
+import { useReloadOnSync } from './useReloadOnSync';
 
 export interface UseTransactionsResult {
   transactions: TransactionEntity[];
@@ -27,6 +28,7 @@ export function useTransactions(householdId: string, periodStart: string): UseTr
           and(
             eq(transactionsTable.householdId, householdId),
             gte(transactionsTable.transactionDate, periodStart),
+            isNull(transactionsTable.deletedAt),
           ),
         )
         .orderBy(desc(transactionsTable.transactionDate));
@@ -37,6 +39,10 @@ export function useTransactions(householdId: string, periodStart: string): UseTr
       setLoading(false);
     }
   }, [householdId, periodStart]);
+
+  // A partner's transaction lands in local SQLite during a sync round;
+  // without this the screen showed it only after navigating away and back.
+  useReloadOnSync(reload);
 
   return { transactions: txs, loading, error, reload };
 }

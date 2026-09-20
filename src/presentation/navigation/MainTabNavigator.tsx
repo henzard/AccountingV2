@@ -8,6 +8,7 @@ import { MetersStackNavigator } from './MetersStackNavigator';
 import { SnowballStackNavigator } from './SnowballStackNavigator';
 import { SettingsStackNavigator } from '../screens/settings/SettingsStackNavigator';
 import { ToastHost } from '../components/shared/ToastHost';
+import { ConfirmDialogHost } from '../components/shared/ConfirmDialogHost';
 import { OfflineBanner } from '../components/shared/OfflineBanner';
 import { useAppTheme } from '../theme/useAppTheme';
 import type { MainTabParamList } from './types';
@@ -55,7 +56,7 @@ export function MainTabNavigator(): React.JSX.Element {
           name="Transactions"
           component={TransactionsStackNavigator}
           options={{
-            tabBarLabel: 'Budget',
+            tabBarLabel: 'Transactions',
             tabBarIcon: ({ color, size }) => (
               <TabIcon name="swap-horizontal" color={color} size={size} />
             ),
@@ -89,6 +90,7 @@ export function MainTabNavigator(): React.JSX.Element {
         />
       </Tab.Navigator>
       <ToastHost />
+      <ConfirmDialogHost />
     </View>
   );
 }

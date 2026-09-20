@@ -10,6 +10,15 @@ import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 interface SinkingFundCardProps {
   envelope: EnvelopeEntity;
+  /**
+   * Money actually saved in this fund, derived from the contribution ledger
+   * (`getPersistentEnvelopeSavedCents`). It is a required prop rather than
+   * something the card derives, because `envelope.allocatedCents` is the
+   * MONTHLY contribution: passing it as "saved" — which this card used to do
+   * for BOTH figures — made every fund read the same amount forever and
+   * declared any goal with one month's allocation "on track".
+   */
+  savedCents: number;
   onPress?: () => void;
   testID?: string;
 }
@@ -18,6 +27,7 @@ const projector = new SinkingFundProjector();
 
 export function SinkingFundCard({
   envelope,
+  savedCents,
   onPress,
   testID,
 }: SinkingFundCardProps): React.JSX.Element {
@@ -26,9 +36,11 @@ export function SinkingFundCard({
   const projection =
     envelope.targetAmountCents != null && envelope.targetDate != null
       ? projector.project({
-          savedCents: envelope.allocatedCents,
+          savedCents,
           targetAmountCents: envelope.targetAmountCents,
           targetDate: envelope.targetDate,
+          // The monthly rate the goal is being funded at — this IS
+          // `allocatedCents`, one period's contribution.
           currentMonthlyCents: envelope.allocatedCents,
         })
       : null;
@@ -57,7 +69,7 @@ export function SinkingFundCard({
           <>
             <View style={styles.amountRow}>
               <Text variant="headlineSmall" style={{ color: colors.onSurface }}>
-                {formatCurrency(envelope.allocatedCents)}
+                {formatCurrency(savedCents)}
               </Text>
               <Text style={[styles.target, { color: colors.onSurfaceVariant }]}>
                 {' of '}

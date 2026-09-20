@@ -36,7 +36,9 @@
 
 import { sql } from 'drizzle-orm';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { PortableDb } from '../uow/UnitOfWork';
+import { notifyOplogWrite, type PortableDb } from '../uow/UnitOfWork';
+import { UNASSIGNED_DEVICE_ID, getSyncWriteDefaults } from '../../domain/shared/syncWrite';
+import { isActiveEmergencyFund, resolveIncomingEmergencyFund } from './emergencyFundConflict';
 import { logger } from '../../infrastructure/logging/Logger';
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,11 @@ export interface PushSummary {
   applied: number;
   deadLettered: number;
   backedOff: number;
+  /** True if a `sync_push` call itself failed (network / 5xx / timeout /
+   * abort). The ops are intact and backed off — but the round did NOT reach
+   * the server, so the caller must not report it as a successful sync
+   * (SYNC-10). */
+  transportFailed: boolean;
 }
 
 export interface PullSummary {
@@ -134,6 +141,28 @@ export interface PullSummary {
    * for the diagnostic detail). When true, this call did not contact the
    * transport at all (§7.2). */
   blocked: boolean;
+  /** True if a `sync_pull` call itself failed (network / 5xx / timeout /
+   * abort) — see `PushSummary.transportFailed`. */
+  transportFailed: boolean;
+}
+
+/** Outcome of one full `sync()` round (SYNC-10). `transportFailed` or
+ * `pullBlocked` mean the round did NOT fully succeed, so the caller must not
+ * stamp a "last synced at" for it. `skipped` means a round for the same scope
+ * was already in flight (single-flight) — neither success nor failure. */
+export interface SyncSummary {
+  push?: PushSummary;
+  pull?: PullSummary;
+  transportFailed: boolean;
+  pullBlocked: boolean;
+  skipped: boolean;
+}
+
+/** Side effects one applied batch produced that must be acted on only after
+ * its transaction has COMMITTED (a rollback must undo them too). */
+interface ApplyEffects {
+  /** A SYNC-5 emergency-fund demotion appended a local op that needs pushing. */
+  queuedLocalOps: boolean;
 }
 
 /** Diagnostic surface for a household's puller (Task 5's Sync Health UI).
@@ -182,6 +211,23 @@ export const PERMANENT_REJECT_CODES: ReadonlySet<string> = new Set([
   'wrong_household',
   'not_member',
 ]);
+
+/**
+ * Reject codes that are KNOWN-transient: the op is well-formed and the caller
+ * is entitled to it, the server just cannot apply it YET. These are backed
+ * off indefinitely (capped exponential — at most one attempt a minute) and
+ * NEVER dead-lettered, because the reason they fail is an ordering condition
+ * that resolves itself once the op they depend on lands.
+ *
+ * `row_missing`: the target row does not exist server-side yet, i.e. its
+ * `insert` op is still queued (or still backing off) on this device. Before
+ * the server distinguished it, this came back as `wrong_household` — a
+ * PERMANENT code — so a perfectly good update/delete was dead-lettered
+ * forever whenever per-op backoff let it overtake its own insert (SYNC-4).
+ * The head-of-line rule in `fetchPushable` stops that overtake happening in
+ * the first place; this is the safety net for an op that already got ahead.
+ */
+export const TRANSIENT_REJECT_CODES: ReadonlySet<string> = new Set(['row_missing']);
 
 export interface SyncEngineOptions {
   /** Max ops per `sync_push` call. Default 50. */
@@ -243,6 +289,35 @@ function toWireOp(op: PushableOp): WireOp {
     actor_user_id: op.actor_user_id,
     client_created_at: op.client_created_at,
   };
+}
+
+/**
+ * Keeps a household's bootstrap pair in ONE `sync_push` call (SYNC-4).
+ *
+ * Creating a household writes two ops back to back: the `households` insert
+ * and the owner's `household_members` insert. The server's membership check
+ * runs per op against committed state, so a `households` insert that lands in
+ * batch N with its owner membership left for batch N+1 leaves a window in
+ * which the creator is not yet a member of the household they just made —
+ * every op in between is rejected `not_member`, which is PERMANENT, so the
+ * whole burst is dead-lettered.
+ *
+ * `ops` is one op longer than `limit` (the peeked next op). If the batch would
+ * end on a `households` insert whose adjacent `household_members` insert falls
+ * on the other side of the boundary, drop the `households` insert too so the
+ * pair moves together into the next batch.
+ */
+function trimHouseholdBootstrapSplit(ops: PushableOp[], limit: number): PushableOp[] {
+  const last = ops[limit - 1];
+  const next = ops[limit];
+  const splitsBootstrap =
+    limit > 1 &&
+    last.table_name === 'households' &&
+    last.op_type === 'insert' &&
+    next.table_name === 'household_members' &&
+    next.op_type === 'insert' &&
+    next.household_id === last.household_id;
+  return ops.slice(0, splitsBootstrap ? limit - 1 : limit);
 }
 
 /** Capped exponential backoff: min(cap, base * 2^retryCount) added to `nowIso`. */
@@ -331,12 +406,30 @@ export class SyncEngine {
     return this.withLock(`pull:${householdId}`, () => this.drainPull(householdId));
   }
 
-  /** Full round: push everything, then drain-pull the household. */
-  async sync(householdId: string): Promise<void> {
-    await this.withLock(`sync:${householdId}`, async () => {
-      await this.withLock('push', () => this.drainPush());
-      await this.withLock(`pull:${householdId}`, () => this.drainPull(householdId));
+  /**
+   * Full round: push everything, then drain-pull the household. Returns what
+   * actually happened (SYNC-10) — a transport failure never throws out of
+   * push/pull, so without this summary the caller cannot tell a round that
+   * reached the server from one that never left the device and would stamp
+   * "last synced" on a completely failed round.
+   */
+  async sync(householdId: string): Promise<SyncSummary> {
+    const summary = await this.withLock(`sync:${householdId}`, async () => {
+      const push = await this.withLock('push', () => this.drainPush());
+      const pull = await this.withLock(`pull:${householdId}`, () => this.drainPull(householdId));
+      const result: SyncSummary = {
+        push,
+        pull,
+        // An inner single-flight skip (`undefined`) means another round is
+        // already draining that half — not a failure, and not this round's
+        // success to claim either.
+        transportFailed: Boolean(push?.transportFailed) || Boolean(pull?.transportFailed),
+        pullBlocked: Boolean(pull?.blocked),
+        skipped: push === undefined && pull === undefined,
+      };
+      return result;
     });
+    return summary ?? { transportFailed: false, pullBlocked: false, skipped: true };
   }
 
   /** Sync Health surface (Task 5): is this household's puller stalled on a
@@ -469,7 +562,23 @@ export class SyncEngine {
         // Full replace with the server's current row -- converges local
         // state to server truth regardless of what the rejected write left
         // behind locally.
-        const keys = Object.keys(state).map(assertIdent);
+        //
+        // Intersect with the LOCAL table's real columns (SYNC-8): the server
+        // row legitimately carries columns this schema does not have (e.g.
+        // `envelopes.spent_cents`, derived server-side and deliberately
+        // dropped locally in migration 0012), and naming a nonexistent column
+        // makes the INSERT throw -- turning "discard this dead-lettered op"
+        // into an unrecoverable error for exactly the tables most likely to
+        // need it.
+        const localColumns = this.localColumns(tx, table);
+        const keys = Object.keys(state)
+          .map(assertIdent)
+          .filter((k) => localColumns.has(k));
+        if (keys.length === 0) {
+          throw new Error(
+            `SyncEngine.discardDeadLettered: server row for "${table}" has no column in common with the local schema`,
+          );
+        }
         const colList = sql.raw(keys.join(', '));
         const values = sql.join(
           keys.map((k) => sql`${coerceValue(state![k])}`),
@@ -488,13 +597,34 @@ export class SyncEngine {
     logger.info('SyncEngine: dead-lettered op discarded, row refreshed from server', { opId });
   }
 
+  /** The column names the LOCAL `table` actually has, via `PRAGMA table_info`
+   * (`table` is already `assertIdent`-checked by the caller). */
+  private localColumns(tx: PortableDb, table: string): Set<string> {
+    const rows = tx.all<{ name: string }>(sql.raw(`PRAGMA table_info(${table})`));
+    return new Set(rows.map((r) => r.name));
+  }
+
   // ----- pusher -------------------------------------------------------------
 
   private async drainPush(): Promise<PushSummary> {
-    const summary: PushSummary = { batches: 0, applied: 0, deadLettered: 0, backedOff: 0 };
+    const summary: PushSummary = {
+      batches: 0,
+      applied: 0,
+      deadLettered: 0,
+      backedOff: 0,
+      transportFailed: false,
+    };
+
+    // Households whose head-of-line op was transiently rejected during THIS
+    // drain. Everything behind that op is causally downstream of it, so we
+    // stop sending this household's ops for the rest of the drain rather than
+    // letting a later op reach the server ahead of the one it depends on
+    // (SYNC-4). The next drain re-reads state from the oplog, where the
+    // rejected op's `next_attempt_at` now holds the line via `fetchPushable`.
+    const stalledHouseholds = new Set<string>();
 
     for (;;) {
-      const batch = this.fetchPushable(this.clock(), this.batchSize);
+      const batch = this.fetchPushable(this.clock(), this.batchSize, stalledHouseholds);
       if (batch.length === 0) break;
       summary.batches += 1;
       const ops = batch.map(toWireOp);
@@ -510,6 +640,7 @@ export class SyncEngine {
         const now = this.clock();
         for (const op of batch) this.backoffOp(op.op_id, op.retry_count, now);
         summary.backedOff += batch.length;
+        summary.transportFailed = true;
         logger.warn('SyncEngine.push: transport failure, batch backed off', {
           count: batch.length,
           error: err instanceof Error ? err.message : String(err),
@@ -533,6 +664,13 @@ export class SyncEngine {
           // concurrent drain / dead-letter is never clobbered.
           this.markPushed(op.op_id, now);
           summary.applied += 1;
+        } else if (res.code !== null && TRANSIENT_REJECT_CODES.has(res.code)) {
+          // Known-transient (see TRANSIENT_REJECT_CODES): back off forever,
+          // never dead-letter — the op is valid, its prerequisite just hasn't
+          // landed. Stalls the household for the rest of this drain.
+          this.backoffOp(op.op_id, op.retry_count, now);
+          summary.backedOff += 1;
+          stalledHouseholds.add(op.household_id);
         } else if (res.code !== null && PERMANENT_REJECT_CODES.has(res.code)) {
           this.deadLetter(op.op_id, now, res.code);
           summary.deadLettered += 1;
@@ -544,6 +682,7 @@ export class SyncEngine {
         } else {
           this.backoffOp(op.op_id, op.retry_count, now);
           summary.backedOff += 1;
+          stalledHouseholds.add(op.household_id);
         }
       }
       // Applied -> pushed_at set; dead-lettered -> dead_lettered_at set; backed
@@ -555,17 +694,63 @@ export class SyncEngine {
     return summary;
   }
 
-  private fetchPushable(nowIso: string, limit: number): PushableOp[] {
-    return this.db.all<PushableOp>(sql`
+  /**
+   * The next eligible ops to push, oldest-first, with CAUSAL ORDER preserved
+   * per household (SYNC-4).
+   *
+   * The `NOT EXISTS` clause is the head-of-line rule: an op is eligible only
+   * while NO EARLIER unpushed, non-dead-lettered op of the same household is
+   * still inside its backoff window. Without it, per-op backoff reorders a
+   * household's stream — an `insert` that transiently failed sits out its
+   * backoff while the `update`/`delete` for the SAME row is pushed ahead of
+   * it and is rejected against a row the server has never seen (permanently
+   * dead-lettered as `wrong_household` before the server grew `row_missing`).
+   *
+   * "Earlier" is `rowid`: the local oplog is append-only and `seq_local` is
+   * never populated by the writer, so insertion order IS rowid order — the
+   * same order the `ORDER BY` below drains in. `household_id IS` (not `=`)
+   * so the comparison also groups the NULL-household ops correctly.
+   *
+   * `stalled` households are excluded outright — see `drainPush`.
+   */
+  private fetchPushable(
+    nowIso: string,
+    limit: number,
+    stalled: ReadonlySet<string> = new Set(),
+  ): PushableOp[] {
+    const stalledClause =
+      stalled.size > 0
+        ? sql`AND (o.household_id IS NULL OR o.household_id NOT IN (${sql.join(
+            [...stalled].map((h) => sql`${h}`),
+            sql.raw(', '),
+          )}))`
+        : sql``;
+
+    // One extra row so the batch-boundary check below can look at the op that
+    // WOULD have been first in the next batch without a second query.
+    const rows = this.db.all<PushableOp>(sql`
       SELECT op_id, household_id, table_name, row_id, op_type, payload,
              actor_user_id, device_id, client_created_at, retry_count
-      FROM oplog
+      FROM oplog AS o
       WHERE pushed_at IS NULL
         AND dead_lettered_at IS NULL
         AND (next_attempt_at IS NULL OR next_attempt_at <= ${nowIso})
+        ${stalledClause}
+        AND NOT EXISTS (
+          SELECT 1 FROM oplog AS earlier
+          WHERE earlier.household_id IS o.household_id
+            AND earlier.rowid < o.rowid
+            AND earlier.pushed_at IS NULL
+            AND earlier.dead_lettered_at IS NULL
+            AND earlier.next_attempt_at IS NOT NULL
+            AND earlier.next_attempt_at > ${nowIso}
+        )
       ORDER BY seq_local ASC, rowid ASC
-      LIMIT ${limit}
+      LIMIT ${limit + 1}
     `);
+
+    if (rows.length <= limit) return rows;
+    return trimHouseholdBootstrapSplit(rows, limit);
   }
 
   private markPushed(opId: string, pushedAtIso: string): void {
@@ -601,7 +786,12 @@ export class SyncEngine {
   // ----- puller -------------------------------------------------------------
 
   private async drainPull(householdId: string): Promise<PullSummary> {
-    const summary: PullSummary = { batches: 0, applied: 0, blocked: false };
+    const summary: PullSummary = {
+      batches: 0,
+      applied: 0,
+      blocked: false,
+      transportFailed: false,
+    };
 
     // POISON BATCH: already flagged blocked for this household — a batch that
     // needs a code fix (schema drift) is never retried automatically, so
@@ -635,6 +825,7 @@ export class SyncEngine {
         // of pull() (§7.2) — letting it propagate would repeatedly hammer a
         // flaky link every time the trigger loop calls pull() again.
         this.backoffTransientPull(householdId, err);
+        summary.transportFailed = true;
         break;
       }
       if (rows.length === 0) break;
@@ -768,18 +959,21 @@ export class SyncEngine {
     rows: ServerOplogRow[],
   ): { cursor: number; applied: number } {
     const fallbackNow = this.clock();
-    return this.db.transaction((tx) => {
+    // Side effects the batch produced that the caller must act on AFTER the
+    // transaction commits (never inside it).
+    const effects: ApplyEffects = { queuedLocalOps: false };
+    const result = this.db.transaction((tx) => {
       let maxSeq = 0;
       let applied = 0;
       for (const row of rows) {
         const seq = Number(row.seq);
         if (seq > maxSeq) maxSeq = seq;
         // Own increments only: already folded in locally + non-idempotent.
-        if (row.device_id === this.deviceId && row.op_type === 'increment') continue;
+        if (row.op_type === 'increment' && this.isOwnIncrement(tx, row)) continue;
         const seen = tx.get(sql`SELECT 1 AS x FROM oplog_applied WHERE op_id = ${row.op_id}`);
         if (seen) continue; // R5: already applied -> no-op
         tx.run(sql`INSERT OR IGNORE INTO oplog_applied (op_id) VALUES (${row.op_id})`);
-        this.applyOne(tx, row, fallbackNow);
+        this.applyOne(tx, row, fallbackNow, effects);
         applied += 1;
       }
       // Cursor advance — SAME transaction as the applied ops. MAX() keeps it
@@ -791,15 +985,103 @@ export class SyncEngine {
       `);
       return { cursor: maxSeq, applied };
     });
+
+    // A SYNC-5 demotion appended a local `update` op inside the committed
+    // transaction above. Wake the after-write trigger so it is pushed on the
+    // next round rather than waiting for an unrelated one — bounded, because
+    // once the household has a single active EMF the rule stops matching.
+    if (effects.queuedLocalOps) notifyOplogWrite(householdId);
+
+    return result;
+  }
+
+  /**
+   * True if this pulled `increment` op was AUTHORED BY THIS DEVICE and is
+   * therefore already folded into local state — re-applying it would
+   * double-count the delta (money corruption, SYNC-1).
+   *
+   * Normally that is a device-id match. The extra clause covers ops written
+   * by SHIPPED builds before `setSyncWriteDefaults` existed: those carry the
+   * placeholder `UNASSIGNED_DEVICE_ID`, not this install's real id, so after
+   * the upgrade a device-id comparison alone would treat its OWN historical
+   * increments as remote and re-apply every one of them on the next pull. A
+   * placeholder-attributed op whose `op_id` is in THIS device's local oplog
+   * can only have been written here.
+   *
+   * (Ops written from now on are additionally recorded in `oplog_applied` at
+   * write time — see `runInUnitOfWork` — so the `seen` check below catches
+   * them regardless of attribution. This stays as the ledger-independent
+   * backstop and the migration path for already-pushed history.)
+   */
+  private isOwnIncrement(tx: PortableDb, row: ServerOplogRow): boolean {
+    if (row.device_id === this.deviceId) return true;
+    if (row.device_id !== UNASSIGNED_DEVICE_ID) return false;
+    return tx.get(sql`SELECT 1 AS x FROM oplog WHERE op_id = ${row.op_id}`) != null;
+  }
+
+  /**
+   * SYNC-5. An inbound ACTIVE `emergency_fund` envelope can collide with one
+   * this device already has (two members each created one offline) — a
+   * violation of the local partial unique index from migration 0013, NOT of
+   * the row's primary key. `INSERT OR IGNORE` cannot tell those apart, so it
+   * silently dropped the other member's envelope.
+   *
+   * Runs the shared deterministic rule instead (see emergencyFundConflict.ts)
+   * and returns the payload to write, with `envelope_type` rewritten to
+   * whatever that rule says this row must be stored as. Any demotion of the
+   * LOCAL row happens inside the same transaction as this batch, with its own
+   * `update` op so it replicates.
+   *
+   * Applied to `update` as well as `insert`: an update that flips a row TO
+   * emergency_fund hits the same index and would otherwise throw and poison
+   * the batch.
+   */
+  private resolveEmergencyFundType(
+    tx: PortableDb,
+    table: string,
+    row: ServerOplogRow,
+    fallbackNow: string,
+    effects: ApplyEffects,
+  ): Record<string, unknown> {
+    const payload = row.payload ?? {};
+    if (table !== 'envelopes') return payload;
+    if (row.op_type !== 'insert' && row.op_type !== 'update') return payload;
+    if (!isActiveEmergencyFund(payload)) return payload;
+
+    const before = this.countLocalOps(tx);
+    const storedType = resolveIncomingEmergencyFund(tx, {
+      householdId: row.household_id,
+      incomingId: row.row_id,
+      incomingCreatedAt: typeof payload.created_at === 'string' ? payload.created_at : fallbackNow,
+      ctx: {
+        deviceId: this.deviceId,
+        actorUserId: getSyncWriteDefaults().actorUserId,
+        clock: this.clock,
+      },
+    });
+    if (this.countLocalOps(tx) > before) effects.queuedLocalOps = true;
+    return { ...payload, envelope_type: storedType };
+  }
+
+  /** Total rows in the local oplog — used only to detect that the
+   * emergency-fund rule queued a demotion op for pushing. */
+  private countLocalOps(tx: PortableDb): number {
+    const row = tx.get<{ c: number }>(sql`SELECT COUNT(*) AS c FROM oplog`);
+    return row ? Number(row.c) : 0;
   }
 
   /** Applies one inbound op to the local entity table. Writes ONLY real local
    * columns — the payload never carries derived/local-only columns (e.g. the
    * dropped `envelopes.spent_cents`) because the server allowlist rejects any
    * column outside the entity's real schema. */
-  private applyOne(tx: PortableDb, row: ServerOplogRow, fallbackNow: string): void {
+  private applyOne(
+    tx: PortableDb,
+    row: ServerOplogRow,
+    fallbackNow: string,
+    effects: ApplyEffects,
+  ): void {
     const table = assertIdent(row.table_name);
-    const payload = row.payload ?? {};
+    const payload = this.resolveEmergencyFundType(tx, table, row, fallbackNow, effects);
 
     if (row.op_type === 'insert') {
       const keys = Object.keys(payload).map(assertIdent);

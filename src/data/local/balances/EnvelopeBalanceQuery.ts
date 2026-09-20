@@ -36,6 +36,10 @@ interface EnvelopeSpendRow {
   total_cents: number | null;
 }
 
+interface PersistentEnvelopeRow {
+  id: string;
+}
+
 /** Renders a fixed, non-user-controlled list of envelope-type literals as a SQL IN(...) clause. */
 function typeInClause(types: readonly string[]): string {
   return types.map((type) => `'${type}'`).join(',');
@@ -129,6 +133,86 @@ export async function getEnvelopeSpentCents(
   for (const row of spendRows) {
     if (result.has(row.envelope_id)) {
       result.set(row.envelope_id, row.total_cents ?? 0);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Derived SAVED balance of every PERSISTENT envelope
+ * ('sinking_fund' | 'emergency_fund' | 'savings' | 'baby_step') of
+ * `householdId`:
+ *
+ *   savedCents = SUM(envelope_contributions.amount_cents)
+ *              - SUM(transactions.amount_cents)
+ *
+ * `allocatedCents` deliberately plays NO part here. On a persistent envelope
+ * it is the MONTHLY contribution the user budgets, not a balance — reading it
+ * as "saved" is what made a R500/month fund read R500 forever however many
+ * months had been budgeted, and let Baby Step 1 complete the instant someone
+ * typed R1,000 into the allocation field. Money only enters a fund when a
+ * period actually rolls over and `StartNewPeriodUseCase` writes its
+ * contribution row (plus the one-off legacy `opening_balance` row — see
+ * `PersistentContributions`).
+ *
+ * Period-scoped envelopes are absent from the result: their balance is
+ * `allocatedCents - spentCents` within their own period's row, which
+ * `getEnvelopeSpentCents` already serves.
+ *
+ * Returns a Map of every persistent envelope's id to its saved cents,
+ * including 0 for a fund that has never been funded.
+ */
+export async function getPersistentEnvelopeSavedCents(
+  db: EnvelopeBalanceDb,
+  householdId: string,
+): Promise<Map<string, number>> {
+  const envelopeRows = (await db.all(
+    sql`SELECT id FROM envelopes
+        WHERE household_id = ${householdId}
+          AND deleted_at IS NULL
+          AND envelope_type IN (${sql.raw(typeInClause(PERSISTENT_TYPES))})`,
+  )) as PersistentEnvelopeRow[];
+
+  const result = new Map<string, number>();
+  for (const row of envelopeRows) {
+    result.set(row.id, 0);
+  }
+  if (result.size === 0) return result;
+
+  const envelopeIdList = sql.join(
+    Array.from(result.keys()).map((id) => sql`${id}`),
+    sql.raw(', '),
+  );
+
+  const contributionRows = (await db.all(
+    sql`SELECT envelope_id, SUM(amount_cents) AS total_cents
+        FROM envelope_contributions
+        WHERE household_id = ${householdId}
+          AND deleted_at IS NULL
+          AND envelope_id IN (${envelopeIdList})
+        GROUP BY envelope_id`,
+  )) as EnvelopeSpendRow[];
+
+  for (const row of contributionRows) {
+    if (result.has(row.envelope_id)) {
+      result.set(row.envelope_id, row.total_cents ?? 0);
+    }
+  }
+
+  const spendRows = (await db.all(
+    sql`SELECT envelope_id, SUM(amount_cents) AS total_cents
+        FROM transactions
+        WHERE household_id = ${householdId}
+          AND deleted_at IS NULL
+          AND envelope_id IN (${envelopeIdList})
+        GROUP BY envelope_id`,
+  )) as EnvelopeSpendRow[];
+
+  for (const row of spendRows) {
+    const contributed = result.get(row.envelope_id);
+    if (contributed !== undefined) {
+      result.set(row.envelope_id, contributed - (row.total_cents ?? 0));
     }
   }
 

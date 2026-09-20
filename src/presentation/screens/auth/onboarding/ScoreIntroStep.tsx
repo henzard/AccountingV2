@@ -1,11 +1,13 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { Text, Button, Surface } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { Text, Surface } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { ONBOARDING_TOTAL_STEPS, onboardingStepNumber } from './onboardingSteps';
+import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'ScoreIntro'>;
 
@@ -14,14 +16,16 @@ export function ScoreIntroStep(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
 
   return (
-    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
-      <Text variant="headlineMedium" style={[styles.title, { color: colors.primary }]}>
-        Your Habit Score
-      </Text>
-      <Text variant="bodyMedium" style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
-        Every day you track your spending, your score improves.
-      </Text>
-
+    <OnboardingStepLayout
+      title="Your Habit Score"
+      subtitle="Every day you track your spending, your score improves."
+      step={onboardingStepNumber('ScoreIntro')}
+      totalSteps={ONBOARDING_TOTAL_STEPS}
+      avoidKeyboard={false}
+      ctaLabel="Continue"
+      onCta={() => navigation.navigate('Finish')}
+      onBack={() => navigation.goBack()}
+    >
       <Surface style={[styles.card, { backgroundColor: colors.surface }]} elevation={1}>
         <Text variant="titleMedium" style={[styles.cardTitle, { color: colors.onSurface }]}>
           How it works
@@ -77,26 +81,11 @@ export function ScoreIntroStep(): React.JSX.Element {
           </Text>
         </View>
       </Surface>
-
-      <Button
-        mode="contained"
-        onPress={() => navigation.navigate('Finish')}
-        style={styles.button}
-        contentStyle={styles.buttonContent}
-      >
-        Continue
-      </Button>
-    </ScrollView>
+    </OnboardingStepLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: spacing.xl },
-  title: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    marginBottom: spacing.sm,
-  },
-  subtitle: { marginBottom: spacing.lg },
   card: {
     borderRadius: radius.lg,
     padding: spacing.base,
@@ -121,6 +110,4 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   scaleLabel: { flex: 1 },
-  button: { marginTop: spacing.sm },
-  buttonContent: { paddingVertical: spacing.xs },
 });

@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { spacing } from '../../../theme/tokens';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { ONBOARDING_TOTAL_STEPS, onboardingStepNumber } from './onboardingSteps';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'ExpenseCategories'>;
@@ -55,10 +56,11 @@ export function ExpenseCategoriesStep(): React.JSX.Element {
     <OnboardingStepLayout
       title="What do you spend money on?"
       subtitle="Select categories to create your spending envelopes. You can adjust amounts later."
-      step={3}
-      totalSteps={8}
+      step={onboardingStepNumber('ExpenseCategories')}
+      totalSteps={ONBOARDING_TOTAL_STEPS}
       avoidKeyboard={false}
       onCta={handleNext}
+      onBack={() => navigation.goBack()}
     >
       <View style={styles.chipWrap}>
         {DEFAULT_CATEGORIES.map((cat) => (

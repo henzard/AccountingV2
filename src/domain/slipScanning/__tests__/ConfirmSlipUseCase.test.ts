@@ -9,6 +9,12 @@
  * fails leaves NEITHER item committed, against the real better-sqlite3
  * driver) lives in `tests/realsql/confirmSlipAtomicity.test.ts`, per the
  * spec §4.5 fix.
+ *
+ * DOM-1: "already confirmed" is now keyed on `transactions.slip_id`
+ * existing, NOT `slip_queue.status` (which `ExtractSlipUseCase` already sets
+ * to 'completed' before the user ever confirms) — see `makeDb`'s
+ * `existingTxns` option (Step-1 fast path) and `uow.db.get` mocking (the
+ * atomic Step-3 guard).
  */
 jest.mock('expo-crypto', () => {
   let counter = 0;
@@ -19,21 +25,22 @@ jest.mock('../../../infrastructure/logging/Logger', () => ({
 }));
 
 const mockRunInUnitOfWork = jest.fn((_db: unknown, fn: (uow: unknown) => void) =>
-  fn({ db: {}, appendOp: jest.fn() }),
+  fn({ db: { get: jest.fn(() => undefined) }, appendOp: jest.fn() }),
 );
 jest.mock('../../../data/uow/UnitOfWork', () => ({
   runInUnitOfWork: (...args: [unknown, (uow: unknown) => void]) => mockRunInUnitOfWork(...args),
 }));
 
 const mockInsertRowWithinUow = jest.fn();
-const mockUpdateRowWithinUowGuarded = jest.fn();
+const mockUpdateRowWithinUow = jest.fn();
 jest.mock('../../../data/uow/createSyncedRepo', () => ({
   insertRowWithinUow: (...args: unknown[]) => mockInsertRowWithinUow(...args),
-  updateRowWithinUowGuarded: (...args: unknown[]) => mockUpdateRowWithinUowGuarded(...args),
+  updateRowWithinUow: (...args: unknown[]) => mockUpdateRowWithinUow(...args),
 }));
 
 import { ConfirmSlipUseCase } from '../ConfirmSlipUseCase';
 import type { ISlipQueueRepository, SlipQueueRow } from '../../ports/ISlipQueueRepository';
+import { transactions } from '../../../data/local/schema';
 
 const HOUSEHOLD_ID = 'hh-1';
 
@@ -43,10 +50,10 @@ function makeSlip(overrides: Partial<SlipQueueRow> = {}): SlipQueueRow {
     householdId: HOUSEHOLD_ID,
     createdBy: 'user-1',
     imageUris: [],
-    status: 'processing',
+    status: 'completed', // ExtractSlipUseCase always sets this BEFORE confirm ever runs (DOM-1).
     errorMessage: null,
-    merchant: null,
-    slipDate: null,
+    merchant: 'Checkers',
+    slipDate: '2026-04-13',
     totalCents: null,
     rawResponseJson: null,
     imagesDeletedAt: null,
@@ -70,14 +77,29 @@ function makeRepo(
   };
 }
 
-/** Mocks `db.select().from().where().limit()`, resolving one queued envelope-lookup result per call (in call order — one call per item, in item order). */
-function makeDb(): { db: { select: jest.Mock }; limit: jest.Mock } {
-  const limit = jest.fn();
+/**
+ * Mocks `db.select(...).from(table).where(...).limit(...)`. Branches on the
+ * `table` argument passed to `.from(...)`: the `transactions` table resolves
+ * `existingTxns` (Step-1's "already confirmed" fast-path read); anything
+ * else (the `envelopes` table) resolves the next entry off `envelopeResults`,
+ * in call order — one call per item.
+ */
+function makeDb(opts: { existingTxns?: unknown[]; envelopeResults?: unknown[][] } = {}): {
+  db: { select: jest.Mock };
+  limit: jest.Mock;
+} {
+  const envelopeQueue = [...(opts.envelopeResults ?? [])];
+  const limit = jest.fn(() => Promise.resolve(envelopeQueue.shift() ?? []));
   const db = {
     select: jest.fn(() => ({
-      from: jest.fn(() => ({
-        where: jest.fn(() => ({ limit })),
-      })),
+      from: jest.fn((table: unknown) => {
+        if (table === transactions) {
+          return {
+            where: jest.fn(() => ({ limit: jest.fn().mockResolvedValue(opts.existingTxns ?? []) })),
+          };
+        }
+        return { where: jest.fn(() => ({ limit })) };
+      }),
     })),
   };
   return { db, limit };
@@ -89,12 +111,8 @@ const INCOME_ENVELOPE = [{ id: 'env-income', householdId: HOUSEHOLD_ID, envelope
 beforeEach(() => {
   jest.clearAllMocks();
   mockRunInUnitOfWork.mockImplementation((_db: unknown, fn: (uow: unknown) => void) =>
-    fn({ db: {}, appendOp: jest.fn() }),
+    fn({ db: { get: jest.fn(() => undefined) }, appendOp: jest.fn() }),
   );
-  // Default: the conditional completion UPDATE matched the row (1 row
-  // changed) — i.e. this confirm won. Tests exercising the TOCTOU-loser path
-  // override this to return 0.
-  mockUpdateRowWithinUowGuarded.mockReturnValue(1);
 });
 
 describe('ConfirmSlipUseCase', () => {
@@ -133,8 +151,8 @@ describe('ConfirmSlipUseCase', () => {
     expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
   });
 
-  it('is idempotent: a slip already "completed" returns success with no new writes (double-confirm guard)', async () => {
-    const { db } = makeDb();
+  it('is idempotent (Step-1 fast path): a slip whose item transactions already exist returns success with no new writes — even though slip_queue.status is already "completed" from extraction', async () => {
+    const { db } = makeDb({ existingTxns: [{ id: 'existing-txn' }] });
     const repo = makeRepo(makeSlip({ status: 'completed' }));
     const useCase = new ConfirmSlipUseCase(db as any, repo);
 
@@ -146,15 +164,37 @@ describe('ConfirmSlipUseCase', () => {
     });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.transactionIds).toEqual([]);
+    if (result.success) {
+      expect(result.data.transactionIds).toEqual([]);
+      expect(result.data.totalMismatch).toBe(false);
+    }
     expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
     expect(mockInsertRowWithinUow).not.toHaveBeenCalled();
     expect(repo.update).not.toHaveBeenCalled();
   });
 
-  it('validates every item BEFORE opening the write transaction: an invalid amount on item 1 blocks the whole confirm', async () => {
-    const { db, limit } = makeDb();
-    const repo = makeRepo(makeSlip());
+  it('DOM-1 regression: a freshly-extracted slip (status already "completed", no transactions written yet) is CONFIRMED, not short-circuited', async () => {
+    const { db, limit } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo = makeRepo(makeSlip({ status: 'completed' }));
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.transactionIds).toHaveLength(1);
+    expect(mockRunInUnitOfWork).toHaveBeenCalledTimes(1);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(1);
+    expect(limit).toHaveBeenCalledTimes(1); // the envelope lookup ran
+  });
+
+  it('DOM-12: drops a non-positive line item instead of failing the whole confirm, and never persists it', async () => {
+    const { db, limit } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo = makeRepo(makeSlip({ totalCents: 5000 }));
     const useCase = new ConfirmSlipUseCase(db as any, repo);
 
     const result = await useCase.execute({
@@ -162,20 +202,80 @@ describe('ConfirmSlipUseCase', () => {
       householdId: HOUSEHOLD_ID,
       transactionDate: '2026-04-13',
       items: [
-        { description: 'bad', amountCents: 0, envelopeId: 'env1' },
-        { description: 'eggs', amountCents: 5000, envelopeId: 'env2' },
+        { description: 'discount', amountCents: 0, envelopeId: 'env1' },
+        { description: 'eggs', amountCents: 5000, envelopeId: 'env1' },
       ],
     });
 
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.transactionIds).toHaveLength(1);
+    // Only the positive item was validated/looked up and inserted.
+    expect(limit).toHaveBeenCalledTimes(1);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(1);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+      expect.anything(),
+      'transactions',
+      expect.objectContaining({ amount_cents: 5000 }),
+      expect.anything(),
+    );
+  });
+
+  it('DOM-12: an all-non-positive item list fails as SLIP_EMPTY_ITEMS rather than writing nothing silently', async () => {
+    const { db } = makeDb();
+    const repo = makeRepo(makeSlip());
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'discount', amountCents: -500, envelopeId: 'env1' }],
+    });
+
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
-    expect(limit).not.toHaveBeenCalled(); // never even reached envelope lookups
+    if (!result.success) expect(result.error.code).toBe('SLIP_EMPTY_ITEMS');
     expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
   });
 
+  it('DOM-12: flags totalMismatch (including dropped discount lines in the comparison) without failing the confirm', async () => {
+    const { db } = makeDb({
+      existingTxns: [],
+      envelopeResults: [SPENDING_ENVELOPE, SPENDING_ENVELOPE],
+    });
+    // Slip's extracted total is 4500 (5000 - 500 discount); items sum to the same.
+    const repo = makeRepo(makeSlip({ totalCents: 4500 }));
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const matching = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [
+        { description: 'eggs', amountCents: 5000, envelopeId: 'env1' },
+        { description: 'discount', amountCents: -500, envelopeId: 'env1' },
+      ],
+    });
+    expect(matching.success).toBe(true);
+    if (matching.success) expect(matching.data.totalMismatch).toBe(false);
+
+    const { db: db2 } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo2 = makeRepo(makeSlip({ id: 's2', totalCents: 999999 }));
+    const useCase2 = new ConfirmSlipUseCase(db2 as any, repo2);
+    const mismatched = await useCase2.execute({
+      slipId: 's2',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+    });
+    expect(mismatched.success).toBe(true);
+    if (mismatched.success) expect(mismatched.data.totalMismatch).toBe(true);
+  });
+
   it('validates the SECOND item too, before writing anything for the first (envelope not found)', async () => {
-    const { db, limit } = makeDb();
-    limit.mockResolvedValueOnce(SPENDING_ENVELOPE).mockResolvedValueOnce([]);
+    const { db } = makeDb({
+      existingTxns: [],
+      envelopeResults: [SPENDING_ENVELOPE, []],
+    });
     const repo = makeRepo(makeSlip());
     const useCase = new ConfirmSlipUseCase(db as any, repo);
 
@@ -196,8 +296,7 @@ describe('ConfirmSlipUseCase', () => {
   });
 
   it('rejects an item targeting an income envelope', async () => {
-    const { db, limit } = makeDb();
-    limit.mockResolvedValueOnce(INCOME_ENVELOPE);
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [INCOME_ENVELOPE] });
     const repo = makeRepo(makeSlip());
     const useCase = new ConfirmSlipUseCase(db as any, repo);
 
@@ -213,10 +312,12 @@ describe('ConfirmSlipUseCase', () => {
     expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
   });
 
-  it('happy path: writes all item rows + the slip completion inside ONE runInUnitOfWork call', async () => {
-    const { db, limit } = makeDb();
-    limit.mockResolvedValueOnce(SPENDING_ENVELOPE).mockResolvedValueOnce(SPENDING_ENVELOPE);
-    const repo = makeRepo(makeSlip());
+  it('happy path: writes all item rows (payee = slip.merchant) + the slip completion inside ONE runInUnitOfWork call', async () => {
+    const { db } = makeDb({
+      existingTxns: [],
+      envelopeResults: [SPENDING_ENVELOPE, SPENDING_ENVELOPE],
+    });
+    const repo = makeRepo(makeSlip({ merchant: 'Checkers', totalCents: 8000 }));
     const useCase = new ConfirmSlipUseCase(db as any, repo);
 
     const result = await useCase.execute({
@@ -230,7 +331,10 @@ describe('ConfirmSlipUseCase', () => {
     });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.transactionIds).toHaveLength(2);
+    if (result.success) {
+      expect(result.data.transactionIds).toHaveLength(2);
+      expect(result.data.totalMismatch).toBe(false);
+    }
     expect(mockRunInUnitOfWork).toHaveBeenCalledTimes(1); // ONE transaction, not one per item
     expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(2);
     expect(mockInsertRowWithinUow).toHaveBeenNthCalledWith(
@@ -241,21 +345,19 @@ describe('ConfirmSlipUseCase', () => {
         household_id: HOUSEHOLD_ID,
         envelope_id: 'env1',
         amount_cents: 5000,
+        payee: 'Checkers',
         slip_id: 's1',
       }),
       expect.anything(),
     );
-    // Slip completion is updated INSIDE the same transaction as the inserts,
-    // via the conditional (TOCTOU-guarded) update — the extra arg before ctx
-    // is the `status != 'completed'` guard predicate.
-    expect(mockUpdateRowWithinUowGuarded).toHaveBeenCalledTimes(1);
-    expect(mockUpdateRowWithinUowGuarded).toHaveBeenCalledWith(
+    // Slip completion is updated INSIDE the same transaction as the inserts.
+    expect(mockUpdateRowWithinUow).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRowWithinUow).toHaveBeenCalledWith(
       expect.anything(),
       'slip_queue',
       's1',
       HOUSEHOLD_ID,
       expect.objectContaining({ status: 'completed' }),
-      expect.anything(), // the SQL guard predicate
       expect.anything(),
     );
     // The failure path (mark slip 'failed' via the repo) must NOT have run.
@@ -263,8 +365,10 @@ describe('ConfirmSlipUseCase', () => {
   });
 
   it('on a mid-transaction throw: rolls back (per the mocked runInUnitOfWork) and marks the slip "failed" — not "completed"', async () => {
-    const { db, limit } = makeDb();
-    limit.mockResolvedValueOnce(SPENDING_ENVELOPE).mockResolvedValueOnce(SPENDING_ENVELOPE);
+    const { db } = makeDb({
+      existingTxns: [],
+      envelopeResults: [SPENDING_ENVELOPE, SPENDING_ENVELOPE],
+    });
     mockInsertRowWithinUow
       .mockImplementationOnce(() => undefined)
       .mockImplementationOnce(() => {
@@ -289,16 +393,18 @@ describe('ConfirmSlipUseCase', () => {
       's1',
       expect.objectContaining({ status: 'failed', errorMessage: expect.stringContaining('boom') }),
     );
-    expect(mockUpdateRowWithinUowGuarded).not.toHaveBeenCalled(); // never reached the slip-completion write
+    expect(mockUpdateRowWithinUow).not.toHaveBeenCalled(); // never reached the slip-completion write
   });
 
-  it('TOCTOU loser: the conditional completion UPDATE matching 0 rows returns idempotent success and does NOT mark the slip failed', async () => {
-    const { db, limit } = makeDb();
-    limit.mockResolvedValueOnce(SPENDING_ENVELOPE);
-    // Simulate a concurrent confirm having completed the slip after our
-    // Step-1 read: the guarded `status != 'completed'` UPDATE matches 0 rows.
-    mockUpdateRowWithinUowGuarded.mockReturnValue(0);
-    const repo = makeRepo(makeSlip()); // Step-1 read still sees 'processing'
+  it('TOCTOU loser: the atomic in-transaction existence check finding a row returns idempotent success and does NOT mark the slip failed', async () => {
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    // Simulate a concurrent confirm having inserted this slip's transaction
+    // between our Step-1 read and this write: the in-transaction existence
+    // check (uow.db.get) now finds a row.
+    mockRunInUnitOfWork.mockImplementation((_db: unknown, fn: (uow: unknown) => void) =>
+      fn({ db: { get: jest.fn(() => ({ id: 'txn-from-other-confirm' })) }, appendOp: jest.fn() }),
+    );
+    const repo = makeRepo(makeSlip()); // Step-1 fast path still sees no rows (opts.existingTxns: [])
     const useCase = new ConfirmSlipUseCase(db as any, repo);
 
     const result = await useCase.execute({
@@ -313,11 +419,15 @@ describe('ConfirmSlipUseCase', () => {
     if (result.success) expect(result.data.transactionIds).toEqual([]);
     // The slip must NOT be marked 'failed' — the other confirm succeeded.
     expect(repo.update).not.toHaveBeenCalled();
+    // The loser never inserted a duplicate row.
+    expect(mockInsertRowWithinUow).not.toHaveBeenCalled();
   });
 
   it('writes one best-effort audit log entry per item when an AuditLogger is supplied', async () => {
-    const { db, limit } = makeDb();
-    limit.mockResolvedValueOnce(SPENDING_ENVELOPE).mockResolvedValueOnce(SPENDING_ENVELOPE);
+    const { db } = makeDb({
+      existingTxns: [],
+      envelopeResults: [SPENDING_ENVELOPE, SPENDING_ENVELOPE],
+    });
     const repo = makeRepo(makeSlip());
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const useCase = new ConfirmSlipUseCase(db as any, repo, { audit: audit as any });
@@ -337,8 +447,7 @@ describe('ConfirmSlipUseCase', () => {
   });
 
   it('does not fail the use case when audit logging throws (ledger write already committed)', async () => {
-    const { db, limit } = makeDb();
-    limit.mockResolvedValueOnce(SPENDING_ENVELOPE);
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
     const repo = makeRepo(makeSlip());
     const audit = { log: jest.fn().mockRejectedValue(new Error('audit db down')) };
     const useCase = new ConfirmSlipUseCase(db as any, repo, { audit: audit as any });

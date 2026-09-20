@@ -1,3 +1,4 @@
+import { parse, isValid } from 'date-fns';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
@@ -5,8 +6,23 @@ import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { bestEffortAudit } from '../shared/bestEffortAudit';
 import { isRowNotMatchedError } from '../../data/uow/createSyncedRepo';
+import { getEnvelopeScope } from './EnvelopeEntity';
 import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * True only for a real calendar date in strict 'yyyy-MM-dd' form. Guards
+ * against SinkingFundCard's `parseISO(envelope.targetDate)` crashing the
+ * Sinking Funds screen on a malformed value that made it past the screen's
+ * plain-text input (DOM-9).
+ */
+function isValidDateOnlyString(value: string): boolean {
+  if (!DATE_ONLY_PATTERN.test(value)) return false;
+  return isValid(parse(value, 'yyyy-MM-dd', new Date()));
+}
 
 interface UpdateInput {
   name: string;
@@ -45,10 +61,53 @@ export class UpdateEnvelopeUseCase {
         message: 'Income envelopes cannot have spending',
       });
     }
+    // DOM-9: a malformed targetDate crashes the Sinking Funds screen
+    // downstream (SinkingFundCard parses it with date-fns parseISO).
+    if (this.input.targetDate != null && !isValidDateOnlyString(this.input.targetDate)) {
+      return createFailure({
+        code: 'INVALID_TARGET_DATE',
+        message: 'Target date must be a valid date in yyyy-MM-dd format',
+      });
+    }
 
-    const now = new Date().toISOString();
     const envelopeType =
       this.input.envelopeType !== undefined ? this.input.envelopeType : this.current.envelopeType;
+
+    // UX-10: the edit screen's type selector only lists 4 of the 7
+    // EnvelopeTypes and is locked in the UI once an envelope exists, but this
+    // is the actual enforcement point. Changing type across scope
+    // (period-scoped <-> persistent) would silently repoint a row whose
+    // balance-derivation rule (EnvelopeBalanceQuery) depends on which scope
+    // it's in — e.g. a persistent sinking_fund's id is reused across periods,
+    // but a period-scoped envelope's id is period-specific, so "converting"
+    // one into the other leaves stale/ambiguous balance history behind.
+    if (
+      this.input.envelopeType !== undefined &&
+      this.input.envelopeType !== this.current.envelopeType &&
+      getEnvelopeScope({ envelopeType: this.input.envelopeType }) !==
+        getEnvelopeScope({ envelopeType: this.current.envelopeType })
+    ) {
+      return createFailure({
+        code: 'INVALID_TYPE_CHANGE',
+        message: 'Cannot change envelope type across scope (e.g. a fund into a budget envelope)',
+      });
+    }
+    // Converting a spent-against envelope into 'income' would leave spend
+    // attributed to an envelope type that must always have spentCents = 0
+    // (see the income-mutation guard above) — reject the conversion instead
+    // of silently orphaning that spend.
+    if (
+      envelopeType === 'income' &&
+      this.current.envelopeType !== 'income' &&
+      this.current.spentCents > 0
+    ) {
+      return createFailure({
+        code: 'INVALID_TYPE_CHANGE',
+        message: 'Cannot convert an envelope with recorded spending to income',
+      });
+    }
+
+    const now = new Date().toISOString();
     // L3 (exhaustive audit): editing envelope_type into/out of 'savings' or
     // 'emergency_fund' must recompute is_savings_locked the same way
     // CreateEnvelopeUseCase derives it at creation — otherwise the flag
@@ -138,7 +197,10 @@ export class UpdateEnvelopeUseCase {
       updatedAt: updated.updatedAt,
     };
 
-    await this.audit.log({
+    // The ledger write above has already committed by this point — audit
+    // logging is a secondary, best-effort concern that must not fail this
+    // otherwise-successful update (see bestEffortAudit).
+    await bestEffortAudit(this.audit, {
       householdId: this.current.householdId,
       entityType: 'envelope',
       action: 'update',

@@ -12,6 +12,7 @@ import { useMeterReadings } from '../../hooks/useMeterReadings';
 import { useAppStore } from '../../stores/appStore';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { formatCurrency } from '../../utils/currency';
 import type { MeterReadingEntity } from '../../../domain/meterReadings/MeterReadingEntity';
 import type { RateHistoryScreenProps } from '../../navigation/types';
 
@@ -40,7 +41,7 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
         <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={1}>
           <View style={styles.rowLeft}>
             <Text variant="bodyLarge" style={[styles.reading, { color: colors.onSurface }]}>
-              {item.readingValue.toLocaleString()} {unit}
+              {item.readingValue.toLocaleString('en-ZA')} {unit}
             </Text>
             <Text variant="bodySmall" style={[styles.date, { color: colors.onSurfaceVariant }]}>
               {format(parseISO(item.readingDate), 'd MMM yyyy')}
@@ -57,7 +58,7 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
                 </Text>
                 {rateResult.data.unitRateCents > 0 ? (
                   <Text variant="bodySmall" style={[styles.rate, { color: colors.primary }]}>
-                    R{(rateResult.data.unitRateCents / 100).toFixed(2)}/{unit}
+                    {`${formatCurrency(rateResult.data.unitRateCents)}/${unit}`}
                   </Text>
                 ) : null}
               </>

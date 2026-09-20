@@ -5,6 +5,7 @@ import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { bestEffortAudit } from '../shared/bestEffortAudit';
 import type { EnvelopeEntity } from './EnvelopeEntity';
 
 export class ArchiveEnvelopeUseCase {
@@ -36,7 +37,10 @@ export class ArchiveEnvelopeUseCase {
       });
     }
 
-    await this.audit.log({
+    // The archive write above has already committed by this point — audit
+    // logging is a secondary, best-effort concern that must not fail this
+    // otherwise-successful archive (see bestEffortAudit).
+    await bestEffortAudit(this.audit, {
       householdId: this.envelope.householdId,
       entityType: 'envelope',
       entityId: this.envelope.id,

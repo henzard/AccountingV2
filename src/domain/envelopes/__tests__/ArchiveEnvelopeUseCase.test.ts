@@ -207,3 +207,15 @@ describe('ArchiveEnvelopeUseCase', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('ArchiveEnvelopeUseCase — best-effort audit (DOM-10)', () => {
+  it('still returns success when audit.log rejects after the write has committed', async () => {
+    const repo = makeFakeRepo();
+    const audit = { log: jest.fn().mockRejectedValue(new Error('audit db down')) };
+    const envelope = makeEnvelope();
+    const uc = new ArchiveEnvelopeUseCase(mockDb, audit as any, envelope, { repo });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(repo.update).toHaveBeenCalledTimes(1);
+  });
+});

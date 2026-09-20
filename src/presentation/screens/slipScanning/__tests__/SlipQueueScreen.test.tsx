@@ -192,16 +192,17 @@ describe('SlipQueueScreen', () => {
     expect(getAllByText('Scanning…').length).toBeGreaterThan(0);
   });
 
-  it('displays total in rands for items with totalCents', () => {
+  it('displays total using formatCurrency (ZAR, comma decimal) for items with totalCents', () => {
     const { getAllByText } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
-    expect(getAllByText('R150.00').length).toBeGreaterThan(0);
+    expect(getAllByText('R150,00').length).toBeGreaterThan(0);
   });
 
-  it('navigates to SlipConfirm with a hydrated extraction when completed item is pressed (H5)', () => {
+  it('navigates to SlipConfirm READ-ONLY with a hydrated extraction when a completed item is pressed (H5 + read-only reopen)', () => {
     const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
     fireEvent.press(getByTestId('slip-item-sq-1'));
     expect(mockNavigate).toHaveBeenCalledWith('SlipConfirm', {
       slipId: 'sq-1',
+      readOnly: true,
       extraction: expect.objectContaining({
         merchant: 'PnP',
         slipDate: '2026-04-13',

@@ -7,8 +7,17 @@ export class NetworkObserver {
   private unsubscribe: (() => void) | null = null;
   private callbacks: OnConnectedCallback[] = [];
 
-  onConnected(callback: OnConnectedCallback): void {
+  /** Registers a reconnect callback. Returns an unsubscribe function — this
+   * observer is an app-lifetime singleton, so a caller with a shorter life
+   * (SyncScheduler, re-created on every household switch) must be able to
+   * detach; without it every switch left another dead scheduler's callback
+   * firing on each reconnect. */
+  onConnected(callback: OnConnectedCallback): () => void {
     this.callbacks.push(callback);
+    return () => {
+      const index = this.callbacks.indexOf(callback);
+      if (index >= 0) this.callbacks.splice(index, 1);
+    };
   }
 
   start(): void {

@@ -2,6 +2,7 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { PaperProvider } from 'react-native-paper';
 import { AllocateEnvelopesStep } from '../AllocateEnvelopesStep';
+import { formatCurrency } from '../../../../utils/currency';
 
 const mockExecute = jest.fn().mockResolvedValue({ success: true, data: { id: 'env-x' } });
 jest.mock('../../../../../domain/envelopes/CreateEnvelopeUseCase', () => ({
@@ -9,13 +10,31 @@ jest.mock('../../../../../domain/envelopes/CreateEnvelopeUseCase', () => ({
 }));
 
 const mockNavigate = jest.fn();
+const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: (): object => ({ navigate: mockNavigate }),
+  useNavigation: (): object => ({ navigate: mockNavigate, goBack: mockGoBack }),
   useRoute: (): object => ({ params: { categories: ['Groceries', 'Rent', 'Transport'] } }),
 }));
 
-jest.mock('../../../../../data/local/db', () => ({ db: {} }));
+// The step queries the existing envelopes of the target period to make a
+// second pass (Back then Next) a no-op — see `findExistingNames`. Tests drive
+// that query's result through `mockExistingEnvelopes`.
+let mockExistingEnvelopes: { name: string; envelopeType: string }[] = [];
+jest.mock('../../../../../data/local/db', () => ({
+  db: {
+    select: (): object => ({
+      from: (): object => ({
+        where: (): Promise<unknown[]> => Promise.resolve(mockExistingEnvelopes),
+      }),
+    }),
+  },
+}));
 jest.mock('../../../../../data/audit/AuditLogger', () => ({ AuditLogger: jest.fn() }));
+
+const mockEnqueue = jest.fn();
+jest.mock('../../../../stores/toastStore', () => ({
+  useToastStore: (selector: (s: object) => unknown): unknown => selector({ enqueue: mockEnqueue }),
+}));
 
 jest.mock('../../../../stores/appStore', () => ({
   useAppStore: Object.assign(
@@ -43,6 +62,8 @@ function wrap(el: React.ReactElement): React.ReactElement {
 describe('AllocateEnvelopesStep', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockExistingEnvelopes = [];
+    mockExecute.mockResolvedValue({ success: true, data: { id: 'env-x' } });
   });
 
   it('equal-splits income across categories on first render', () => {
@@ -56,22 +77,24 @@ describe('AllocateEnvelopesStep', () => {
   it('updates To Assign banner as user nudges allocations', () => {
     const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
     fireEvent.changeText(getByTestId('alloc-input-Groceries'), '15000');
-    expect(getByTestId('to-assign').props.children).toContain('-5');
+    // UX-8: the banner is formatted through formatCurrency, not a hand-rolled
+    // `'R' + (cents / 100).toFixed(2)`.
+    expect(getByTestId('to-assign').props.children).toBe(formatCurrency(-500_000));
   });
 
   it('creates one envelope per category plus the income envelope on Next', async () => {
-    const { getByText } = render(wrap(<AllocateEnvelopesStep />));
-    fireEvent.press(getByText('Next'));
+    const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.press(getByTestId('onboarding-cta'));
     await waitFor(() => {
       // 3 category envelopes + 1 'Monthly Income' envelope
       expect(mockExecute).toHaveBeenCalledTimes(4);
     });
-    expect(mockNavigate).toHaveBeenCalledWith('Payday');
+    expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
   });
 
   it('persists the entered income as a Monthly Income income envelope', async () => {
-    const { getByText } = render(wrap(<AllocateEnvelopesStep />));
-    fireEvent.press(getByText('Next'));
+    const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.press(getByTestId('onboarding-cta'));
     await waitFor(() => {
       expect(mockExecute).toHaveBeenCalledTimes(4);
     });
@@ -89,14 +112,96 @@ describe('AllocateEnvelopesStep', () => {
     );
   });
 
-  it('blocks Next when To Assign is not zero', async () => {
-    const { getByTestId, getByText, queryByText } = render(wrap(<AllocateEnvelopesStep />));
-    fireEvent.changeText(getByTestId('alloc-input-Groceries'), '20000');
-    fireEvent.press(getByText('Next'));
+  // ── UX-8: the zero-remainder gate is soft in one direction only ──────────
+  describe('to-assign gate', () => {
+    it('allows Next with money still left to assign, and says so', async () => {
+      const { getByTestId, queryByTestId } = render(wrap(<AllocateEnvelopesStep />));
+      // Under-allocate by R5 000.
+      fireEvent.changeText(getByTestId('alloc-input-Groceries'), '5000');
+
+      expect(queryByTestId('to-assign-hint')).toBeTruthy();
+
+      fireEvent.press(getByTestId('onboarding-cta'));
+      await waitFor(() => {
+        expect(mockExecute).toHaveBeenCalledTimes(4);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
+    });
+
+    it('still blocks Next when allocations exceed income', async () => {
+      const { getByTestId, queryByText } = render(wrap(<AllocateEnvelopesStep />));
+      fireEvent.changeText(getByTestId('alloc-input-Groceries'), '20000');
+      fireEvent.press(getByTestId('onboarding-cta'));
+      await waitFor(() => {
+        expect(queryByText(/more than your income/i)).toBeTruthy();
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── UX-8: idempotency ────────────────────────────────────────────────────
+  it('does not re-create envelopes that already exist for the period (Back then Next)', async () => {
+    // Simulates the first pass having already created everything: a second
+    // pass must create nothing rather than duplicate every envelope — and
+    // above all must not add a SECOND 'Monthly Income', which would double
+    // the household's recorded income.
+    mockExistingEnvelopes = [
+      { name: 'Monthly Income', envelopeType: 'income' },
+      { name: 'Groceries', envelopeType: 'spending' },
+      { name: 'Rent', envelopeType: 'spending' },
+      { name: 'Transport', envelopeType: 'spending' },
+    ];
+    const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.press(getByTestId('onboarding-cta'));
     await waitFor(() => {
-      expect(queryByText(/Your allocations must total/i)).toBeTruthy();
+      expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
     });
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('creates only the envelopes that are missing on a partial second pass', async () => {
+    mockExistingEnvelopes = [
+      { name: 'Monthly Income', envelopeType: 'income' },
+      { name: 'Groceries', envelopeType: 'spending' },
+    ];
+    const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.press(getByTestId('onboarding-cta'));
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalledTimes(2); // Rent + Transport only
+    });
+  });
+
+  // ── UX-8: R0 categories are skipped VISIBLY ──────────────────────────────
+  it('skips R0 categories and tells the user which ones', async () => {
+    const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.changeText(getByTestId('alloc-input-Groceries'), '30000');
+    fireEvent.changeText(getByTestId('alloc-input-Rent'), '0');
+    fireEvent.changeText(getByTestId('alloc-input-Transport'), '0');
+
+    fireEvent.press(getByTestId('onboarding-cta'));
+
+    await waitFor(() => {
+      // Income + Groceries only; the two R0 categories are never sent to a
+      // use case that would reject them with INVALID_AMOUNT.
+      expect(mockExecute).toHaveBeenCalledTimes(2);
+    });
+    expect(mockEnqueue).toHaveBeenCalledWith(expect.stringContaining('Rent, Transport'), 'info');
+    expect(mockNavigate).toHaveBeenCalledWith('ScoreIntro');
+  });
+
+  // ── UX-8: a failed Result is surfaced, not swallowed ─────────────────────
+  it('surfaces a CreateEnvelopeUseCase failure and does not advance', async () => {
+    mockExecute.mockResolvedValue({
+      success: false,
+      error: { code: 'INVALID_NAME', message: 'Envelope name is required' },
+    });
+    const { getByTestId, queryByText } = render(wrap(<AllocateEnvelopesStep />));
+    fireEvent.press(getByTestId('onboarding-cta'));
+    await waitFor(() => {
+      expect(queryByText(/Couldn't save/i)).toBeTruthy();
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // ── Money parsing (M3, 2026-07-05 exhaustive audit) ────────────────────
@@ -106,16 +211,16 @@ describe('AllocateEnvelopesStep', () => {
   // spurious "off by" rejection (or, worse, silently persisting the wrong
   // allocatedCents). It now uses the locale-safe `parseMoneyInput`.
   it('accepts a thousands-separated allocation and creates the envelope with the correct cents', async () => {
-    const { getByTestId, getByText } = render(wrap(<AllocateEnvelopesStep />));
+    const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
     // R30 000 income; put it all behind Groceries via a thousands-separated entry.
     fireEvent.changeText(getByTestId('alloc-input-Groceries'), '30,000');
     fireEvent.changeText(getByTestId('alloc-input-Rent'), '0');
     fireEvent.changeText(getByTestId('alloc-input-Transport'), '0');
 
-    fireEvent.press(getByText('Next'));
+    fireEvent.press(getByTestId('onboarding-cta'));
 
     await waitFor(() => {
-      expect(mockExecute).toHaveBeenCalledTimes(4);
+      expect(mockExecute).toHaveBeenCalledTimes(2);
     });
     const { CreateEnvelopeUseCase: MockCreateEnvelopeUseCase } = jest.requireMock(
       '../../../../../domain/envelopes/CreateEnvelopeUseCase',
@@ -128,12 +233,12 @@ describe('AllocateEnvelopesStep', () => {
   });
 
   it('accepts a comma-decimal allocation and creates the envelope with the correct cents', async () => {
-    const { getByTestId, getByText } = render(wrap(<AllocateEnvelopesStep />));
+    const { getByTestId } = render(wrap(<AllocateEnvelopesStep />));
     fireEvent.changeText(getByTestId('alloc-input-Groceries'), '10000,50');
     fireEvent.changeText(getByTestId('alloc-input-Rent'), '9999,50');
     fireEvent.changeText(getByTestId('alloc-input-Transport'), '10000');
 
-    fireEvent.press(getByText('Next'));
+    fireEvent.press(getByTestId('onboarding-cta'));
 
     await waitFor(() => {
       expect(mockExecute).toHaveBeenCalledTimes(4);
@@ -149,10 +254,10 @@ describe('AllocateEnvelopesStep', () => {
   });
 
   it('rejects a malformed-grouping allocation with an inline error and does not proceed', async () => {
-    const { getByTestId, getByText, queryByTestId } = render(wrap(<AllocateEnvelopesStep />));
+    const { getByTestId, queryByTestId } = render(wrap(<AllocateEnvelopesStep />));
     fireEvent.changeText(getByTestId('alloc-input-Groceries'), '1,00,000');
 
-    fireEvent.press(getByText('Next'));
+    fireEvent.press(getByTestId('onboarding-cta'));
 
     await waitFor(() => {
       expect(queryByTestId('alloc-error-Groceries')).toBeTruthy();

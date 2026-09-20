@@ -236,3 +236,62 @@ describe('CreateEnvelopeUseCase', () => {
     });
   });
 });
+
+describe('CreateEnvelopeUseCase — targetDate validation (DOM-9)', () => {
+  it('rejects a malformed targetDate with INVALID_TARGET_DATE', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      { ...validInput, envelopeType: 'sinking_fund' as const, targetDate: 'not-a-date' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_TARGET_DATE');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('rejects an impossible calendar date with INVALID_TARGET_DATE', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      { ...validInput, envelopeType: 'sinking_fund' as const, targetDate: '2027-13-40' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_TARGET_DATE');
+  });
+
+  it('accepts a valid targetDate', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      { ...validInput, envelopeType: 'sinking_fund' as const, targetDate: '2027-12-01' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a null/absent targetDate', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateEnvelopeUseCase(mockDb, makeAudit() as any, validInput, { repo });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('CreateEnvelopeUseCase — best-effort audit (DOM-10)', () => {
+  it('still returns success when audit.log rejects after the write has committed', async () => {
+    const repo = makeFakeRepo();
+    const audit = { log: jest.fn().mockRejectedValue(new Error('audit db down')) };
+    const uc = new CreateEnvelopeUseCase(mockDb, audit as any, validInput, { repo });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+  });
+});

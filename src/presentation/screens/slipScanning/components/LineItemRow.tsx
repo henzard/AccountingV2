@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, TouchableRipple } from 'react-native-paper';
+import { Text, TextInput, TouchableRipple } from 'react-native-paper';
 import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
+import { formatCurrency } from '../../../utils/currency';
+import { parseMoneyInput } from '../../../utils/parseMoneyInput';
 import type { SlipExtractionItem } from '../../../../domain/slipScanning/types';
 import type { EnvelopeOption } from './EnvelopePickerSheet';
 
@@ -12,19 +14,37 @@ export type LineItemRowProps = {
   selectedEnvelope: EnvelopeOption | null;
   transactionDate: string;
   onSelectEnvelope: (idx: number) => void;
+  /**
+   * UX-14: description/amount are editable and the line is removable
+   * (unless `readOnly`). Omitting these callbacks (or passing `readOnly`)
+   * renders the row as static text — used for an already-confirmed slip
+   * (see SlipQueueScreen), which must never look editable.
+   */
+  onDescriptionChange?: (idx: number, description: string) => void;
+  onAmountChange?: (idx: number, amountCents: number) => void;
+  onRemove?: (idx: number) => void;
+  readOnly?: boolean;
 };
-
-function formatCents(cents: number): string {
-  return `R${(cents / 100).toFixed(2)}`;
-}
 
 export function LineItemRow({
   item,
   index,
   selectedEnvelope,
   onSelectEnvelope,
+  onDescriptionChange,
+  onAmountChange,
+  onRemove,
+  readOnly = false,
 }: LineItemRowProps): React.JSX.Element {
   const { colors } = useAppTheme();
+  const editable = !readOnly && !!(onDescriptionChange && onAmountChange);
+
+  // Local draft for the amount field — kept as raw text so the user can type
+  // "1 500,00" etc. mid-edit without it being reformatted on every keystroke;
+  // only propagated to `onAmountChange` once it parses via the app's shared
+  // `parseMoneyInput` (same parser as AddTransactionScreen).
+  const [amountDraft, setAmountDraft] = useState<string | null>(null);
+  const [amountError, setAmountError] = useState<string | null>(null);
 
   function getConfidenceBorderColor(
     lineItem: SlipExtractionItem,
@@ -42,6 +62,17 @@ export function LineItemRow({
       ? 'low confidence'
       : 'confident';
 
+  function handleAmountChangeText(text: string): void {
+    setAmountDraft(text);
+    const parsed = parseMoneyInput(text);
+    if (!parsed.ok) {
+      setAmountError(parsed.error);
+      return;
+    }
+    setAmountError(null);
+    onAmountChange?.(index, parsed.cents);
+  }
+
   return (
     <View
       style={[
@@ -53,42 +84,89 @@ export function LineItemRow({
         },
       ]}
       testID={`line-item-${index}`}
-      accessibilityLabel={`Line item ${index + 1}: ${item.description}, ${formatCents(item.amountCents)}, ${confidenceLabel}`}
+      accessibilityLabel={`Line item ${index + 1}: ${item.description}, ${formatCurrency(item.amountCents)}, ${confidenceLabel}`}
     >
       <View style={styles.descRow}>
-        <Text
-          variant="bodyMedium"
-          style={[styles.desc, { color: colors.onSurface }]}
-          numberOfLines={2}
-        >
-          {item.description}
-        </Text>
-        <Text variant="bodyMedium" style={[styles.amount, { color: colors.onSurface }]}>
-          {formatCents(item.amountCents)}
-        </Text>
+        {editable ? (
+          <TextInput
+            mode="outlined"
+            dense
+            value={item.description}
+            onChangeText={(text) => onDescriptionChange?.(index, text)}
+            style={styles.descInput}
+            testID={`line-item-description-${index}`}
+            accessibilityLabel={`Description for line item ${index + 1}`}
+          />
+        ) : (
+          <Text
+            variant="bodyMedium"
+            style={[styles.desc, { color: colors.onSurface }]}
+            numberOfLines={2}
+          >
+            {item.description}
+          </Text>
+        )}
+        {editable ? (
+          <TextInput
+            mode="outlined"
+            dense
+            keyboardType="decimal-pad"
+            value={amountDraft ?? formatCurrency(item.amountCents).replace(/^-?R/, '')}
+            onChangeText={handleAmountChangeText}
+            style={styles.amountInput}
+            left={<TextInput.Affix text="R" />}
+            error={amountError !== null}
+            testID={`line-item-amount-${index}`}
+            accessibilityLabel={`Amount for line item ${index + 1}`}
+          />
+        ) : (
+          <Text variant="bodyMedium" style={[styles.amount, { color: colors.onSurface }]}>
+            {formatCurrency(item.amountCents)}
+          </Text>
+        )}
       </View>
-      <TouchableRipple
-        onPress={() => onSelectEnvelope(index)}
-        style={styles.envelopeButton}
-        testID={`line-item-envelope-picker-${index}`}
-        accessibilityRole="button"
-        accessibilityLabel={
-          selectedEnvelope
-            ? `Envelope: ${selectedEnvelope.name}. Double-tap to change.`
-            : 'Assign envelope. Double-tap to select.'
-        }
-      >
-        <Text
-          variant="bodySmall"
-          style={
+      {editable && amountError !== null && (
+        <Text variant="bodySmall" style={{ color: colors.error, marginBottom: 4 }}>
+          {amountError}
+        </Text>
+      )}
+      <View style={styles.footerRow}>
+        <TouchableRipple
+          onPress={() => onSelectEnvelope(index)}
+          style={styles.envelopeButton}
+          testID={`line-item-envelope-picker-${index}`}
+          accessibilityRole="button"
+          accessibilityLabel={
             selectedEnvelope
-              ? [styles.envelopeSelected, { color: colors.primary }]
-              : [styles.envelopePlaceholder, { color: colors.onSurfaceVariant }]
+              ? `Envelope: ${selectedEnvelope.name}. Double-tap to change.`
+              : 'Assign envelope. Double-tap to select.'
           }
         >
-          {selectedEnvelope ? selectedEnvelope.name : 'Assign envelope…'}
-        </Text>
-      </TouchableRipple>
+          <Text
+            variant="bodySmall"
+            style={
+              selectedEnvelope
+                ? [styles.envelopeSelected, { color: colors.primary }]
+                : [styles.envelopePlaceholder, { color: colors.onSurfaceVariant }]
+            }
+          >
+            {selectedEnvelope ? selectedEnvelope.name : 'Assign envelope…'}
+          </Text>
+        </TouchableRipple>
+        {editable && onRemove && (
+          <TouchableRipple
+            onPress={() => onRemove(index)}
+            style={styles.removeButton}
+            testID={`line-item-remove-${index}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove line item ${index + 1}`}
+          >
+            <Text variant="bodySmall" style={{ color: colors.error }}>
+              Remove
+            </Text>
+          </TouchableRipple>
+        )}
+      </View>
     </View>
   );
 }
@@ -102,7 +180,11 @@ const styles = StyleSheet.create({
   descRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   desc: { flex: 1, marginRight: spacing.sm },
   amount: { fontWeight: '600' },
+  descInput: { flex: 1, marginRight: spacing.sm },
+  amountInput: { width: 120 },
+  footerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   envelopeButton: { paddingVertical: 4 },
   envelopeSelected: {},
   envelopePlaceholder: {},
+  removeButton: { paddingVertical: 4, paddingHorizontal: spacing.sm },
 });

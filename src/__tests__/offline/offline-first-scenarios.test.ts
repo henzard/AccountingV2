@@ -68,14 +68,27 @@ function createMockDb(envelopeRows: unknown[] = []) {
     select: jest.fn().mockReturnValue({
       from: jest.fn().mockReturnValue(chainable),
     }),
-    transaction: jest.fn(async (cb: any) => cb(db)),
+    // `runInUnitOfWork` runs against a SYNC-mode Drizzle handle
+    // (PortableDb) — the real `db.transaction` invokes its callback
+    // synchronously and returns its value, it is NOT async. Modelling it as
+    // async made any throw inside the callback surface as an unhandled
+    // promise rejection (the use case does not await `runInUnitOfWork`),
+    // which kills the jest worker instead of failing a test.
+    transaction: jest.fn((cb: any) => cb(db)),
     // LogDebtPaymentUseCase drives runInUnitOfWork directly (raw SQL via
     // `tx.run(...)`) for its combined balance/total_paid/is_paid_off write +
     // its 2 oplog appends (is_paid_off is server-derived, slice 5 task 6) —
     // `ran` records every such call.
+    //
+    // `run` must return a real affected-row count: the use case now calls
+    // `assertRunMatchedRow` on the result so a payment against a missing or
+    // already-deleted debt fails with DEBT_NOT_FOUND instead of silently
+    // appending ops for a row that does not exist. `{ changes: 1 }` is the
+    // "one debt row matched" answer every test here assumes.
     ran: [] as unknown[],
     run: jest.fn().mockImplementation(function (this: any, query: unknown) {
       this.ran.push(query);
+      return { changes: 1 };
     }),
   };
 
@@ -334,12 +347,20 @@ describe('Offline-First Scenarios (airplane mode)', () => {
 
       await uc.execute();
 
-      // One combined entity UPDATE + 2 appendOp INSERTs (balance/total_paid
+      // One combined entity UPDATE, then 2 oplog appends (balance/total_paid
       // increment ops only — is_paid_off is server-derived as of slice 5
-      // task 6, see LogDebtPaymentUseCase's own doc comment), all via raw
-      // SQL through the single db.transaction() below — never through
+      // task 6, see LogDebtPaymentUseCase's own doc comment), all via raw SQL
+      // through the single db.transaction() below — never through
       // ISyncEnqueuer/pending_sync.
-      expect(db.ran).toHaveLength(3);
+      //
+      // Each `increment` append is TWO statements: the oplog row itself, plus
+      // an `oplog_applied` guard row written in the SAME transaction (SYNC-1).
+      // That guard is what stops the puller re-applying this device's own
+      // increment and double-counting the payment, so it is part of the
+      // payment write, not incidental.
+      expect(db.ran).toHaveLength(5);
+      const statements = db.ran.map((q: unknown) => JSON.stringify(q));
+      expect(statements.filter((sql: string) => sql.includes('oplog_applied'))).toHaveLength(2);
     });
 
     it('runs the whole payment inside one db.transaction (atomic write + ops)', async () => {

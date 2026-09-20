@@ -1,13 +1,19 @@
 /**
  * SettingsScreen.test.tsx — B4
  *
- * Tests the sign-out confirmation flow: Alert is shown, destructive action
+ * Tests the sign-out confirmation flow: confirm() is shown (replacing
+ * Alert.alert, a no-op on web via react-native-web), destructive action
  * triggers supabase.auth.signOut() and useAppStore.getState().reset().
  */
 
 import React from 'react';
-import { Alert } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+
+// ─── confirm() mock (ConfirmDialogHost) ────────────────────────────────────────
+const mockConfirm = jest.fn();
+jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
+  confirm: (...args: unknown[]) => mockConfirm(...args),
+}));
 
 // ─── AsyncStorage mock ────────────────────────────────────────────────────────
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -94,7 +100,58 @@ jest.mock('react-native-paper', () => {
         ),
       ),
     );
-  return { Text, Button, List, Surface, Divider, SegmentedButtons };
+  const Portal = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, children);
+  const Dialog = ({
+    visible,
+    children,
+    testID,
+  }: {
+    visible?: boolean;
+    children?: React.ReactNode;
+    testID?: string;
+  }) => (visible ? React.createElement('View', { testID }, children) : null);
+  Dialog.Title = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('Text', {}, children);
+  Dialog.Content = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('View', {}, children);
+  Dialog.Actions = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('View', {}, children);
+  const TextInput = ({
+    label,
+    testID,
+    value,
+    onChangeText,
+    disabled,
+  }: {
+    label?: string;
+    testID?: string;
+    value?: string;
+    onChangeText?: (v: string) => void;
+    disabled?: boolean;
+  }) =>
+    React.createElement('TextInput', { testID: testID ?? label, value, onChangeText, disabled });
+  const HelperText = ({
+    children,
+    testID,
+    visible,
+  }: {
+    children?: React.ReactNode;
+    testID?: string;
+    visible?: boolean;
+  }) => (visible ? React.createElement('Text', { testID }, children) : null);
+  return {
+    Text,
+    Button,
+    List,
+    Surface,
+    Divider,
+    SegmentedButtons,
+    Portal,
+    Dialog,
+    TextInput,
+    HelperText,
+  };
 });
 
 // ─── themeStore mock ──────────────────────────────────────────────────────────
@@ -121,16 +178,39 @@ jest.mock('../../../../infrastructure/notifications/FcmTokenRegistrar', () => ({
 
 // ─── appStore mock ────────────────────────────────────────────────────────────
 const mockReset = jest.fn();
+const mockSetPaydayDay = jest.fn();
+let mockPaydayDay = 25;
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((selector: (s: object) => unknown) =>
     selector({
       session: { user: { email: 'test@example.com', id: 'user-1' } },
       householdId: 'hh-1',
       availableHouseholds: [{ id: 'hh-1', name: 'My Household', paydayDay: 25 }],
+      get paydayDay() {
+        return mockPaydayDay;
+      },
+      setPaydayDay: mockSetPaydayDay,
     }),
   ),
   // getState is called imperatively in SettingsScreen: useAppStore.getState().reset()
   // We expose it here by mutating the mock after import
+}));
+
+// ─── toastStore mock ──────────────────────────────────────────────────────────
+const mockEnqueue = jest.fn();
+jest.mock('../../../stores/toastStore', () => ({
+  useToastStore: jest.fn((selector: (s: { enqueue: () => void }) => unknown) =>
+    selector({ enqueue: (...args: unknown[]) => mockEnqueue(...args) }),
+  ),
+}));
+
+// ─── db + UpdateHouseholdPaydayDayUseCase mocks ──────────────────────────────
+jest.mock('../../../../data/local/db', () => ({ db: {} }));
+const mockPaydayExecute = jest.fn();
+jest.mock('../../../../domain/households/UpdateHouseholdPaydayDayUseCase', () => ({
+  UpdateHouseholdPaydayDayUseCase: jest.fn().mockImplementation(() => ({
+    execute: mockPaydayExecute,
+  })),
 }));
 
 import { SettingsScreen } from '../SettingsScreen';
@@ -171,6 +251,18 @@ describe('SettingsScreen', () => {
     jest.clearAllMocks();
     mockSignOut.mockResolvedValue({ error: null });
     mockUnregisterFcmToken.mockResolvedValue(undefined);
+    mockConfirm.mockResolvedValue(false);
+    mockPaydayDay = 25;
+    mockPaydayExecute.mockResolvedValue({
+      success: true,
+      data: {
+        fromPeriodStart: '2026-08-25',
+        toPeriodStart: '2026-09-01',
+        reKeyedEnvelopeCount: 3,
+        collidedEnvelopeCount: 0,
+        reKeyedContributionCount: 0,
+      },
+    });
     // Re-attach getState after clearAllMocks
     (useAppStore as any).getState = () => ({ reset: mockReset });
   });
@@ -180,27 +272,30 @@ describe('SettingsScreen', () => {
     expect(getByTestId('sign-out-button')).toBeTruthy();
   });
 
-  it('pressing sign-out button calls Alert.alert with correct args', () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+  it('pressing sign-out button calls confirm() with correct args', () => {
     const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
     fireEvent.press(getByTestId('sign-out-button'));
-    expect(alertSpy).toHaveBeenCalledWith(
-      'Sign out?',
-      'You will need to sign in again to access your data.',
-      expect.arrayContaining([
-        expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
-        expect.objectContaining({ text: 'Sign out', style: 'destructive' }),
-      ]),
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Sign out?',
+        message: 'You will need to sign in again to access your data.',
+        confirmLabel: 'Sign out',
+        destructive: true,
+      }),
     );
-    alertSpy.mockRestore();
+  });
+
+  it('does not sign out when the confirm dialog is dismissed', async () => {
+    mockConfirm.mockResolvedValue(false);
+    const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+    fireEvent.press(getByTestId('sign-out-button'));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    expect(mockSignOut).not.toHaveBeenCalled();
   });
 
   it('destructive action calls supabase.auth.signOut (reset is handled by auth listener)', async () => {
-    // Auto-invoke the destructive button when Alert.alert is called
-    jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
-      const destructive = buttons?.find((b) => b.style === 'destructive');
-      destructive?.onPress?.();
-    });
+    mockConfirm.mockResolvedValue(true);
 
     const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
     fireEvent.press(getByTestId('sign-out-button'));
@@ -217,6 +312,7 @@ describe('SettingsScreen', () => {
   // (RLS needs the still-authenticated session), so a shared device's next
   // user doesn't keep receiving the previous user's push notifications.
   it('destructive sign-out action clears this device FCM token before calling supabase.auth.signOut', async () => {
+    mockConfirm.mockResolvedValue(true);
     const callOrder: string[] = [];
     mockUnregisterFcmToken.mockImplementation(async () => {
       callOrder.push('unregisterFcmToken');
@@ -224,10 +320,6 @@ describe('SettingsScreen', () => {
     mockSignOut.mockImplementation(async () => {
       callOrder.push('signOut');
       return { error: null };
-    });
-    jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
-      const destructive = buttons?.find((b) => b.style === 'destructive');
-      destructive?.onPress?.();
     });
 
     const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
@@ -249,5 +341,98 @@ describe('SettingsScreen', () => {
     const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
     fireEvent.press(getByTestId('slip-consent-item'));
     expect(mockNavigate).toHaveBeenCalledWith('SlipScanning', { screen: 'SlipConsent' });
+  });
+
+  describe('Payday day', () => {
+    it('shows the current payday day', () => {
+      const { getByText } = render(<SettingsScreen {...makeNavProps()} />);
+      expect(getByText('Day 25 of the month')).toBeTruthy();
+    });
+
+    it('pressing the row opens the payday dialog prefilled with the current day', () => {
+      const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      expect(getByTestId('payday-dialog')).toBeTruthy();
+      expect(getByTestId('payday-day-input').props.value).toBe('25');
+    });
+
+    it('rejects a day outside 1-31', async () => {
+      const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      fireEvent.changeText(getByTestId('payday-day-input'), '32');
+      fireEvent.press(getByTestId('payday-save'));
+
+      await waitFor(() => expect(getByTestId('payday-error')).toBeTruthy());
+      expect(mockPaydayExecute).not.toHaveBeenCalled();
+    });
+
+    it('rejects non-numeric input', async () => {
+      const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      fireEvent.changeText(getByTestId('payday-day-input'), 'abc');
+      fireEvent.press(getByTestId('payday-save'));
+
+      await waitFor(() => expect(getByTestId('payday-error')).toBeTruthy());
+      expect(mockPaydayExecute).not.toHaveBeenCalled();
+    });
+
+    it('saves a valid day, updates the app store, and shows a success toast', async () => {
+      const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      fireEvent.changeText(getByTestId('payday-day-input'), '5');
+      fireEvent.press(getByTestId('payday-save'));
+
+      await waitFor(() => expect(mockPaydayExecute).toHaveBeenCalled());
+      expect(mockSetPaydayDay).toHaveBeenCalledWith(5);
+      expect(mockEnqueue).toHaveBeenCalledWith('Payday updated', 'success');
+    });
+
+    it('mentions collided envelopes in the toast when collidedEnvelopeCount > 0', async () => {
+      mockPaydayExecute.mockResolvedValue({
+        success: true,
+        data: {
+          fromPeriodStart: '2026-08-25',
+          toPeriodStart: '2026-09-01',
+          reKeyedEnvelopeCount: 2,
+          collidedEnvelopeCount: 2,
+          reKeyedContributionCount: 0,
+        },
+      });
+      const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      fireEvent.changeText(getByTestId('payday-day-input'), '5');
+      fireEvent.press(getByTestId('payday-save'));
+
+      await waitFor(() => {
+        expect(mockEnqueue).toHaveBeenCalledWith(
+          'Payday updated. 2 envelopes stayed in the previous period.',
+          'success',
+        );
+      });
+    });
+
+    it('shows the use case error message and does not update the store on failure', async () => {
+      mockPaydayExecute.mockResolvedValue({
+        success: false,
+        error: { code: 'INVALID_PAYDAY', message: 'Payday day must be between 1 and 28' },
+      });
+      const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      fireEvent.changeText(getByTestId('payday-day-input'), '30');
+      fireEvent.press(getByTestId('payday-save'));
+
+      await waitFor(() => {
+        expect(getByTestId('payday-error')).toBeTruthy();
+      });
+      expect(mockSetPaydayDay).not.toHaveBeenCalled();
+    });
+
+    it('cancel dismisses the dialog without saving', () => {
+      const { getByTestId, queryByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      fireEvent.press(getByTestId('payday-cancel'));
+      expect(queryByTestId('payday-dialog')).toBeNull();
+      expect(mockPaydayExecute).not.toHaveBeenCalled();
+    });
   });
 });

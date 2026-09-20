@@ -41,7 +41,6 @@ let mockPreferences = {
   meterReadingReminderEnabled: false,
   meterReadingReminderDay: 1,
   monthStartPreflightEnabled: false,
-  envelopeWarningEnabled: false,
 };
 let mockPermissionsGranted = false;
 
@@ -142,7 +141,6 @@ describe('NotificationPreferencesScreen', () => {
       meterReadingReminderEnabled: false,
       meterReadingReminderDay: 1,
       monthStartPreflightEnabled: false,
-      envelopeWarningEnabled: false,
     };
     mockPermissionsGranted = false;
   });
@@ -222,25 +220,6 @@ describe('NotificationPreferencesScreen', () => {
       <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
     );
     expect(queryByTestId('Day of month (1-28)')).toBeNull();
-  });
-
-  it('renders envelope overspend warning toggle', () => {
-    const { getAllByText } = render(
-      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
-    );
-    expect(getAllByText(/overspend/i).length).toBeGreaterThan(0);
-  });
-
-  // L9 — envelopeWarningEnabled had no scheduler/notify-event path reading
-  // it, so the toggle was a decorative no-op. Fixed by disabling the
-  // control and being honest about it in the description, rather than
-  // leaving a fake "this does something" control.
-  it('disables the envelope overspend warning switch and labels it as not yet wired', () => {
-    const { getByTestId, getAllByText } = render(
-      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
-    );
-    expect(getByTestId('envelope-warning-switch').props.disabled).toBe(true);
-    expect(getAllByText(/coming soon/i).length).toBeGreaterThan(0);
   });
 
   it('renders month-start pre-flight toggle', () => {

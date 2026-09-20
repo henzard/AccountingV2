@@ -30,7 +30,7 @@ const mockExtraction = {
 };
 
 // Mutable so individual tests can exercise a missing/malformed param (H5 guard).
-let mockRouteParams: { slipId: string; extraction?: unknown } = {
+let mockRouteParams: { slipId: string; extraction?: unknown; readOnly?: boolean } = {
   slipId: 's1',
   extraction: mockExtraction,
 };
@@ -95,7 +95,16 @@ jest.mock('react-native-paper', () => {
   }) => React.createElement('TouchableOpacity', { onPress, testID, ...p }, children);
   const Surface = ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
     React.createElement('View', p, children);
-  return { Text, Button, Chip, TouchableRipple, Surface };
+  const Snackbar = ({
+    children,
+    visible,
+    testID,
+  }: {
+    children?: React.ReactNode;
+    visible?: boolean;
+    testID?: string;
+  }) => (visible ? React.createElement('View', { testID }, children) : null);
+  return { Text, Button, Chip, TouchableRipple, Surface, Snackbar };
 });
 
 jest.mock('@react-native-community/datetimepicker', () => {
@@ -295,5 +304,62 @@ describe('SlipConfirmScreen', () => {
       expect(confirmSlip).toHaveBeenCalledWith(expect.objectContaining({ slipId: 's1' }));
       expect(mockNavigate).toHaveBeenCalledWith('SlipQueue');
     });
+  });
+
+  // UX-14: Save used to do nothing on `{ success: false }` (no error shown,
+  // no `finally`, so a stuck spinner) and had no try/catch (a thrown error —
+  // e.g. a network failure inside `confirmSlip` — left `saving` stuck `true`
+  // forever). Both now surface a visible error and always reset `saving`.
+  it('shows a visible error and re-enables Save when confirmSlip resolves { success: false }', async () => {
+    const confirmSlip = jest.fn().mockResolvedValue({ success: false });
+    const { getByTestId, queryByTestId } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={confirmSlip} />,
+    );
+
+    fireEvent.press(getByTestId('line-item-envelope-picker-0'));
+    await waitFor(() => getByTestId('envelope-picker-sheet'));
+    fireEvent.press(getByTestId('envelope-option-e1'));
+
+    await waitFor(() => expect(getByTestId('save-button').props.disabled).toBeFalsy());
+    fireEvent.press(getByTestId('save-button'));
+
+    await waitFor(() => {
+      expect(queryByTestId('slip-confirm-error-snackbar')).toBeTruthy();
+    });
+    expect(mockNavigate).not.toHaveBeenCalledWith('SlipQueue');
+    // Save didn't get stuck disabled/loading.
+    expect(getByTestId('save-button').props.disabled).toBeFalsy();
+  });
+
+  it('shows a visible error and stops the spinner when confirmSlip throws', async () => {
+    const confirmSlip = jest.fn().mockRejectedValue(new Error('network down'));
+    const { getByTestId, queryByTestId } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={confirmSlip} />,
+    );
+
+    fireEvent.press(getByTestId('line-item-envelope-picker-0'));
+    await waitFor(() => getByTestId('envelope-picker-sheet'));
+    fireEvent.press(getByTestId('envelope-option-e1'));
+
+    await waitFor(() => expect(getByTestId('save-button').props.disabled).toBeFalsy());
+    fireEvent.press(getByTestId('save-button'));
+
+    await waitFor(() => {
+      expect(queryByTestId('slip-confirm-error-snackbar')).toBeTruthy();
+    });
+    expect(getByTestId('save-button').props.loading).toBeFalsy();
+  });
+
+  // UX-14: an already-confirmed slip (reopened from SlipQueueScreen) must
+  // render read-only — no Save button, no envelope-editing affordance.
+  it('renders read-only (no Save button, no unassigned chip) when route.params.readOnly is true', () => {
+    mockRouteParams = { slipId: 's1', extraction: mockExtraction, readOnly: true };
+    const { queryByTestId } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={jest.fn()} />,
+    );
+
+    expect(queryByTestId('save-button')).toBeNull();
+    expect(queryByTestId('bulk-assign-button')).toBeNull();
+    expect(queryByTestId('unassigned-chip')).toBeNull();
   });
 });

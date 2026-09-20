@@ -201,4 +201,104 @@ describe('CreateTransactionUseCase', () => {
     // time audit.log runs — exactly one insert, even though audit failed.
     expect(repo.insert).toHaveBeenCalledTimes(1);
   });
+
+  // New validations for amountCents, transactionDate, and envelope state
+  it('returns INVALID_AMOUNT when amountCents is NaN', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateTransactionUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, amountCents: NaN },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('returns INVALID_AMOUNT when amountCents is fractional', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateTransactionUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, amountCents: 12.5 },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('returns INVALID_DATE when transactionDate has invalid format', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateTransactionUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, transactionDate: '2026-13-40' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_DATE');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('returns INVALID_DATE when transactionDate is not a valid calendar date', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateTransactionUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, transactionDate: '2026-02-30' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_DATE');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('returns FUTURE_DATE when transactionDate is more than 1 day in the future', async () => {
+    const repo = makeFakeRepo();
+    // Get tomorrow's date and add 2 days to create a date 2+ days in the future
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 3);
+    const futureDateStr = futureDate.toISOString().split('T')[0];
+
+    const uc = new CreateTransactionUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, transactionDate: futureDateStr },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('FUTURE_DATE');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('returns ENVELOPE_ARCHIVED when target envelope is archived', async () => {
+    const repo = makeFakeRepo();
+    mockDb.select = makeSelectMock([
+      { id: 'e1', envelopeType: 'spending', isArchived: true, deletedAt: null },
+    ]);
+    const uc = new CreateTransactionUseCase(mockDb, mockAudit, input, { repo });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('ENVELOPE_ARCHIVED');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('returns ENVELOPE_ARCHIVED when target envelope is soft-deleted', async () => {
+    const repo = makeFakeRepo();
+    mockDb.select = makeSelectMock([
+      { id: 'e1', envelopeType: 'spending', isArchived: false, deletedAt: '2026-01-01T00:00:00Z' },
+    ]);
+    const uc = new CreateTransactionUseCase(mockDb, mockAudit, input, { repo });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('ENVELOPE_ARCHIVED');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
 });

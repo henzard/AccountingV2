@@ -25,6 +25,30 @@ describe('NetworkObserver', () => {
       observer.onConnected(cb);
       expect(cb).not.toHaveBeenCalled();
     });
+
+    it('returns an unsubscribe that detaches the callback', () => {
+      const staying = jest.fn().mockResolvedValue(undefined);
+      const leaving = jest.fn().mockResolvedValue(undefined);
+      observer.onConnected(staying);
+      const unsubscribe = observer.onConnected(leaving);
+      observer.start();
+
+      unsubscribe();
+      const handler = mockAddEventListener.mock.calls[0][0];
+      handler({ isConnected: true, isInternetReachable: true });
+
+      // Without this, every household switch left the previous
+      // SyncScheduler's callback firing on each reconnect.
+      expect(staying).toHaveBeenCalled();
+      expect(leaving).not.toHaveBeenCalled();
+    });
+
+    it('unsubscribing twice is a no-op', () => {
+      const cb = jest.fn().mockResolvedValue(undefined);
+      const unsubscribe = observer.onConnected(cb);
+      unsubscribe();
+      expect(() => unsubscribe()).not.toThrow();
+    });
   });
 
   describe('start', () => {

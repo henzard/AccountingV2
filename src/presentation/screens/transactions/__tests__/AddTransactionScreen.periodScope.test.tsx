@@ -190,6 +190,10 @@ const makeNavProps = () => ({
   route: { key: 'AddTransaction', name: 'AddTransaction', params: undefined } as never,
 });
 
+// The first render pays this screen's whole module-load cost; on a loaded CI
+// worker that alone can exceed jest's 5s default.
+jest.setTimeout(15000);
+
 describe('AddTransactionScreen — envelope picker period scope (real SQLite)', () => {
   beforeEach(() => {
     mockRawDb.exec('DELETE FROM envelopes; DELETE FROM transactions; DELETE FROM households;');

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, SectionList, Alert, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, SectionList, TouchableOpacity } from 'react-native';
 import { FAB, ActivityIndicator, Surface, IconButton, Divider, Text } from 'react-native-paper';
 import { ListRow } from '../../components/shared/ListRow';
 import { useFocusEffect } from '@react-navigation/native';
@@ -16,6 +16,7 @@ import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { fontSize, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -69,31 +70,27 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   );
 
   const handleDelete = useCallback(
-    (tx: TransactionEntity) => {
-      Alert.alert(
-        'Delete transaction?',
-        `${tx.payee ?? 'Unknown'} — ${(tx.amountCents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' })}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: async (): Promise<void> => {
-              try {
-                const uc = new DeleteTransactionUseCase(db, audit, tx);
-                const result = await uc.execute();
-                if (!result.success) {
-                  enqueue('Failed to delete transaction', 'error');
-                  return;
-                }
-                void reload();
-              } catch {
-                enqueue('Failed to delete transaction', 'error');
-              }
-            },
-          },
-        ],
-      );
+    async (tx: TransactionEntity): Promise<void> => {
+      const confirmed = await confirm({
+        title: 'Delete transaction?',
+        message: `${tx.payee ?? 'Unknown'} — ${(tx.amountCents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' })}`,
+        confirmLabel: 'Delete',
+        destructive: true,
+      });
+      if (!confirmed) return;
+
+      try {
+        const uc = new DeleteTransactionUseCase(db, audit, tx);
+        const result = await uc.execute();
+        if (!result.success) {
+          enqueue('Failed to delete transaction', 'error');
+          return;
+        }
+        enqueue('Transaction deleted', 'success');
+        void reload();
+      } catch {
+        enqueue('Failed to delete transaction', 'error');
+      }
     },
     [reload, enqueue],
   );
@@ -116,6 +113,9 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
             onPress={() => navigation.navigate('BusinessExpenseReport')}
             style={styles.bizButton}
             testID="biz-expense-header-button"
+            accessibilityRole="button"
+            accessibilityLabel="Business expenses"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text variant="labelMedium" style={{ color: colors.primary }}>
               Business
@@ -146,26 +146,37 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           keyExtractor={(item) => item.id}
           renderSectionHeader={({ section }) => <SectionHeader title={section.title} filled />}
           renderItem={({ item }) => (
-            <ListRow
-              title={item.payee ?? 'Unknown'}
-              subtitle={envelopeNames.get(item.envelopeId) ?? '—'}
-              trailing={
-                <View style={styles.rowTrailing}>
-                  <CurrencyText
-                    amountCents={item.amountCents}
-                    style={{ ...styles.amount, color: colors.error }}
-                  />
-                  <IconButton
-                    icon="delete-outline"
-                    iconColor={colors.error}
-                    size={20}
-                    onPress={() => handleDelete(item)}
-                    testID={`delete-tx-${item.id}`}
-                  />
-                </View>
-              }
+            // UX-9: the row itself is pressable (edit), separate from the
+            // delete IconButton nested in `trailing` — RN's touch responder
+            // system gives the innermost touchable the tap, so pressing
+            // delete does not also trigger this outer onPress.
+            <TouchableOpacity
+              onPress={() => navigation.navigate('AddTransaction', { transactionId: item.id })}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit transaction ${item.payee ?? 'Unknown'}`}
               testID={`tx-row-${item.id}`}
-            />
+            >
+              <ListRow
+                title={item.payee ?? 'Unknown'}
+                subtitle={envelopeNames.get(item.envelopeId) ?? '—'}
+                trailing={
+                  <View style={styles.rowTrailing}>
+                    <CurrencyText
+                      amountCents={item.amountCents}
+                      style={{ ...styles.amount, color: colors.error }}
+                    />
+                    <IconButton
+                      icon="delete-outline"
+                      iconColor={colors.error}
+                      size={20}
+                      onPress={() => handleDelete(item)}
+                      testID={`delete-tx-${item.id}`}
+                      accessibilityLabel={`Delete transaction ${item.payee ?? 'Unknown'}`}
+                    />
+                  </View>
+                }
+              />
+            </TouchableOpacity>
           )}
           ItemSeparatorComponent={renderSeparator}
           contentContainerStyle={styles.list}
@@ -178,6 +189,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
         style={[styles.fab, { backgroundColor: colors.primary }]}
         onPress={() => navigation.navigate('AddTransaction')}
         color={colors.onPrimary}
+        accessibilityLabel="Add transaction"
       />
     </View>
   );

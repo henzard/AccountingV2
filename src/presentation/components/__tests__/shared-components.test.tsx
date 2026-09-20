@@ -97,6 +97,7 @@ import { ToastHost } from '../shared/ToastHost';
 import { EmptyState } from '../shared/EmptyState';
 import { EnvelopeCard } from '../envelopes/EnvelopeCard';
 import { SinkingFundCard } from '../envelopes/SinkingFundCard';
+import { formatCurrency } from '../../utils/currency';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 function makeEnvelope(overrides: Partial<EnvelopeEntity> = {}): EnvelopeEntity {
@@ -268,7 +269,7 @@ describe('SinkingFundCard', () => {
       targetAmountCents: null,
       targetDate: null,
     });
-    const { queryByTestId, toJSON } = render(<SinkingFundCard envelope={env} />);
+    const { queryByTestId, toJSON } = render(<SinkingFundCard envelope={env} savedCents={0} />);
     expect(queryByTestId('sinking-fund-progress-bar')).toBeNull();
     expect(toJSON()).not.toBeNull();
   });
@@ -279,13 +280,30 @@ describe('SinkingFundCard', () => {
       targetAmountCents: 1000000,
       targetDate: '2027-12-01',
     });
-    const { getByTestId } = render(<SinkingFundCard envelope={env} />);
+    const { getByTestId } = render(<SinkingFundCard envelope={env} savedCents={0} />);
     expect(getByTestId('sinking-fund-progress-bar')).toBeTruthy();
   });
 
   it('renders envelope name', () => {
     const env = makeEnvelope({ name: 'Holiday Fund', envelopeType: 'sinking_fund' });
-    const { getByText } = render(<SinkingFundCard envelope={env} />);
+    const { getByText } = render(<SinkingFundCard envelope={env} savedCents={0} />);
     expect(getByText('Holiday Fund')).toBeTruthy();
+  });
+
+  it('shows savedCents, not the monthly allocation (DOM-4)', () => {
+    // Three periods of R500/month contributed against a R10,000 goal: the
+    // card must read R1,500 saved. It used to render `allocatedCents` for
+    // both the saved figure and the monthly rate, so it showed R500 forever.
+    const env = makeEnvelope({
+      envelopeType: 'sinking_fund',
+      allocatedCents: 50000,
+      targetAmountCents: 1000000,
+      targetDate: '2027-12-01',
+    });
+    const { getByText, queryByText } = render(
+      <SinkingFundCard envelope={env} savedCents={150000} />,
+    );
+    expect(getByText(formatCurrency(150000))).toBeTruthy();
+    expect(queryByText(formatCurrency(50000))).toBeNull();
   });
 });

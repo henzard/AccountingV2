@@ -194,7 +194,12 @@ describe('Baby Step 1/3 regression across a period rollover (real SQLite)', () =
     expect(afterRollover.data.newlyRegressed).not.toContain(1);
     const step1After = afterRollover.data.statuses.find((s) => s.stepNumber === 1);
     expect(step1After?.isCompleted).toBe(true);
-    expect(step1After?.progress).toEqual({ current: 150_000, target: 100_000, unit: 'cents' });
+    // R3,000 saved, not R1,500: the EMF predates the contribution ledger, so
+    // `ensureOpeningBalances` carried its pre-ledger R1,500 in as an
+    // `opening_balance` contribution, and the rollover then funded its
+    // R1,500 monthly allocation for P2 on top. Step 1's headline assertion
+    // (still complete, never regressed) is unaffected.
+    expect(step1After?.progress).toEqual({ current: 300_000, target: 100_000, unit: 'cents' });
 
     // The persisted baby_steps row for step 1 was not flipped to incomplete.
     const persistedStep1 = raw

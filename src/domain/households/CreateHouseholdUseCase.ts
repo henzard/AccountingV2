@@ -9,6 +9,7 @@ import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { bestEffortAudit } from '../shared/bestEffortAudit';
 import type { HouseholdSummary } from './EnsureHouseholdUseCase';
 import { SeedBabyStepsUseCase } from '../babySteps/SeedBabyStepsUseCase';
 
@@ -95,7 +96,7 @@ export class CreateHouseholdUseCase {
       );
     });
 
-    await this.audit.log({
+    await bestEffortAudit(this.audit, {
       householdId,
       entityType: 'household',
       entityId: householdId,

@@ -7,7 +7,12 @@ import { AuditLogger } from '../../data/audit/AuditLogger';
 import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
-import { createSuccess, createFailure } from '../shared/types';
+import { createSuccess } from '../shared/types';
+import {
+  validateTargetEnvelope,
+  validateTransactionAmountCents,
+  validateTransactionDate,
+} from './transactionValidation';
 import { logger } from '../../infrastructure/logging/Logger';
 import type { TransactionEntity } from './TransactionEntity';
 
@@ -39,9 +44,10 @@ export class CreateTransactionUseCase {
   ) {}
 
   async execute(): Promise<Result<TransactionEntity>> {
-    if (this.input.amountCents <= 0) {
-      return createFailure({ code: 'INVALID_AMOUNT', message: 'Amount must be greater than zero' });
-    }
+    const amountCheck = validateTransactionAmountCents(this.input.amountCents);
+    if (!amountCheck.success) return amountCheck;
+    const dateCheck = validateTransactionDate(this.input.transactionDate);
+    if (!dateCheck.success) return dateCheck;
 
     // Reject transactions targeting income envelopes; also scope to household to
     // prevent cross-household envelope access (CRITICAL-2).
@@ -56,15 +62,8 @@ export class CreateTransactionUseCase {
       )
       .limit(1);
 
-    if (!targetEnvelope) {
-      return createFailure({ code: 'ENVELOPE_NOT_FOUND', message: 'Envelope does not exist' });
-    }
-    if (targetEnvelope.envelopeType === 'income') {
-      return createFailure({
-        code: 'INVALID_ENVELOPE_TYPE',
-        message: 'Cannot create a transaction against an income envelope',
-      });
-    }
+    const envelopeCheck = validateTargetEnvelope(targetEnvelope);
+    if (!envelopeCheck.success) return envelopeCheck;
 
     const now = new Date().toISOString();
     const id = randomUUID();

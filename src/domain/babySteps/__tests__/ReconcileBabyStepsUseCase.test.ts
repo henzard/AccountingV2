@@ -27,10 +27,21 @@
 
 import { ReconcileBabyStepsUseCase } from '../ReconcileBabyStepsUseCase';
 import type { SyncedRepo } from '../../../data/uow/createSyncedRepo';
+import { getPersistentEnvelopeSavedCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
 
 jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
+  getPersistentEnvelopeSavedCents: jest.fn().mockResolvedValue(new Map()),
   envelopeScopeCondition: jest.fn(() => 'scope-condition'),
+}));
+
+// The legacy opening-balance backfill runs its own envelope query before the
+// use case reads anything, which would shift this file's sequential
+// select()-call fixtures. It is a separate unit with its own realsql coverage
+// (tests/realsql/persistentEnvelopeContributions.test.ts), so it is stubbed
+// to "wrote nothing" here.
+jest.mock('../../budgets/PersistentContributions', () => ({
+  ensureOpeningBalances: jest.fn().mockResolvedValue({ success: true, data: { count: 0 } }),
 }));
 
 beforeAll(() => {
@@ -77,6 +88,25 @@ function makeBabyStepRow(stepNumber: number, overrides: Record<string, unknown> 
     ...overrides,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Saved-balance seam
+//
+// The EMF is a PERSISTENT envelope, so its balance is the derived SAVED
+// figure from the contribution ledger — NOT `allocatedCents - spentCents`.
+// Every EMF fixture below therefore leaves `allocatedCents` at 0 (proving the
+// typed allocation buys nothing) and states the saved balance explicitly.
+// ---------------------------------------------------------------------------
+
+function seedSavedCents(entries: Record<string, number>): void {
+  (getPersistentEnvelopeSavedCents as jest.Mock).mockResolvedValue(
+    new Map(Object.entries(entries)),
+  );
+}
+
+beforeEach(() => {
+  seedSavedCents({});
+});
 
 function makeFakeRepo(): SyncedRepo & {
   insert: jest.Mock;
@@ -125,11 +155,8 @@ describe('ReconcileBabyStepsUseCase', () => {
   const PERIOD_START = '2026-04-01';
 
   it('returns newlyCompleted when a step transitions to complete', async () => {
-    const envelopeRow = makeEnvelopeRow({
-      envelopeType: 'emergency_fund',
-      allocatedCents: 100_000,
-      spentCents: 0,
-    });
+    const envelopeRow = makeEnvelopeRow({ envelopeType: 'emergency_fund', allocatedCents: 0 });
+    seedSavedCents({ e1: 100_000 });
     const bsRows = [1, 2, 3, 4, 5, 6, 7].map((n) => makeBabyStepRow(n, { isCompleted: false }));
 
     const db = makeDb({
@@ -151,11 +178,8 @@ describe('ReconcileBabyStepsUseCase', () => {
   it('regression: preserves celebrated_at when step goes from complete to incomplete', async () => {
     const celebratedAt = '2026-04-10T08:00:00.000Z';
     // EMF balance below R1,000 threshold
-    const envelopeRow = makeEnvelopeRow({
-      envelopeType: 'emergency_fund',
-      allocatedCents: 99_999,
-      spentCents: 0,
-    });
+    const envelopeRow = makeEnvelopeRow({ envelopeType: 'emergency_fund', allocatedCents: 0 });
+    seedSavedCents({ e1: 99_999 });
     const bsRows = [1, 2, 3, 4, 5, 6, 7].map((n) =>
       makeBabyStepRow(n, {
         isCompleted: n === 1,
@@ -194,11 +218,8 @@ describe('ReconcileBabyStepsUseCase', () => {
   it('re-complete after regression: celebrated_at already set, newlyCompleted includes step', async () => {
     const celebratedAt = '2026-04-10T08:00:00.000Z';
     // EMF above threshold again
-    const envelopeRow = makeEnvelopeRow({
-      envelopeType: 'emergency_fund',
-      allocatedCents: 100_000,
-      spentCents: 0,
-    });
+    const envelopeRow = makeEnvelopeRow({ envelopeType: 'emergency_fund', allocatedCents: 0 });
+    seedSavedCents({ e1: 100_000 });
     // After regression: isCompleted=false but celebratedAt still stamped
     const bsRows = [1, 2, 3, 4, 5, 6, 7].map((n) =>
       makeBabyStepRow(n, {
@@ -235,11 +256,8 @@ describe('ReconcileBabyStepsUseCase', () => {
   });
 
   it('every write stamps updated_at', async () => {
-    const envelopeRow = makeEnvelopeRow({
-      envelopeType: 'emergency_fund',
-      allocatedCents: 100_000,
-      spentCents: 0,
-    });
+    const envelopeRow = makeEnvelopeRow({ envelopeType: 'emergency_fund', allocatedCents: 0 });
+    seedSavedCents({ e1: 100_000 });
     const bsRows = [1, 2, 3, 4, 5, 6, 7].map((n) => makeBabyStepRow(n, { isCompleted: false }));
 
     const db = makeDb({
@@ -261,11 +279,8 @@ describe('ReconcileBabyStepsUseCase', () => {
 
   it('no transitions when state unchanged → no synced-repo writes', async () => {
     // Step 1 already complete and conditions still met
-    const envelopeRow = makeEnvelopeRow({
-      envelopeType: 'emergency_fund',
-      allocatedCents: 100_000,
-      spentCents: 0,
-    });
+    const envelopeRow = makeEnvelopeRow({ envelopeType: 'emergency_fund', allocatedCents: 0 });
+    seedSavedCents({ e1: 100_000 });
     const bsRows = [1, 2, 3, 4, 5, 6, 7].map((n) => makeBabyStepRow(n, { isCompleted: n === 1 }));
 
     const db = makeDb({
@@ -295,11 +310,8 @@ describe('ReconcileBabyStepsUseCase', () => {
   // incomplete->complete transition (the persisted flag never flipped) and
   // re-fired the celebration again, looping until the row finally synced.
   it('does NOT report newlyCompleted for a step with no persisted baby_steps row (nothing to celebrate a transition FROM)', async () => {
-    const envelopeRow = makeEnvelopeRow({
-      envelopeType: 'emergency_fund',
-      allocatedCents: 100_000,
-      spentCents: 0,
-    });
+    const envelopeRow = makeEnvelopeRow({ envelopeType: 'emergency_fund', allocatedCents: 0 });
+    seedSavedCents({ e1: 100_000 });
     // Step 1's row is MISSING entirely (simulates baby_steps restore not
     // having landed yet) — only steps 2-7 are persisted.
     const bsRows = [2, 3, 4, 5, 6, 7].map((n) => makeBabyStepRow(n, { isCompleted: false }));

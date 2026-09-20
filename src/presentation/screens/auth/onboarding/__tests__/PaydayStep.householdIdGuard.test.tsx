@@ -2,7 +2,7 @@ import React from 'react';
 import { render } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: (): object => ({ navigate: jest.fn() }),
+  useNavigation: (): object => ({ navigate: jest.fn(), goBack: jest.fn() }),
 }));
 
 jest.mock('../../../../../data/local/db', () => ({ db: {} }));

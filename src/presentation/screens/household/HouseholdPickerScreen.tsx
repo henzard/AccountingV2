@@ -93,6 +93,7 @@ export const HouseholdPickerScreen: React.FC<HouseholdPickerScreenProps> = ({ na
         style={[styles.fab, { backgroundColor: colors.primary }]}
         onPress={() => navigation.navigate('CreateHousehold')}
         color={colors.onPrimary}
+        accessibilityLabel="Create household"
       />
     </View>
   );

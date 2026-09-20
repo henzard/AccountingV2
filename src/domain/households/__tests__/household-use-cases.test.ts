@@ -598,8 +598,15 @@ describe('EnsureHouseholdUseCase', () => {
 // ---------------------------------------------------------------------------
 
 describe('UpdateHouseholdPaydayDayUseCase', () => {
+  // `select` is needed because the use case reads the household's CURRENT
+  // payday before writing, to work out whether the change moves the current
+  // period key (and so whether this period's envelopes must be re-keyed).
+  // An empty result = "no household row", which means nothing to re-key.
   function makeDb() {
     return {
+      select: jest.fn(() => ({
+        from: jest.fn(() => ({ where: jest.fn(() => Promise.resolve([])) })),
+      })),
       transaction: jest.fn((fn: (tx: unknown) => unknown) =>
         fn({ run: jest.fn(() => ({ changes: 1 })) }),
       ),

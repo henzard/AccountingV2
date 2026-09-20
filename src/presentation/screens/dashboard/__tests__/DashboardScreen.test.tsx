@@ -24,12 +24,33 @@ jest.mock('../../../hooks/useBabySteps', () => ({
   useBabySteps: jest.fn().mockReturnValue({ statuses: [] }),
 }));
 
+jest.mock('../../../hooks/usePersistentEnvelopeSavings', () => ({
+  usePersistentEnvelopeSavings: jest.fn().mockReturnValue({
+    savedCentsByEnvelopeId: new Map(),
+    loading: false,
+    error: null,
+    reload: jest.fn(),
+  }),
+}));
+
 jest.mock('../../../../domain/shared/resolveBabyStepIsActive', () => ({
   resolveBabyStepIsActive: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock('../../../../domain/scoring/resolveLoggingDays', () => ({
   resolveLoggingDays: jest.fn().mockResolvedValue(7),
+}));
+
+jest.mock('../resolveMeterReadingsLogged', () => ({
+  resolveMeterReadingsLogged: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock('../findLatestPeriodWithEnvelopes', () => ({
+  findLatestPeriodWithEnvelopes: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../resolveEnvelopeTransactions', () => ({
+  resolveEnvelopeTransactions: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -49,16 +70,42 @@ jest.mock('../../../stores/appStore', () => ({
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
+  const Dialog = ({
+    children,
+    visible,
+    testID,
+  }: {
+    children?: React.ReactNode;
+    visible?: boolean;
+    testID?: string;
+  }) => (visible ? React.createElement('View', { testID }, children) : null);
+  Dialog.Title = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('Text', null, children);
+  Dialog.Content = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('View', null, children);
+  Dialog.Actions = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('View', null, children);
   return {
     Text: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('Text', null, children),
     FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
       React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
-    Button: ({ onPress, children }: { onPress?: () => void; children?: React.ReactNode }) =>
-      React.createElement('Pressable', { onPress }, children),
+    Button: ({
+      onPress,
+      children,
+      testID,
+      accessibilityLabel,
+    }: {
+      onPress?: () => void;
+      children?: React.ReactNode;
+      testID?: string;
+      accessibilityLabel?: string;
+    }) => React.createElement('Pressable', { onPress, testID, accessibilityLabel }, children),
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
+    Portal: ({ children }: { children?: React.ReactNode }) => children,
+    Dialog,
   };
 });
 
@@ -175,6 +222,60 @@ describe('DashboardScreen', () => {
       <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
     );
     expect(getByTestId('dashboard-kpi-row')).toBeTruthy();
+  });
+
+  it('pressing an envelope row opens the detail sheet instead of navigating to edit (VAL-9)', async () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByLabelText, findByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByLabelText(/Groceries/));
+    expect(await findByTestId('envelope-detail-sheet')).toBeTruthy();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('the detail sheet’s "Add transaction" navigates to AddTransaction with the envelope id', async () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByLabelText, findByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByLabelText(/Groceries/));
+    fireEvent.press(await findByTestId('envelope-detail-add-transaction'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddTransaction', { envelopeId: 'e1' });
+  });
+
+  it('the detail sheet’s "Edit envelope" navigates to AddEditEnvelope with the envelope id', async () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByLabelText, findByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    fireEvent.press(getByLabelText(/Groceries/));
+    fireEvent.press(await findByTestId('envelope-detail-edit'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', { envelopeId: 'e1' });
+  });
+
+  it('shows a "Safe to spend today" line when spend envelopes exist', () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('dashboard-safe-to-spend')).toBeTruthy();
   });
 
   it('shows view-budget link when envelopes exist', () => {

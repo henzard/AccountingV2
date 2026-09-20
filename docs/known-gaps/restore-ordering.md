@@ -1,21 +1,25 @@
 # Known Gap: Restore Overwrites Local Dirty Data
 
-**Status:** Open  
+**Status:** RESOLVED (2026-09-20)  
 **Discovered:** 2026-06-19  
-**Test file:** `src/__tests__/sync/restore-ordering.test.ts`  
-**Affected code:** `src/data/sync/RestoreService.ts` → `restoreTable()`
+**Test file:** `src/__tests__/sync/restore-ordering.test.ts` (rewritten to pin the fix)  
+**Affected code:** `src/data/sync/RestoreService.ts`
 
-## Summary
+## Resolution
 
-When the app opens online after offline use, `RestoreService.restore()` runs BEFORE `SyncOrchestrator.syncPending()`. The restore uses `onConflictDoUpdate` with all non-id columns (except `isSynced`), overwriting local dirty data with stale remote values. Offline edits are silently lost.
+RESTORE-001, -002 and -003 are all closed, by three changes to `RestoreService` that together remove both the opportunity and the mechanism for the overwrite. First, a snapshot restore now runs **only while the household has no `sync_cursor` row**: it is a one-time bootstrap for a device that has never synced this household (reinstall, invite join, household switch), and once that cursor exists the oplog puller owns local state — so the recurring "every app open re-applies a stale server snapshot" behaviour that RESTORE-001 described no longer happens at all. Second, even during that one bootstrap, restore reads the local oplog outbox first and **skips any row that still has an unpushed, non-dead-lettered op**, so a queued offline edit is never overwritten and its op is left untouched in the outbox to push normally — which is precisely what RESTORE-002 asked for, without deleting queue entries. Third, the snapshot upserts and the pull cursor (the household's max server oplog `seq`, read _before_ the tables are fetched) commit in **one local transaction**, and every network fetch happens before that transaction opens, so a failed restore writes nothing at all and a cursor can never point past data that did not land. RESTORE-003's contradictory `isSynced=false`-with-remote-data state is moot: `pending_sync` and the per-row `isSynced` flag were both retired (migration 0014) in favour of the oplog outbox, which is now the single source of "this row owes the server something".
 
-## Gap Inventory
+## Gap Inventory (all resolved)
 
-| ID          | Severity | Description                                                                   | Impact                                                                     |
-| ----------- | -------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| RESTORE-001 | HIGH     | `restoreTable()` overwrites all data columns for locally dirty rows           | Offline edits silently replaced with stale remote data                     |
-| RESTORE-002 | MEDIUM   | `pending_sync` entries not cleared after restore overwrites their target rows | Stale data pushed back to server on next sync; wasted bandwidth            |
-| RESTORE-003 | HIGH     | Contradictory state: row has `isSynced=false` but contains remote data        | Sync pushes stale remote values back to server as if they were local edits |
+| ID          | Severity | Description                                                                   | Status                                                                                             |
+| ----------- | -------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| RESTORE-001 | HIGH     | `restoreTable()` overwrites all data columns for locally dirty rows           | RESOLVED — rows with unpushed oplog ops are skipped; restore runs once per household               |
+| RESTORE-002 | MEDIUM   | `pending_sync` entries not cleared after restore overwrites their target rows | RESOLVED — the row is not overwritten, so its queued op stays valid; `pending_sync` itself is gone |
+| RESTORE-003 | HIGH     | Contradictory state: row has `isSynced=false` but contains remote data        | RESOLVED — dirty rows keep local data; sync state lives in the oplog outbox, not a row flag        |
+
+## Historical record
+
+Everything below describes the ORIGINAL behaviour and the fixes considered at the time. It is kept for context; none of it describes current code.
 
 ## Sequence of Failure
 
@@ -92,7 +96,7 @@ onConflictDoUpdate({
 
 **Effort:** Low-Medium — may require Drizzle ORM support for conditional conflict updates.
 
-## Workarounds (Current)
+## Workarounds (no longer needed)
 
 - Sync immediately after every edit (reduces window where restore can overwrite)
 - Don't close the app while offline edits are pending (unreliable)
@@ -102,4 +106,4 @@ onConflictDoUpdate({
 
 - LWW data loss gaps: `docs/known-gaps/lww-data-loss.md`
 - RestoreService implementation: `src/data/sync/RestoreService.ts`
-- SyncOrchestrator: `src/data/sync/SyncOrchestrator.ts`
+- `SyncOrchestrator` no longer exists — it was replaced by `src/data/sync/SyncEngine.ts` (push/pull over the oplog) and `src/data/sync/SyncScheduler.ts` (triggers)

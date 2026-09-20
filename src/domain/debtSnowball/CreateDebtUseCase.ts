@@ -6,6 +6,7 @@ import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { bestEffortAudit } from '../shared/bestEffortAudit';
 import type { DebtEntity, DebtType } from './DebtEntity';
 
 export interface CreateDebtInput {
@@ -26,20 +27,33 @@ export class CreateDebtUseCase {
   ) {}
 
   async execute(): Promise<Result<DebtEntity>> {
-    if (this.input.outstandingBalanceCents <= 0) {
+    if (
+      !Number.isSafeInteger(this.input.outstandingBalanceCents) ||
+      this.input.outstandingBalanceCents <= 0
+    ) {
       return createFailure({
         code: 'INVALID_BALANCE',
         message: 'Outstanding balance must be greater than zero',
       });
     }
-    if (this.input.minimumPaymentCents <= 0) {
+    if (
+      !Number.isSafeInteger(this.input.minimumPaymentCents) ||
+      this.input.minimumPaymentCents <= 0
+    ) {
       return createFailure({
         code: 'INVALID_PAYMENT',
         message: 'Minimum payment must be greater than zero',
       });
     }
-    if (this.input.interestRatePercent < 0) {
-      return createFailure({ code: 'INVALID_RATE', message: 'Interest rate cannot be negative' });
+    if (
+      !Number.isFinite(this.input.interestRatePercent) ||
+      this.input.interestRatePercent < 0 ||
+      this.input.interestRatePercent > 100
+    ) {
+      return createFailure({
+        code: 'INVALID_RATE',
+        message: 'Interest rate must be between 0 and 100',
+      });
     }
 
     // sortOrder must reflect SMALLEST-BALANCE-FIRST (the Ramsey snowball
@@ -100,7 +114,7 @@ export class CreateDebtUseCase {
     const repo = resolveSyncedRepo(this.db, 'debts', this.deps);
     repo.insert(row, resolveSyncedRepoCtx(this.deps));
 
-    await this.audit.log({
+    await bestEffortAudit(this.audit, {
       householdId: this.input.householdId,
       entityType: 'debt',
       entityId: id,

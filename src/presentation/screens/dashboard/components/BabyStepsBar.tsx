@@ -5,11 +5,12 @@
  */
 
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, useColorScheme } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { BABY_STEP_RULES } from '../../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../../domain/babySteps/types';
 import { P } from './HeroSummaryCard';
 import { radius, spacing, fontSize } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 interface Props {
   statuses: BabyStepStatus[];
@@ -17,7 +18,10 @@ interface Props {
 }
 
 export function BabyStepsBar({ statuses, onPress }: Props): React.JSX.Element {
-  const isDark = useColorScheme() === 'dark';
+  // Uses the app's in-app Light/Dark preference (`useAppTheme`), not the
+  // raw OS scheme — otherwise this card ignores a user override of the
+  // system setting (UX-11).
+  const { dark: isDark } = useAppTheme();
   const completedCount = statuses.filter((s) => s.isCompleted).length;
   const currentStep = useMemo(() => statuses.find((s) => !s.isCompleted) ?? null, [statuses]);
 

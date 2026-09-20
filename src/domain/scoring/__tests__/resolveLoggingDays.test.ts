@@ -1,5 +1,10 @@
 import { resolveLoggingDays } from '../resolveLoggingDays';
 
+jest.mock('drizzle-orm', () => ({
+  ...jest.requireActual('drizzle-orm'),
+  isNull: jest.fn((col) => ({ isNull: col })),
+}));
+
 describe('resolveLoggingDays', () => {
   /**
    * Build a mock db whose select().from().where() resolves to [{ count }].
@@ -42,5 +47,13 @@ describe('resolveLoggingDays', () => {
     };
     const result = await resolveLoggingDays(db as any, 'hh-1', '2026-04-01', '2026-04-30');
     expect(result).toBe(0);
+  });
+
+  it('excludes deleted transactions (deletedAt is null filter applied)', async () => {
+    const { isNull } = jest.requireMock('drizzle-orm') as { isNull: jest.Mock };
+    const db = mockDb(5);
+    await resolveLoggingDays(db as any, 'hh-1', '2026-04-01', '2026-04-30');
+
+    expect(isNull).toHaveBeenCalled();
   });
 });

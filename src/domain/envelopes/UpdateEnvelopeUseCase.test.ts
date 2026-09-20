@@ -223,52 +223,49 @@ describe('UpdateEnvelopeUseCase — recomputes is_savings_locked on envelope_typ
   // savings/emergency_fund via CreateEnvelopeUseCase, which persists 1) —
   // and the reverse edit left a stale 1 on a non-locked type.
 
-  it('spending -> savings: sets isSavingsLocked true and writes is_savings_locked=1', async () => {
-    const repo = makeFakeRepo();
-    const uc = new UpdateEnvelopeUseCase(
-      mockDb,
-      makeAudit() as any,
-      existing, // envelopeType: 'spending', isSavingsLocked: false
-      { name: 'Emergency Buffer', allocatedCents: 400000, envelopeType: 'savings' },
-      { repo },
-    );
-    const result = await uc.execute();
-    expect(result.success).toBe(true);
-    if (result.success) expect(result.data.isSavingsLocked).toBe(true);
+  // UX-10 (deep-review): a type change that crosses scope (period-scoped
+  // <-> persistent, per getEnvelopeScope) is now rejected outright — see the
+  // 'rejects a type change across scope' describe block below. 'spending' is
+  // period-scoped while 'savings'/'emergency_fund' are persistent, so these
+  // three cases (previously exercising the recompute logic across a
+  // spending<->savings/emergency_fund edit) are no longer reachable; the
+  // recompute behavior itself is still covered below using same-scope pairs
+  // (sinking_fund <-> emergency_fund, both persistent).
 
-    const [, , fields] = repo.update.mock.calls[0];
-    expect(fields.is_savings_locked).toBe(1);
-  });
-
-  it('spending -> emergency_fund: sets isSavingsLocked true and writes is_savings_locked=1', async () => {
-    const repo = makeFakeRepo();
-    const uc = new UpdateEnvelopeUseCase(
-      mockDb,
-      makeAudit() as any,
-      existing,
-      { name: 'EMF', allocatedCents: 400000, envelopeType: 'emergency_fund' },
-      { repo },
-    );
-    const result = await uc.execute();
-    expect(result.success).toBe(true);
-    if (result.success) expect(result.data.isSavingsLocked).toBe(true);
-
-    const [, , fields] = repo.update.mock.calls[0];
-    expect(fields.is_savings_locked).toBe(1);
-  });
-
-  it('savings -> spending: sets isSavingsLocked false and writes is_savings_locked=0 (no stale lock)', async () => {
-    const savingsEnvelope: EnvelopeEntity = {
+  it('sinking_fund -> emergency_fund (same scope): sets isSavingsLocked true and writes is_savings_locked=1', async () => {
+    const sinkingFundEnvelope: EnvelopeEntity = {
       ...existing,
-      envelopeType: 'savings',
+      envelopeType: 'sinking_fund',
+      isSavingsLocked: false,
+    };
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      sinkingFundEnvelope,
+      { name: 'Emergency Buffer', allocatedCents: 400000, envelopeType: 'emergency_fund' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.isSavingsLocked).toBe(true);
+
+    const [, , fields] = repo.update.mock.calls[0];
+    expect(fields.is_savings_locked).toBe(1);
+  });
+
+  it('emergency_fund -> sinking_fund (same scope): sets isSavingsLocked false and writes is_savings_locked=0 (no stale lock)', async () => {
+    const emergencyFundEnvelope: EnvelopeEntity = {
+      ...existing,
+      envelopeType: 'emergency_fund',
       isSavingsLocked: true,
     };
     const repo = makeFakeRepo();
     const uc = new UpdateEnvelopeUseCase(
       mockDb,
       makeAudit() as any,
-      savingsEnvelope,
-      { name: 'Groceries', allocatedCents: 400000, envelopeType: 'spending' },
+      emergencyFundEnvelope,
+      { name: 'Holiday fund', allocatedCents: 400000, envelopeType: 'sinking_fund' },
       { repo },
     );
     const result = await uc.execute();
@@ -353,6 +350,166 @@ describe('UpdateEnvelopeUseCase — income envelope guard', () => {
     );
     const result = await uc.execute();
     expect(result.success).toBe(true);
+  });
+});
+
+describe('UpdateEnvelopeUseCase — rejects a type change across scope (UX-10)', () => {
+  // getEnvelopeScope: 'spending'/'income'/'utility' are period-scoped;
+  // 'sinking_fund'/'emergency_fund'/'savings'/'baby_step' are persistent.
+  // AddEditEnvelopeScreen's SegmentedButtons only listed 4 of the 7 types
+  // and was enabled in edit mode, so editing a persistent-type envelope
+  // showed nothing selected and one tap silently converted it — this guard
+  // is the actual enforcement backstop (the screen now also locks the type
+  // control in edit mode).
+
+  it('rejects spending -> savings (period -> persistent) with INVALID_TYPE_CHANGE', async () => {
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing, // envelopeType: 'spending'
+      { name: 'Emergency Buffer', allocatedCents: 400000, envelopeType: 'savings' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_TYPE_CHANGE');
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects savings -> spending (persistent -> period) with INVALID_TYPE_CHANGE', async () => {
+    const savingsEnvelope: EnvelopeEntity = { ...existing, envelopeType: 'savings' };
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      savingsEnvelope,
+      { name: 'Groceries', allocatedCents: 400000, envelopeType: 'spending' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_TYPE_CHANGE');
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('allows a same-scope type change (sinking_fund -> savings, both persistent)', async () => {
+    const sinkingFundEnvelope: EnvelopeEntity = { ...existing, envelopeType: 'sinking_fund' };
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      sinkingFundEnvelope,
+      { name: 'Savings', allocatedCents: 400000, envelopeType: 'savings' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects converting an envelope with recorded spending to income with INVALID_TYPE_CHANGE', async () => {
+    // existing.spentCents === 50000, envelopeType: 'spending' (both period-
+    // scoped as 'income', so the scope guard above does not fire here).
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing,
+      { name: 'Salary', allocatedCents: 400000, envelopeType: 'income' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_TYPE_CHANGE');
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('allows converting a zero-spend envelope to income', async () => {
+    const unspentEnvelope: EnvelopeEntity = { ...existing, spentCents: 0 };
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      unspentEnvelope,
+      { name: 'Salary', allocatedCents: 400000, envelopeType: 'income' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('UpdateEnvelopeUseCase — targetDate validation (DOM-9)', () => {
+  it('rejects a malformed targetDate with INVALID_TARGET_DATE', async () => {
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing,
+      { name: 'Holiday', allocatedCents: 400000, targetDate: 'not-a-date' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_TARGET_DATE');
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects an impossible calendar date with INVALID_TARGET_DATE', async () => {
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing,
+      { name: 'Holiday', allocatedCents: 400000, targetDate: '2027-13-40' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_TARGET_DATE');
+  });
+
+  it('accepts a valid targetDate', async () => {
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing,
+      { name: 'Holiday', allocatedCents: 400000, targetDate: '2027-12-01' },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a null targetDate (clearing it)', async () => {
+    const repo = makeFakeRepo();
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      makeAudit() as any,
+      existing,
+      { name: 'Holiday', allocatedCents: 400000, targetDate: null },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('UpdateEnvelopeUseCase — best-effort audit (DOM-10)', () => {
+  it('still returns success when audit.log rejects after the write has committed', async () => {
+    const repo = makeFakeRepo();
+    const audit = { log: jest.fn().mockRejectedValue(new Error('audit db down')) };
+    const uc = new UpdateEnvelopeUseCase(
+      mockDb,
+      audit as any,
+      existing,
+      { name: 'Food', allocatedCents: 400000 },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(repo.update).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -137,4 +137,23 @@ describe('BudgetBalanceCalculator', () => {
       expect(result.expenseAllocationTotal).toBe(30000);
     });
   });
+
+  describe('persistent envelopes charge only their MONTHLY contribution (VAL-3)', () => {
+    it('counts a fund’s allocatedCents once, regardless of how much it has accumulated', () => {
+      // R5,000 income, a R500/month emergency fund that has been running for
+      // three periods (R1,500 saved). Only the R500 monthly contribution may
+      // be charged against this period's income — the R1,500 balance is a
+      // separate derived figure (`getPersistentEnvelopeSavedCents`) and never
+      // reaches this calculation, or every period after the first would read
+      // as wildly overcommitted.
+      const envelopes = [
+        makeEnvelope({ envelopeType: 'income', allocatedCents: 500_000 }),
+        makeEnvelope({ envelopeType: 'emergency_fund', allocatedCents: 50_000 }),
+        makeEnvelope({ envelopeType: 'spending', allocatedCents: 400_000 }),
+      ];
+      const result = calculateBudgetBalance(envelopes);
+      expect(result.expenseAllocationTotal).toBe(450_000);
+      expect(result.toAssign).toBe(50_000);
+    });
+  });
 });

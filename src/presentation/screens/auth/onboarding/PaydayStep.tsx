@@ -8,10 +8,19 @@ import { useAppStore } from '../../../stores/appStore';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import { LoadingSplash } from '../../../components/shared/LoadingSplash';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { ONBOARDING_TOTAL_STEPS, onboardingStepNumber } from './onboardingSteps';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Payday'>;
 
+/**
+ * Payday CONFIRMATION, not a second question: the field is pre-filled with the
+ * value the user already gave on `CreateHouseholdScreen`, so leaving it alone
+ * and pressing Next is the expected path. It also runs BEFORE
+ * `ExpenseCategoriesStep`/`AllocateEnvelopesStep` (see `OnboardingNavigator`),
+ * so the envelopes those steps create are stamped with the period key this
+ * payday implies.
+ */
 export function PaydayStep(): React.JSX.Element {
   const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
@@ -41,7 +50,7 @@ export function PaydayStep(): React.JSX.Element {
         return;
       }
       setPaydayDay(day);
-      navigation.navigate('MeterSetup');
+      navigation.navigate('ExpenseCategories');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
@@ -52,12 +61,13 @@ export function PaydayStep(): React.JSX.Element {
   return (
     <OnboardingStepLayout
       title="When do you get paid?"
-      subtitle="Your payday resets your budget period each month."
-      step={5}
-      totalSteps={8}
+      subtitle="Your payday resets your budget period each month. We've filled in what you told us — change it only if it's wrong."
+      step={onboardingStepNumber('Payday')}
+      totalSteps={ONBOARDING_TOTAL_STEPS}
       onCta={handleNext}
       ctaLoading={loading}
       ctaDisabled={loading}
+      onBack={() => navigation.goBack()}
     >
       <TextInput
         label="Day of month (1–28)"

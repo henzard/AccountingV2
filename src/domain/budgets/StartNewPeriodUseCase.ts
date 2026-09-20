@@ -12,6 +12,13 @@ import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess } from '../shared/types';
 import { uuidv5, APP_NAMESPACE } from '../../infrastructure/crypto/uuidv5';
+import {
+  buildContributionRow,
+  findExistingContributionIds,
+  findFundedEnvelopeIdsForPeriod,
+  isContributingEnvelope,
+  periodContributionId,
+} from './PersistentContributions';
 
 export interface StartNewPeriodInput {
   householdId: string;
@@ -24,6 +31,14 @@ export interface StartNewPeriodInput {
 export interface StartNewPeriodOutput {
   /** Number of envelopes newly copied forward into `toPeriodStart`. */
   count: number;
+  /**
+   * Number of PERSISTENT envelopes newly funded for `toPeriodStart` — one
+   * `envelope_contributions` row each. 0 on a replayed rollover, since the
+   * deterministic contribution ids already exist.
+   */
+  contributionCount: number;
+  /** Total cents moved into persistent envelopes by this rollover. */
+  contributedCents: number;
 }
 
 /**
@@ -65,9 +80,17 @@ export function rolloverEnvelopeId(
  * PERIOD-scoped envelope (`spending` | `income` | `utility` — see
  * `getEnvelopeScope`) of `fromPeriodStart` forward into `toPeriodStart`,
  * preserving its `allocatedCents`. PERSISTENT envelopes (`sinking_fund` |
- * `emergency_fund` | `savings` | `baby_step`) are never touched here — they
+ * `emergency_fund` | `savings` | `baby_step`) are never COPIED here — they
  * already carry across periods unchanged (same row, all-time derived
- * balance), so "copying" them forward would create a duplicate row.
+ * balance), so "copying" them forward would create a duplicate row. Instead
+ * each one is FUNDED: starting the new period is the moment its monthly
+ * `allocatedCents` actually becomes money in the fund, so this use case
+ * appends one `envelope_contributions` row per persistent envelope per
+ * period (see `PersistentContributions`). That is what makes a R500/month
+ * fund read R1,500 after three periods instead of R500 forever, and what
+ * stops Baby Step 1 from completing the instant someone types R1,000 into an
+ * allocation field — a typed allocation is a pledge for the current period,
+ * not savings.
  *
  * Determinism / idempotency: each copy's id is
  * `uuidv5(household:toPeriodStart:sourceId, APP_NAMESPACE)` — NOT a random
@@ -77,7 +100,9 @@ export function rolloverEnvelopeId(
  * so when their oplogs eventually sync they converge on one row instead of
  * duplicating it. Re-running `execute` (e.g. after a crash, or a second
  * device replaying the same rollover) is safe: any target id that already
- * exists is skipped rather than re-inserted or thrown on.
+ * exists is skipped rather than re-inserted or thrown on. Contribution rows
+ * follow the identical rule via `periodContributionId`, so a double rollover
+ * funds each persistent envelope exactly once.
  */
 export class StartNewPeriodUseCase {
   constructor(
@@ -108,8 +133,20 @@ export class StartNewPeriodUseCase {
       isRolloverSource({ envelopeType: row.envelopeType, isArchived: row.isArchived }),
     );
 
-    if (sourceEnvelopes.length === 0) {
-      return createSuccess({ count: 0 });
+    // The same candidate set also carries every PERSISTENT envelope (the
+    // scope condition matches those unconditionally), so the funds this
+    // rollover must contribute to are read from it directly rather than by a
+    // second query.
+    const fundedEnvelopes = candidates.filter((row) =>
+      isContributingEnvelope({
+        envelopeType: row.envelopeType,
+        isArchived: row.isArchived,
+        allocatedCents: row.allocatedCents,
+      }),
+    );
+
+    if (sourceEnvelopes.length === 0 && fundedEnvelopes.length === 0) {
+      return createSuccess({ count: 0, contributionCount: 0, contributedCents: 0 });
     }
 
     const targetIds = sourceEnvelopes.map((source) =>
@@ -120,11 +157,30 @@ export class StartNewPeriodUseCase {
     // source-envelope -> target-period copy was already made (by this
     // device or another, now synced), so it must be skipped rather than
     // re-inserted (which would throw on the primary key) or duplicated.
-    const existingRows = await this.db
-      .select({ id: envelopes.id })
-      .from(envelopes)
-      .where(inArray(envelopes.id, targetIds));
+    const existingRows =
+      targetIds.length === 0
+        ? []
+        : await this.db
+            .select({ id: envelopes.id })
+            .from(envelopes)
+            .where(inArray(envelopes.id, targetIds));
     const existingIds = new Set(existingRows.map((row) => row.id));
+
+    // Same idempotency rule for the funding side: a contribution id that
+    // already exists means this envelope was already funded for
+    // `toPeriodStart`, so re-running the rollover must not fund it twice.
+    const contributionIds = fundedEnvelopes.map((envelope) =>
+      periodContributionId(householdId, envelope.id, toPeriodStart),
+    );
+    const existingContributionIds = await findExistingContributionIds(this.db, contributionIds);
+    // Second, VALUE-based guard: a contribution re-keyed onto `toPeriodStart`
+    // by a payday change keeps its original id, so the id check above cannot
+    // see it — see `findFundedEnvelopeIdsForPeriod`.
+    const alreadyFundedEnvelopeIds = await findFundedEnvelopeIdsForPeriod(
+      this.db,
+      householdId,
+      toPeriodStart,
+    );
 
     const ctx = resolveSyncedRepoCtx(this.deps);
     const now = ctx.clock();
@@ -162,16 +218,48 @@ export class StartNewPeriodUseCase {
       });
     });
 
-    if (rowsToInsert.length === 0) {
-      return createSuccess({ count: 0 });
+    // Built alongside the envelope copies so BOTH land in the single
+    // transaction below: a period that copied its envelopes forward but
+    // failed to fund its sinking funds (or vice versa) is exactly the
+    // half-rolled-over state the one-transaction rule exists to prevent.
+    const contributionsToInsert: Record<string, unknown>[] = [];
+    let contributedCents = 0;
+    fundedEnvelopes.forEach((envelope, index) => {
+      const contributionId = contributionIds[index];
+      if (existingContributionIds.has(contributionId)) return;
+      if (alreadyFundedEnvelopeIds.has(envelope.id)) return;
+
+      contributionsToInsert.push(
+        buildContributionRow({
+          id: contributionId,
+          householdId,
+          envelopeId: envelope.id,
+          amountCents: envelope.allocatedCents,
+          periodStart: toPeriodStart,
+          source: 'rollover',
+          now,
+        }),
+      );
+      contributedCents += envelope.allocatedCents;
+    });
+
+    if (rowsToInsert.length === 0 && contributionsToInsert.length === 0) {
+      return createSuccess({ count: 0, contributionCount: 0, contributedCents: 0 });
     }
 
     runInUnitOfWork(this.db, (uow) => {
       for (const row of rowsToInsert) {
         insertRowWithinUow(uow, 'envelopes', row, ctx);
       }
+      for (const row of contributionsToInsert) {
+        insertRowWithinUow(uow, 'envelope_contributions', row, ctx);
+      }
     });
 
-    return createSuccess({ count: rowsToInsert.length });
+    return createSuccess({
+      count: rowsToInsert.length,
+      contributionCount: contributionsToInsert.length,
+      contributedCents,
+    });
   }
 }

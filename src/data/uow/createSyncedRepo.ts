@@ -197,6 +197,31 @@ function assertRowMatched(
 }
 
 /**
+ * Asserts that a hand-written `uow.db.run(...)` UPDATE inside a unit of work
+ * actually matched a row, throwing the same not-found error (and therefore
+ * satisfying the same `isRowNotMatchedError` predicate) the synced-repo
+ * writes do.
+ *
+ * For the use cases that cannot go through `createSyncedRepo` because one
+ * logical write moves several columns at once — `LogDebtPaymentUseCase` is
+ * the motivating case — and so lose the repo's built-in zero-rows guard. Call
+ * it immediately after the `run`, BEFORE appending any op, so a payment
+ * against a missing or already-deleted row rolls the transaction back instead
+ * of committing ops for a row that does not exist:
+ *
+ *   const result = uow.db.run(sql`UPDATE debts SET ... WHERE id = ...`);
+ *   assertRunMatchedRow('debts', debtId, householdId, result);
+ */
+export function assertRunMatchedRow(
+  tableName: string,
+  id: string,
+  householdId: string,
+  runResult: unknown,
+): void {
+  assertRowMatched(tableName, id, householdId, extractChanges(runResult));
+}
+
+/**
  * Performs one row insert + its paired oplog append against an ALREADY-OPEN
  * `uow` (the callback argument `runInUnitOfWork` hands to its `fn`), instead
  * of opening a new transaction of its own. `createSyncedRepo(...).insert` is
@@ -352,8 +377,12 @@ export function createSyncedRepo(db: PortableDb, config: CreateSyncedRepoConfig)
     softDelete(id, householdId, ctx) {
       runInUnitOfWork(db, (uow) => {
         const deletedAt = ctx.clock();
+        // `deleted_at IS NULL` makes a repeat delete match ZERO rows, so
+        // `assertRowMatched` throws and the caller surfaces NOT_FOUND instead
+        // of silently re-stamping a newer tombstone on an already-deleted row
+        // and appending a second `delete` op for it (SYNC-3).
         const result = uow.db.run(
-          sql`UPDATE ${sql.raw(tableName)} SET deleted_at = ${deletedAt} WHERE id = ${id} AND household_id = ${householdId}`,
+          sql`UPDATE ${sql.raw(tableName)} SET deleted_at = ${deletedAt} WHERE id = ${id} AND household_id = ${householdId} AND deleted_at IS NULL`,
         );
         assertRowMatched(tableName, id, householdId, extractChanges(result));
 

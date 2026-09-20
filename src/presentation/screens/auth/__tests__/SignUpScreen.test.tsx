@@ -23,15 +23,44 @@ jest.mock('react-native-paper', () => {
     value,
     onChangeText,
     testID,
+    right,
+    secureTextEntry,
     ...p
   }: {
     label?: string;
     value?: string;
     onChangeText?: (v: string) => void;
     testID?: string;
+    right?: React.ReactNode;
+    secureTextEntry?: boolean;
     [k: string]: unknown;
-  }) => React.createElement('TextInput', { testID: testID ?? label, value, onChangeText, ...p });
+  }) =>
+    React.createElement(
+      'TextInput',
+      {
+        testID: testID ?? label,
+        value,
+        onChangeText,
+        secureTextEntry,
+        ...p,
+      },
+      right,
+    );
   TextInput.Affix = () => null;
+  TextInput.Icon = ({
+    onPress,
+    testID,
+    icon,
+  }: {
+    onPress?: () => void;
+    testID?: string;
+    icon?: string;
+    accessibilityLabel?: string;
+  }) =>
+    React.createElement('TouchableOpacity', {
+      testID: testID ?? `icon-${icon}`,
+      onPress,
+    });
   const Button = ({
     children,
     onPress,
@@ -147,5 +176,56 @@ describe('SignUpScreen', () => {
     await waitFor(() => {
       expect(queryByTestId('signup-error')).toBeTruthy();
     });
+  });
+
+  it('toggles password visibility when password icon is pressed', () => {
+    const { UNSAFE_root } = render(<SignUpScreen />);
+    const inputs = UNSAFE_root.findAllByType('TextInput');
+    const passwordInput = inputs[1]; // Password field is second (after email)
+
+    // Initially secureTextEntry should be true
+    expect(passwordInput.props.secureTextEntry).toBe(true);
+
+    // Find and press the password icon toggle
+    const icons = UNSAFE_root.findAllByType('TouchableOpacity');
+    const passwordIcon = icons.find((icon: { props: { testID?: string } }) =>
+      icon.props.testID?.includes('eye'),
+    );
+    expect(passwordIcon).toBeTruthy();
+
+    fireEvent.press(passwordIcon!);
+
+    // After toggle, secureTextEntry should be false
+    expect(passwordInput.props.secureTextEntry).toBe(false);
+
+    // Press again to toggle back
+    fireEvent.press(passwordIcon!);
+    expect(passwordInput.props.secureTextEntry).toBe(true);
+  });
+
+  it('toggles confirm password visibility when confirm password icon is pressed', () => {
+    const { UNSAFE_root } = render(<SignUpScreen />);
+    const inputs = UNSAFE_root.findAllByType('TextInput');
+    const confirmInput = inputs[2]; // Confirm password field is third
+
+    // Initially secureTextEntry should be true
+    expect(confirmInput.props.secureTextEntry).toBe(true);
+
+    // Find and press the confirm password icon toggle
+    const icons = UNSAFE_root.findAllByType('TouchableOpacity');
+    const confirmIcon = icons.find(
+      (icon: { props: { testID?: string } }, idx: number) =>
+        icon.props.testID?.includes('eye') && idx > 0, // Skip first eye icon (password)
+    );
+    expect(confirmIcon).toBeTruthy();
+
+    fireEvent.press(confirmIcon!);
+
+    // After toggle, secureTextEntry should be false
+    expect(confirmInput.props.secureTextEntry).toBe(false);
+
+    // Press again to toggle back
+    fireEvent.press(confirmIcon!);
+    expect(confirmInput.props.secureTextEntry).toBe(true);
   });
 });

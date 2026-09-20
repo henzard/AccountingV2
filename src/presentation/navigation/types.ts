@@ -9,10 +9,19 @@ export type OnboardingStackParamList = {
   ExpenseCategories: undefined;
   AllocateEnvelopes: { categories: string[] };
   Payday: undefined;
-  MeterSetup: undefined;
   ScoreIntro: undefined;
   Finish: undefined;
 };
+
+/** Optional params shared by every navigator's `AddTransaction` route (UX-9/VAL-9). */
+export type AddTransactionParams =
+  | {
+      /** Edit mode: load and update this transaction instead of creating a new one. */
+      transactionId?: string;
+      /** Create mode only: preselect this envelope. */
+      envelopeId?: string;
+    }
+  | undefined;
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -35,7 +44,7 @@ export type DashboardStackParamList = {
       }
     | undefined;
   BabySteps: undefined;
-  AddTransaction: undefined;
+  AddTransaction: AddTransactionParams;
   SinkingFunds: undefined;
   Forecast: undefined;
   Budget: undefined;
@@ -43,7 +52,7 @@ export type DashboardStackParamList = {
 
 export type TransactionsStackParamList = {
   TransactionList: undefined;
-  AddTransaction: undefined;
+  AddTransaction: AddTransactionParams;
   BusinessExpenseReport: undefined;
 };
 

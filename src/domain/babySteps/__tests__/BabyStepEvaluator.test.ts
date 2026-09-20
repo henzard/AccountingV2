@@ -66,6 +66,18 @@ function makeDebt(overrides: Partial<DebtEntity>): DebtEntity {
 
 const DEFAULT_MANUAL_FLAGS: EvaluatorInput['manualFlags'] = { 4: false, 5: false, 7: false };
 
+/**
+ * No persistent envelope has been funded. The EMF's balance is its SAVED
+ * cents (contribution ledger minus spend) — never `allocatedCents - spentCents`
+ * — so a scenario that cares about the balance passes its own map.
+ */
+const NO_SAVINGS: ReadonlyMap<string, number> = new Map();
+
+/** Saved-cents map for the given [envelope, savedCents] pairs. */
+function savedMap(...entries: [EnvelopeEntity, number][]): ReadonlyMap<string, number> {
+  return new Map(entries.map(([envelope, cents]) => [envelope.id, cents]));
+}
+
 const NO_DEBTS: DebtEntity[] = [];
 const STEP1_TARGET = 100_000; // R1,000 in cents
 const INCOME_CENTS = 1_000_000; // R10,000 / month income
@@ -83,12 +95,13 @@ describe('Step 1 — Starter Fund', () => {
     const emf = makeEnvelope({
       envelopeType: 'emergency_fund',
       allocatedCents: allocated,
-      spentCents: allocated - emfBalance, // balance = allocated - spent
+      spentCents: 0,
     });
     return {
       envelopes: [emf],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: savedMap([emf, emfBalance]),
       manualFlags: DEFAULT_MANUAL_FLAGS,
     };
   }
@@ -123,11 +136,66 @@ describe('Step 1 — Starter Fund', () => {
     expect(result[0].isCompleted).toBe(false);
   });
 
+  it('a typed R1,000 allocation with nothing contributed → incomplete (DOM-4/VAL-3)', () => {
+    // The EMF row says allocatedCents = R1,000 but no period has ever funded
+    // it, so nothing is saved. Before the contribution ledger this read
+    // `allocated - spent` and completed Step 1 the moment the number was
+    // typed into the allocation field.
+    const emf = makeEnvelope({
+      envelopeType: 'emergency_fund',
+      allocatedCents: 100_000,
+      spentCents: 0,
+    });
+    const result = evaluate({
+      envelopes: [emf],
+      debts: NO_DEBTS,
+      monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
+      manualFlags: DEFAULT_MANUAL_FLAGS,
+    });
+    expect(result[0].isCompleted).toBe(false);
+    expect(result[0].progress?.current).toBe(0);
+  });
+
+  it('R500/month budgeted over two periods → still incomplete at R1,000 − 1', () => {
+    const emf = makeEnvelope({
+      envelopeType: 'emergency_fund',
+      allocatedCents: 50_000,
+      spentCents: 0,
+    });
+    const result = evaluate({
+      envelopes: [emf],
+      debts: NO_DEBTS,
+      monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: savedMap([emf, 99_999]),
+      manualFlags: DEFAULT_MANUAL_FLAGS,
+    });
+    expect(result[0].isCompleted).toBe(false);
+  });
+
+  it('R500/month budgeted over two periods → complete once R1,000 is contributed', () => {
+    const emf = makeEnvelope({
+      envelopeType: 'emergency_fund',
+      allocatedCents: 50_000,
+      spentCents: 0,
+    });
+    const result = evaluate({
+      envelopes: [emf],
+      debts: NO_DEBTS,
+      monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: savedMap([emf, 100_000]),
+      manualFlags: DEFAULT_MANUAL_FLAGS,
+    });
+    expect(result[0].isCompleted).toBe(true);
+    expect(result[0].progress?.current).toBe(100_000);
+  });
+
   it('no EMF envelope → progress = null, incomplete', () => {
     const input: EvaluatorInput = {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: DEFAULT_MANUAL_FLAGS,
     };
     const result = evaluate(input);
@@ -142,7 +210,13 @@ describe('Step 1 — Starter Fund', () => {
 
 describe('Step 2 — Debt Free', () => {
   function makeInput(debts: DebtEntity[]): EvaluatorInput {
-    return { envelopes: [], debts, monthlyExpenseBaseline: 0, manualFlags: DEFAULT_MANUAL_FLAGS };
+    return {
+      envelopes: [],
+      debts,
+      monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
+      manualFlags: DEFAULT_MANUAL_FLAGS,
+    };
   }
 
   it('pre-threshold: some debts paid, others outstanding → incomplete', () => {
@@ -216,7 +290,7 @@ describe('Step 3 — Full Emergency Fund', () => {
   ): EvaluatorInput {
     const emf = makeEnvelope({
       envelopeType: 'emergency_fund',
-      allocatedCents: emfBalance,
+      allocatedCents: 0,
       spentCents: 0,
     });
     const income = makeEnvelope({
@@ -228,6 +302,7 @@ describe('Step 3 — Full Emergency Fund', () => {
       envelopes: [emf, income],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: baseline,
+      savedCentsByEnvelopeId: savedMap([emf, emfBalance]),
       manualFlags: DEFAULT_MANUAL_FLAGS,
     };
   }
@@ -262,21 +337,24 @@ describe('Step 3 — Full Emergency Fund', () => {
     expect(result[2].isCompleted).toBe(false);
   });
 
-  it('INCOME_TOTAL = 0 → progress = null, never auto-completes', () => {
+  it('INCOME_TOTAL = 0 → indeterminate, progress = null, never auto-completes', () => {
     const emf = makeEnvelope({
       envelopeType: 'emergency_fund',
-      allocatedCents: 9_999_999,
+      allocatedCents: 0,
       spentCents: 0,
     });
     const input: EvaluatorInput = {
       envelopes: [emf],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: savedMap([emf, 9_999_999]),
       manualFlags: DEFAULT_MANUAL_FLAGS,
     };
     const result = evaluate(input);
     expect(result[2].isCompleted).toBe(false);
     expect(result[2].progress).toBeNull();
+    // The target is UNKNOWN without income, not unmet — see DOM-8.
+    expect(result[2].isIndeterminate).toBe(true);
   });
 });
 
@@ -289,6 +367,7 @@ describe('Step 4 — Invest 15% (manual)', () => {
     envelopes: [],
     debts: NO_DEBTS,
     monthlyExpenseBaseline: 0,
+    savedCentsByEnvelopeId: NO_SAVINGS,
     manualFlags: { 4: false, 5: false, 7: false },
   };
 
@@ -318,6 +397,7 @@ describe('Step 5 — College Fund (manual)', () => {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: { 4: false, 5: false, 7: false },
     };
     const result = evaluate(input);
@@ -330,6 +410,7 @@ describe('Step 5 — College Fund (manual)', () => {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: { 4: false, 5: true, 7: false },
     };
     const result = evaluate(input);
@@ -341,6 +422,7 @@ describe('Step 5 — College Fund (manual)', () => {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: { 4: false, 5: false, 7: false },
     };
     const result = evaluate(input);
@@ -354,6 +436,7 @@ describe('Step 7 — Build & Give (manual)', () => {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: { 4: false, 5: false, 7: false },
     };
     const result = evaluate(input);
@@ -366,6 +449,7 @@ describe('Step 7 — Build & Give (manual)', () => {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: { 4: false, 5: false, 7: true },
     };
     const result = evaluate(input);
@@ -377,6 +461,7 @@ describe('Step 7 — Build & Give (manual)', () => {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: { 4: false, 5: false, 7: false },
     };
     const result = evaluate(input);
@@ -394,6 +479,7 @@ describe('Step 6 — House Free', () => {
       envelopes: [],
       debts: bonds,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: DEFAULT_MANUAL_FLAGS,
     };
   }
@@ -495,13 +581,13 @@ describe('Multiple EMF envelopes — oldest wins', () => {
   it('when two EMF envelopes exist, oldest by createdAt determines balance', () => {
     const older = makeEnvelope({
       envelopeType: 'emergency_fund',
-      allocatedCents: 100_000,
+      allocatedCents: 0,
       spentCents: 0,
       createdAt: '2025-01-01T00:00:00.000Z',
     });
     const newer = makeEnvelope({
       envelopeType: 'emergency_fund',
-      allocatedCents: 200_000,
+      allocatedCents: 0,
       spentCents: 0,
       createdAt: '2025-06-01T00:00:00.000Z',
     });
@@ -510,6 +596,7 @@ describe('Multiple EMF envelopes — oldest wins', () => {
       envelopes: [newer, older], // intentionally out of order
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: savedMap([older, 100_000], [newer, 200_000]),
       manualFlags: DEFAULT_MANUAL_FLAGS,
     };
     const result = evaluate(input);
@@ -529,6 +616,7 @@ describe('output structure', () => {
       envelopes: [],
       debts: NO_DEBTS,
       monthlyExpenseBaseline: 0,
+      savedCentsByEnvelopeId: NO_SAVINGS,
       manualFlags: DEFAULT_MANUAL_FLAGS,
     };
     const result = evaluate(input);

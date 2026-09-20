@@ -59,6 +59,16 @@ jest.mock('../../components/shared/ToastHost', () => {
   const { View } = require('react-native');
   return { ToastHost: () => React.createElement(View, { testID: 'toast-host' }) };
 });
+jest.mock('../../components/shared/ConfirmDialogHost', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+  return {
+    ConfirmDialogHost: () => React.createElement(View, { testID: 'confirm-dialog-host' }),
+    confirm: jest.fn(),
+  };
+});
 jest.mock('../../components/shared/OfflineBanner', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
@@ -87,9 +97,21 @@ describe('MainTabNavigator', () => {
       </NavigationContainer>,
     );
     expect(getByText('Dashboard')).toBeTruthy();
-    expect(getByText('Budget')).toBeTruthy();
+    expect(getByText('Transactions')).toBeTruthy();
     expect(getByText('Meters')).toBeTruthy();
     expect(getByText('Snowball')).toBeTruthy();
     expect(getByText('Settings')).toBeTruthy();
+  });
+
+  // UX-6: ConfirmDialogHost must be mounted once at the navigator root
+  // (mirroring ToastHost) so confirm() works from any screen.
+  it('mounts ConfirmDialogHost alongside ToastHost', () => {
+    const { getByTestId } = render(
+      <NavigationContainer>
+        <MainTabNavigator />
+      </NavigationContainer>,
+    );
+    expect(getByTestId('toast-host')).toBeTruthy();
+    expect(getByTestId('confirm-dialog-host')).toBeTruthy();
   });
 });

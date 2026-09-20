@@ -11,6 +11,16 @@
  *   toAssign = incomeTotal - expenseAllocationTotal
  *
  * Sealed against future envelope types — no enumeration of spending subtypes.
+ *
+ * PERSISTENT envelopes ('sinking_fund' | 'emergency_fund' | 'savings' |
+ * 'baby_step') count toward `expenseAllocationTotal` by their
+ * `allocatedCents` and NOTHING else, because on those rows `allocatedCents`
+ * is precisely this period's MONTHLY CONTRIBUTION — the money being assigned
+ * out of this period's income. Their accumulated balance is a separate,
+ * derived figure (`getPersistentEnvelopeSavedCents`) built from the
+ * contribution ledger, and it must never reach this calculation: charging a
+ * fund's whole R1,500 saved against one month's income would show the budget
+ * wildly overcommitted every period after the first.
  */
 
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';

@@ -1,6 +1,9 @@
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
 }));
+jest.mock('../shared/bestEffortAudit', () => ({
+  bestEffortAudit: jest.fn().mockResolvedValue(undefined),
+}));
 
 import { CreateHouseholdUseCase } from './CreateHouseholdUseCase';
 
@@ -82,5 +85,23 @@ describe('CreateHouseholdUseCase', () => {
     expect(repo.insert).toHaveBeenCalledTimes(7);
     const babyStepRows = repo.insert.mock.calls.filter((call) => 'step_number' in call[0]);
     expect(babyStepRows).toHaveLength(7);
+  });
+
+  it('returns success even when audit fails', async () => {
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
+    const db = makeDb();
+    const repo = makeFakeRepo();
+    const uc = new CreateHouseholdUseCase(
+      db as any,
+      makeAudit() as any,
+      { userId: 'u1', name: 'Home', paydayDay: 25 },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(mockBestEffortAudit).toHaveBeenCalled();
   });
 });

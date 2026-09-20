@@ -130,12 +130,17 @@ jest.mock('../../../data/local/db', () => ({
 // column — the raw rows returned by the mocked db chain deliberately omit it.
 jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn(),
+  // Real implementation exercised elsewhere (useEnvelopes.periodScope.test.ts,
+  // AddTransactionScreen.periodScope.test.tsx) — stubbed here since this test
+  // only asserts the ledger-derived-balance wiring, not the scope predicate.
+  envelopeScopeCondition: jest.fn(() => 'scope-condition'),
 }));
 
 jest.mock('drizzle-orm', () => ({
   and: jest.fn((...args: unknown[]) => args),
   eq: jest.fn((col: unknown, val: unknown) => ({ col, val })),
   ne: jest.fn((col: unknown, val: unknown) => ({ col, val })),
+  isNull: jest.fn((col: unknown) => ({ col, isNull: true })),
 }));
 
 jest.mock('../../../data/local/schema', () => ({
@@ -147,13 +152,23 @@ jest.mock('../../../data/local/schema', () => ({
     householdId: 'householdId',
     periodStart: 'periodStart',
     isArchived: 'isArchived',
+    deletedAt: 'deletedAt',
   },
 }));
 
 import { SlipScanningScreen } from '../SlipScanningScreen';
 import { getEnvelopeSpentCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
+import { SlipScanFlow } from '../../../application/SlipScanFlow';
+import { requestSyncNow } from '../../../data/sync/syncRuntime';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { db: mockDb } = require('../../../data/local/db');
+
+const mockSlipScanFlow = SlipScanFlow as jest.MockedClass<typeof SlipScanFlow>;
+// `SlipScanningScreen` constructs its `SlipScanFlow` singleton once at
+// MODULE LOAD (the `import` above) — before any `beforeEach`'s
+// `jest.clearAllMocks()` has a chance to wipe the mock's recorded calls.
+// Snapshot the constructor args here, once, for the DB-13 wiring test below.
+const slipScanFlowCtorArgs = mockSlipScanFlow.mock.calls[0]?.[0];
 
 const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<
   typeof getEnvelopeSpentCents
@@ -216,5 +231,14 @@ describe('SlipScanningScreen', () => {
     });
 
     expect(getByTestId('envelope-env-3').props.children).toBe('Utilities:300');
+  });
+
+  // DB-13: the slip_queue insert must reach the server before extraction
+  // calls the edge function (it 403s on a row it hasn't seen). SlipScanFlow
+  // is constructed once at module scope with `ensureSynced` wired to
+  // `requestSyncNow` (src/data/sync/syncRuntime.ts) — this only needs
+  // asserting once at import time, since the module is a singleton.
+  it('wires SlipScanFlow.ensureSynced to requestSyncNow (DB-13)', () => {
+    expect(slipScanFlowCtorArgs).toEqual(expect.objectContaining({ ensureSynced: requestSyncNow }));
   });
 });

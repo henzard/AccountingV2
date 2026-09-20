@@ -1,177 +1,102 @@
 /**
  * sync-error-branches.test.ts — RestoreService error path tests.
+ *
+ * These used to assert that a failing table fetch was SKIPPED and the restore
+ * reported success anyway. That is the SYNC-9 bug: a swallowed error let the
+ * restore go on to write a sync cursor for data it never actually restored,
+ * so the puller then started past every op that would have rebuilt it. The
+ * expectations below are inverted accordingly — a failed fetch now aborts the
+ * restore, and the caller (App.tsx's `initSessionRemote`) catches it.
  */
 
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
 }));
 
-import { RestoreService } from '../RestoreService';
+jest.mock('../../../infrastructure/logging/Logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
 
-// ---------------------------------------------------------------------------
-// RestoreService error branches
-// ---------------------------------------------------------------------------
+import { RestoreService } from '../RestoreService';
+import { makeFakeSupabase, makeFakeLocalDb } from '../../../../tests/support/fakeRestoreDb';
+import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
+import type * as schema from '../../local/schema';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SyncedRepo } from '../../uow/createSyncedRepo';
+
+const HH = 'hh1';
+const HH_ROW = {
+  id: HH,
+  name: 'Test',
+  payday_day: 1,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
+const noopRepo: SyncedRepo = {
+  insert: jest.fn(),
+  update: jest.fn(),
+  softDelete: jest.fn(),
+  increment: jest.fn(),
+};
+
+function build(errors: Record<string, string> = {}): {
+  svc: RestoreService;
+  local: ReturnType<typeof makeFakeLocalDb>;
+} {
+  const { supabase } = makeFakeSupabase({ households: { [HH]: HH_ROW }, maxSeq: 0, errors });
+  const local = makeFakeLocalDb();
+  const svc = new RestoreService(
+    local.db as ExpoSQLiteDatabase<typeof schema>,
+    supabase as SupabaseClient,
+    { repo: noopRepo },
+  );
+  return { svc, local };
+}
 
 describe('RestoreService error branches', () => {
-  function makeRestoreSupabase(tableData: Record<string, { data: any; error: any }>) {
-    return {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (_col: string, _val: unknown) => {
-            const entry = tableData[table] ?? { data: [], error: null };
-            if (table === 'households') {
-              return { single: () => Promise.resolve(entry) };
-            }
-            return Promise.resolve(entry);
-          },
-        }),
-      }),
-    } as any;
-  }
+  it('an entity-table fetch error aborts the restore instead of skipping the table', async () => {
+    const { svc, local } = build({ envelopes: 'permission denied' });
 
-  it('restoreTable: Supabase error -> early return (table skipped)', async () => {
-    const db = {
-      insert: jest.fn().mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-        }),
-      }),
-    } as any;
-
-    const supabase = makeRestoreSupabase({
-      households: {
-        data: { id: 'hh1', name: 'Test', payday_day: 1, created_at: 'x', updated_at: 'x' },
-        error: null,
-      },
-      household_members: { data: [], error: null },
-      // envelopes returns an error — should be skipped
-      envelopes: { data: null, error: { message: 'permission denied' } },
-      transactions: { data: [], error: null },
-      debts: { data: [], error: null },
-      meter_readings: { data: [], error: null },
-      baby_steps: { data: [], error: null },
-      audit_events: { data: [], error: null },
-      slip_queue: { data: [], error: null },
-      user_consent: { data: [], error: null },
-    });
-
-    const svc = new RestoreService(db, supabase);
-    const result = await svc.restoreHousehold('hh1', 'owner', 'u1');
-
-    // Should still succeed — error table is skipped
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe('hh1');
+    await expect(svc.restoreHousehold(HH, 'owner', 'u1')).rejects.toThrow('permission denied');
+    // Nothing was written — in particular no cursor for data that never landed.
+    expect(local.written).toEqual([]);
+    expect(local.cursorWrites).toEqual([]);
   });
 
-  it('restoreTable: empty data -> no inserts', async () => {
-    const insertMock = jest.fn().mockReturnValue({
-      values: jest.fn().mockReturnValue({
-        onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-        onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-      }),
-    });
-    const db = { insert: insertMock } as any;
+  it('a user_consent fetch error aborts the restore too', async () => {
+    const { svc, local } = build({ user_consent: 'rls error' });
 
-    const supabase = makeRestoreSupabase({
-      households: {
-        data: { id: 'hh1', name: 'Test', payday_day: 1, created_at: 'x', updated_at: 'x' },
-        error: null,
-      },
-      household_members: { data: [], error: null },
-      envelopes: { data: [], error: null },
-      transactions: { data: [], error: null },
-      debts: { data: [], error: null },
-      meter_readings: { data: [], error: null },
-      baby_steps: { data: [], error: null },
-      audit_events: { data: [], error: null },
-      slip_queue: { data: [], error: null },
-      user_consent: { data: [], error: null },
-    });
-
-    const svc = new RestoreService(db, supabase);
-    await svc.restoreHousehold('hh1', 'owner', 'u1');
-
-    // Insert is called for household upsert + seeder, NOT for empty entity tables
-    const insertCalls = insertMock.mock.calls.length;
-    // household (1) + seeder baby_steps (7) = 8 inserts minimum
-    // No entity-table data rows should trigger inserts
-    expect(insertCalls).toBeLessThanOrEqual(8);
+    await expect(svc.restoreHousehold(HH, 'owner', 'u1')).rejects.toThrow('rls error');
+    expect(local.cursorWrites).toEqual([]);
   });
 
-  it('restoreHousehold: fetch failure -> returns null', async () => {
-    const db = {} as any;
-    const supabase = makeRestoreSupabase({
-      households: { data: null, error: { message: 'not found' } },
-    });
+  it('empty entity tables write nothing but still commit the cursor', async () => {
+    const { svc, local } = build();
 
-    const svc = new RestoreService(db, supabase);
-    const result = await svc.restoreHousehold('hh-missing', 'owner', 'u1');
+    await expect(svc.restoreHousehold(HH, 'owner', 'u1')).resolves.not.toBeNull();
 
-    expect(result).toBeNull();
+    // Only the household row itself — every entity table came back empty.
+    expect(local.written.map((w) => w.table)).toEqual(['households']);
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 0 }]);
   });
 
-  it('restoreUserConsent: empty data -> skipped', async () => {
-    const insertMock = jest.fn().mockReturnValue({
-      values: jest.fn().mockReturnValue({
-        onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-        onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-      }),
-    });
-    const db = { insert: insertMock } as any;
+  it('a household the server has no row for returns null without writing anything', async () => {
+    const { supabase } = makeFakeSupabase({ households: {} });
+    const local = makeFakeLocalDb();
+    const svc = new RestoreService(
+      local.db as ExpoSQLiteDatabase<typeof schema>,
+      supabase as SupabaseClient,
+      { repo: noopRepo },
+    );
 
-    const supabase = makeRestoreSupabase({
-      households: {
-        data: { id: 'hh1', name: 'Test', payday_day: 1, created_at: 'x', updated_at: 'x' },
-        error: null,
-      },
-      household_members: { data: [], error: null },
-      envelopes: { data: [], error: null },
-      transactions: { data: [], error: null },
-      debts: { data: [], error: null },
-      meter_readings: { data: [], error: null },
-      baby_steps: { data: [], error: null },
-      audit_events: { data: [], error: null },
-      slip_queue: { data: [], error: null },
-      user_consent: { data: [], error: null }, // empty
-    });
-
-    const svc = new RestoreService(db, supabase);
-    await svc.restoreHousehold('hh1', 'owner', 'u1');
-
-    // The key assertion: with empty user_consent data, no consent-specific insert fires
-    expect(insertMock).toHaveBeenCalled(); // household + seeder
+    expect(await svc.restoreHousehold('hh-missing', 'owner', 'u1')).toBeNull();
+    expect(local.written).toEqual([]);
+    expect(local.cursorWrites).toEqual([]);
   });
 
-  it('restoreUserConsent: Supabase error -> skipped', async () => {
-    const insertMock = jest.fn().mockReturnValue({
-      values: jest.fn().mockReturnValue({
-        onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
-        onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-      }),
-    });
-    const db = { insert: insertMock } as any;
-
-    const supabase = makeRestoreSupabase({
-      households: {
-        data: { id: 'hh1', name: 'Test', payday_day: 1, created_at: 'x', updated_at: 'x' },
-        error: null,
-      },
-      household_members: { data: [], error: null },
-      envelopes: { data: [], error: null },
-      transactions: { data: [], error: null },
-      debts: { data: [], error: null },
-      meter_readings: { data: [], error: null },
-      baby_steps: { data: [], error: null },
-      audit_events: { data: [], error: null },
-      slip_queue: { data: [], error: null },
-      user_consent: { data: null, error: { message: 'rls error' } },
-    });
-
-    const svc = new RestoreService(db, supabase);
-    const result = await svc.restoreHousehold('hh1', 'owner', 'u1');
-
-    // Should complete without crashing
-    expect(result).not.toBeNull();
+  it('a households fetch ERROR throws rather than being read as "no such household"', async () => {
+    const { svc } = build({ households: 'connection reset' });
+    await expect(svc.restoreHousehold(HH, 'owner', 'u1')).rejects.toThrow('connection reset');
   });
 });

@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, SectionList } from 'react-native';
 import { Text, Surface, ActivityIndicator } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
 import { transactions as txTable } from '../../../data/local/schema';
 import { groupBusinessExpenses } from '../../../domain/transactions/BusinessExpenseReport';
@@ -27,7 +27,13 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
       const rows = await db
         .select()
         .from(txTable)
-        .where(and(eq(txTable.householdId, householdId), eq(txTable.isBusinessExpense, true)));
+        .where(
+          and(
+            eq(txTable.householdId, householdId),
+            eq(txTable.isBusinessExpense, true),
+            isNull(txTable.deletedAt),
+          ),
+        );
       const entities: TransactionEntity[] = rows.map((r) => ({
         id: r.id,
         householdId: r.householdId,

@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, lte, sql, isNull } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { transactions } from '../../data/local/schema';
@@ -21,6 +21,7 @@ export async function resolveLoggingDays(
         eq(transactions.householdId, householdId),
         gte(transactions.transactionDate, periodStart),
         lte(transactions.transactionDate, periodEnd),
+        isNull(transactions.deletedAt),
       ),
     );
   return row?.count ?? 0;

@@ -266,6 +266,7 @@ describe('LogMeterReadingUseCase', () => {
   const mockRepo = {
     insert: jest.fn().mockResolvedValue(undefined),
     findByDate: jest.fn().mockResolvedValue(null),
+    findByHousehold: jest.fn().mockResolvedValue([]),
   };
   const mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
   const fakeSyncedRepo = {
