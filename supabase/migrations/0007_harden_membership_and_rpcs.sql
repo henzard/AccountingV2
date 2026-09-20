@@ -537,7 +537,10 @@ BEGIN
   -- as a throttled attempt.
   IF NOT FOUND OR invite_row.used_by IS NOT NULL OR invite_row.expires_at::timestamptz <= NOW() THEN
     INSERT INTO public.invite_attempts (user_id) VALUES (caller_id);
-    RAISE EXCEPTION 'invite code is invalid' USING ERRCODE = 'insufficient_privilege';
+    -- RETURN, do not RAISE: an exception would roll back the attempt row just
+    -- written, and the throttle would never count anything. Clients read
+    -- `error` (older ones fall through to "invalid join response").
+    RETURN jsonb_build_object('error', 'invite_invalid', 'message', 'invite code is invalid');
   END IF;
 
   -- Only an ACTIVE membership blocks a re-join; a previously-removed

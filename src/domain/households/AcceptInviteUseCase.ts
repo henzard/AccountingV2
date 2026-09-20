@@ -69,6 +69,14 @@ export class AcceptInviteUseCase {
       return createFailure(mapped);
     }
 
+    // An invalid/used/expired code comes back as a RESULT, not an error: the
+    // server must commit the failed attempt for its throttle, and raising would
+    // roll that back.
+    const rejection = data as { error?: string; message?: string } | null;
+    if (rejection?.error) {
+      return createFailure(mapJoinError(rejection.message ?? rejection.error));
+    }
+
     const join = data as JoinHouseholdRpcResult | null;
     if (!join?.member_id || !join?.household_id) {
       return createFailure({ code: 'JOIN_FAILED', message: 'Invalid join response from server' });

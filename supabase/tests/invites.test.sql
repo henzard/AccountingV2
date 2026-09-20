@@ -99,9 +99,13 @@ select is(
      and role = 'member'),
   1, 'P3: the joiner is now a household member');
 
+-- Read as the table owner: since 0007 (DB-10) a plain member -- which the
+-- joiner now is -- can no longer select invitation rows under RLS.
+reset role;
 select isnt(
   (select used_by from public.invitations where code = (select result ->> 'code' from t_invite)),
   null, 'P3: the invitation is marked used after a successful join');
+set local role authenticated;
 
 -- ===========================================================================
 -- Probe 3b (0010 DB-6(a)): the OWNER sees the join via sync_pull -- proves
@@ -130,10 +134,10 @@ select ok(
 -- ===========================================================================
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}';
 
-select throws_like(
-  $$select public.join_household_via_invite('EXPIRD')$$,
-  '%invite code is invalid%',
-  'P4: an expired invitation code is rejected with the generic invalid-code message');
+select is(
+  public.join_household_via_invite('EXPIRD') ->> 'error',
+  'invite_invalid',
+  'P4: an expired invitation code is rejected with the generic invalid-code result');
 
 -- ===========================================================================
 -- Probe 5: an already-consumed code is rejected
@@ -142,10 +146,10 @@ select throws_like(
 -- already-used vs. never-existed code must be indistinguishable to the
 -- caller).
 -- ===========================================================================
-select throws_like(
-  $$select public.join_household_via_invite((select result ->> 'code' from t_invite))$$,
-  '%invite code is invalid%',
-  'P5: an already-consumed invitation code is rejected with the generic invalid-code message');
+select is(
+  public.join_household_via_invite((select result ->> 'code' from t_invite)) ->> 'error',
+  'invite_invalid',
+  'P5: an already-consumed invitation code is rejected with the generic invalid-code result');
 
 -- ===========================================================================
 -- Probe 6: TOCTOU dup-membership guard. Concurrent joins via different
@@ -228,7 +232,7 @@ begin
     begin
       perform public.join_household_via_invite('BADCOD');
     exception when others then
-      null; -- expected: each of the 10 attempts fails with the generic message
+      null; -- once 10 failures are on record the remaining calls raise the throttle error
     end;
   end loop;
 end

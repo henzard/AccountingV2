@@ -68,6 +68,19 @@ describe('AcceptInviteUseCase', () => {
     }
   });
 
+  it('returns INVITE_INVALID when the server reports the rejection as a RESULT (so its throttle row commits)', async () => {
+    const supabase = makeSupabase({
+      joinData: { error: 'invite_invalid', message: 'invite code is invalid' },
+    });
+    const uc = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
+      code: 'ZZZ999',
+      userId: 'u-1',
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVITE_INVALID');
+  });
+
   it('returns INVITE_THROTTLED when the server reports too many attempts', async () => {
     const supabase = makeSupabase({
       joinError: { message: 'too many attempts, try again later' },
