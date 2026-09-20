@@ -32,6 +32,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="exp+accountingv2"/>
+        <data android:scheme="accountingv2"/>
       </intent-filter>
     </activity>
     <activity android:name="com.google.mlkit.vision.codescanner.internal.GmsBarcodeScanningDelegateActivity" tools:node="remove"/>
