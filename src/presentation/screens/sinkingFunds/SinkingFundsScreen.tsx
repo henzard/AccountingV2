@@ -3,6 +3,7 @@ import { View, StyleSheet, FlatList } from 'react-native';
 import { FAB } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
+import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeSavings';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { SinkingFundCard } from '../../components/envelopes/SinkingFundCard';
@@ -28,11 +29,17 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
   const periodStart = formatPeriodDateKey(engine.getCurrentPeriod(paydayDay).startDate);
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
+  // A sinking fund's progress is the money contributed to it over every
+  // period so far, not the monthly allocation on its row — see
+  // `usePersistentEnvelopeSavings`.
+  const { savedCentsByEnvelopeId, reload: reloadSavings } =
+    usePersistentEnvelopeSavings(householdId);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
-    }, [reload]),
+      void reloadSavings();
+    }, [reload, reloadSavings]),
   );
 
   const funds = envelopes.filter((e) => e.envelopeType === 'sinking_fund');
@@ -56,6 +63,7 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
           renderItem={({ item }) => (
             <SinkingFundCard
               envelope={item}
+              savedCents={savedCentsByEnvelopeId.get(item.id) ?? 0}
               onPress={() => navigation.navigate('AddEditEnvelope', { envelopeId: item.id })}
               testID={`sinking-fund-card-${item.id}`}
             />

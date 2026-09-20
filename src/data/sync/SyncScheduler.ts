@@ -35,23 +35,25 @@ import type { AppStateStatus } from 'react-native';
 import { AppState } from 'react-native';
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { onOplogWrite } from '../uow/UnitOfWork';
-import type { PullHealth } from './SyncEngine';
+import type { PullHealth, SyncSummary } from './SyncEngine';
 import { logger } from '../../infrastructure/logging/Logger';
 
 /** Minimal shape of `SyncEngine` this scheduler drives — an interface (not
  * the concrete class) so tests can inject a fake without a real SQLite db +
  * transport. The production `SyncEngine` satisfies this structurally. */
 export interface SyncRunner {
-  sync(householdId: string): Promise<void>;
+  sync(householdId: string): Promise<SyncSummary>;
   getPullHealth(householdId: string): PullHealth;
   getPendingPushCount(): number;
 }
 
 /** Minimal shape of `NetworkObserver` this scheduler needs — the real
  * `networkObserver` singleton (infrastructure/network/NetworkObserver.ts)
- * satisfies this; tests can inject a bare `{ onConnected }` stub. */
+ * satisfies this; tests can inject a bare `{ onConnected }` stub. Returning
+ * an unsubscribe function is optional so an older stub stays valid, but the
+ * real observer returns one and `stop()` calls it. */
 export interface ReconnectSource {
-  onConnected(callback: () => Promise<void>): void;
+  onConnected(callback: () => Promise<void>): (() => void) | void;
 }
 
 /** Status callbacks the scheduler reports live sync activity through.
@@ -81,6 +83,13 @@ export const NULL_SYNC_STATUS_SINK: SyncStatusSink = {
   setError: () => {},
   setPullBlocked: () => {},
 };
+
+/** What one `runSync` call produced: the round's summary, plus the error it
+ * threw with (already logged + reported to the status sink) when it did. */
+interface SyncRoundOutcome {
+  summary: SyncSummary;
+  error?: Error;
+}
 
 export interface SyncSchedulerDeps {
   engine: SyncRunner;
@@ -128,6 +137,7 @@ export class SyncScheduler {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingHouseholdId: string | null = null;
   private unsubscribeWrite: (() => void) | null = null;
+  private unsubscribeReconnect: (() => void) | null = null;
   /** Return type of `AppState.addEventListener` — typed structurally (just
    * `.remove()`) to avoid depending on react-native's exact exported
    * subscription type name, which has changed across versions. */
@@ -144,6 +154,14 @@ export class SyncScheduler {
    * "idle" mid-sync. Guarding here means only the round that's actually
    * running drives the status sink. */
   private syncing = false;
+  /** A trigger that arrived while a round was already in flight (SYNC-7).
+   * Holds that trigger's household id so the `finally` below can re-request
+   * it: the running round may have already read the oplog before the write
+   * that fired the trigger committed, so silently dropping it can strand a
+   * write until the NEXT unrelated trigger — potentially never. */
+  private rerunHouseholdId: string | null = null;
+  /** The round currently draining, so `syncNow` can await it. */
+  private inFlight: Promise<SyncRoundOutcome> | null = null;
 
   constructor(deps: SyncSchedulerDeps) {
     this.engine = deps.engine;
@@ -184,10 +202,14 @@ export class SyncScheduler {
       if (next === 'active') this.requestSync(householdId, { immediate: true });
     });
 
-    // (c) NetInfo reconnect (the existing NetworkObserver singleton).
-    this.networkObserver.onConnected(async () => {
-      this.requestSync(householdId, { immediate: true });
-    });
+    // (c) NetInfo reconnect (the existing NetworkObserver singleton). The
+    // observer outlives this scheduler (app-lifetime singleton), so keep the
+    // unsubscribe and drop the callback in stop() — otherwise every household
+    // switch leaks another dead scheduler's callback onto every reconnect.
+    this.unsubscribeReconnect =
+      this.networkObserver.onConnected(async () => {
+        this.requestSync(householdId, { immediate: true });
+      }) ?? null;
 
     // (d) Supabase Realtime nudge — NEVER the sole trigger (§6.7, see module
     // doc above). Subscribe failures/CLOSE/TIMED_OUT are logged, not thrown.
@@ -224,6 +246,14 @@ export class SyncScheduler {
    * high-value events) skips the debounce and runs right away.
    */
   requestSync(householdId: string, opts: { immediate?: boolean } = {}): void {
+    // A no-op before `start()` / after `stop()`: a stopped scheduler has no
+    // triggers wired and no household binding, so honouring a stray late
+    // callback here would drive `statusSink` (and a real `engine.sync()`) for
+    // a household the app has already left.
+    if (!this.started) {
+      logger.info('SyncScheduler: requestSync ignored, scheduler not started', { householdId });
+      return;
+    }
     this.pendingHouseholdId = householdId;
     if (opts.immediate) {
       this.clearDebounce();
@@ -245,7 +275,45 @@ export class SyncScheduler {
     }
   }
 
-  private async runSync(householdId: string): Promise<void> {
+  /**
+   * Runs ONE immediate, non-debounced round for `householdId` and resolves
+   * only when it has finished. Used by flows that must not continue until
+   * their local write is on the server — a pull-to-refresh that should show
+   * fresh data when the spinner stops, or a slip upload whose edge function
+   * 403s unless the `slip_queue` row has already been pushed.
+   *
+   * If a round is already in flight it waits for it and then runs a FRESH
+   * one, because the running round may have read the oplog before the
+   * caller's write committed. Rejects when the round did not reach the
+   * server, so the caller can surface a real failure instead of a silent
+   * no-op — see `requestSync` for the fire-and-forget trigger path.
+   */
+  async syncNow(householdId: string): Promise<SyncSummary> {
+    if (!this.started) {
+      throw new Error('SyncScheduler.syncNow: scheduler is not started');
+    }
+    // At most one wait-then-run; a third attempt would mean an unrelated
+    // trigger is winning the race repeatedly, which the caller should see.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (this.inFlight) {
+        await this.inFlight.catch(() => undefined);
+        continue;
+      }
+      this.clearDebounce();
+      this.pendingHouseholdId = householdId;
+      const outcome = await this.runSync(householdId);
+      if (outcome === null) continue;
+      if (outcome.error) throw outcome.error;
+      if (outcome.summary.transportFailed) {
+        throw new Error('Sync could not reach the server — changes are still queued.');
+      }
+      return outcome.summary;
+    }
+    throw new Error('SyncScheduler.syncNow: another sync round kept the household busy');
+  }
+
+  /** Resolves to `null` when the round was deferred by the re-entrancy guard. */
+  private async runSync(householdId: string): Promise<SyncRoundOutcome | null> {
     // Re-entrancy guard: `engine.sync()` is already single-flight internally,
     // so this never causes duplicate work -- it only stops a second
     // overlapping trigger from re-driving `statusSink` (see the `syncing`
@@ -254,18 +322,54 @@ export class SyncScheduler {
     // reconnect/nudge) will be covered by the CURRENTLY running round or the
     // next trigger after it.
     if (this.syncing) {
-      logger.info('SyncScheduler: sync already in flight, skipping overlapping trigger', {
+      // SYNC-7: remember it instead of dropping it. The running round may
+      // already have read the oplog before this trigger's write committed, so
+      // "the currently running round covers it" is not actually guaranteed —
+      // the `finally` below re-requests it once the round ends.
+      this.rerunHouseholdId = householdId;
+      logger.info('SyncScheduler: sync already in flight, deferring overlapping trigger', {
         householdId,
       });
-      return;
+      return null;
     }
     this.syncing = true;
     this.statusSink.setSyncing(true);
+    const round = this.runSyncRound(householdId);
+    // Cleared inside `runSyncRound`'s own `finally`, i.e. BEFORE `round`
+    // settles — so a `syncNow` awaiting it sees a free scheduler the moment
+    // it resumes, never a stale in-flight handle.
+    this.inFlight = round;
+    return round;
+  }
+
+  private async runSyncRound(householdId: string): Promise<SyncRoundOutcome> {
     try {
-      await this.engine.sync(householdId);
-      this.statusSink.setError(null);
-      this.statusSink.setLastSyncedAt(this.clock());
-      if (this.onSyncSuccess) {
+      const summary = await this.engine.sync(householdId);
+      // SYNC-10: `engine.sync()` never throws for a transport failure or a
+      // poison batch — it reports them. Stamping `lastSyncedAt` on those
+      // would tell the user "synced just now" for a round that never reached
+      // the server (or whose puller is stalled), while the real error surface
+      // stays empty.
+      if (summary.transportFailed) {
+        this.statusSink.setError('Sync could not reach the server — changes are still queued.');
+      } else if (summary.pullBlocked) {
+        this.statusSink.setError('Sync is blocked on an update this app version cannot apply.');
+      } else if (summary.skipped) {
+        // Another round for this household was already draining — neither
+        // this round's success to claim nor an error.
+        logger.info('SyncScheduler: sync round skipped by the engine single-flight guard', {
+          householdId,
+        });
+      } else {
+        this.statusSink.setError(null);
+        this.statusSink.setLastSyncedAt(this.clock());
+      }
+      if (
+        !summary.transportFailed &&
+        !summary.pullBlocked &&
+        !summary.skipped &&
+        this.onSyncSuccess
+      ) {
         try {
           await this.onSyncSuccess(householdId);
         } catch (hookErr) {
@@ -275,14 +379,26 @@ export class SyncScheduler {
           });
         }
       }
+      return { summary };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn('SyncScheduler: sync() failed', { householdId, error: message });
-      this.statusSink.setError(message);
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.warn('SyncScheduler: sync() failed', { householdId, error: error.message });
+      this.statusSink.setError(error.message);
+      return {
+        summary: { transportFailed: true, pullBlocked: false, skipped: false },
+        error,
+      };
     } finally {
       this.syncing = false;
+      this.inFlight = null;
       this.statusSink.setSyncing(false);
       this.refreshDiagnostics(householdId);
+      // SYNC-7: replay whatever arrived mid-round. `requestSync` is itself a
+      // no-op once stopped, and the flag is cleared FIRST so a failing round
+      // can never spin here.
+      const rerun = this.rerunHouseholdId;
+      this.rerunHouseholdId = null;
+      if (rerun) this.requestSync(rerun);
     }
   }
 
@@ -311,6 +427,8 @@ export class SyncScheduler {
     this.clearDebounce();
     this.unsubscribeWrite?.();
     this.unsubscribeWrite = null;
+    this.unsubscribeReconnect?.();
+    this.unsubscribeReconnect = null;
     this.appStateSub?.remove();
     this.appStateSub = null;
     if (this.realtimeChannel) {
@@ -326,5 +444,7 @@ export class SyncScheduler {
     // still safely reset this again -- a plain boolean assignment is
     // idempotent either way).
     this.syncing = false;
+    this.rerunHouseholdId = null;
+    this.inFlight = null;
   }
 }

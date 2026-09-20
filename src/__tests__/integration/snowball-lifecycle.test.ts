@@ -17,8 +17,22 @@ import { LogDebtPaymentUseCase } from '../../domain/debtSnowball/LogDebtPaymentU
 import { SnowballPayoffProjector } from '../../domain/debtSnowball/SnowballPayoffProjector';
 import type { DebtEntity } from '../../domain/debtSnowball/DebtEntity';
 import { getPayoffProgressPercent } from '../../domain/debtSnowball/DebtEntity';
-import { evaluate } from '../../domain/babySteps/BabyStepEvaluator';
-import type { EvaluatorInput } from '../../domain/babySteps/BabyStepEvaluator';
+import { evaluate as evaluateSteps } from '../../domain/babySteps/BabyStepEvaluator';
+import type { EvaluatorInput as FullEvaluatorInput } from '../../domain/babySteps/BabyStepEvaluator';
+import { getEnvelopeScope } from '../../domain/envelopes/EnvelopeEntity';
+
+// These scenarios model a fund's balance as `allocatedCents - spentCents` on the
+// fixture envelope. The evaluator now takes saved balances from the
+// contributions ledger, so derive that map from the fixtures here.
+type EvaluatorInput = Omit<FullEvaluatorInput, 'savedCentsByEnvelopeId'>;
+function evaluate(input: EvaluatorInput): ReturnType<typeof evaluateSteps> {
+  const savedCentsByEnvelopeId = new Map(
+    input.envelopes
+      .filter((e) => getEnvelopeScope(e) === 'persistent')
+      .map((e) => [e.id, e.allocatedCents - e.spentCents] as const),
+  );
+  return evaluateSteps({ ...input, savedCentsByEnvelopeId });
+}
 import { resetFactoryCounter } from '../../__test-utils__/factories';
 import { KRUGER_DEBTS, HOUSEHOLDS, SNOWBALL_PAYMENTS } from '../../__test-utils__/scenarioSeed';
 
@@ -40,7 +54,9 @@ const mockDb = {
   // pending_sync) — this fakes just enough of PortableDb's `.transaction`
   // API for that: call the callback synchronously with a `tx` exposing
   // `.run()` for the raw-SQL entity write + oplog appends.
-  transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ run: jest.fn() })),
+  transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+    fn({ run: jest.fn(() => ({ changes: 1 })) }),
+  ),
 } as any;
 
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;

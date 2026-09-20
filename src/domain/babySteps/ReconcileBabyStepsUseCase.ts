@@ -25,7 +25,9 @@ import type { DebtEntity } from '../debtSnowball/DebtEntity';
 import {
   envelopeScopeCondition,
   getEnvelopeSpentCents,
+  getPersistentEnvelopeSavedCents,
 } from '../../data/local/balances/EnvelopeBalanceQuery';
+import { ensureOpeningBalances } from '../budgets/PersistentContributions';
 import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
@@ -39,6 +41,18 @@ export class ReconcileBabyStepsUseCase {
 
   async execute(householdId: string, currentPeriodStart: string): Promise<Result<ReconcileResult>> {
     try {
+      // 0. Carry any LEGACY persistent envelope's pre-ledger `allocatedCents`
+      // into the contribution ledger, once, before any balance is read — see
+      // `ensureOpeningBalances`. Without it the very first reconcile after
+      // the upgrade would read every existing emergency fund as R0 saved and
+      // regress Baby Step 1 for households whose money never moved. It is
+      // idempotent (deterministic row ids), so every later reconcile writes
+      // nothing.
+      const opening = await ensureOpeningBalances(this.db, householdId, this.deps);
+      if (!opening.success) {
+        return createFailure(opening.error);
+      }
+
       // 1. Read "current" envelopes: period-scoped types matching currentPeriodStart,
       // PLUS persistent types (emergency_fund, sinking_fund, savings, baby_step)
       // unconditionally — see `envelopeScopeCondition`. A plain
@@ -65,6 +79,10 @@ export class ReconcileBabyStepsUseCase {
       // Balance is derived from the transaction ledger (see EnvelopeBalanceQuery),
       // not read from a stored column — scoped by this reconciliation's own period.
       const spentByEnvelope = await getEnvelopeSpentCents(this.db, householdId, currentPeriodStart);
+      // Persistent envelopes (the EMF) carry a SAVED balance derived from the
+      // contribution ledger minus spend — never `allocatedCents`, which on
+      // those rows is only the monthly contribution.
+      const savedByEnvelope = await getPersistentEnvelopeSavedCents(this.db, householdId);
       const envelopeEntities: EnvelopeEntity[] = envelopeRows.map((row) => ({
         id: row.id,
         householdId: row.householdId,
@@ -125,6 +143,7 @@ export class ReconcileBabyStepsUseCase {
         debts: debtEntities,
         monthlyExpenseBaseline,
         manualFlags,
+        savedCentsByEnvelopeId: savedByEnvelope,
       });
 
       // 7. Diff vs persisted and write transitions
@@ -144,6 +163,24 @@ export class ReconcileBabyStepsUseCase {
         const existingCompletedAt = persisted?.completedAt ?? null;
 
         let completedAt = existingCompletedAt;
+
+        if (current.isIndeterminate) {
+          // The step's inputs are UNKNOWN this period (Step 3 before the new
+          // period's income envelopes exist), so `current.isCompleted` means
+          // nothing. Report exactly what is persisted and write nothing:
+          // treating unknown as incomplete is what made Step 3 falsely
+          // regress — clearing completed_at and firing a regression toast —
+          // every single month right after a rollover.
+          statuses.push({
+            stepNumber: current.stepNumber as BabyStepStatus['stepNumber'],
+            isCompleted: previouslyCompleted,
+            isManual: current.isManual,
+            progress: current.progress,
+            completedAt: existingCompletedAt,
+            celebratedAt,
+          });
+          continue;
+        }
 
         if (current.isCompleted && !previouslyCompleted) {
           // Transition: incomplete → complete

@@ -22,6 +22,14 @@ interface OnboardingStepLayoutProps {
   onCta: () => void | Promise<void>;
   ctaLoading?: boolean;
   ctaDisabled?: boolean;
+  /**
+   * Back control. Every step except the first passes this — an onboarding
+   * wizard the user cannot walk backwards through makes a mistyped income or
+   * a wrong category set unrecoverable without restarting the app.
+   */
+  onBack?: () => void;
+  /** Back button label. Default: "Back" */
+  backLabel?: string;
   children?: React.ReactNode;
 }
 
@@ -35,6 +43,8 @@ export function OnboardingStepLayout({
   onCta,
   ctaLoading,
   ctaDisabled,
+  onBack,
+  backLabel = 'Back',
   children,
 }: OnboardingStepLayoutProps): React.JSX.Element {
   const { colors } = useAppTheme();
@@ -75,6 +85,17 @@ export function OnboardingStepLayout({
       >
         {ctaLabel}
       </Button>
+      {onBack !== undefined && (
+        <Button
+          mode="text"
+          onPress={onBack}
+          disabled={ctaLoading}
+          style={styles.backButton}
+          testID="onboarding-back"
+        >
+          {backLabel}
+        </Button>
+      )}
     </ScrollView>
   );
 
@@ -108,4 +129,5 @@ const styles = StyleSheet.create({
   subtitle: { marginBottom: spacing.base },
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
+  backButton: { marginTop: spacing.xs },
 });

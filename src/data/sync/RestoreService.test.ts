@@ -1,525 +1,447 @@
+/**
+ * RestoreService — snapshot restore of a household from Supabase into local
+ * SQLite.
+ *
+ * The doubles live in tests/support/fakeRestoreDb.ts because restore now
+ * spans three collaborations that a one-method-deep object literal cannot
+ * model: the server oplog cursor read, `.range()` paging, and the single
+ * local transaction the snapshot + cursor commit in together.
+ */
+
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
 }));
 
+jest.mock('../../infrastructure/logging/Logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
+
 import { RestoreService } from './RestoreService';
+import {
+  makeFakeSupabase,
+  makeFakeLocalDb,
+  type FakeSupabaseConfig,
+  type FakeLocalDbConfig,
+} from '../../../tests/support/fakeRestoreDb';
+import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
+import type * as schema from '../local/schema';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+const HH = 'hh-1';
+const USER = 'user-1';
+
+const HH_ROW = {
+  id: HH,
+  name: 'Test Household',
+  payday_day: 1,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
+/** A seeder that records the steps it backfills instead of writing SQL. */
+function fakeSeedRepo(): {
+  insert: jest.Mock;
+  update: jest.Mock;
+  softDelete: jest.Mock;
+  increment: jest.Mock;
+} {
+  return {
+    insert: jest.fn(),
+    update: jest.fn(),
+    softDelete: jest.fn(),
+    increment: jest.fn(),
+  };
+}
+
+function build(
+  supabaseConfig: FakeSupabaseConfig,
+  dbConfig: FakeLocalDbConfig = {},
+): {
+  service: RestoreService;
+  local: ReturnType<typeof makeFakeLocalDb>;
+  remote: ReturnType<typeof makeFakeSupabase>;
+} {
+  const remote = makeFakeSupabase(supabaseConfig);
+  const local = makeFakeLocalDb(dbConfig);
+  const service = new RestoreService(
+    local.db as ExpoSQLiteDatabase<typeof schema>,
+    remote.supabase as SupabaseClient,
+    { repo: fakeSeedRepo() as never },
+  );
+  return { service, local, remote };
+}
+
+function babyStepRow(n: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: `bs-${n}`,
+    household_id: HH,
+    step_number: n,
+    is_completed: false,
+    completed_at: null,
+    is_manual: false,
+    celebrated_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
 
 describe('RestoreService.restore', () => {
   it('returns empty array when user has no household memberships in Supabase', async () => {
-    const supabase = {
-      from: () => ({
-        select: () => ({
-          eq: () => Promise.resolve({ data: [], error: null }),
-        }),
-      }),
-    } as any;
-    const db = {} as any;
-    const svc = new RestoreService(db, supabase);
-    const result = await svc.restore('user-1');
-    expect(result).toEqual([]);
+    const { service } = build({ memberships: [] });
+    expect(await service.restore(USER)).toEqual([]);
   });
 
-  it('returns error result when Supabase membership fetch fails', async () => {
-    const supabase = {
-      from: () => ({
-        select: () => ({
-          eq: () => Promise.resolve({ data: null, error: { message: 'network' } }),
-        }),
-      }),
-    } as any;
-    const db = {} as any;
-    const svc = new RestoreService(db, supabase);
-    await expect(svc.restore('user-1')).rejects.toThrow('network');
+  it('throws when the Supabase membership fetch fails', async () => {
+    const { service } = build({ errors: { household_members: 'network' } });
+    await expect(service.restore(USER)).rejects.toThrow('network');
+  });
+
+  it('restores each membership and returns one summary per household', async () => {
+    const { service } = build({
+      memberships: [
+        { household_id: HH, role: 'owner' },
+        { household_id: 'hh-2', role: 'member' },
+      ],
+      households: {
+        [HH]: { ...HH_ROW, name: 'Home', payday_day: 25 },
+        'hh-2': { ...HH_ROW, id: 'hh-2', name: 'Business', payday_day: 1 },
+      },
+      maxSeq: 0,
+    });
+
+    expect(await service.restore(USER)).toEqual([
+      { id: HH, name: 'Home', paydayDay: 25, role: 'owner' },
+      { id: 'hh-2', name: 'Business', paydayDay: 1, role: 'member' },
+    ]);
+  });
+
+  it('skips a household the server does not return a row for', async () => {
+    const { service } = build({
+      memberships: [{ household_id: 'hh-missing', role: 'owner' }],
+      households: {},
+    });
+    expect(await service.restore(USER)).toEqual([]);
   });
 });
 
-describe('RestoreService.restoreHousehold — baby_steps in dispatch map', () => {
-  /**
-   * Minimal shape required from the parts of SupabaseClient used by RestoreService.
-   */
-  interface SupabaseMockShape {
-    from: (table: string) => {
-      select: () => {
-        eq: (
-          col: string,
-          val: unknown,
-        ) =>
-          | Promise<{ data: unknown[]; error: null }>
-          | { single: () => Promise<{ data: unknown; error: null }> };
-      };
-    };
-  }
+describe('RestoreService.restoreHousehold — sync cursor (SYNC-2)', () => {
+  it('writes the server max oplog seq as the household cursor, inside the snapshot transaction', async () => {
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: { baby_steps: [babyStepRow(1)] },
+      maxSeq: 412,
+    });
 
-  /**
-   * Builds a minimal Supabase mock that records which entity tables are fetched.
-   * @param householdData  Row returned for the `households` single-fetch.
-   * @param memberRows     Rows returned for `household_members` list-fetch.
-   * @param tableOverrides Optional map from table name → rows to return instead of [].
-   */
-  function makeSupabaseMock(
-    householdData: Record<string, unknown>,
-    memberRows: unknown[],
-    tableOverrides: Record<string, unknown[]> = {},
-  ): { supabase: SupabaseMockShape; fetchedTables: string[] } {
-    const fetchedTables: string[] = [];
-    const supabase: SupabaseMockShape = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'households' && col === 'id') {
-              return { single: () => Promise.resolve({ data: householdData, error: null }) };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: memberRows, error: null });
-            }
-            // Entity tables (envelopes, transactions, debts, meter_readings, baby_steps)
-            fetchedTables.push(table);
-            const rows = tableOverrides[table] ?? [];
-            return Promise.resolve({ data: rows, error: null });
-          },
-        }),
-      }),
-    };
-    return { supabase, fetchedTables };
-  }
+    await service.restoreHousehold(HH, 'owner', USER);
 
-  const baseHhRow = {
-    id: 'hh-1',
-    name: 'Test Household',
-    payday_day: 1,
-    user_level: 1,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  };
-
-  it('includes baby_steps in the restoreTable dispatch', async () => {
-    const { supabase, fetchedTables } = makeSupabaseMock(baseHhRow, []);
-
-    const insertOnConflictDoUpdate = jest.fn().mockResolvedValue({});
-    const insertOnConflictDoNothing = jest.fn().mockResolvedValue({});
-    const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: insertOnConflictDoUpdate,
-          onConflictDoNothing: insertOnConflictDoNothing,
-        }),
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase as any);
-    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-
-    expect(fetchedTables).toContain('baby_steps');
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 412 }]);
+    expect(local.cursorWrittenInTransaction).toBe(true);
+    expect(local.transactions).toBe(1);
   });
 
-  it('restores baby_steps rows returned by Supabase into local DB', async () => {
-    const babyStepRows = [
+  it('writes cursor 0 for a household whose server oplog is empty', async () => {
+    const { service, local } = build({ households: { [HH]: HH_ROW }, maxSeq: null });
+    await service.restoreHousehold(HH, 'owner', USER);
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 0 }]);
+  });
+
+  it('reads the cursor BEFORE fetching any entity table', async () => {
+    const { service, remote } = build({ households: { [HH]: HH_ROW }, maxSeq: 9 });
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const tables = remote.recorder.queries.map((q) => q.table);
+    expect(tables.indexOf('oplog')).toBeGreaterThanOrEqual(0);
+    expect(tables.indexOf('oplog')).toBeLessThan(tables.indexOf('envelopes'));
+  });
+
+  it('does not restore (or re-write a cursor) when the household already has one', async () => {
+    const { service, local, remote } = build(
+      { households: { [HH]: HH_ROW }, tables: { baby_steps: [babyStepRow(1)] }, maxSeq: 5 },
+      { householdsWithCursor: [HH] },
+    );
+
+    const summary = await service.restoreHousehold(HH, 'owner', USER);
+
+    expect(summary).toEqual({ id: HH, name: 'Test Household', paydayDay: 1, role: 'owner' });
+    expect(local.cursorWrites).toEqual([]);
+    expect(local.transactions).toBe(0);
+    expect(remote.recorder.queries.map((q) => q.table)).not.toContain('envelopes');
+  });
+
+  it('writes no cursor at all when a table fetch fails', async () => {
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      maxSeq: 7,
+      errors: { transactions: 'timeout' },
+    });
+
+    await expect(service.restoreHousehold(HH, 'owner', USER)).rejects.toThrow('timeout');
+    expect(local.cursorWrites).toEqual([]);
+    expect(local.transactions).toBe(0);
+  });
+
+  it('throws (never silently skips) when the cursor read itself fails', async () => {
+    const { service } = build({ households: { [HH]: HH_ROW }, errors: { oplog: 'rls denied' } });
+    await expect(service.restoreHousehold(HH, 'owner', USER)).rejects.toThrow('rls denied');
+  });
+});
+
+describe('RestoreService.restoreHousehold — paging + error propagation (SYNC-9)', () => {
+  it('pages every entity table with .range() until a short page', async () => {
+    const { service, remote } = build({ households: { [HH]: HH_ROW }, maxSeq: 0 });
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const envelopeRanges = remote.recorder.ranges.filter((r) => r.table === 'envelopes');
+    expect(envelopeRanges).toEqual([{ table: 'envelopes', from: 0, to: 999 }]);
+  });
+
+  it('fetches a second page when the first comes back full', async () => {
+    const rows = Array.from({ length: 1001 }, (_, i) => ({
+      id: `tx-${i}`,
+      household_id: HH,
+      created_at: '2026-01-01T00:00:00Z',
+    }));
+    const { service, remote, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: { transactions: rows },
+      maxSeq: 0,
+    });
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toEqual([
+      { table: 'transactions', from: 0, to: 999 },
+      { table: 'transactions', from: 1000, to: 1999 },
+    ]);
+    expect(local.written.filter((w) => w.table === 'transactions')).toHaveLength(1001);
+  });
+
+  it('throws instead of silently skipping a table whose fetch errors', async () => {
+    const { service } = build({
+      households: { [HH]: HH_ROW },
+      maxSeq: 0,
+      errors: { envelopes: 'connection reset' },
+    });
+    await expect(service.restoreHousehold(HH, 'owner', USER)).rejects.toThrow('connection reset');
+  });
+
+  it('throws when the households fetch errors', async () => {
+    const { service } = build({ errors: { households: 'boom' } });
+    await expect(service.restoreHousehold(HH, 'owner', USER)).rejects.toThrow('boom');
+  });
+
+  it('never fetches audit_events — the server table was dropped in migration 0001', async () => {
+    const { service, remote } = build({ households: { [HH]: HH_ROW }, maxSeq: 0 });
+    await service.restoreHousehold(HH, 'owner', USER);
+    expect(remote.recorder.queries.map((q) => q.table)).not.toContain('audit_events');
+  });
+
+  it('restores envelope_contributions, after envelopes', async () => {
+    const { service, remote } = build({ households: { [HH]: HH_ROW }, maxSeq: 0 });
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const tables = remote.recorder.queries.map((q) => q.table);
+    expect(tables).toContain('envelope_contributions');
+    expect(tables.indexOf('envelopes')).toBeLessThan(tables.indexOf('envelope_contributions'));
+  });
+
+  it('treats a missing envelope_contributions table as empty instead of failing the restore', async () => {
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      maxSeq: 4,
+      errors: {
+        envelope_contributions: "Could not find the table 'public.envelope_contributions'",
+      },
+    });
+
+    // An older server that has not run its migration yet must degrade to one
+    // empty table, not block the whole restore.
+    await expect(service.restoreHousehold(HH, 'owner', USER)).resolves.not.toBeNull();
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 4 }]);
+    expect(local.written.map((w) => w.table)).not.toContain('envelope_contributions');
+  });
+
+  it('still throws for a non-missing-table error on envelope_contributions', async () => {
+    const { service } = build({
+      households: { [HH]: HH_ROW },
+      maxSeq: 0,
+      errors: { envelope_contributions: 'permission denied for table' },
+    });
+    await expect(service.restoreHousehold(HH, 'owner', USER)).rejects.toThrow('permission denied');
+  });
+
+  it('restores slip_queue and user_consent (the latter keyed by user_id)', async () => {
+    const { service, remote } = build({ households: { [HH]: HH_ROW }, maxSeq: 0 });
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const tables = remote.recorder.queries.map((q) => q.table);
+    expect(tables).toContain('slip_queue');
+    expect(remote.recorder.queries.find((q) => q.table === 'user_consent')?.column).toBe('user_id');
+  });
+});
+
+describe('RestoreService.restoreHousehold — unpushed local writes (SYNC-9)', () => {
+  it('skips a snapshot row that still has an unpushed local op', async () => {
+    const { service, local } = build(
       {
-        id: 'bs-1',
-        household_id: 'hh-1',
-        step_number: 1,
-        is_completed: false,
-        completed_at: null,
-        is_manual: false,
-        celebrated_at: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
+        households: { [HH]: HH_ROW },
+        tables: { baby_steps: [babyStepRow(1), babyStepRow(2)] },
+        maxSeq: 3,
       },
-    ];
+      { unpushedRowIds: ['bs-2'] },
+    );
 
-    const { supabase } = makeSupabaseMock(baseHhRow, [], { baby_steps: babyStepRows });
+    await service.restoreHousehold(HH, 'owner', USER);
 
-    const insertedRows: unknown[] = [];
-    const db = {
-      insert: () => ({
-        values: (row: unknown) => {
-          if (row && typeof row === 'object' && 'stepNumber' in (row as Record<string, unknown>)) {
-            insertedRows.push(row);
-          }
-          return {
-            onConflictDoUpdate: jest.fn().mockResolvedValue({}),
-            onConflictDoNothing: jest.fn().mockResolvedValue({}),
-          };
-        },
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase as any);
-    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-
-    // At least one baby_steps row was inserted into local DB
-    expect(insertedRows.length).toBeGreaterThan(0);
-    const inserted = insertedRows[0] as Record<string, unknown>;
-    expect(inserted.stepNumber).toBe(1);
-    expect(inserted.isSynced).toBe(true);
+    const restoredIds = local.written
+      .filter((w) => w.table === 'baby_steps')
+      .map((w) => w.row.id as string);
+    expect(restoredIds).toEqual(['bs-1']);
   });
 
-  it('onConflictDoUpdate: local row gets overwritten by remote on restore', async () => {
-    const remoteUpdatedAt = '2026-04-13T00:00:00Z';
-    const babyStepRows = [
-      {
-        id: 'bs-overwrite',
-        household_id: 'hh-1',
-        step_number: 1,
-        is_completed: true,
-        completed_at: remoteUpdatedAt,
-        is_manual: false,
-        celebrated_at: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: remoteUpdatedAt,
-      },
-    ];
+  it('restores a row whose only local op has already been pushed', async () => {
+    const { service, local } = build(
+      { households: { [HH]: HH_ROW }, tables: { baby_steps: [babyStepRow(1)] }, maxSeq: 3 },
+      { unpushedRowIds: [] },
+    );
 
-    const { supabase } = makeSupabaseMock(baseHhRow, [], { baby_steps: babyStepRows });
-
-    const onConflictDoUpdateMock = jest.fn().mockResolvedValue({});
-    const insertedValues: unknown[] = [];
-    const db = {
-      insert: () => ({
-        values: (row: unknown) => {
-          insertedValues.push(row);
-          return {
-            onConflictDoUpdate: onConflictDoUpdateMock,
-            onConflictDoNothing: jest.fn().mockResolvedValue({}),
-          };
-        },
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase as any);
-    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-
-    // The baby_steps row should have been inserted with onConflictDoUpdate
-    expect(onConflictDoUpdateMock).toHaveBeenCalled();
-    // Verify the target is id-based (remote is authoritative)
-    const updateCall = onConflictDoUpdateMock.mock.calls[0][0];
-    expect(updateCall).toHaveProperty('target');
+    await service.restoreHousehold(HH, 'owner', USER);
+    expect(local.written.filter((w) => w.table === 'baby_steps')).toHaveLength(1);
   });
 });
 
-describe('RestoreService.restore — iterates over multiple memberships', () => {
-  it('calls restoreHousehold for each membership and returns summaries', async () => {
-    const hhRows: Record<string, Record<string, unknown>> = {
-      'hh-1': {
-        id: 'hh-1',
-        name: 'Home',
-        payday_day: 25,
-        user_level: 1,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
-      },
-      'hh-2': {
-        id: 'hh-2',
-        name: 'Business',
-        payday_day: 1,
-        user_level: 2,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
-      },
-    };
+describe('RestoreService.restoreHousehold — row shapes', () => {
+  it('restores baby_steps rows converted to camelCase local columns', async () => {
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: { baby_steps: [babyStepRow(1, { celebrated_at: '2026-02-02T00:00:00Z' })] },
+      maxSeq: 0,
+    });
 
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, val: unknown) => {
-            if (table === 'household_members' && col === 'user_id') {
-              return Promise.resolve({
-                data: [
-                  { household_id: 'hh-1', role: 'owner' },
-                  { household_id: 'hh-2', role: 'member' },
-                ],
-                error: null,
-              });
-            }
-            if (table === 'households' && col === 'id') {
-              return {
-                single: () => Promise.resolve({ data: hhRows[val as string], error: null }),
-              };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
+    await service.restoreHousehold(HH, 'owner', USER);
 
-    const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
-          onConflictDoNothing: jest.fn().mockResolvedValue({}),
-        }),
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase);
-    const result = await svc.restore('user-1');
-    expect(result).toHaveLength(2);
-    expect(result[0]).toEqual({ id: 'hh-1', name: 'Home', paydayDay: 25, role: 'owner' });
-    expect(result[1]).toEqual({ id: 'hh-2', name: 'Business', paydayDay: 1, role: 'member' });
+    const row = local.written.find((w) => w.table === 'baby_steps')?.row;
+    expect(row).toMatchObject({ stepNumber: 1, celebratedAt: '2026-02-02T00:00:00Z' });
   });
 
-  it('skips households where restoreHousehold returns null', async () => {
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'household_members' && col === 'user_id') {
-              return Promise.resolve({
-                data: [{ household_id: 'hh-bad', role: 'owner' }],
-                error: null,
-              });
-            }
-            if (table === 'households' && col === 'id') {
-              return {
-                single: () => Promise.resolve({ data: null, error: { message: 'not found' } }),
-              };
-            }
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
+  it('inserts household_members with onConflictDoNothing and no isSynced marker', async () => {
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: {
+        household_members: [
+          { id: 'mem-1', household_id: HH, user_id: USER, role: 'owner', created_at: 'x' },
+        ],
+      },
+      maxSeq: 0,
+    });
 
-    const db = {} as any;
-    const svc = new RestoreService(db, supabase);
-    const result = await svc.restore('user-1');
-    expect(result).toEqual([]);
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const member = local.written.find((w) => w.table === 'household_members');
+    expect(member?.conflict).toBe('nothing');
+    expect(member?.row).not.toHaveProperty('isSynced');
+  });
+
+  it('upserts the household row itself', async () => {
+    const { service, local } = build({ households: { [HH]: HH_ROW }, maxSeq: 0 });
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const hh = local.written.find((w) => w.table === 'households');
+    expect(hh?.conflict).toBe('update');
+    expect(hh?.row).toMatchObject({ id: HH, paydayDay: 1 });
+  });
+
+  it('upserts user_consent rows', async () => {
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: {
+        user_consent: [
+          {
+            user_id: USER,
+            slip_scan_consent_at: '2026-01-15T00:00:00Z',
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-15T00:00:00Z',
+          },
+        ],
+      },
+      maxSeq: 0,
+    });
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const consent = local.written.find((w) => w.table === 'user_consent');
+    expect(consent?.row).toMatchObject({ userId: USER });
   });
 });
 
-describe('RestoreService.restoreHousehold — household_members insert with error', () => {
-  const baseHhRow = {
-    id: 'hh-1',
-    name: 'Test Household',
-    payday_day: 1,
-    user_level: 1,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  };
+describe('RestoreService.restoreHousehold — cursor stabilisation (SYNC-2 residual)', () => {
+  it('adopts the newer seq when the oplog moved during the fetch and then settled', async () => {
+    const { service, local, remote } = build({
+      households: { [HH]: HH_ROW },
+      // pre-fetch read = 5, post-fetch read = 9 (moved), confirming read = 9.
+      maxSeqSequence: [5, 9, 9],
+    });
 
-  it('catches and logs duplicate household_members insert errors', async () => {
-    const memberRows = [
-      {
-        id: 'mem-1',
-        household_id: 'hh-1',
-        user_id: 'user-1',
-        role: 'owner',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 9 }]);
+    expect(remote.recorder.maxSeqReads).toBe(3);
+    // Only the increment-carrying table is re-fetched, not the whole snapshot.
+    expect(remote.recorder.ranges.filter((r) => r.table === 'debts')).toHaveLength(2);
+    expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toHaveLength(1);
+  });
+
+  it('uses the pre-fetch seq unchanged when nothing moved', async () => {
+    const { service, local, remote } = build({
+      households: { [HH]: HH_ROW },
+      maxSeqSequence: [5, 5],
+    });
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 5 }]);
+    expect(remote.recorder.maxSeqReads).toBe(2);
+    expect(remote.recorder.ranges.filter((r) => r.table === 'debts')).toHaveLength(1);
+  });
+
+  it('falls back to the pre-fetch seq when the oplog never settles', async () => {
+    const { service, local, remote } = build({
+      households: { [HH]: HH_ROW },
+      // Moves on every read — a household busy throughout the restore.
+      maxSeqSequence: [5, 6, 7, 8, 9],
+    });
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    // Conservative: never miss an op, even at the cost of the residual
+    // double-apply window this stabilisation exists to shrink.
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 5 }]);
+    // Bounded — 1 pre-fetch read + at most 3 attempts.
+    expect(remote.recorder.maxSeqReads).toBe(4);
+  });
+
+  it('re-fetched debts rows are the ones actually restored', async () => {
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: {
+        debts: [
+          {
+            id: 'd1',
+            household_id: HH,
+            creditor_name: 'Visa',
+            outstanding_balance_cents: 50_000,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ],
       },
-    ];
+      maxSeqSequence: [5, 9, 9],
+    });
 
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'households' && col === 'id') {
-              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: memberRows, error: null });
-            }
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
+    await service.restoreHousehold(HH, 'owner', USER);
 
-    const onConflictDoNothing = jest.fn().mockRejectedValue(new Error('UNIQUE constraint'));
-    const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
-          onConflictDoNothing,
-        }),
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase);
-    const result = await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-    // Should not throw — error is caught and logged
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe('hh-1');
-  });
-});
-
-describe('RestoreService.restoreUserConsent — data rows', () => {
-  const baseHhRow = {
-    id: 'hh-1',
-    name: 'Test Household',
-    payday_day: 1,
-    user_level: 1,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  };
-
-  it('upserts user_consent rows into local db', async () => {
-    const consentRows = [
-      {
-        user_id: 'user-1',
-        slip_scan_consent_at: '2026-01-15T00:00:00Z',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-15T00:00:00Z',
-      },
-    ];
-
-    const insertedTables: string[] = [];
-    const onConflictDoUpdateMock = jest.fn().mockResolvedValue({});
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'households' && col === 'id') {
-              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            if (table === 'user_consent' && col === 'user_id') {
-              return Promise.resolve({ data: consentRows, error: null });
-            }
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
-
-    const db = {
-      insert: (tableRef: unknown) => {
-        insertedTables.push(String(tableRef));
-        return {
-          values: () => ({
-            onConflictDoUpdate: onConflictDoUpdateMock,
-            onConflictDoNothing: jest.fn().mockResolvedValue({}),
-          }),
-        };
-      },
-    } as any;
-
-    const svc = new RestoreService(db, supabase);
-    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-    expect(onConflictDoUpdateMock).toHaveBeenCalled();
-    expect(insertedTables.length).toBeGreaterThan(0);
-  });
-
-  it('skips user_consent when Supabase returns an error', async () => {
-    const onConflictDoUpdateMock = jest.fn().mockResolvedValue({});
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'households' && col === 'id') {
-              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            if (table === 'user_consent' && col === 'user_id') {
-              return Promise.resolve({ data: null, error: { message: 'timeout' } });
-            }
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
-
-    const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: onConflictDoUpdateMock,
-          onConflictDoNothing: jest.fn().mockResolvedValue({}),
-        }),
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase);
-    // Should not throw
-    const result = await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-    expect(result).not.toBeNull();
-  });
-});
-
-describe('RestoreService.restoreHousehold — slip_queue + user_consent in dispatch', () => {
-  const baseHhRow = {
-    id: 'hh-1',
-    name: 'Test Household',
-    payday_day: 1,
-    user_level: 1,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  };
-
-  it('includes slip_queue in the restoreTable dispatch', async () => {
-    const fetchedTables: string[] = [];
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'households' && col === 'id') {
-              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            fetchedTables.push(table);
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
-
-    const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
-          onConflictDoNothing: jest.fn().mockResolvedValue({}),
-        }),
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase);
-    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-
-    expect(fetchedTables).toContain('slip_queue');
-  });
-
-  it('includes user_consent in the restore dispatch (fetched by user_id)', async () => {
-    const fetchedQueries: Array<{ table: string; col: string }> = [];
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (col: string, _val: unknown) => {
-            if (table === 'households' && col === 'id') {
-              return { single: () => Promise.resolve({ data: baseHhRow, error: null }) };
-            }
-            if (table === 'household_members' && col === 'household_id') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            fetchedQueries.push({ table, col });
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
-
-    const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: jest.fn().mockResolvedValue({}),
-          onConflictDoNothing: jest.fn().mockResolvedValue({}),
-        }),
-      }),
-    } as any;
-
-    const svc = new RestoreService(db, supabase);
-    await svc.restoreHousehold('hh-1', 'owner', 'user-1');
-
-    // user_consent must be fetched by user_id (not household_id)
-    const consentQuery = fetchedQueries.find((q) => q.table === 'user_consent');
-    expect(consentQuery).toBeDefined();
-    expect(consentQuery?.col).toBe('user_id');
+    const restored = local.written.filter((w) => w.table === 'debts');
+    expect(restored).toHaveLength(1);
+    expect(restored[0].row).toMatchObject({ outstandingBalanceCents: 50_000 });
   });
 });

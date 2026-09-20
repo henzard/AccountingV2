@@ -1,8 +1,9 @@
 import React, { useEffect, useCallback, useRef } from 'react';
-import { View, StyleSheet, BackHandler, Alert } from 'react-native';
+import { View, StyleSheet, BackHandler } from 'react-native';
 import { Text, Button, ActivityIndicator } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 import type { ProgressState } from '../../../application/SlipScanFlow';
 import type { SlipScanErrorCode } from '../../../domain/slipScanning/errors';
 
@@ -86,22 +87,25 @@ export function SlipProcessingScreen({
     [],
   );
 
-  const handleCancel = useCallback((): void => {
-    Alert.alert('Cancel scan?', 'Your photos will not be saved.', [
-      { text: 'Keep going', style: 'cancel' },
-      {
-        text: 'Cancel',
-        style: 'destructive',
-        onPress: () => {
-          const slipId = inFlightSlipIdRef.current;
-          // Fire-and-forget cleanup; don't block navigation
-          if (slipId && cancelSlip) {
-            cancelSlip(slipId).catch((err) => console.warn('cancelSlip failed', err));
-          }
-          navigation.goBack();
-        },
-      },
-    ]);
+  const handleCancel = useCallback(async (): Promise<void> => {
+    // `confirm()` (ConfirmDialogHost) replaces Alert.alert, which is a no-op
+    // on web (react-native-web) — this dialog previously never appeared
+    // there, so "Cancel scan" silently did nothing on web.
+    const confirmed = await confirm({
+      title: 'Cancel scan?',
+      message: 'Your photos will not be saved.',
+      confirmLabel: 'Cancel',
+      cancelLabel: 'Keep going',
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    const slipId = inFlightSlipIdRef.current;
+    // Fire-and-forget cleanup; don't block navigation
+    if (slipId && cancelSlip) {
+      cancelSlip(slipId).catch((err) => console.warn('cancelSlip failed', err));
+    }
+    navigation.goBack();
   }, [navigation, cancelSlip]);
 
   useEffect(() => {

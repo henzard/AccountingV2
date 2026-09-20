@@ -86,6 +86,8 @@ jest.mock('react-native-paper', () => {
 });
 
 const mockNavigate = jest.fn();
+const mockCanGoBack = jest.fn().mockReturnValue(true);
+const mockReset = jest.fn();
 import { JoinHouseholdScreen } from '../JoinHouseholdScreen';
 
 describe('JoinHouseholdScreen', () => {
@@ -93,7 +95,16 @@ describe('JoinHouseholdScreen', () => {
 
   it('renders invite code input', () => {
     const { getByTestId } = render(
-      <JoinHouseholdScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+      <JoinHouseholdScreen
+        route={{} as never}
+        navigation={
+          {
+            navigate: mockNavigate,
+            canGoBack: mockCanGoBack,
+            reset: mockReset,
+          } as never
+        }
+      />,
     );
     expect(getByTestId('Invite code')).toBeTruthy();
   });
@@ -102,7 +113,16 @@ describe('JoinHouseholdScreen', () => {
     mockAcceptInviteExecute.mockRejectedValueOnce(new Error('Network error'));
     const mockEnqueue = jest.fn();
     const { getByTestId } = render(
-      <JoinHouseholdScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+      <JoinHouseholdScreen
+        route={{} as never}
+        navigation={
+          {
+            navigate: mockNavigate,
+            canGoBack: mockCanGoBack,
+            reset: mockReset,
+          } as never
+        }
+      />,
     );
     // Patch enqueue for this render — reached via the module mock
     // The toast is shown via the enqueue mock in the store mock above; re-check via store mock
@@ -117,7 +137,16 @@ describe('JoinHouseholdScreen', () => {
 
   it('marks onboarding complete after successful join', async () => {
     const { getByTestId } = render(
-      <JoinHouseholdScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+      <JoinHouseholdScreen
+        route={{} as never}
+        navigation={
+          {
+            navigate: mockNavigate,
+            canGoBack: mockCanGoBack,
+            reset: mockReset,
+          } as never
+        }
+      />,
     );
     fireEvent.changeText(getByTestId('Invite code'), 'ABC123');
     fireEvent.press(getByTestId('join-household-btn'));
@@ -125,6 +154,31 @@ describe('JoinHouseholdScreen', () => {
     await waitFor(() => {
       expect(mockMarkOnboarding).toHaveBeenCalledWith('user-1', 'hh-joined');
       expect(mockSetOnboardingCompleted).toHaveBeenCalledWith(true);
+    });
+  });
+
+  it('calls reset when canGoBack returns true after successful join', async () => {
+    mockCanGoBack.mockReturnValue(true);
+    const { getByTestId } = render(
+      <JoinHouseholdScreen
+        route={{} as never}
+        navigation={
+          {
+            navigate: mockNavigate,
+            canGoBack: mockCanGoBack,
+            reset: mockReset,
+          } as never
+        }
+      />,
+    );
+    fireEvent.changeText(getByTestId('Invite code'), 'ABC123');
+    fireEvent.press(getByTestId('join-household-btn'));
+
+    await waitFor(() => {
+      expect(mockReset).toHaveBeenCalledWith({
+        index: 0,
+        routes: [{ name: 'Main' }],
+      });
     });
   });
 });

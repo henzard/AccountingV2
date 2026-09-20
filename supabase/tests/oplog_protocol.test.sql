@@ -11,7 +11,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(28);
+select plan(41);
 
 -- ---------------------------------------------------------------------------
 -- Seed (as postgres, RLS bypassed)
@@ -398,6 +398,198 @@ select is(
   (select is_paid_off from public.debts where id = 'debt-13'),
   true,
   'P13: trigger flips is_paid_off=true purely from the increment, with no client-sent update op');
+
+-- ===========================================================================
+-- Probe 14 (0007 SYNC-4): update targeting a row id that NEVER existed is
+-- rejected row_missing -- distinct from Probe 5's wrong_household (a row
+-- that exists, but in a different household). The client treats
+-- wrong_household as a hard conflict and row_missing as transient.
+-- ===========================================================================
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000015',
+    'household_id', 'hh-a',
+    'table', 'envelopes',
+    'row_id', 'env-never-existed',
+    'op_type', 'update',
+    'payload', jsonb_build_object('name', 'Ghost'),
+    'device_id', 'dev-a'
+  ))) -> 0 ->> 'code',
+  'row_missing', 'P14: update targeting a nonexistent row id is rejected row_missing');
+
+-- ===========================================================================
+-- Probe 15 (0009 DB-2): a slip_queue INSERT pins created_by to the
+-- authenticated caller regardless of what the payload claims -- the op still
+-- applies (no forbidden_column rejection), but the persisted row's
+-- created_by is the caller (user A), never the impersonated id.
+-- ===========================================================================
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000016',
+    'household_id', 'hh-a',
+    'table', 'slip_queue',
+    'row_id', 'slip-pin',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'created_by', '00000000-0000-0000-0000-000000000099',
+      'image_uris', '[]', 'status', 'processing',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a'
+  ))) -> 0 ->> 'status',
+  'applied', 'P15: slip_queue insert with a spoofed created_by still applies');
+
+select is(
+  (select created_by from public.slip_queue where id = 'slip-pin'),
+  '00000000-0000-0000-0000-00000000000a',
+  'P15: the persisted created_by is the authenticated caller, not the spoofed id');
+
+-- ===========================================================================
+-- Probe 16 (0009 DB-2): a slip_queue UPDATE that bundles a legitimate field
+-- (merchant) with openai_cost_cents still applies (no forbidden_column
+-- rejection), but openai_cost_cents is silently dropped -- the client value
+-- never takes effect.
+-- ===========================================================================
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000017',
+    'household_id', 'hh-a',
+    'table', 'slip_queue',
+    'row_id', 'slip-pin',
+    'op_type', 'update',
+    'payload', jsonb_build_object('merchant', 'Checkers', 'openai_cost_cents', 999999),
+    'device_id', 'dev-a'
+  ))) -> 0 ->> 'status',
+  'applied', 'P16: slip_queue update bundling openai_cost_cents with a legitimate field still applies');
+
+select is(
+  (select merchant from public.slip_queue where id = 'slip-pin'),
+  'Checkers', 'P16: the legitimate merchant field in the same update was applied');
+
+select is(
+  (select openai_cost_cents from public.slip_queue where id = 'slip-pin'),
+  0, 'P16: openai_cost_cents was NOT applied from the client payload (stayed at its default)');
+
+-- ===========================================================================
+-- Probe 17 (0008): an envelope_contributions insert op by a HOUSEHOLD MEMBER
+-- is applied and visible via sync_pull -- proves the table allowlist
+-- addition made in 0008 (and carried forward, unreverted, through 0009)
+-- actually works end to end. There is no FK on envelope_id, so a bare
+-- string id is enough to exercise the write path.
+-- ===========================================================================
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000018',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-1',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 25000, 'period_start', '2026-01-01',
+      'source', 'manual', 'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a'
+  ))) -> 0 ->> 'status',
+  'applied', 'P17: envelope_contributions insert by a member is applied');
+
+select is(
+  (select count(*)::int from public.envelope_contributions where id = 'contrib-1'),
+  1, 'P17: the envelope_contributions row was persisted');
+
+select ok(
+  exists (
+    select 1 from public.sync_pull('hh-a', 0, 1000)
+    where table_name = 'envelope_contributions' and row_id = 'contrib-1'
+  ),
+  'P17: the envelope_contributions insert op is visible via sync_pull');
+
+-- ===========================================================================
+-- Probe 18 (0008): an envelope_contributions insert op by a NON-MEMBER of
+-- the target household is rejected not_member (the ordinary household-level
+-- sync_push gate, unaffected by the table allowlist addition).
+-- ===========================================================================
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000019',
+    'household_id', 'hh-b',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-hijack',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-b', 'amount_cents', 100, 'period_start', '2026-01-01',
+      'source', 'manual', 'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a'
+  ))) -> 0 ->> 'code',
+  'not_member', 'P18: envelope_contributions insert by a non-member is rejected not_member');
+
+select is(
+  (select count(*)::int from public.envelope_contributions where id = 'contrib-hijack'),
+  0, 'P18: no envelope_contributions row was created for the rejected op');
+
+-- ===========================================================================
+-- ===========================================================================
+-- Probe 19 (0010 DB-6(b)): an apply_server_op slip_queue update (the
+-- privileged path extract-slip now uses instead of writing slip_queue
+-- directly) is visible via sync_pull to an ordinary household member, and
+-- its openai_cost_cents value is PRESERVED (not stripped) -- because
+-- apply_server_op carries no authenticated JWT `sub`, so private
+-- .apply_one_op's slip_queue column-stripping (gated on v_actor_uid IS NOT
+-- NULL, added in this same migration) does not apply to it. This is the
+-- exact case Probe 16 above (a CLIENT push via sync_push) contrasts with --
+-- there, the very same column WAS stripped.
+--
+-- Simulate the service-role, no-JWT-sub calling context precisely: `reset
+-- role` (postgres bypasses apply_server_op's service_role-only EXECUTE
+-- grant, mirroring how this file already stays as postgres+claims-GUC
+-- elsewhere) and clear request.jwt.claims to '{}' (the same no-sub
+-- simulation rls_cross_household.test.sql already uses), so auth.uid() is
+-- genuinely NULL for this call, not merely unauthorized-by-grant.
+-- ===========================================================================
+reset role;
+set local request.jwt.claims to '{}';
+
+select public.apply_server_op(jsonb_build_object(
+  'v', '1',
+  'op_id', 'a0000000-0000-0000-0000-00000000001a',
+  'household_id', 'hh-a',
+  'table', 'slip_queue',
+  'row_id', 'slip-pin',
+  'op_type', 'update',
+  'payload', jsonb_build_object('status', 'completed', 'openai_cost_cents', 4242),
+  'device_id', 'server:test'
+));
+
+select is(
+  (select openai_cost_cents from public.slip_queue where id = 'slip-pin'),
+  4242, 'P19: apply_server_op''s openai_cost_cents write is NOT stripped (server path)');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+
+select ok(
+  exists (
+    select 1 from public.sync_pull('hh-a', 0, 1000)
+    where table_name = 'slip_queue'
+      and row_id = 'slip-pin'
+      and op_id = 'a0000000-0000-0000-0000-00000000001a'
+      and (payload ->> 'openai_cost_cents')::int = 4242
+  ),
+  'P19: the apply_server_op slip_queue update is visible via sync_pull to a member, with openai_cost_cents intact');
+
+-- Note on the "member cannot self-promote to owner" regression guard the
+-- coordinator asked for: that probe already exists in
+-- household_bootstrap.test.sql (P21-23, the delete-own/insert-own-as-owner
+-- escalation added for 0007 DB-1). pgTAP test files run only after ALL
+-- migrations (0001-0009) have been applied to the database, so that
+-- existing probe already exercises the FINAL, fully-reconciled
+-- apply_one_op (0009's body, which carries 0007's DB-1/DB-9 guards forward
+-- through 0008's envelope_contributions addition) -- no separate probe is
+-- needed here to "guard the revert bug" once 0008 was fixed to derive from
+-- 0007 instead of 0005.
+-- ===========================================================================
 
 select * from finish();
 rollback;

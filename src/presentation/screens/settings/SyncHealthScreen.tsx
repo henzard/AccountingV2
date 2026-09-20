@@ -36,7 +36,7 @@ function formatTimestamp(iso: string | null | undefined): string {
   if (!iso) return 'Never';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Unknown';
-  return d.toLocaleString();
+  return d.toLocaleString('en-ZA');
 }
 
 /** Short, non-sensitive label for one DLQ row -- never shows the op payload

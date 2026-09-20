@@ -86,6 +86,27 @@ describe('Android Play Console compliance configuration', () => {
     expect(proguard).toContain('-keep class expo.modules.kotlin.records.** { *; }');
   });
 
+  it('keeps expo-notifications classes so R8 cannot rename scheduled-notification payload classes', () => {
+    // expo-notifications ships this rule in its own proguard-rules.pro, but its
+    // build.gradle declares no consumerProguardFiles, so that file is never applied
+    // to consuming apps — it must be duplicated here or scheduled (Java-serialized)
+    // notifications silently drop across R8 class renames.
+    const proguard = fs.readFileSync(path.join(repoRoot, 'android/app/proguard-rules.pro'), 'utf8');
+    expect(proguard).toContain('-keep class expo.modules.notifications.** { *; }');
+  });
+
+  it('registers the accountingv2:// scheme in AndroidManifest so password-reset links can open the app', () => {
+    // app.config.ts sets scheme 'accountingv2' and ForgotPasswordScreen builds
+    // reset links as accountingv2://reset-password, but the generated manifest
+    // only carries the Expo dev-client scheme (exp+accountingv2) unless this is
+    // added explicitly to the VIEW/BROWSABLE intent filter.
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(manifest).toContain('<data android:scheme="accountingv2"/>');
+  });
+
   it('leaves resource shrinking off (RN resolves some drawables by name at runtime)', () => {
     const gradleProps = fs.readFileSync(path.join(repoRoot, 'android/gradle.properties'), 'utf8');
     expect(gradleProps).not.toMatch(/^android\.enableShrinkResourcesInReleaseBuilds=true$/m);

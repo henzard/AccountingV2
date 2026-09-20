@@ -30,7 +30,7 @@ Open the app → tap **Sign up** → enter email + password. A magic-link confir
 
 Everyone in a household shares the same envelopes, transactions, and Baby-Step progress.
 
-### 3. Complete onboarding (~12 minutes)
+### 3. Complete onboarding (~3 minutes)
 
 You'll answer these questions once:
 
@@ -59,17 +59,23 @@ Your envelope's **Remaining** drops, and the Ramsey Score nudges up for logging-
 
 ### Scanning a till slip (optional, consent-gated)
 
-1. Dashboard → camera FAB (top right).
-2. First time only: read the consent screen and tap **I agree** (image is sent to OpenAI for extraction, kept for 30 days, then auto-deleted).
-3. Point at the slip, capture. Multi-shot is supported for long slips.
-4. The app extracts merchant, date, total, and line items. Review on the confirm screen, pick the envelope(s), save.
+To scan a slip, you need an internet connection. You can access slip scanning in two places:
 
-Offline? The slip queues and processes next time you have signal.
+1. **Add Transaction screen**: tap the **Scan slip** button.
+2. **Settings → Slip scanning → Slip history**: tap to enter the slip scanner.
+
+Once in the slip scanner:
+
+1. First time only: read the consent screen and tap **I agree** (image is sent to OpenAI for extraction, kept for 30 days, then auto-deleted).
+2. Point at the slip, capture. Multi-shot is supported for long slips.
+3. The app extracts merchant, date, total, and line items. Review on the confirm screen, pick the envelope(s), save.
+
+Slip scanning requires an active internet connection.
 
 ### Adjusting envelopes
 
-- **Add one**: Budget tab → + FAB → name, allocation, type (expense / emergency fund / baby-step).
-- **Edit**: tap the envelope → edit allocation.
+- **Add one**: Dashboard → tap the **+** FAB → name, allocation, type (expense / emergency fund / baby-step).
+- **Edit**: tap an envelope → edit allocation.
 - **Delete**: edit screen → delete button. Deletes sync across household members.
 
 ### Meter readings
@@ -79,9 +85,9 @@ Log the current reading (e.g. 12 345 kWh). The app computes usage since last rea
 
 ### Baby Steps
 
-Bottom nav → **Steps** tab.
+Dashboard → tap the **Baby Steps** card (or bar at the top, depending on your view).
 
-- The card at the top shows your **current step**. Tap it to see sub-tasks.
+- The card shows your **current step**. Tap it to see sub-tasks.
 - Steps 1, 2, 3 advance automatically: Step 1 completes when your EF envelope hits R1 000; Step 2 when all non-mortgage debts are cleared; Step 3 when EF hits 3–6 months of expenses.
 - Steps 4, 5, 7 are manual toggles — tap "Mark complete" when you've done them (retirement invested 15 %, college fund started, giving generously).
 - Each completion triggers a celebration modal. First one's on the house.
@@ -113,11 +119,11 @@ Out of 100, refreshed when you open the app.
 ## Settings tour
 
 - **Profile** — name, email, sign out.
-- **Household** — members, share invite, leave.
-- **Notifications** — evening log reminder time, meter reading day, month-start preflight.
+- **Household** — invite members (share an invite code), join a household (enter an invite code), switch between households.
+- **Notifications** — evening log reminder time, meter reading reminder day, month-start payday reminder. (All reminders are local; the app does not send push notifications from other household members' activity.)
 - **Meters** — add/edit meters and rates.
 - **Debts** — add/edit debts, reorder snowball priority.
-- **Privacy** — slip-scan consent, data export.
+- **Slip scanning** — slip history and scanning consent.
 - **Crash log** _(dev builds)_ — read the last startup crash if the app restarted unexpectedly.
 
 ---

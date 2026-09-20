@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SlipScanningStackNavigator } from './SlipScanningStackNavigator';
 import { useSlipScanner } from '../hooks/useSlipScanner';
 import { SlipScanFlow } from '../../application/SlipScanFlow';
+import { requestSyncNow } from '../../data/sync/syncRuntime';
 import { CaptureSlipUseCase } from '../../domain/slipScanning/CaptureSlipUseCase';
 import { UploadSlipImagesUseCase } from '../../domain/slipScanning/UploadSlipImagesUseCase';
 import { ExtractSlipUseCase } from '../../domain/slipScanning/ExtractSlipUseCase';
@@ -25,8 +26,11 @@ import { BudgetPeriodEngine, formatPeriodDateKey } from '../../domain/shared/Bud
 import { db } from '../../data/local/db';
 import { supabase } from '../../data/remote/supabaseClient';
 import { envelopes as envelopesTable } from '../../data/local/schema';
-import { getEnvelopeSpentCents } from '../../data/local/balances/EnvelopeBalanceQuery';
-import { eq, ne, and } from 'drizzle-orm';
+import {
+  envelopeScopeCondition,
+  getEnvelopeSpentCents,
+} from '../../data/local/balances/EnvelopeBalanceQuery';
+import { eq, ne, and, isNull } from 'drizzle-orm';
 import { useAppStore } from '../stores/appStore';
 import type { EnvelopeOption } from '../screens/slipScanning/components/EnvelopePickerSheet';
 
@@ -51,6 +55,11 @@ const slipFlow = new SlipScanFlow({
   captureSlip: captureSlipUseCase,
   uploadSlipImages: uploadSlipImagesUseCase,
   extractSlip: extractSlipUseCase,
+  // DB-13: the slip_queue insert must reach the server before extraction
+  // calls the edge function, which 403s on a row it hasn't seen yet.
+  // `requestSyncNow` is App.tsx's registered SyncScheduler adapter — see
+  // src/data/sync/syncRuntime.ts.
+  ensureSynced: requestSyncNow,
 });
 const recordConsentUseCase = new RecordSlipConsentUseCase(userConsentRepo);
 
@@ -103,7 +112,13 @@ export function SlipScanningScreen(): React.JSX.Element {
       .where(
         and(
           eq(envelopesTable.householdId, householdId),
-          eq(envelopesTable.periodStart, periodStart),
+          // Reuse the shared scope predicate (see AddTransactionScreen.tsx)
+          // instead of a raw period_start equality: persistent envelope
+          // types (savings, sinking_fund, emergency_fund, baby_step) must
+          // stay selectable here even after the budget period has rolled
+          // forward past their creation period.
+          envelopeScopeCondition(periodStart),
+          isNull(envelopesTable.deletedAt),
           eq(envelopesTable.isArchived, false),
           ne(envelopesTable.envelopeType, 'income'),
         ),
@@ -150,7 +165,7 @@ export function SlipScanningScreen(): React.JSX.Element {
         }>;
         merchant: string | null;
         totalCents: number | null;
-      }): Promise<{ success: boolean }> => {
+      }): Promise<{ success: boolean; totalMismatch?: boolean }> => {
         const result = await confirmSlipUseCase.execute({
           slipId: input.slipId,
           householdId,
@@ -161,7 +176,12 @@ export function SlipScanningScreen(): React.JSX.Element {
             envelopeId: i.envelopeId,
           })),
         });
-        return { success: result.success };
+        // DOM-12: surface a Σ(items) vs slip.totalCents mismatch to the
+        // caller as a warning flag — it never blocks the save.
+        return {
+          success: result.success,
+          totalMismatch: result.success ? result.data.totalMismatch : undefined,
+        };
       },
     [confirmSlipUseCase, householdId],
   );

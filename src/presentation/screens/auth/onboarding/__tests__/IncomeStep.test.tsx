@@ -14,7 +14,7 @@ import { IncomeStep } from '../IncomeStep';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: (): object => ({ navigate: mockNavigate }),
+  useNavigation: (): object => ({ navigate: mockNavigate, goBack: jest.fn() }),
 }));
 
 const mockSetMonthlyIncomeCents = jest.fn();
@@ -46,7 +46,7 @@ describe('IncomeStep', () => {
     await waitFor(() => {
       expect(mockSetMonthlyIncomeCents).toHaveBeenCalledWith(2_500_000);
     });
-    expect(mockNavigate).toHaveBeenCalledWith('ExpenseCategories');
+    expect(mockNavigate).toHaveBeenCalledWith('Payday');
   });
 
   it('accepts a comma-decimal income and stores the correct cents', async () => {

@@ -239,4 +239,119 @@ describe('SlipScanFlow', () => {
       }),
     );
   });
+
+  // DB-13: the slip_queue insert must be pushed to the server BEFORE
+  // extraction calls the edge function (it 403s on a row it hasn't seen).
+  describe('ensureSynced (DB-13)', () => {
+    const capture = {
+      execute: jest.fn().mockResolvedValue({ success: true, data: { slipId: 's1' } }),
+    };
+    const upload = {
+      execute: jest
+        .fn()
+        .mockResolvedValue({ success: true, data: { remotePaths: ['p'], framesBase64: ['b'] } }),
+    };
+    const extract = {
+      execute: jest.fn().mockResolvedValue({
+        success: true,
+        data: {
+          merchant: 'PnP',
+          items: [],
+          rawResponseJson: '{}',
+          slipDate: 'd',
+          totalCents: 0,
+          openaiCostCents: 0,
+        },
+      }),
+    };
+
+    beforeEach(() => {
+      capture.execute.mockClear();
+      upload.execute.mockClear();
+      extract.execute.mockClear();
+    });
+
+    it('awaits ensureSynced after upload and before extract when supplied', async () => {
+      const callOrder: string[] = [];
+      upload.execute.mockImplementationOnce(async () => {
+        callOrder.push('upload');
+        return { success: true, data: { remotePaths: ['p'], framesBase64: ['b'] } };
+      });
+      const ensureSynced = jest.fn().mockImplementation(async () => {
+        callOrder.push('ensureSynced');
+      });
+      extract.execute.mockImplementationOnce(async () => {
+        callOrder.push('extract');
+        return {
+          success: true,
+          data: {
+            merchant: 'PnP',
+            items: [],
+            rawResponseJson: '{}',
+            slipDate: 'd',
+            totalCents: 0,
+            openaiCostCents: 0,
+          },
+        };
+      });
+
+      const flow = new SlipScanFlow({
+        captureSlip: capture as any,
+        uploadSlipImages: upload as any,
+        extractSlip: extract as any,
+        ensureSynced,
+      });
+      const result = await flow.start(
+        { householdId: 'h1', createdBy: 'u1', frameLocalUris: ['x'] },
+        jest.fn(),
+      );
+
+      expect(result.success).toBe(true);
+      expect(ensureSynced).toHaveBeenCalledWith('h1');
+      expect(callOrder).toEqual(['upload', 'ensureSynced', 'extract']);
+    });
+
+    it('never calls extract, and reports a failed progress, when ensureSynced throws', async () => {
+      const ensureSynced = jest.fn().mockRejectedValue(new Error('offline'));
+      const flow = new SlipScanFlow({
+        captureSlip: capture as any,
+        uploadSlipImages: upload as any,
+        extractSlip: extract as any,
+        ensureSynced,
+      });
+      const progress = jest.fn();
+      const result = await flow.start(
+        { householdId: 'h1', createdBy: 'u1', frameLocalUris: ['x'] },
+        progress,
+      );
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('SLIP_OFFLINE');
+        expect(result.error.message).toBe('offline');
+      }
+      expect(extract.execute).not.toHaveBeenCalled();
+      expect(progress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'failed',
+          slipId: 's1',
+          error: expect.objectContaining({ code: 'SLIP_OFFLINE' }),
+        }),
+      );
+    });
+
+    it('skips the sync step entirely when ensureSynced is not supplied (backward compatible)', async () => {
+      const flow = new SlipScanFlow({
+        captureSlip: capture as any,
+        uploadSlipImages: upload as any,
+        extractSlip: extract as any,
+      });
+      const result = await flow.start(
+        { householdId: 'h1', createdBy: 'u1', frameLocalUris: ['x'] },
+        jest.fn(),
+      );
+      expect(result.success).toBe(true);
+      expect(extract.execute).toHaveBeenCalledTimes(1);
+    });
+  });
 });

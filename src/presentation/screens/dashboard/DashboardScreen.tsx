@@ -1,13 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import {
-  View,
-  StyleSheet,
-  FlatList,
-  RefreshControl,
-  TouchableOpacity,
-  Text,
-  useColorScheme,
-} from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Text } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -15,19 +7,31 @@ import { RolloverWizard } from '../budgets/RolloverWizard';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useBabySteps } from '../../hooks/useBabySteps';
+import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeSavings';
+import { useSyncEngineStore } from '../../stores/syncEngineStore';
+import { useReloadOnSync } from '../../hooks/useReloadOnSync';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetRingCard } from './components/BudgetRingCard';
 import { BabyStepsBar } from './components/BabyStepsBar';
+import { ScoreBreakdownDialog } from './components/ScoreBreakdownDialog';
 import { P } from './components/HeroSummaryCard';
+import { selectSpendEnvelopes } from './selectSpendEnvelopes';
+import { findLatestPeriodWithEnvelopes } from './findLatestPeriodWithEnvelopes';
+import { resolveMeterReadingsLogged } from './resolveMeterReadingsLogged';
+import { calculateSafeToSpendToday } from './calculateSafeToSpendToday';
+import { EnvelopeDetailSheet } from './components/EnvelopeDetailSheet';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
 import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
+import { calculateBudgetBalance } from '../../../domain/budgets/BudgetBalanceCalculator';
+import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import { formatCurrency } from '../../utils/currency';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { spacing, radius, fontSize } from '../../theme/tokens';
-import { format, differenceInDays, subDays } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { db } from '../../../data/local/db';
 import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
@@ -38,7 +42,10 @@ const scoreCalculator = new HabitScoreCalculator();
 const GRAD_DARK = ['#071A16', '#0C1D2B', '#081420'] as const;
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
-  const isDark = useColorScheme() === 'dark';
+  // Uses the app's in-app Light/Dark preference (`useAppTheme`), not the raw
+  // OS scheme — otherwise the home screen ignores a user override of the
+  // system setting (UX-11).
+  const { dark: isDark } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
 
@@ -52,41 +59,82 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   // period's own rows (L7, 2026-07-05 audit). `periodLabel` below is a pure
   // DISPLAY string (not a key), so it correctly keeps using local `format()`.
   const periodStart = formatPeriodDateKey(period.startDate);
+  const periodEnd = formatPeriodDateKey(period.endDate);
   const periodLabel = format(period.startDate, 'MMMM yyyy');
-  const previousPeriod = engine.getPeriodForDate(paydayDay, subDays(period.startDate, 1));
-  const previousPeriodStart = formatPeriodDateKey(previousPeriod.startDate);
 
   const hid = householdId ?? '';
   const { envelopes, loading, reload } = useEnvelopes(hid, periodStart);
   const { statuses: babyStepStatuses } = useBabySteps(hid, periodStart);
+  // Persistent envelopes' (savings/emergency_fund/sinking_fund/baby_step)
+  // real saved balance — never `allocatedCents - spentCents`, since
+  // `allocatedCents` on those rows is this period's MONTHLY CONTRIBUTION and
+  // `spentCents` is their ALL-TIME spend, not this period's. This hook's own
+  // reload also runs the idempotent legacy opening-balance backfill
+  // (`ensureOpeningBalances`), so calling it on focus below is what gets a
+  // legacy household its opening balance without opening Baby Steps first.
+  const { savedCentsByEnvelopeId, reload: reloadSavings } = usePersistentEnvelopeSavings(hid);
+
+  const scheduler = useSyncEngineStore((s) => s.scheduler);
 
   const [babyStepIsActive, setBabyStepIsActive] = useState(false);
   const [loggingDaysCount, setLoggingDaysCount] = useState(0);
+  const [meterReadingsLoggedThisPeriod, setMeterReadingsLoggedThisPeriod] = useState(false);
   const [showRollover, setShowRollover] = useState(false);
+  const [rolloverFromPeriodStart, setRolloverFromPeriodStart] = useState(periodStart);
+  const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
+  // Envelope tapped from the dashboard list — opens `EnvelopeDetailSheet`
+  // instead of navigating straight to the edit form (VAL-9): the everyday
+  // need is "what did we spend here / add a transaction here".
+  const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeEntity | null>(null);
 
   useFocusEffect(
     useCallback((): (() => void) => {
       let cancelled = false;
       void reload();
+      // Idempotent (deterministic contribution ids) and swallows its own
+      // errors into its `error` state — safe to call once per focus.
+      void reloadSavings();
       resolveBabyStepIsActive(db, hid).then((isActive) => {
         if (!cancelled) setBabyStepIsActive(isActive);
       });
-      const periodEnd = formatPeriodDateKey(period.endDate);
       resolveLoggingDays(db, hid, periodStart, periodEnd).then((days) => {
         if (!cancelled) setLoggingDaysCount(days);
       });
-      // Show rollover prompt once at the start of each new period (within 2 days of payday).
-      const rolloverKey = `period_ack_${periodStart}`;
-      if (engine.isNewPeriodWithin(paydayDay, 2)) {
-        AsyncStorage.getItem(rolloverKey).then((val) => {
-          if (!cancelled && val === null) setShowRollover(true);
-        });
-      }
+      resolveMeterReadingsLogged(db, hid, periodStart, periodEnd).then((logged) => {
+        if (!cancelled) setMeterReadingsLoggedThisPeriod(logged);
+      });
       return () => {
         cancelled = true;
       };
-    }, [reload, hid, period.endDate, periodStart, paydayDay]),
+    }, [reload, reloadSavings, hid, periodStart, periodEnd]),
   );
+
+  // Show the rollover wizard once the current period is confirmed to have no
+  // period-scoped envelopes of its own (spending/income/utility — persistent
+  // envelopes like savings/baby-step always carry over and don't count here),
+  // some earlier period actually has some to roll forward, and the user
+  // hasn't already acknowledged this period. Runs off the loaded envelope
+  // list (not a payday-proximity window), so it stays reachable no matter how
+  // long it's been since payday or how many periods were skipped.
+  useEffect(() => {
+    if (!hid || loading) return;
+    const periodScopedCount = envelopes.filter((e) => getEnvelopeScope(e) === 'period').length;
+    if (periodScopedCount > 0) return;
+
+    let cancelled = false;
+    const rolloverKey = `period_ack_${periodStart}`;
+    AsyncStorage.getItem(rolloverKey).then((ack) => {
+      if (cancelled || ack !== null) return;
+      findLatestPeriodWithEnvelopes(db, hid, periodStart).then((fromPeriod) => {
+        if (cancelled || !fromPeriod) return;
+        setRolloverFromPeriodStart(fromPeriod);
+        setShowRollover(true);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hid, loading, envelopes, periodStart]);
 
   // The wizard itself writes the `period_ack_${toPeriodStart}` key on commit (see
   // RolloverWizard) — this only needs to close the wizard and refresh the envelope
@@ -96,18 +144,101 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     void reload();
   }, [reload]);
 
-  // ── Derived values ────────────────────────────────────────────────────────
-  const totalAllocated = envelopes.reduce((s, e) => s + e.allocatedCents, 0);
-  const totalSpent = envelopes.reduce((s, e) => s + e.spentCents, 0);
-  const daysRemaining = Math.max(0, differenceInDays(period.endDate, new Date()));
+  // Manually opens the rollover wizard from the empty-state "Start this
+  // month's budget" button, looking up the correct fromPeriodStart on demand
+  // rather than relying on the auto-detect effect above having already run.
+  const handleStartNewPeriod = useCallback((): void => {
+    if (!hid) return;
+    findLatestPeriodWithEnvelopes(db, hid, periodStart).then((fromPeriod) => {
+      if (fromPeriod) {
+        setRolloverFromPeriodStart(fromPeriod);
+        setShowRollover(true);
+      } else {
+        // No earlier period ever had envelopes (brand-new household) —
+        // nothing to review/copy forward, so go straight to creating one.
+        navigation.navigate('AddEditEnvelope', {});
+      }
+    });
+  }, [hid, periodStart, navigation]);
 
-  const envelopesOnBudget = envelopes.filter((e) => e.spentCents <= e.allocatedCents).length;
+  // Reloads after a manual pull-to-refresh AND after the background sync
+  // scheduler actually completes a round (VAL-5) — consumed read-only via
+  // the shared sync stores/engine, never mutated here.
+  const handleRefresh = useCallback((): void => {
+    if (hid) scheduler?.requestSync(hid, { immediate: true });
+    void reload();
+  }, [scheduler, hid, reload]);
+
+  const handleCloseEnvelopeDetail = useCallback((): void => {
+    setSelectedEnvelope(null);
+  }, []);
+
+  const handleAddTransactionForEnvelope = useCallback(
+    (envelopeId: string): void => {
+      setSelectedEnvelope(null);
+      navigation.navigate('AddTransaction', { envelopeId });
+    },
+    [navigation],
+  );
+
+  const handleEditEnvelope = useCallback(
+    (envelopeId: string): void => {
+      setSelectedEnvelope(null);
+      navigation.navigate('AddEditEnvelope', { envelopeId });
+    },
+    [navigation],
+  );
+
+  // Envelopes already reload on sync inside `useEnvelopes`; the savings ledger
+  // does not, so a partner's rollover contribution would otherwise stay stale.
+  useReloadOnSync(reloadSavings);
+
+  // ── Derived values ────────────────────────────────────────────────────────
+  // Spend-side envelopes only (excludes 'income') — see selectSpendEnvelopes
+  // for why mixing income allocations into these totals double-counts money
+  // coming IN as if it were budgeted OUT (DOM-5/UX-4/VAL-1).
+  const spendEnvelopes = useMemo(() => selectSpendEnvelopes(envelopes), [envelopes]);
+  // Split further into this-PERIOD spend envelopes (spending/utility) and
+  // PERSISTENT envelopes (savings/emergency_fund/sinking_fund/baby_step).
+  // Persistent envelopes' `spentCents` (from `useEnvelopes`) is an ALL-TIME
+  // figure, not this period's — mixing it into "Spent" would make the ring
+  // count years of a fund's spend as if it happened this period. They still
+  // contribute their monthly `allocatedCents` to "Budget" (money assigned out
+  // of this period's income), and get their own "Savings & funds" section
+  // below the main envelope list, showing their real SAVED balance.
+  const budgetSpendEnvelopes = useMemo(
+    () => spendEnvelopes.filter((e) => getEnvelopeScope(e) === 'period'),
+    [spendEnvelopes],
+  );
+  const persistentEnvelopes = useMemo(
+    () => spendEnvelopes.filter((e) => getEnvelopeScope(e) === 'persistent'),
+    [spendEnvelopes],
+  );
+  const budgetBalance = useMemo(() => calculateBudgetBalance(envelopes), [envelopes]);
+  const hasIncome = envelopes.some((e) => e.envelopeType === 'income');
+
+  const totalAllocated = spendEnvelopes.reduce((s, e) => s + e.allocatedCents, 0);
+  const totalSpent = budgetSpendEnvelopes.reduce((s, e) => s + e.spentCents, 0);
+  const daysRemaining = Math.max(0, differenceInDays(period.endDate, new Date()));
+  const totalDaysInPeriod = differenceInDays(period.endDate, period.startDate) + 1;
+
+  // "Safe to spend today" — period-scoped spend envelopes only (persistent
+  // envelopes' monthly contribution isn't money left to spend day-to-day).
+  const periodSpendRemainingCents = budgetSpendEnvelopes.reduce(
+    (s, e) => s + (e.allocatedCents - e.spentCents),
+    0,
+  );
+  const safeToSpendTodayCents = calculateSafeToSpendToday(periodSpendRemainingCents, daysRemaining);
+
+  const envelopesOnBudget = budgetSpendEnvelopes.filter(
+    (e) => e.spentCents <= e.allocatedCents,
+  ).length;
   const scoreResult = scoreCalculator.calculate({
     loggingDaysCount,
-    totalDaysInPeriod: 30,
+    totalDaysInPeriod,
     envelopesOnBudget,
-    totalEnvelopes: envelopes.length,
-    meterReadingsLoggedThisPeriod: false,
+    totalEnvelopes: budgetSpendEnvelopes.length,
+    meterReadingsLoggedThisPeriod,
     babyStepIsActive,
   });
 
@@ -130,8 +261,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           <Text style={[styles.daysTag, { color: labelColor }]}>{daysRemaining}d remaining</Text>
         </View>
 
-        {/* Budget ring — only when envelopes exist */}
-        {envelopes.length > 0 && (
+        {/* Budget ring — only when spend envelopes exist */}
+        {spendEnvelopes.length > 0 && (
           <View style={styles.ringSection}>
             <BudgetRingCard
               totalAllocatedCents={totalAllocated}
@@ -157,11 +288,54 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
                 </Text>
               </View>
               <View style={[styles.statDivider, { backgroundColor: cardBorder }]} />
-              <View style={styles.stat}>
+              <TouchableOpacity
+                style={styles.stat}
+                onPress={() => setShowScoreBreakdown(true)}
+                testID="score-stat"
+                accessibilityRole="button"
+                accessibilityLabel={`Habit score ${scoreResult.score} out of 100. Tap for a breakdown.`}
+              >
                 <Text style={[styles.statLabel, { color: labelColor }]}>Score</Text>
                 <Text style={[styles.statValue, { color: accentColor }]}>{scoreResult.score}</Text>
-              </View>
+              </TouchableOpacity>
             </View>
+
+            {/* "Safe to spend today" — the period-scoped spend envelopes'
+                remaining budget spread over the days left, so the household
+                sees one daily number instead of doing the division
+                themselves against "Remaining" and days-left. */}
+            <Text
+              style={[styles.safeToSpend, { color: labelColor }]}
+              testID="dashboard-safe-to-spend"
+            >
+              {`Safe to spend today: ${formatCurrency(safeToSpendTodayCents)}`}
+            </Text>
+
+            {/* Income / To assign — shown separately from the spend totals
+                above (DOM-5/UX-4/VAL-1): income funds the budget, it isn't
+                part of it. */}
+            {hasIncome && (
+              <View style={styles.incomeRow} testID="dashboard-income-row">
+                <View style={styles.stat}>
+                  <Text style={[styles.statLabel, { color: labelColor }]}>Income</Text>
+                  <Text style={[styles.statValue, { color: valueColor }]}>
+                    {formatCurrency(budgetBalance.incomeTotal)}
+                  </Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: cardBorder }]} />
+                <View style={styles.stat}>
+                  <Text style={[styles.statLabel, { color: labelColor }]}>To assign</Text>
+                  <Text
+                    style={[
+                      styles.statValue,
+                      { color: budgetBalance.toAssign < 0 ? '#EF4444' : valueColor },
+                    ]}
+                  >
+                    {formatCurrency(budgetBalance.toAssign)}
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -174,28 +348,43 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
         )}
 
         {/* Envelope section header */}
-        {envelopes.length > 0 && (
+        {budgetSpendEnvelopes.length > 0 && (
           <View style={styles.sectionHead}>
             <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Envelopes</Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Budget')}
-              testID="view-budget-link"
-              accessibilityRole="link"
-              accessibilityLabel="View full budget"
-            >
-              <Text style={[styles.sectionSub, { color: accentColor }]}>
-                {envelopes.length} active ›
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.sectionHeadActions}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('AddEditEnvelope', {})}
+                testID="add-envelope-header-button"
+                accessibilityRole="button"
+                accessibilityLabel="Add envelope"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[styles.sectionSub, { color: accentColor }]}>+ Add</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Budget')}
+                testID="view-budget-link"
+                accessibilityRole="link"
+                accessibilityLabel="View full budget"
+              >
+                <Text style={[styles.sectionSub, { color: accentColor }]}>
+                  {budgetSpendEnvelopes.length} active ›
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      envelopes.length,
+      spendEnvelopes.length,
+      budgetSpendEnvelopes.length,
+      hasIncome,
+      budgetBalance,
       totalAllocated,
       totalSpent,
+      safeToSpendTodayCents,
       daysRemaining,
       scoreResult.score,
       isDark,
@@ -208,19 +397,40 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const ListFooter = useMemo(
     () => (
       <View>
-        {/* Primary FAB */}
-        <View style={styles.fabRow}>
-          <TouchableOpacity
-            style={[styles.fab, { backgroundColor: fabBg }]}
-            onPress={() => navigation.navigate('AddTransaction')}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="Add transaction"
-            testID="add-transaction-fab"
-          >
-            <Text style={styles.fabText}>＋ Add Transaction</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Savings & funds — persistent envelopes (savings/emergency fund/
+            sinking fund/baby step), shown under the main spending envelopes
+            with their real SAVED balance (contribution ledger), never
+            allocatedCents - spentCents (see usePersistentEnvelopeSavings). */}
+        {persistentEnvelopes.length > 0 && (
+          <View>
+            <View style={styles.sectionHead}>
+              <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+                Savings & funds
+              </Text>
+            </View>
+            <View style={styles.savingsList}>
+              {persistentEnvelopes.map((env) => (
+                <TouchableOpacity
+                  key={env.id}
+                  style={[styles.envelopeRow, { backgroundColor: cardBg, borderColor: cardBorder }]}
+                  onPress={() => setSelectedEnvelope(env)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  testID={`persistent-envelope-${env.id}`}
+                >
+                  <View style={styles.envelopeInfo}>
+                    <Text style={[styles.envelopeName, { color: valueColor }]} numberOfLines={1}>
+                      {env.name}
+                    </Text>
+                    <Text style={[styles.envelopeAmt, { color: labelColor }]}>
+                      {formatCurrency(savedCentsByEnvelopeId.get(env.id) ?? 0)} saved
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Secondary actions */}
         <View style={styles.secondaryRow}>
@@ -258,8 +468,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
         <View style={styles.bottomPad} />
       </View>
     ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isDark],
+    [
+      persistentEnvelopes,
+      savedCentsByEnvelopeId,
+      cardBg,
+      cardBorder,
+      valueColor,
+      labelColor,
+      sectionTitleColor,
+      navigation,
+    ],
   );
 
   // ── Empty / loading ───────────────────────────────────────────────────────
@@ -282,10 +500,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           >
             <Text style={[styles.newEnvBtnText, { color: accentColor }]}>+ New envelope</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.newEnvBtn, { borderColor: cardBorder }]}
+            onPress={handleStartNewPeriod}
+            testID="start-new-period-button"
+            accessibilityRole="button"
+          >
+            <Text style={[styles.newEnvBtnText, { color: accentColor }]}>
+              Start this month&apos;s budget
+            </Text>
+          </TouchableOpacity>
         </View>
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loading, isDark],
+    [loading, isDark, handleStartNewPeriod],
   );
 
   // ── Early return: no household ────────────────────────────────────────────
@@ -301,7 +529,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     return (
       <TouchableOpacity
         style={[styles.envelopeRow, { backgroundColor: cardBg, borderColor: cardBorder }]}
-        onPress={() => navigation.navigate('AddEditEnvelope', { envelopeId: item.id })}
+        onPress={() => setSelectedEnvelope(item)}
         activeOpacity={0.75}
         accessibilityRole="button"
         accessibilityLabel={`${item.name}, ${formatCurrency(Math.abs(remaining))} ${isOver ? 'over budget' : 'remaining'}, ${pct}% used`}
@@ -338,7 +566,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     <FlatList<EnvelopeEntity>
       testID="dashboard-root"
       style={styles.list}
-      data={loading ? [] : envelopes}
+      data={loading ? [] : budgetSpendEnvelopes}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -349,7 +577,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       refreshControl={
         <RefreshControl
           refreshing={loading}
-          onRefresh={reload}
+          onRefresh={handleRefresh}
           tintColor={P.accent}
           colors={[P.accent]}
         />
@@ -357,14 +585,50 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     />
   );
 
+  // Rendered as a sibling of the FlatList (not inside ListFooterComponent) so
+  // it stays fixed above the tab bar instead of scrolling away with the list
+  // content (UX-16).
+  const floatingFab = (
+    <TouchableOpacity
+      style={[styles.floatingFab, { backgroundColor: fabBg }]}
+      onPress={() => navigation.navigate('AddTransaction')}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel="Add transaction"
+      testID="add-transaction-fab"
+    >
+      <Text style={styles.floatingFabText}>＋</Text>
+    </TouchableOpacity>
+  );
+
   const rolloverModal = (
     <RolloverWizard
       visible={showRollover}
       householdId={hid}
-      fromPeriodStart={previousPeriodStart}
+      fromPeriodStart={rolloverFromPeriodStart}
       toPeriodStart={periodStart}
       periodLabel={periodLabel}
       onDone={handleRolloverDone}
+    />
+  );
+
+  const scoreBreakdownDialog = (
+    <ScoreBreakdownDialog
+      visible={showScoreBreakdown}
+      onDismiss={() => setShowScoreBreakdown(false)}
+      result={scoreResult}
+    />
+  );
+
+  const envelopeDetailSheet = (
+    <EnvelopeDetailSheet
+      visible={selectedEnvelope !== null}
+      envelope={selectedEnvelope}
+      householdId={hid}
+      savedCentsByEnvelopeId={savedCentsByEnvelopeId}
+      onDismiss={handleCloseEnvelopeDetail}
+      onAddTransaction={handleAddTransactionForEnvelope}
+      onEditEnvelope={handleEditEnvelope}
     />
   );
 
@@ -372,7 +636,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     return (
       <LinearGradient colors={GRAD_DARK} locations={[0, 0.55, 1]} style={styles.flex}>
         {list}
+        {floatingFab}
         {rolloverModal}
+        {scoreBreakdownDialog}
+        {envelopeDetailSheet}
       </LinearGradient>
     );
   }
@@ -380,7 +647,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   return (
     <View style={[styles.flex, { backgroundColor: P.screenBgLight }]}>
       {list}
+      {floatingFab}
       {rolloverModal}
+      {scoreBreakdownDialog}
+      {envelopeDetailSheet}
     </View>
   );
 };
@@ -388,7 +658,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   list: { flex: 1 },
-  listContent: { paddingBottom: spacing.lg },
+  // Extra bottom padding keeps the last row clear of the floating FAB, which
+  // is rendered outside the FlatList so it stays fixed above the tab bar
+  // instead of scrolling away with the list content (UX-16).
+  listContent: { paddingBottom: spacing.xxxl + spacing.xl },
 
   // Period header
   periodRow: {
@@ -431,6 +704,20 @@ const styles = StyleSheet.create({
   },
   statDivider: { width: 1, height: 28, marginHorizontal: spacing.sm },
 
+  // Income / To assign row
+  incomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  safeToSpend: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+    marginTop: spacing.base,
+  },
+
   // Section header
   sectionHead: {
     flexDirection: 'row',
@@ -439,6 +726,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingTop: spacing.base,
     paddingBottom: spacing.sm,
+  },
+  sectionHeadActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.base,
   },
   sectionTitle: {
     fontFamily: 'PlusJakartaSans_700Bold',
@@ -494,31 +786,33 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   separator: { height: spacing.sm },
+  savingsList: { gap: spacing.sm, marginBottom: spacing.sm },
 
-  // FAB + secondary actions
-  fabRow: {
-    alignItems: 'center',
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.base,
-  },
-  fab: {
-    width: 220,
-    height: 52,
-    borderRadius: 26,
+  // Floating "Add transaction" FAB — rendered as a sibling of the FlatList,
+  // fixed bottom-right above the tab bar (UX-16), not inside its footer.
+  floatingFab: {
+    position: 'absolute',
+    right: spacing.base,
+    bottom: spacing.xl,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
-  fabText: {
+  floatingFabText: {
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    fontSize: fontSize.base,
+    fontSize: 28,
+    lineHeight: 30,
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
+
+  // Secondary actions
   secondaryRow: {
     flexDirection: 'row',
     gap: spacing.sm,

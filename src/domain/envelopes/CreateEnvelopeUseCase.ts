@@ -1,5 +1,6 @@
 import { randomUUID } from 'expo-crypto';
 import { and, eq, isNull } from 'drizzle-orm';
+import { parse, isValid } from 'date-fns';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
@@ -9,7 +10,21 @@ import type { SyncWriteDeps } from '../shared/syncWrite';
 import { isUniqueConstraintError } from '../../data/uow/createSyncedRepo';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { bestEffortAudit } from '../shared/bestEffortAudit';
 import type { EnvelopeEntity, EnvelopeType } from './EnvelopeEntity';
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * True only for a real calendar date in strict 'yyyy-MM-dd' form. Guards
+ * against SinkingFundCard's `parseISO(envelope.targetDate)` crashing the
+ * Sinking Funds screen on a malformed value (e.g. '2027-13-40' or free text)
+ * that made it past the screen's plain-text input (DOM-9).
+ */
+function isValidDateOnlyString(value: string): boolean {
+  if (!DATE_ONLY_PATTERN.test(value)) return false;
+  return isValid(parse(value, 'yyyy-MM-dd', new Date()));
+}
 
 interface CreateEnvelopeInput {
   householdId: string;
@@ -38,6 +53,15 @@ export class CreateEnvelopeUseCase {
       return createFailure({
         code: 'INVALID_AMOUNT',
         message: 'Budget amount must be greater than zero',
+      });
+    }
+    // DOM-9: a malformed targetDate (bad text, an impossible calendar date)
+    // crashes the Sinking Funds screen downstream (SinkingFundCard parses it
+    // with date-fns parseISO). Reject it here rather than at render time.
+    if (this.input.targetDate != null && !isValidDateOnlyString(this.input.targetDate)) {
+      return createFailure({
+        code: 'INVALID_TARGET_DATE',
+        message: 'Target date must be a valid date in yyyy-MM-dd format',
       });
     }
 
@@ -151,7 +175,10 @@ export class CreateEnvelopeUseCase {
       updatedAt: envelope.updatedAt,
     };
 
-    await this.audit.log({
+    // The ledger write above has already committed by this point — audit
+    // logging is a secondary, best-effort concern that must not fail this
+    // otherwise-successful create (see bestEffortAudit).
+    await bestEffortAudit(this.audit, {
       householdId: this.input.householdId,
       entityType: 'envelope',
       entityId: id,

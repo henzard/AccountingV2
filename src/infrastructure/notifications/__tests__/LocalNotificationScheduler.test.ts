@@ -20,33 +20,80 @@ describe('LocalNotificationScheduler', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('scheduleEveningLogPrompt cancels then reschedules with identifier "evening-log"', async () => {
+  it('scheduleEveningLogPrompt cancels then reschedules with identifier "evening-log" and data.target "add_transaction" (VAL-12)', async () => {
     await scheduler.scheduleEveningLogPrompt(19, 0);
     expect(mockCancel).toHaveBeenCalledWith('evening-log');
     expect(mockSchedule).toHaveBeenCalledWith(
-      expect.objectContaining({ identifier: 'evening-log' }),
+      expect.objectContaining({
+        identifier: 'evening-log',
+        content: expect.objectContaining({ data: { target: 'add_transaction' } }),
+      }),
     );
   });
 
-  it('scheduleMeterReadingReminder uses identifier "meter-reading"', async () => {
+  it('scheduleMeterReadingReminder uses identifier "meter-reading" and data.target "meters" (VAL-12)', async () => {
     await scheduler.scheduleMeterReadingReminder(1);
     expect(mockCancel).toHaveBeenCalledWith('meter-reading');
     expect(mockSchedule).toHaveBeenCalledWith(
-      expect.objectContaining({ identifier: 'meter-reading' }),
+      expect.objectContaining({
+        identifier: 'meter-reading',
+        content: expect.objectContaining({ data: { target: 'meters' } }),
+      }),
     );
   });
 
-  it('scheduleMonthStartPreflight uses identifier "month-start"', async () => {
+  it('scheduleMonthStartPreflight uses identifier "month-start" and data.target "dashboard" (VAL-12)', async () => {
     await scheduler.scheduleMonthStartPreflight(25);
     expect(mockCancel).toHaveBeenCalledWith('month-start');
     expect(mockSchedule).toHaveBeenCalledWith(
-      expect.objectContaining({ identifier: 'month-start' }),
+      expect.objectContaining({
+        identifier: 'month-start',
+        content: expect.objectContaining({ data: { target: 'dashboard' } }),
+      }),
     );
   });
 
   it('cancelAll calls cancelAllScheduledNotificationsAsync', async () => {
     await scheduler.cancelAll();
     expect(mockCancelAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancelEveningLogPrompt cancels the "evening-log" identifier', async () => {
+    await scheduler.cancelEveningLogPrompt();
+    expect(mockCancel).toHaveBeenCalledWith('evening-log');
+    expect(mockSchedule).not.toHaveBeenCalled();
+  });
+
+  describe('hasLoggedTransactionToday guard (VAL-12)', () => {
+    it('cancels instead of scheduling when a transaction was already logged today', async () => {
+      const hasLoggedTransactionToday = jest.fn().mockResolvedValue(true);
+      const guardedScheduler = new LocalNotificationScheduler({ hasLoggedTransactionToday });
+
+      await guardedScheduler.scheduleEveningLogPrompt(19, 0);
+
+      expect(hasLoggedTransactionToday).toHaveBeenCalledTimes(1);
+      expect(mockCancel).toHaveBeenCalledWith('evening-log');
+      expect(mockSchedule).not.toHaveBeenCalled();
+    });
+
+    it('schedules as normal when nothing was logged today', async () => {
+      const hasLoggedTransactionToday = jest.fn().mockResolvedValue(false);
+      const guardedScheduler = new LocalNotificationScheduler({ hasLoggedTransactionToday });
+
+      await guardedScheduler.scheduleEveningLogPrompt(19, 0);
+
+      expect(hasLoggedTransactionToday).toHaveBeenCalledTimes(1);
+      expect(mockSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({ identifier: 'evening-log' }),
+      );
+    });
+
+    it('schedules unconditionally when no check is supplied (backward compatible)', async () => {
+      await scheduler.scheduleEveningLogPrompt(19, 0);
+      expect(mockSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({ identifier: 'evening-log' }),
+      );
+    });
   });
 
   describe('fireBabyStepCelebration', () => {

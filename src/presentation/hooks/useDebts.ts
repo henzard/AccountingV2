@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { debts as debtsTable } from '../../data/local/schema';
 import type { DebtEntity } from '../../domain/debtSnowball/DebtEntity';
+import { useReloadOnSync } from './useReloadOnSync';
 
 export interface UseDebtsResult {
   debts: DebtEntity[];
@@ -32,6 +33,10 @@ export function useDebts(householdId: string): UseDebtsResult {
       setLoading(false);
     }
   }, [householdId]);
+
+  // A partner's debt payment lands in local SQLite during a sync round;
+  // without this the screen showed it only after navigating away and back.
+  useReloadOnSync(reload);
 
   return { debts, loading, error, reload };
 }

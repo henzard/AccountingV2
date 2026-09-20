@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAppStore } from '../../../stores/appStore';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { ONBOARDING_TOTAL_STEPS, onboardingStepNumber } from './onboardingSteps';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 import { parseMoneyInput } from '../../../utils/parseMoneyInput';
 
@@ -30,16 +31,17 @@ export function IncomeStep(): React.JSX.Element {
       return;
     }
     useAppStore.getState().setMonthlyIncomeCents(cents);
-    navigation.navigate('ExpenseCategories');
+    navigation.navigate('Payday');
   };
 
   return (
     <OnboardingStepLayout
       title="What's your monthly income?"
       subtitle="This helps us plan your budget envelopes."
-      step={2}
-      totalSteps={8}
+      step={onboardingStepNumber('Income')}
+      totalSteps={ONBOARDING_TOTAL_STEPS}
       onCta={handleNext}
+      onBack={() => navigation.goBack()}
     >
       <TextInput
         label="Monthly income (R)"

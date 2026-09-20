@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Snackbar } from 'react-native-paper';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -10,8 +10,11 @@ import { CreateEnvelopeUseCase } from '../../../domain/envelopes/CreateEnvelopeU
 import { UpdateEnvelopeUseCase } from '../../../domain/envelopes/UpdateEnvelopeUseCase';
 import { ArchiveEnvelopeUseCase } from '../../../domain/envelopes/ArchiveEnvelopeUseCase';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
+import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
+import { DateField } from '../../components/shared/DateField';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddEditEnvelopeScreenProps } from '../../navigation/types';
@@ -20,6 +23,16 @@ import { parseMoneyInput } from '../../utils/parseMoneyInput';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
+
+const ENVELOPE_TYPE_LABELS: Record<EnvelopeType, string> = {
+  income: 'Income',
+  spending: 'Spending',
+  savings: 'Savings',
+  utility: 'Utility',
+  sinking_fund: 'Sinking Fund',
+  emergency_fund: 'Emergency Fund',
+  baby_step: 'Baby Step',
+};
 
 function toRandString(cents: number): string {
   if (cents === 0) return '';
@@ -168,30 +181,30 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     enqueue,
   ]);
 
-  const handleArchive = useCallback((): void => {
+  const handleArchive = useCallback(async (): Promise<void> => {
     if (!existing) return;
-    Alert.alert(
-      'Archive envelope?',
-      'Historical transactions will keep their envelope name. You can not undo this.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Archive',
-          style: 'destructive',
-          onPress: async (): Promise<void> => {
-            const uc = new ArchiveEnvelopeUseCase(db, audit, existing);
-            const result = await uc.execute();
-            if (result.success) {
-              enqueue('Envelope archived', 'success');
-              navigation.goBack();
-            } else {
-              setError('Failed to archive envelope');
-            }
-          },
-        },
-      ],
-    );
+    const confirmed = await confirm({
+      title: 'Archive envelope?',
+      message: 'Historical transactions will keep their envelope name. You can not undo this.',
+      confirmLabel: 'Archive',
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    const uc = new ArchiveEnvelopeUseCase(db, audit, existing);
+    const result = await uc.execute();
+    if (result.success) {
+      enqueue('Envelope archived', 'success');
+      navigation.goBack();
+    } else {
+      setError('Failed to archive envelope');
+    }
   }, [existing, navigation, enqueue]);
+
+  const amountLabel =
+    getEnvelopeScope({ envelopeType }) === 'persistent'
+      ? 'Monthly contribution (R)'
+      : 'Monthly budget (R)';
 
   return (
     <KeyboardAvoidingView
@@ -211,7 +224,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
         />
 
         <TextInput
-          label="Monthly budget (R)"
+          label={amountLabel}
           value={amountStr}
           onChangeText={setAmountStr}
           mode="outlined"
@@ -226,17 +239,34 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
         <Text variant="labelLarge" style={[styles.typeLabel, { color: colors.onSurface }]}>
           Type
         </Text>
-        <SegmentedButtons
-          value={envelopeType}
-          onValueChange={(v) => setEnvelopeType(v as EnvelopeType)}
-          buttons={[
-            { value: 'income', label: 'Income' },
-            { value: 'spending', label: 'Spending' },
-            { value: 'savings', label: 'Savings' },
-            { value: 'utility', label: 'Utility' },
-          ]}
-          style={styles.segmented}
-        />
+        {existing ? (
+          // Locked in edit mode: SegmentedButtons only lists 4 of the 7
+          // EnvelopeTypes, so editing a sinking_fund/emergency_fund/baby_step
+          // envelope previously showed nothing selected, and one tap silently
+          // converted it to whichever button was pressed (UX-10). Changing
+          // type after creation is also constrained by UpdateEnvelopeUseCase
+          // (scope lock, income-with-spend guard) — showing it read-only
+          // here avoids surfacing a control that can't safely be used anyway.
+          <Text
+            variant="bodyLarge"
+            style={[styles.typeReadOnly, { color: colors.onSurfaceVariant }]}
+            testID="envelope-type-readonly"
+          >
+            {ENVELOPE_TYPE_LABELS[envelopeType]}
+          </Text>
+        ) : (
+          <SegmentedButtons
+            value={envelopeType}
+            onValueChange={(v) => setEnvelopeType(v as EnvelopeType)}
+            buttons={[
+              { value: 'income', label: 'Income' },
+              { value: 'spending', label: 'Spending' },
+              { value: 'savings', label: 'Savings' },
+              { value: 'utility', label: 'Utility' },
+            ]}
+            style={styles.segmented}
+          />
+        )}
 
         {envelopeType === 'sinking_fund' && (
           <>
@@ -250,15 +280,14 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
               style={[styles.input, { backgroundColor: colors.surface }]}
               disabled={loading}
             />
-            <TextInput
-              label="Target date (YYYY-MM-DD)"
-              value={targetDateStr}
-              onChangeText={setTargetDateStr}
-              placeholder="2027-12-01"
-              mode="outlined"
-              testID="target-date-input"
-              style={[styles.input, { backgroundColor: colors.surface }]}
+            <DateField
+              label="Target date"
+              placeholder="Select a target date"
+              value={targetDateStr || null}
+              onChange={setTargetDateStr}
+              maximumDate={null}
               disabled={loading}
+              testID="target-date-input"
             />
           </>
         )}
@@ -308,6 +337,7 @@ const styles = StyleSheet.create({
   container: { padding: spacing.base, gap: spacing.sm },
   input: {},
   typeLabel: { marginTop: spacing.sm },
+  typeReadOnly: { marginTop: spacing.xs },
   segmented: { marginTop: spacing.xs },
   button: { marginTop: spacing.lg },
   archiveButton: { marginTop: spacing.sm },

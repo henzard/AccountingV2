@@ -2,7 +2,7 @@
  * BudgetScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -11,6 +11,20 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
+
+const mockFindLatestPeriodWithEnvelopes = jest.fn().mockResolvedValue(null);
+jest.mock('../../dashboard/findLatestPeriodWithEnvelopes', () => ({
+  findLatestPeriodWithEnvelopes: (...args: unknown[]) => mockFindLatestPeriodWithEnvelopes(...args),
+}));
+
+// The wizard itself is covered by RolloverWizard.test.tsx — this file only
+// asserts BudgetScreen wires "Start this month's budget" to it.
+jest.mock('../RolloverWizard', () => ({
+  RolloverWizard: ({ visible }: { visible: boolean }) => {
+    const React = jest.requireActual('react');
+    return visible ? React.createElement('View', { testID: 'rollover-wizard-stub' }) : null;
+  },
+}));
 
 const mockUseEnvelopes = jest.fn().mockReturnValue({
   envelopes: [],
@@ -35,6 +49,10 @@ jest.mock('react-native-paper', () => {
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
+    FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
+      React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
+    Button: ({ onPress, children }: { onPress?: () => void; children?: React.ReactNode }) =>
+      React.createElement('Pressable', { onPress }, children),
   };
 });
 
@@ -56,17 +74,31 @@ jest.mock('../components/DuplicateEmfBanner', () => ({
   DuplicateEmfBanner: () => null,
 }));
 jest.mock('../../../components/envelopes/EnvelopeCard', () => ({
-  EnvelopeCard: ({ envelope }: { envelope: { name: string } }) => {
+  EnvelopeCard: ({ envelope, onPress }: { envelope: { name: string }; onPress?: () => void }) => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const React = require('react');
-    return React.createElement('View', { testID: `envelope-card-${envelope.name}` });
+    return React.createElement('Pressable', { testID: `envelope-card-${envelope.name}`, onPress });
   },
 }));
 jest.mock('../../../components/shared/EmptyState', () => ({
-  EmptyState: ({ testID }: { testID?: string }) => {
+  EmptyState: ({
+    testID,
+    ctaLabel,
+    onCta,
+  }: {
+    testID?: string;
+    ctaLabel?: string;
+    onCta?: () => void;
+  }) => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const React = require('react');
-    return React.createElement('View', { testID });
+    return React.createElement(
+      'View',
+      { testID },
+      ctaLabel && onCta
+        ? React.createElement('Pressable', { testID: 'empty-state-cta', onPress: onCta }, ctaLabel)
+        : null,
+    );
   },
 }));
 jest.mock('../../../components/shared/SectionHeader', () => ({
@@ -96,6 +128,7 @@ describe('BudgetScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseEnvelopes.mockReturnValue({ envelopes: [], loading: false, reload: jest.fn() });
+    mockFindLatestPeriodWithEnvelopes.mockResolvedValue(null);
   });
 
   it('renders without crashing', () => {
@@ -167,5 +200,55 @@ describe('BudgetScreen', () => {
     });
     const { getByTestId } = render(<BudgetScreen />);
     expect(getByTestId('budget-empty-state')).toBeTruthy();
+  });
+
+  // UX-2: normal envelopes were only addable from the empty state's
+  // "+ New envelope" button — once any envelope existed there was no way to
+  // add another. A FAB on the populated screen fixes that.
+  it('shows an add-envelope FAB when envelopes exist and navigates to AddEditEnvelope', () => {
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [makeEnvelope('e1', 'Groceries', 'spending')],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(<BudgetScreen />);
+    fireEvent.press(getByTestId('add-envelope-fab'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', {});
+  });
+
+  it('does not show the add-envelope FAB when there are no envelopes', () => {
+    const { queryByTestId } = render(<BudgetScreen />);
+    expect(queryByTestId('add-envelope-fab')).toBeNull();
+  });
+
+  // UX-2: Expenses rows previously had no onPress at all (only Income rows
+  // did) — tapping an expense envelope now navigates to AddEditEnvelope too.
+  it('pressing an expense envelope card navigates to AddEditEnvelope with its id', () => {
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [makeEnvelope('e2', 'Groceries', 'spending')],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(<BudgetScreen />);
+    fireEvent.press(getByTestId('envelope-card-Groceries'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', { envelopeId: 'e2' });
+  });
+
+  // UX-1/DOM-2/VAL-2: "Start this month's budget" opens the rollover wizard
+  // from whichever earlier period actually has envelopes, when one exists.
+  it('"Start this month\'s budget" opens the rollover wizard when an earlier period has envelopes', async () => {
+    mockFindLatestPeriodWithEnvelopes.mockResolvedValue('2026-08-01');
+    const { getByTestId, findByTestId } = render(<BudgetScreen />);
+    fireEvent.press(getByTestId('empty-state-cta'));
+    expect(await findByTestId('rollover-wizard-stub')).toBeTruthy();
+  });
+
+  // When no earlier period ever had envelopes (brand-new household), there
+  // is nothing to review/copy forward — go straight to creating one instead.
+  it('"Start this month\'s budget" navigates to AddEditEnvelope when no earlier period has envelopes', async () => {
+    mockFindLatestPeriodWithEnvelopes.mockResolvedValue(null);
+    const { getByTestId } = render(<BudgetScreen />);
+    fireEvent.press(getByTestId('empty-state-cta'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', {}));
   });
 });

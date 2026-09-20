@@ -2,8 +2,30 @@
  * AddEditEnvelopeScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { Alert } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+
+// ─── confirm() mock (ConfirmDialogHost) ────────────────────────────────────────
+const mockConfirm = jest.fn();
+jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
+  confirm: (...args: unknown[]) => mockConfirm(...args),
+}));
+
+// ─── DateField mock ─────────────────────────────────────────────────────────────
+jest.mock('../../../components/shared/DateField', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  return {
+    DateField: ({
+      value,
+      onChange,
+      testID,
+    }: {
+      value?: string | null;
+      onChange?: (v: string) => void;
+      testID?: string;
+    }) => React.createElement('TextInput', { testID, value: value ?? '', onChangeText: onChange }),
+  };
+});
 
 const mockArchiveExecute = jest.fn();
 
@@ -74,12 +96,18 @@ jest.mock('react-native-paper', () => {
     testID?: string;
     value?: string;
     onChangeText?: (v: string) => void;
-  }) => React.createElement('TextInput', { testID: testID ?? label, value, onChangeText });
+  }) =>
+    React.createElement('TextInput', {
+      testID: testID ?? label,
+      value,
+      onChangeText,
+      accessibilityLabel: label,
+    });
   TextInput.Affix = () => null;
   TextInput.Icon = () => null;
   return {
-    Text: ({ children }: { children?: React.ReactNode }) =>
-      React.createElement('Text', null, children),
+    Text: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
+      React.createElement('Text', { testID }, children),
     TextInput,
     Button: ({
       children,
@@ -120,6 +148,7 @@ describe('AddEditEnvelopeScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCreateExecute.mockResolvedValue({ success: true });
+    mockConfirm.mockResolvedValue(true);
   });
 
   it('renders without crashing (create mode)', () => {
@@ -136,10 +165,7 @@ describe('AddEditEnvelopeScreen', () => {
 
   it('shows error when archive fails', async () => {
     mockArchiveExecute.mockResolvedValueOnce({ success: false });
-    jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
-      const archiveBtn = buttons?.find((b) => b.text === 'Archive');
-      archiveBtn?.onPress?.();
-    });
+    mockConfirm.mockResolvedValue(true);
 
     const { findByTestId, getByTestId } = render(
       <AddEditEnvelopeScreen
@@ -233,5 +259,78 @@ describe('AddEditEnvelopeScreen', () => {
       expect.anything(),
       expect.objectContaining({ envelopeType: 'sinking_fund', targetAmountCents: null }),
     );
+  });
+
+  // UX-10: editing locks the type as read-only (the SegmentedButtons only
+  // lists 4 of the 7 EnvelopeTypes, so previously one tap while editing a
+  // sinking_fund/emergency_fund/baby_step envelope silently converted it).
+  it('shows the type as read-only text when editing an existing envelope', async () => {
+    const { findByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: { envelopeId: 'env-1' } } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+
+    const readOnlyType = await findByTestId('envelope-type-readonly');
+    expect(readOnlyType).toBeTruthy();
+  });
+
+  it('does not show read-only type text in create mode', () => {
+    const { queryByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: {} } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+    expect(queryByTestId('envelope-type-readonly')).toBeNull();
+  });
+
+  it('does not archive when the confirm dialog is dismissed', async () => {
+    mockConfirm.mockResolvedValue(false);
+    const { findByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: { envelopeId: 'env-1' } } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+
+    const archiveButton = await findByTestId('archive-envelope-button');
+    fireEvent.press(archiveButton);
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    expect(mockArchiveExecute).not.toHaveBeenCalled();
+  });
+
+  it('uses "Monthly contribution (R)" as the amount label for a persistent-scope type', () => {
+    const { getByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: { preselectedType: 'sinking_fund' } } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+    expect(getByTestId('envelope-amount').props.accessibilityLabel).toBe(
+      'Monthly contribution (R)',
+    );
+  });
+
+  it('uses "Monthly budget (R)" as the amount label for a period-scoped type', () => {
+    const { getByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: {} } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+    expect(getByTestId('envelope-amount').props.accessibilityLabel).toBe('Monthly budget (R)');
   });
 });

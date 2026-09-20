@@ -81,24 +81,70 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: postgres
 
-  e2e-android:
-    if: github.ref == 'refs/heads/master'
+  # release-smoke: gates PRs that touch anything that can affect the RELEASE
+  # (minified) build on it actually launching. See scripts/ci/release-smoke.sh
+  # for why this exists (1.1.127 shipped a release build that crashed on
+  # launch for every user; nothing had ever installed/launched a minified
+  # release build before publishing it). Runs on pull_request only — cd.yml
+  # runs the same gate on master before build-and-publish.
+  #
+  # ci.yml has other jobs that must run on every PR regardless of which files
+  # changed, so the path filter can't be a workflow-level `on.pull_request.paths`
+  # (that would skip the whole workflow, including `check`/`db`). Instead the
+  # filter is a `git diff --name-only` step whose output gates every
+  # subsequent step in this job — steps still run (job shows green/skipped
+  # per-step) but do nothing on PRs that can't affect the release build.
+  release-smoke:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     needs: check
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect release-relevant changes
+        id: changes
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+              | grep -qE '^(android/|package\.json$|package-lock\.json$|app\.config\.ts$|patches/|scripts/ci/|\.github/workflows/)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-node@v4
+        if: steps.changes.outputs.relevant == 'true'
         with:
           node-version: '20'
           cache: 'npm'
 
       - uses: actions/setup-java@v4
+        if: steps.changes.outputs.relevant == 'true'
         with:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Install JS dependencies
+        if: steps.changes.outputs.relevant == 'true'
+        run: npm ci
+
+      - name: Build release APK
+        if: steps.changes.outputs.relevant == 'true'
+        working-directory: android
+        run: ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon
+        env:
+          # Dummy-safe: this build only needs to launch far enough to prove
+          # R8 didn't break module init (see release-smoke.sh); it never talks
+          # to Supabase. Signing falls back to debug.keystore (android/app/build.gradle)
+          # when the KEYSTORE_* secrets used by cd.yml's real release build are unset.
+          EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ci_smoke_dummy_key
+
       - name: Enable KVM for hardware-accelerated emulation
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -106,53 +152,8 @@ jobs:
           sudo chmod 666 /dev/kvm
           ls -la /dev/kvm
 
-      - name: Install JS dependencies
-        run: npm ci
-
-      - uses: supabase/setup-cli@v2
-        with:
-          version: latest
-
-      - name: Boot local Supabase stack (backs the tier-4 authenticated journey)
-        run: supabase start
-
-      - name: Replay full migration chain
-        run: supabase db reset
-
-      - name: Capture local Supabase connection details
-        id: supa
-        run: |
-          supabase status -o env > /tmp/supabase-status.env
-          # PUBLISHABLE_KEY is the local anon-equivalent key (sb_publishable_* format,
-          # matching the client the app actually ships with). 10.0.2.2 is the Android
-          # emulator's alias for the host loopback interface — the emulator cannot
-          # reach 127.0.0.1 on the runner directly.
-          KEY=$(grep '^PUBLISHABLE_KEY=' /tmp/supabase-status.env | cut -d= -f2- | tr -d '"')
-          echo "anon_key=$KEY" >> "$GITHUB_OUTPUT"
-
-      - name: Install Detox CLI
-        run: npm install -g detox-cli
-
-      - name: Start ADB server
-        run: |
-          echo "/usr/local/lib/android/sdk/platform-tools" >> $GITHUB_PATH
-          /usr/local/lib/android/sdk/platform-tools/adb start-server
-
-      - name: Build debug APK
-        run: detox build --configuration android.emu.debug
-        env:
-          # EXPO_PUBLIC_* are bundled into the JS bundle at build time.
-          # Without these, supabaseClient.ts throws at module eval → app crashes on launch.
-          #
-          # DECISION: the debug/Detox build points at the local Supabase stack
-          # (not the deployed remote project) so the tier-4 authenticated journey
-          # (e2e/journeys/authenticatedJourney.e2e.ts) can sign up a throwaway user,
-          # exercise onboarding/envelopes/transactions, and be torn down with the
-          # runner — it never touches production data.
-          EXPO_PUBLIC_SUPABASE_URL: http://10.0.2.2:54321
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supa.outputs.anon_key }}
-
-      - name: Run Detox tests on emulator
+      - name: Release-launch smoke test
+        if: steps.changes.outputs.relevant == 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -161,14 +162,12 @@ jobs:
           avd-name: Pixel_API_34
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 2048
-          script: |
-            adb shell input keyevent 82
-            adb logcat -c
-            adb logcat AndroidRuntime:E ReactNativeJS:V com.henza.accountingv2:V detox:V *:S >> /tmp/logcat.txt 2>&1 &
-            LOGCAT_PID=$!
-            detox test --configuration android.emu.debug --headless --loglevel info 2>&1; DETOX_EXIT=$?
-            kill $LOGCAT_PID 2>/dev/null || true
-            echo "===== LOGCAT ====="
-            cat /tmp/logcat.txt || true
-            echo "===== END LOGCAT ====="
-            exit $DETOX_EXIT
+          script: bash scripts/ci/release-smoke.sh android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload release-smoke logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke-logcat
+          path: logcat-release-smoke.txt
+          if-no-files-found: ignore

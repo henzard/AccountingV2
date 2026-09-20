@@ -12,29 +12,76 @@
  *  5. Regression: emergency fund drops below R1,000 → Step 1 regresses
  */
 
-import { evaluate } from '../../domain/babySteps/BabyStepEvaluator';
-import type { EvaluatorInput } from '../../domain/babySteps/BabyStepEvaluator';
+import { evaluate as evaluateSteps } from '../../domain/babySteps/BabyStepEvaluator';
+import type { EvaluatorInput as FullEvaluatorInput } from '../../domain/babySteps/BabyStepEvaluator';
+import { getEnvelopeScope } from '../../domain/envelopes/EnvelopeEntity';
+
+// These scenarios model a fund's balance as `allocatedCents - spentCents` on the
+// fixture envelope. The evaluator now takes saved balances from the
+// contributions ledger, so derive that map from the fixtures here.
+type EvaluatorInput = Omit<FullEvaluatorInput, 'savedCentsByEnvelopeId'>;
+function evaluate(input: EvaluatorInput): ReturnType<typeof evaluateSteps> {
+  const savedCentsByEnvelopeId = new Map(
+    input.envelopes
+      .filter((e) => getEnvelopeScope(e) === 'persistent')
+      .map((e) => [e.id, e.allocatedCents - e.spentCents] as const),
+  );
+  return evaluateSteps({ ...input, savedCentsByEnvelopeId });
+}
 import { ReconcileBabyStepsUseCase } from '../../domain/babySteps/ReconcileBabyStepsUseCase';
 import { calculateBudgetBalance } from '../../domain/budgets/BudgetBalanceCalculator';
 import type { EnvelopeEntity } from '../../domain/envelopes/EnvelopeEntity';
 import type { DebtEntity } from '../../domain/debtSnowball/DebtEntity';
 import { buildEnvelope, resetFactoryCounter } from '../../__test-utils__/factories';
 import { KRUGER_ENVELOPES, KRUGER_DEBTS, HOUSEHOLDS } from '../../__test-utils__/scenarioSeed';
+import { getPersistentEnvelopeSavedCents } from '../../data/local/balances/EnvelopeBalanceQuery';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => `uuid-${Date.now()}-${Math.random()}` }));
 
-// spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored
-// column. The emergency-fund progress asserted below is driven by
-// allocatedCents (the funded balance), not spentCents, so an empty ledger
-// (spentCents defaults to 0 per envelope) reproduces the same inputs.
+// Both balance readers are derived from the ledger, not stored columns, so
+// they are stubbed here and covered for real in
+// tests/realsql/envelopeBalance.test.ts:
+//  - getEnvelopeSpentCents: every fixture below has spentCents 0, so an empty
+//    map reproduces the same inputs.
+//  - getPersistentEnvelopeSavedCents: the EMF is a PERSISTENT envelope, so its
+//    balance is money actually contributed to it (envelope_contributions minus
+//    spend) and NOT its allocatedCents, which is only the monthly
+//    contribution. `makeFundedEmf` below is how these tests put money in it.
 jest.mock('../../data/local/balances/EnvelopeBalanceQuery', () => ({
   getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
+  getPersistentEnvelopeSavedCents: jest.fn().mockResolvedValue(new Map()),
   envelopeScopeCondition: jest.fn(() => 'scope-condition'),
+}));
+
+// The legacy opening-balance backfill runs its own envelope + contribution
+// queries before ReconcileBabyStepsUseCase reads anything, which would shift
+// the sequential select()-call fixtures each mocked DB below relies on. It is
+// a separate unit with its own coverage in
+// tests/realsql/persistentEnvelopeContributions.test.ts, so it is stubbed to
+// "wrote nothing" here.
+jest.mock('../../domain/budgets/PersistentContributions', () => ({
+  ensureOpeningBalances: jest.fn().mockResolvedValue({ success: true, data: { count: 0 } }),
 }));
 
 beforeEach(() => resetFactoryCounter());
 
 const DEFAULT_MANUAL_FLAGS: EvaluatorInput['manualFlags'] = { 4: false, 5: false, 7: false };
+
+/**
+ * Builds the emergency-fund envelope AND records `balanceCents` as money
+ * actually contributed to it, which is what `ReconcileBabyStepsUseCase` now
+ * reads. Production funds a persistent envelope one contribution per
+ * rolled-over period; `allocatedCents` on that row is the monthly
+ * contribution, so setting it alone no longer makes a fund "funded" — that
+ * was exactly the "complete Baby Step 1 by typing R1,000" bug.
+ */
+function makeFundedEmf(balanceCents: number): EnvelopeEntity {
+  const emf = makeEmf(balanceCents);
+  (getPersistentEnvelopeSavedCents as jest.Mock).mockResolvedValue(
+    new Map([[emf.id, balanceCents]]),
+  );
+  return emf;
+}
 
 function makeEmf(balanceCents: number): EnvelopeEntity {
   return buildEnvelope({
@@ -481,7 +528,7 @@ describe('Full Baby Steps progression — 1 through 7', () => {
 
 describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
   it('reconcile detects Step 1 completion when EMF is funded', async () => {
-    const emf = makeEmf(100_000);
+    const emf = makeFundedEmf(100_000);
     const incomes = makeIncomeEnvelopes();
 
     const envelopeRows = [emf, ...incomes].map((e) => ({
@@ -548,7 +595,7 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
   });
 
   it('does NOT report Step 1 as newlyCompleted when it evaluates complete but has no persisted baby_steps row (L5)', async () => {
-    const emf = makeEmf(100_000);
+    const emf = makeFundedEmf(100_000);
     const incomes = makeIncomeEnvelopes();
 
     const envelopeRows = [emf, ...incomes].map((e) => ({
@@ -593,7 +640,7 @@ describe('ReconcileBabyStepsUseCase — integration with mocked DB', () => {
   });
 
   it('reconcile detects Step 1 regression when EMF drops', async () => {
-    const emfLow = makeEmf(50_000);
+    const emfLow = makeFundedEmf(50_000);
     const incomes = makeIncomeEnvelopes();
     const envelopeRows = [emfLow, ...incomes].map((e) => ({
       ...e,

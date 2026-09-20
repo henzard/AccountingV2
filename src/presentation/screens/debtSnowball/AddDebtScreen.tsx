@@ -11,6 +11,7 @@ import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtType } from '../../../domain/debtSnowball/DebtEntity';
 import type { AddDebtScreenProps } from '../../navigation/types';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
+import { parseRatePercent } from '../../utils/parseRatePercent';
 
 const audit = new AuditLogger(db);
 
@@ -50,9 +51,9 @@ export const AddDebtScreen: React.FC<AddDebtScreenProps> = ({ navigation }) => {
       return;
     }
 
-    const rate = parseFloat(ratePercent);
-    if (isNaN(rate) || rate < 0) {
-      setError('Enter a valid interest rate (0 for interest-free)');
+    const rate = parseRatePercent(ratePercent);
+    if (rate === null || rate < 0 || rate > 100) {
+      setError('Enter a valid interest rate between 0 and 100');
       return;
     }
 

@@ -7,10 +7,11 @@
  */
 
 import React from 'react';
-import { View, StyleSheet, Text, useColorScheme, type TextStyle } from 'react-native';
+import { View, StyleSheet, Text, type TextStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { CurrencyText } from '../../../components/shared/CurrencyText';
 import { radius, spacing, fontSize } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 // ─── PULSE shared palette (exported so sibling components stay consistent) ────
 export const P = {
@@ -82,7 +83,10 @@ export function HeroSummaryCard({
   score,
   testID,
 }: Props): React.JSX.Element {
-  const isDark = useColorScheme() === 'dark';
+  // Uses the app's in-app Light/Dark preference (`useAppTheme`), not the
+  // raw OS scheme — otherwise this card ignores a user override of the
+  // system setting (UX-11).
+  const { dark: isDark } = useAppTheme();
 
   const pctUsed =
     totalAllocatedCents > 0 ? Math.min(100, (totalSpentCents / totalAllocatedCents) * 100) : 0;

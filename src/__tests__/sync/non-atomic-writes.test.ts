@@ -172,9 +172,10 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (FIXED: spec §4.5 carried Cr
     // primitives directly rather than an async CreateTransactionUseCase.
     expect(source).toContain('runInUnitOfWork(');
     expect(source).toContain('insertRowWithinUow(');
-    // The slip completion goes through the conditional (TOCTOU-guarded)
-    // variant, which also carries a `status != 'completed'` predicate.
-    expect(source).toContain('updateRowWithinUowGuarded(');
+    // DOM-1 fix: the slip completion write is no longer the double-confirm
+    // guard (see the next describe-block test below for why) — it's now an
+    // unconditional `updateRowWithinUow`, not the guarded variant.
+    expect(source).toContain('updateRowWithinUow(');
   });
 
   it('verifies ConfirmSlipUseCase marks slip as failed on rollback', () => {
@@ -189,7 +190,7 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (FIXED: spec §4.5 carried Cr
     expect(source).toContain('SLIP_PARTIAL_SAVE_FAILED');
   });
 
-  it('verifies ConfirmSlipUseCase guards against duplicate writes on a double-confirm', () => {
+  it('verifies ConfirmSlipUseCase guards against duplicate writes on a double-confirm via an existence check, NOT slip_queue.status', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
@@ -197,7 +198,32 @@ describe('Non-Atomic Writes — ConfirmSlipUseCase (FIXED: spec §4.5 carried Cr
       'utf8',
     );
 
-    expect(source).toMatch(/status === 'completed'/);
+    // DOM-1: `ExtractSlipUseCase` sets `status` to 'completed' the moment
+    // extraction succeeds — BEFORE the user ever confirms — so a fast path
+    // keyed on `slip.status === 'completed'` matched on the very FIRST
+    // confirm attempt and silently wrote zero transactions, always. This
+    // pins that the old buggy fast path is gone...
+    expect(source).not.toMatch(/status === 'completed'/);
+
+    // ...and that "already confirmed" is now decided by whether this slip's
+    // item transactions already exist (`transactions.slip_id`), checked
+    // synchronously as the FIRST statement inside the write transaction
+    // (`uow.db.get(...)`), rolling the whole unit of work back via a
+    // dedicated error if a row is already there — so an overlapping confirm
+    // can never duplicate the item rows.
+    expect(source).toContain('uow.db.get');
+    expect(source).toMatch(/FROM transactions/);
+    expect(source).toMatch(/slip_id/);
+    expect(source).toContain('SlipAlreadyConfirmedError');
+
+    // Ordering: the existence check must run BEFORE any item is inserted —
+    // otherwise a loser confirm could insert its rows before discovering the
+    // winner's, defeating the guard.
+    const existenceCheckIdx = source.indexOf('uow.db.get');
+    const firstInsertIdx = source.indexOf('insertRowWithinUow(');
+    expect(existenceCheckIdx).toBeGreaterThan(-1);
+    expect(firstInsertIdx).toBeGreaterThan(-1);
+    expect(existenceCheckIdx).toBeLessThan(firstInsertIdx);
   });
 });
 

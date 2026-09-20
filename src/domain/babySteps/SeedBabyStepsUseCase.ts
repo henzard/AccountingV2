@@ -12,7 +12,6 @@
  * - isManual=true for steps 4/5/7
  */
 
-import { randomUUID } from 'expo-crypto';
 import { eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
@@ -23,6 +22,7 @@ import type { SyncWriteDeps } from '../shared/syncWrite';
 import { isUniqueConstraintError } from '../../data/uow/createSyncedRepo';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { uuidv5, APP_NAMESPACE } from '../../infrastructure/crypto/uuidv5';
 
 export class SeedBabyStepsUseCase {
   constructor(
@@ -46,7 +46,7 @@ export class SeedBabyStepsUseCase {
         if (existingSteps.has(stepNumber)) continue;
 
         const row: Record<string, unknown> = {
-          id: randomUUID(),
+          id: uuidv5(`${householdId}:baby_step:${stepNumber}`, APP_NAMESPACE),
           household_id: householdId,
           step_number: stepNumber,
           is_completed: 0,

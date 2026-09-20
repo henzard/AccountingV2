@@ -22,7 +22,7 @@ import type { JoinHouseholdScreenProps } from '../../navigation/types';
 
 const restoreService = new RestoreService(db, supabase);
 
-export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = () => {
+export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
   const session = useAppStore((s) => s.session);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
@@ -76,7 +76,12 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = () => {
     }
 
     enqueue('Joined household', 'success');
-    // RootNavigator reacts automatically when householdId + onboardingCompleted are set.
+
+    // Navigate back to Main if opened as a root screen (can go back).
+    // If opened as a gate flow, RootNavigator handles the transition.
+    if (navigation.canGoBack()) {
+      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    }
   };
 
   return (

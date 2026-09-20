@@ -1,11 +1,13 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { Text, Button, Chip } from 'react-native-paper';
+import { Text, Button, Chip, Snackbar } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, isValid, parseISO } from 'date-fns';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { formatCurrency } from '../../utils/currency';
+import { useToastStore } from '../../stores/toastStore';
 import { LineItemRow } from './components/LineItemRow';
 import { EnvelopePickerSheet } from './components/EnvelopePickerSheet';
 import type { SlipExtraction, SlipExtractionItem } from '../../../domain/slipScanning/types';
@@ -23,7 +25,7 @@ export type SlipConfirmScreenProps = {
     }>;
     merchant: string | null;
     totalCents: number | null;
-  }) => Promise<{ success: boolean }>;
+  }) => Promise<{ success: boolean; totalMismatch?: boolean }>;
 };
 
 // `slipDate` is OCR/LLM-derived (edge function `extract-slip`), so it can be
@@ -42,28 +44,33 @@ export function SlipConfirmScreen({
   confirmSlip,
 }: SlipConfirmScreenProps): React.JSX.Element {
   const { colors } = useAppTheme();
+  const enqueueToast = useToastStore((s) => s.enqueue);
   const navigation = useNavigation<{ goBack: () => void; navigate: (s: string) => void }>();
   const route = useRoute<{
     key: string;
     name: string;
-    params: { slipId: string; extraction: SlipExtraction };
+    params: { slipId: string; extraction: SlipExtraction; readOnly?: boolean };
   }>();
 
-  const { slipId, extraction } = route.params;
+  const { slipId, extraction, readOnly = false } = route.params;
   // Defensive guard (H5): every caller is now expected to pass a fully-shaped
   // `extraction`, but if it is ever missing/malformed (e.g. a stale deep link
   // or a future call site regressing), render a recoverable empty state
   // instead of throwing a TypeError on `extraction.items` and white-screening.
-  // Memoised so the reference is stable across renders (hook-dep safe).
-  const items: SlipExtractionItem[] = useMemo(
+  const initialItems: SlipExtractionItem[] = useMemo(
     () => (Array.isArray(extraction?.items) ? extraction.items : []),
     [extraction],
   );
 
   const listRef = useRef<FlatList<SlipExtractionItem>>(null);
 
+  // UX-14: description/amount are editable and a line can be removed, so the
+  // confirmable list is local editable state — not the raw extraction items.
+  // Read-only (an already-confirmed slip reopened from the queue) never
+  // mutates this; it is only ever seeded from `initialItems`.
+  const [lineItems, setLineItems] = useState<SlipExtractionItem[]>(initialItems);
   const [assignedEnvelopes, setAssignedEnvelopes] = useState<(EnvelopeOption | null)[]>(
-    items.map((item) => {
+    initialItems.map((item) => {
       if (item.suggestedEnvelopeId) {
         return envelopes.find((e) => e.id === item.suggestedEnvelopeId) ?? null;
       }
@@ -80,17 +87,22 @@ export function SlipConfirmScreen({
   const [bulkEnvelope, setBulkEnvelope] = useState<EnvelopeOption | null>(null);
   const [showBulkPicker, setShowBulkPicker] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const unassignedCount = useMemo(
     () => assignedEnvelopes.filter((e) => e === null).length,
     [assignedEnvelopes],
   );
 
-  const canSave = unassignedCount === 0 && items.length > 0;
+  const canSave = !readOnly && unassignedCount === 0 && lineItems.length > 0;
 
-  const handleSelectEnvelope = useCallback((idx: number): void => {
-    setPickerTargetIdx(idx);
-  }, []);
+  const handleSelectEnvelope = useCallback(
+    (idx: number): void => {
+      if (readOnly) return;
+      setPickerTargetIdx(idx);
+    },
+    [readOnly],
+  );
 
   const handleEnvelopePicked = useCallback(
     (env: EnvelopeOption): void => {
@@ -118,35 +130,71 @@ export function SlipConfirmScreen({
     }
   }, [assignedEnvelopes]);
 
+  const handleDescriptionChange = useCallback((idx: number, description: string): void => {
+    setLineItems((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], description };
+      return next;
+    });
+  }, []);
+
+  const handleAmountChange = useCallback((idx: number, amountCents: number): void => {
+    setLineItems((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], amountCents };
+      return next;
+    });
+  }, []);
+
+  const handleRemoveItem = useCallback((idx: number): void => {
+    setLineItems((prev) => prev.filter((_, i) => i !== idx));
+    setAssignedEnvelopes((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
   const handleSave = useCallback(async (): Promise<void> => {
     if (!canSave) return;
     setSaving(true);
-    const dateStr = format(transactionDate, 'yyyy-MM-dd');
-    const payload = items.map((item, idx) => ({
-      description: item.description,
-      amountCents: item.amountCents,
-      envelopeId: assignedEnvelopes[idx]!.id,
-      transactionDate: dateStr,
-    }));
-    const result = await confirmSlip({
-      slipId,
-      items: payload,
-      merchant: extraction?.merchant ?? null,
-      totalCents: extraction?.totalCents ?? null,
-    });
-    setSaving(false);
-    if (result.success) {
-      navigation.navigate('SlipQueue');
+    setError(null);
+    try {
+      const dateStr = format(transactionDate, 'yyyy-MM-dd');
+      const payload = lineItems.map((item, idx) => ({
+        description: item.description,
+        amountCents: item.amountCents,
+        envelopeId: assignedEnvelopes[idx]!.id,
+        transactionDate: dateStr,
+      }));
+      const result = await confirmSlip({
+        slipId,
+        items: payload,
+        merchant: extraction?.merchant ?? null,
+        totalCents: extraction?.totalCents ?? null,
+      });
+      if (result.success) {
+        // DOM-12: a mismatched total never blocks the save — warn instead,
+        // via the global toast so it still shows after navigating away.
+        if (result.totalMismatch) {
+          enqueueToast("Saved, but the total doesn't match the receipt", 'info');
+        }
+        navigation.navigate('SlipQueue');
+      } else {
+        setError('Could not save these transactions. Please try again.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(message);
+    } finally {
+      setSaving(false);
     }
   }, [
     canSave,
     transactionDate,
-    items,
+    lineItems,
     assignedEnvelopes,
     confirmSlip,
     slipId,
     extraction,
     navigation,
+    enqueueToast,
   ]);
 
   const ListHeader = useMemo(
@@ -157,46 +205,60 @@ export function SlipConfirmScreen({
           <Text variant="titleLarge" style={{ color: colors.onSurface, marginBottom: 4 }}>
             {extraction?.merchant ?? 'Unknown merchant'}
           </Text>
-          {extraction?.totalCents != null && (
-            <Text variant="bodyLarge" style={{ color: colors.onSurface, marginBottom: 4 }}>
-              Total: R{(extraction.totalCents / 100).toFixed(2)}
+          {readOnly && (
+            <Text variant="labelMedium" style={{ color: colors.onSurfaceVariant, marginBottom: 4 }}>
+              Already confirmed
             </Text>
           )}
-          <TouchableOpacity onPress={() => setShowDatePicker(true)} testID="date-picker-trigger">
-            <Text variant="bodyMedium" style={{ color: colors.primary }}>
+          {extraction?.totalCents != null && (
+            <Text variant="bodyLarge" style={{ color: colors.onSurface, marginBottom: 4 }}>
+              Total: {formatCurrency(extraction.totalCents)}
+            </Text>
+          )}
+          {readOnly ? (
+            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
               {format(transactionDate, 'd MMM yyyy')}
             </Text>
-          </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={() => setShowDatePicker(true)} testID="date-picker-trigger">
+              <Text variant="bodyMedium" style={{ color: colors.primary }}>
+                {format(transactionDate, 'd MMM yyyy')}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Bulk assign */}
-        <View style={[styles.bulkRow, { backgroundColor: colors.surfaceVariant }]}>
-          <Text variant="bodySmall" style={{ flex: 1, color: colors.onSurfaceVariant }}>
-            Assign all unassigned to:
-          </Text>
-          <Button mode="text" onPress={() => setShowBulkPicker(true)} testID="bulk-assign-button">
-            {bulkEnvelope ? bulkEnvelope.name : 'Select\u2026'}
-          </Button>
-        </View>
+        {!readOnly && (
+          <View style={[styles.bulkRow, { backgroundColor: colors.surfaceVariant }]}>
+            <Text variant="bodySmall" style={{ flex: 1, color: colors.onSurfaceVariant }}>
+              Assign all unassigned to:
+            </Text>
+            <Button mode="text" onPress={() => setShowBulkPicker(true)} testID="bulk-assign-button">
+              {bulkEnvelope ? bulkEnvelope.name : 'Select…'}
+            </Button>
+          </View>
+        )}
       </View>
     ),
-    [extraction, transactionDate, bulkEnvelope, colors],
+    [extraction, transactionDate, bulkEnvelope, colors, readOnly],
   );
 
   const ListFooter = useMemo(
-    () => (
-      <Button
-        mode="contained"
-        onPress={handleSave}
-        disabled={!canSave || saving}
-        loading={saving}
-        style={styles.saveButton}
-        testID="save-button"
-      >
-        Save {items.length} transaction{items.length !== 1 ? 's' : ''}
-      </Button>
-    ),
-    [handleSave, canSave, saving, items.length],
+    () =>
+      readOnly ? null : (
+        <Button
+          mode="contained"
+          onPress={handleSave}
+          disabled={!canSave || saving}
+          loading={saving}
+          style={styles.saveButton}
+          testID="save-button"
+        >
+          Save {lineItems.length} transaction{lineItems.length !== 1 ? 's' : ''}
+        </Button>
+      ),
+    [handleSave, canSave, saving, lineItems.length, readOnly],
   );
 
   return (
@@ -205,7 +267,7 @@ export function SlipConfirmScreen({
       testID="slip-confirm-screen"
     >
       {/* Sticky unassigned chip — Android: elevation+position absolute */}
-      {unassignedCount > 0 && (
+      {!readOnly && unassignedCount > 0 && (
         <Chip
           style={[styles.unassignedChip, { backgroundColor: colors.errorContainer }]}
           testID="unassigned-chip"
@@ -218,12 +280,8 @@ export function SlipConfirmScreen({
 
       <FlatList
         ref={listRef}
-        data={items}
-        keyExtractor={(item, idx) =>
-          item.suggestedEnvelopeId
-            ? `${item.description}-${item.amountCents}-${idx}`
-            : `${item.description}-${item.amountCents}-${idx}`
-        }
+        data={lineItems}
+        keyExtractor={(item, idx) => `${item.description}-${item.amountCents}-${idx}`}
         renderItem={({ item, index }) => (
           <LineItemRow
             item={item}
@@ -231,6 +289,10 @@ export function SlipConfirmScreen({
             selectedEnvelope={assignedEnvelopes[index] ?? null}
             transactionDate={format(transactionDate, 'yyyy-MM-dd')}
             onSelectEnvelope={handleSelectEnvelope}
+            onDescriptionChange={readOnly ? undefined : handleDescriptionChange}
+            onAmountChange={readOnly ? undefined : handleAmountChange}
+            onRemove={readOnly ? undefined : handleRemoveItem}
+            readOnly={readOnly}
           />
         )}
         ListHeaderComponent={ListHeader}
@@ -241,20 +303,24 @@ export function SlipConfirmScreen({
       />
 
       {/* Envelope pickers */}
-      <EnvelopePickerSheet
-        visible={pickerTargetIdx !== null}
-        envelopes={envelopes}
-        selectedId={pickerTargetIdx !== null ? assignedEnvelopes[pickerTargetIdx]?.id : null}
-        onSelect={handleEnvelopePicked}
-        onClose={() => setPickerTargetIdx(null)}
-      />
-      <EnvelopePickerSheet
-        visible={showBulkPicker}
-        envelopes={envelopes}
-        selectedId={bulkEnvelope?.id}
-        onSelect={handleBulkAssign}
-        onClose={() => setShowBulkPicker(false)}
-      />
+      {!readOnly && (
+        <>
+          <EnvelopePickerSheet
+            visible={pickerTargetIdx !== null}
+            envelopes={envelopes}
+            selectedId={pickerTargetIdx !== null ? assignedEnvelopes[pickerTargetIdx]?.id : null}
+            onSelect={handleEnvelopePicked}
+            onClose={() => setPickerTargetIdx(null)}
+          />
+          <EnvelopePickerSheet
+            visible={showBulkPicker}
+            envelopes={envelopes}
+            selectedId={bulkEnvelope?.id}
+            onSelect={handleBulkAssign}
+            onClose={() => setShowBulkPicker(false)}
+          />
+        </>
+      )}
 
       {showDatePicker && (
         <DateTimePicker
@@ -268,6 +334,17 @@ export function SlipConfirmScreen({
           }}
         />
       )}
+
+      <Snackbar
+        visible={error !== null}
+        onDismiss={() => setError(null)}
+        duration={4000}
+        action={{ label: 'OK', onPress: () => setError(null) }}
+        accessibilityLiveRegion="polite"
+        testID="slip-confirm-error-snackbar"
+      >
+        {error}
+      </Snackbar>
     </View>
   );
 }

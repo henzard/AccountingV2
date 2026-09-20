@@ -10,6 +10,11 @@ jest.mock('../../../data/local/db', () => ({
   },
 }));
 
+jest.mock('drizzle-orm', () => ({
+  ...jest.requireActual('drizzle-orm'),
+  isNull: jest.fn((col) => ({ isNull: col })),
+}));
+
 mockFrom.mockReturnValue({ where: mockWhere });
 mockWhere.mockReturnValue({ orderBy: mockOrderBy });
 
@@ -148,5 +153,21 @@ describe('useTransactions', () => {
 
     expect(result.current.error).toBeNull();
     expect(result.current.transactions).toHaveLength(1);
+  });
+
+  it('excludes deleted transactions (deletedAt is null filter applied)', async () => {
+    const { isNull } = jest.requireMock('drizzle-orm') as { isNull: jest.Mock };
+    const activeTx = makeTx({ id: 'tx-active' });
+    mockOrderBy.mockResolvedValue([activeTx]);
+
+    const { result } = renderHook(() => useTransactions(HOUSEHOLD, PERIOD));
+
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(isNull).toHaveBeenCalled();
+    expect(result.current.transactions).toHaveLength(1);
+    expect(result.current.transactions[0].id).toBe('tx-active');
   });
 });

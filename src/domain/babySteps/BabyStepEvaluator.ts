@@ -14,9 +14,19 @@
  * Step 5: manualFlags[5] === true
  * Step 6: count(bond, !archived debts) > 0 AND all such debts paid off
  * Step 7: manualFlags[7] === true
+ *
+ * "balance_cents" of the EMF is its SAVED balance, supplied by the caller via
+ * `savedCentsByEnvelopeId` — NOT `allocatedCents - spentCents`. The EMF is a
+ * persistent envelope whose `allocatedCents` is the MONTHLY contribution the
+ * household budgets, so the old subtraction made Step 1 complete the instant
+ * someone typed R1,000 into the allocation field, and made budgeting
+ * R500/month never complete it at all. Real savings accumulate one
+ * contribution per rolled-over period (see `PersistentContributions` /
+ * `getPersistentEnvelopeSavedCents`).
  */
 
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';
+import { getEnvelopeScope } from '../envelopes/EnvelopeEntity';
 import type { DebtEntity } from '../debtSnowball/DebtEntity';
 import type { BabyStepStatus } from './types';
 import { BABY_STEP_RULES } from './BabyStepRules';
@@ -24,6 +34,13 @@ import { BABY_STEP_RULES } from './BabyStepRules';
 export interface EvaluatorInput {
   /** Current-period envelopes (caller pre-filters to current period) */
   envelopes: EnvelopeEntity[];
+  /**
+   * Derived saved balance per PERSISTENT envelope id (see
+   * `getPersistentEnvelopeSavedCents`). An id missing from the map has never
+   * been funded and evaluates as 0 — it never falls back to `allocatedCents`,
+   * which would re-introduce the "complete Step 1 by typing R1,000" bug.
+   */
+  savedCentsByEnvelopeId: ReadonlyMap<string, number>;
   /** All non-archived debts for the household */
   debts: DebtEntity[];
   /**
@@ -44,8 +61,28 @@ export interface EvaluatorInput {
   };
 }
 
-/** Returns balance_cents for an envelope: allocated - spent */
-function balanceCents(e: EnvelopeEntity): number {
+/**
+ * One step's evaluation. `isIndeterminate` means the step's rule could not be
+ * decided from the data available — its inputs are UNKNOWN, not unmet — so
+ * `isCompleted` carries no information and the caller must keep whatever is
+ * already persisted rather than treat the step as incomplete. Only Step 3
+ * can currently be indeterminate (income not yet captured for the period).
+ */
+export interface EvaluatedStep extends Omit<BabyStepStatus, 'completedAt' | 'celebratedAt'> {
+  isIndeterminate: boolean;
+}
+
+/**
+ * Returns balance_cents for an envelope.
+ *
+ * PERSISTENT envelopes (the EMF included) read their derived saved balance
+ * from `savedCents`; only PERIOD-scoped envelopes, whose `allocatedCents` is
+ * genuinely this period's budget, use `allocated - spent`.
+ */
+function balanceCents(e: EnvelopeEntity, savedCents: ReadonlyMap<string, number>): number {
+  if (getEnvelopeScope(e) === 'persistent') {
+    return savedCents.get(e.id) ?? 0;
+  }
   return e.allocatedCents - e.spentCents;
 }
 
@@ -66,12 +103,13 @@ function computeIncomeTotal(envelopes: EnvelopeEntity[]): number {
 
 function evaluateStep1(
   envelopes: EnvelopeEntity[],
+  savedCents: ReadonlyMap<string, number>,
 ): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
   const emf = findEMF(envelopes);
   if (!emf) {
     return { isCompleted: false, progress: null };
   }
-  const balance = balanceCents(emf);
+  const balance = balanceCents(emf, savedCents);
   const target = 100_000; // R1,000 in cents
   return {
     isCompleted: balance >= target,
@@ -97,22 +135,32 @@ function evaluateStep2(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' 
 function evaluateStep3(
   envelopes: EnvelopeEntity[],
   monthlyExpenseBaseline: number,
-): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
+  savedCents: ReadonlyMap<string, number>,
+): Pick<EvaluatedStep, 'isCompleted' | 'progress' | 'isIndeterminate'> {
   const emf = findEMF(envelopes);
   if (!emf) {
-    return { isCompleted: false, progress: null };
+    return { isCompleted: false, progress: null, isIndeterminate: false };
   }
   const incomeTotal = computeIncomeTotal(envelopes);
   if (incomeTotal === 0) {
-    // Blocked: INCOME_TOTAL = 0 → never auto-completes from zero-divided-by-zero
-    return { isCompleted: false, progress: null };
+    // INCOME_TOTAL = 0 means the target (3 x monthly expenses) is UNKNOWN,
+    // not that it is unmet — and it is 0 in a perfectly normal situation: a
+    // period that has just been rolled into before its income envelopes have
+    // been filled in. Reporting `isCompleted: false` there made Step 3
+    // "regress" every single month, clearing completed_at and firing a
+    // regression toast, only to re-complete once income was entered. So the
+    // step is reported as INDETERMINATE and the caller
+    // (`ReconcileBabyStepsUseCase`) keeps the persisted state untouched —
+    // no write, no toast.
+    return { isCompleted: false, progress: null, isIndeterminate: true };
   }
   // monthlyExpenseBaseline is in ZAR; target is 3 months in cents
   const targetCents = Math.floor(3 * monthlyExpenseBaseline * 100);
-  const balance = balanceCents(emf);
+  const balance = balanceCents(emf, savedCents);
   return {
     isCompleted: balance >= targetCents,
     progress: { current: balance, target: targetCents, unit: 'cents' },
+    isIndeterminate: false,
   };
 }
 
@@ -145,38 +193,39 @@ function evaluateStep6(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' 
  * Does NOT read timestamps — `completedAt` and `celebratedAt` come from persisted rows
  * and are threaded through by ReconcileBabyStepsUseCase.
  */
-export function evaluate(
-  input: EvaluatorInput,
-): Omit<BabyStepStatus, 'completedAt' | 'celebratedAt'>[] {
-  const { envelopes, debts, monthlyExpenseBaseline, manualFlags } = input;
+export function evaluate(input: EvaluatorInput): EvaluatedStep[] {
+  const { envelopes, debts, monthlyExpenseBaseline, manualFlags, savedCentsByEnvelopeId } = input;
 
-  const step1 = evaluateStep1(envelopes);
+  const step1 = evaluateStep1(envelopes, savedCentsByEnvelopeId);
   const step2 = evaluateStep2(debts);
-  const step3 = evaluateStep3(envelopes, monthlyExpenseBaseline);
+  const step3 = evaluateStep3(envelopes, monthlyExpenseBaseline, savedCentsByEnvelopeId);
   const step6 = evaluateStep6(debts);
 
   return [
-    { stepNumber: 1, isManual: BABY_STEP_RULES[1].isManual, ...step1 },
-    { stepNumber: 2, isManual: BABY_STEP_RULES[2].isManual, ...step2 },
+    { stepNumber: 1, isManual: BABY_STEP_RULES[1].isManual, isIndeterminate: false, ...step1 },
+    { stepNumber: 2, isManual: BABY_STEP_RULES[2].isManual, isIndeterminate: false, ...step2 },
     { stepNumber: 3, isManual: BABY_STEP_RULES[3].isManual, ...step3 },
     {
       stepNumber: 4,
       isManual: BABY_STEP_RULES[4].isManual,
       isCompleted: manualFlags[4],
       progress: null,
+      isIndeterminate: false,
     },
     {
       stepNumber: 5,
       isManual: BABY_STEP_RULES[5].isManual,
       isCompleted: manualFlags[5],
       progress: null,
+      isIndeterminate: false,
     },
-    { stepNumber: 6, isManual: BABY_STEP_RULES[6].isManual, ...step6 },
+    { stepNumber: 6, isManual: BABY_STEP_RULES[6].isManual, isIndeterminate: false, ...step6 },
     {
       stepNumber: 7,
       isManual: BABY_STEP_RULES[7].isManual,
       isCompleted: manualFlags[7],
       progress: null,
+      isIndeterminate: false,
     },
   ];
 }

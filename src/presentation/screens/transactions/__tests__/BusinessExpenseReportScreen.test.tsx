@@ -27,6 +27,7 @@ jest.mock('../../../../data/local/db', () => ({
 jest.mock('drizzle-orm', () => ({
   and: jest.fn((...a: unknown[]) => a),
   eq: jest.fn((c: unknown, v: unknown) => ({ c, v })),
+  isNull: jest.fn((col: unknown) => ({ isNull: col })),
 }));
 
 // ─── Schema mock ──────────────────────────────────────────────────────────────
@@ -189,6 +190,17 @@ describe('BusinessExpenseReportScreen', () => {
     await waitFor(() => {
       const { eq } = require('drizzle-orm');
       expect(eq).toHaveBeenCalledWith('householdId', 'hh-1');
+    });
+  });
+
+  it('excludes deleted transactions (deletedAt is null filter applied)', async () => {
+    setupDbChain([]);
+    mockGroupBusinessExpenses.mockReturnValue([]);
+    render(<BusinessExpenseReportScreen />);
+
+    await waitFor(() => {
+      const { isNull } = require('drizzle-orm');
+      expect(isNull).toHaveBeenCalled();
     });
   });
 });

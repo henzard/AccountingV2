@@ -5,7 +5,8 @@
  *   6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timestamp mutation
  *   6.7 — Seeder race: RestoreService + concurrent SeedBabyStepsUseCase (cross-reference)
  *
- * Mock pattern: hand-rolled mocks; no in-memory Drizzle — pure mock DB objects.
+ * Mock pattern: the shared Supabase/local-db doubles in
+ * tests/support/fakeRestoreDb.ts; no in-memory Drizzle.
  *
  * Domain use cases are exercised as real instances (not mocked) where possible,
  * receiving mock persistence.
@@ -15,54 +16,41 @@ jest.mock('expo-crypto', () => ({
   randomUUID: () => 'test-uuid-' + Math.random().toString(36).slice(2),
 }));
 
+jest.mock('../../../infrastructure/logging/Logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
+
 import { RestoreService } from '../RestoreService';
 import { SeedBabyStepsUseCase } from '../../../domain/babySteps/SeedBabyStepsUseCase';
+import { makeFakeSupabase, makeFakeLocalDb } from '../../../../tests/support/fakeRestoreDb';
+import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
+import type * as schema from '../../local/schema';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SyncedRepo } from '../../uow/createSyncedRepo';
+
+type LocalDb = ExpoSQLiteDatabase<typeof schema>;
 
 // ---------------------------------------------------------------------------
 // 6.2 — RestoreService: restores rows then seeds missing steps without mutation
 // ---------------------------------------------------------------------------
 
 describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timestamp mutation', () => {
+  const HH = 'hh-restore';
   const BASE_HH = {
-    id: 'hh-restore',
+    id: HH,
     name: 'Restore Test HH',
     payday_day: 1,
-    user_level: 1,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   };
 
-  /**
-   * Build a Supabase mock that returns a specific set of baby_steps rows for
-   * the given household, and empty for all other entity tables.
-   */
-  function makeRestoreSupabase(babyStepRows: Record<string, unknown>[]) {
+  function babyStepRow(
+    n: number,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
     return {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (_col: string, _val: unknown) => {
-            if (table === 'households') {
-              return { single: () => Promise.resolve({ data: BASE_HH, error: null }) };
-            }
-            if (table === 'household_members') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            if (table === 'baby_steps') {
-              return Promise.resolve({ data: babyStepRows, error: null });
-            }
-            // envelopes, transactions, debts, meter_readings
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    };
-  }
-
-  it('restores existing baby_steps rows and backfills missing ones via SeedBabyStepsUseCase', async () => {
-    // Supabase returns only steps 1, 2, 3 (steps 4-7 missing on remote)
-    const remoteRows = [1, 2, 3].map((n) => ({
       id: `bs-${n}`,
-      household_id: 'hh-restore',
+      household_id: HH,
       step_number: n,
       is_completed: false,
       completed_at: null,
@@ -70,173 +58,127 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
       celebrated_at: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
-    }));
+      ...overrides,
+    };
+  }
 
-    const insertedRows: Record<string, unknown>[] = [];
+  it('restores existing baby_steps rows and backfills missing ones via SeedBabyStepsUseCase', async () => {
+    // Supabase returns only steps 1, 2, 3 (steps 4-7 missing on remote)
+    const remoteRows = [1, 2, 3].map((n) => babyStepRow(n));
+    const { supabase } = makeFakeSupabase({
+      households: { [HH]: BASE_HH },
+      tables: { baby_steps: remoteRows },
+      maxSeq: 0,
+    });
+    const local = makeFakeLocalDb({
+      // What the seeder's existence pre-check sees after the restore wrote 1-3.
+      existingBabySteps: [{ stepNumber: 1 }, { stepNumber: 2 }, { stepNumber: 3 }],
+    });
 
-    const db = {
-      insert: () => ({
-        values: (row: Record<string, unknown>) => ({
-          onConflictDoUpdate: jest.fn().mockImplementation(() => {
-            insertedRows.push(row);
-            return Promise.resolve();
-          }),
-        }),
-      }),
-      // The seeder's existence check reads whatever restoreTable already
-      // pulled (via onConflictDoUpdate above) for baby_steps.
-      select: () => ({
-        from: () => ({
-          where: () =>
-            Promise.resolve(
-              insertedRows
-                .filter((r) => 'stepNumber' in r)
-                .map((r) => ({ stepNumber: r.stepNumber })),
-            ),
-        }),
-      }),
-    } as any;
-
-    // SeedBabyStepsUseCase now writes via the oplog synced repo rather than
-    // a raw onConflictDoNothing insert — inject a fake repo (via
-    // RestoreService's seedDeps) that also records into `insertedRows` so
-    // the assertions below see the backfilled steps.
-    const fakeRepo = {
-      insert: jest.fn((row: Record<string, unknown>) => {
-        insertedRows.push({ stepNumber: row.step_number });
-      }),
+    // SeedBabyStepsUseCase writes via the oplog synced repo rather than a raw
+    // insert — inject a fake repo (via RestoreService's seedDeps) so the
+    // backfilled steps are observable.
+    const seeded: number[] = [];
+    const fakeRepo: SyncedRepo = {
+      insert: (row) => {
+        seeded.push(row.step_number as number);
+      },
       update: jest.fn(),
       softDelete: jest.fn(),
       increment: jest.fn(),
     };
 
-    const supabase = makeRestoreSupabase(remoteRows);
-    const svc = new RestoreService(db, supabase as any, { repo: fakeRepo as any });
-    await svc.restoreHousehold('hh-restore', 'owner', 'user-1');
+    const svc = new RestoreService(local.db as LocalDb, supabase as SupabaseClient, {
+      repo: fakeRepo,
+    });
+    await svc.restoreHousehold(HH, 'owner', 'user-1');
 
-    // At minimum 7 distinct (householdId, stepNumber) pairs must be present
-    const stepNumbersInserted = insertedRows
-      .filter((r) => 'stepNumber' in r)
-      .map((r) => (r as any).stepNumber);
-
-    const uniqueSteps = new Set(stepNumbersInserted);
-    expect(uniqueSteps.size).toBe(7);
-    // All 7 steps must be represented
-    for (let n = 1; n <= 7; n++) {
-      expect(uniqueSteps.has(n)).toBe(true);
-    }
+    const restored = local.written
+      .filter((w) => w.table === 'baby_steps')
+      .map((w) => w.row.stepNumber as number);
+    expect(restored).toEqual([1, 2, 3]);
+    // Every step 1-7 ends up present: 1-3 from the snapshot, 4-7 backfilled.
+    expect(new Set([...restored, ...seeded])).toEqual(new Set([1, 2, 3, 4, 5, 6, 7]));
   });
 
   it('existing row timestamps are not mutated by the seeder backfill (all 7 present → seeder is no-op)', async () => {
-    // All 7 steps already present on remote — seeder should not create new rows.
-    // We verify this by tracking the first write per (householdId, stepNumber) pair
-    // and confirming no step's createdAt/updatedAt changes from the restored value.
     const remoteCreatedAt = '2026-01-01T00:00:00Z';
-    const remoteRows = Array.from({ length: 7 }, (_, i) => ({
-      id: `bs-${i + 1}`,
-      household_id: 'hh-restore',
-      step_number: i + 1,
-      is_completed: false,
-      completed_at: null,
-      is_manual: [4, 5, 7].includes(i + 1),
-      celebrated_at: i + 1 === 1 ? '2026-02-01T00:00:00Z' : null,
-      created_at: remoteCreatedAt,
-      updated_at: remoteCreatedAt,
-    }));
-
-    // Track the first write for each (householdId, stepNumber) pair.
-    // onConflictDoUpdate is called by restoreTable (remote authoritative);
-    // onConflictDoNothing is called by the seeder (idempotent backfill).
-    const firstWriteByKey = new Map<string, Record<string, unknown>>();
-
-    const db = {
-      insert: () => ({
-        values: (row: Record<string, unknown>) => ({
-          onConflictDoUpdate: jest.fn().mockImplementation(() => {
-            if ('stepNumber' in row) {
-              const key = `${row.householdId}:${row.stepNumber}`;
-              // Only record the first write from restoreTable
-              if (!firstWriteByKey.has(key)) {
-                firstWriteByKey.set(key, { ...row });
-              }
-            }
-            return Promise.resolve();
-          }),
-          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-        }),
+    const remoteRows = Array.from({ length: 7 }, (_, i) =>
+      babyStepRow(i + 1, {
+        is_manual: [4, 5, 7].includes(i + 1),
+        celebrated_at: i + 1 === 1 ? '2026-02-01T00:00:00Z' : null,
       }),
-    } as any;
+    );
+    const { supabase } = makeFakeSupabase({
+      households: { [HH]: BASE_HH },
+      tables: { baby_steps: remoteRows },
+      maxSeq: 0,
+    });
+    const local = makeFakeLocalDb({
+      existingBabySteps: Array.from({ length: 7 }, (_, i) => ({ stepNumber: i + 1 })),
+    });
 
-    const supabase = makeRestoreSupabase(remoteRows);
-    const svc = new RestoreService(db, supabase as any);
-    await svc.restoreHousehold('hh-restore', 'owner', 'user-1');
+    const fakeRepo: SyncedRepo = {
+      insert: jest.fn(),
+      update: jest.fn(),
+      softDelete: jest.fn(),
+      increment: jest.fn(),
+    };
 
-    // All 7 steps must have been written
-    expect(firstWriteByKey.size).toBe(7);
+    const svc = new RestoreService(local.db as LocalDb, supabase as SupabaseClient, {
+      repo: fakeRepo,
+    });
+    await svc.restoreHousehold(HH, 'owner', 'user-1');
 
-    // The first write for each step must originate from restoreTable (which has
-    // createdAt = remoteCreatedAt), NOT from the seeder (which would use new Date()).
-    // In production the seeder's INSERT OR IGNORE is a no-op when the row exists;
-    // here we verify the first write carries the Supabase data.
-    for (let n = 1; n <= 7; n++) {
-      const key = `hh-restore:${n}`;
-      const written = firstWriteByKey.get(key) as Record<string, unknown>;
-      expect(written).toBeDefined();
-      // createdAt from Supabase row — if seeder wrote first, this would be a new timestamp
-      expect(written.createdAt).toBe(remoteCreatedAt);
+    const written = local.written.filter((w) => w.table === 'baby_steps');
+    expect(written).toHaveLength(7);
+    // Every restored row carries the SERVER's timestamps — if the seeder had
+    // written first, createdAt would be a fresh `new Date()`.
+    for (const w of written) {
+      expect(w.row.createdAt).toBe(remoteCreatedAt);
     }
+    // All 7 already exist, so the seeder inserts nothing.
+    expect(fakeRepo.insert).not.toHaveBeenCalled();
   });
 
   it('celebrated_at from restored row is preserved (not overwritten by seeder INSERT OR IGNORE)', async () => {
-    // Step 1 has a celebrated_at stamp from Supabase.
-    // RestoreService writes it first (from restoreTable). Seeder runs INSERT OR IGNORE
-    // for all 7 steps; since step 1 is already present, the seeder's insert is a no-op.
-    // The celebrated_at from the first (restoreTable) write is the canonical value.
     const celebratedAt = '2026-04-12T10:05:00Z';
     const remoteCreatedAt = '2026-01-01T00:00:00Z';
-    const remoteRows = [
-      {
-        id: 'bs-1',
-        household_id: 'hh-restore',
-        step_number: 1,
-        is_completed: true,
-        completed_at: '2026-04-12T10:00:00Z',
-        is_manual: false,
-        celebrated_at: celebratedAt,
-        created_at: remoteCreatedAt,
-        updated_at: '2026-04-12T10:00:00Z',
-      },
-    ];
-
-    // Track the first write for each step (via onConflictDoUpdate from restoreTable)
-    const firstWriteByKey = new Map<string, Record<string, unknown>>();
-
-    const db = {
-      insert: () => ({
-        values: (row: Record<string, unknown>) => ({
-          onConflictDoUpdate: jest.fn().mockImplementation(() => {
-            if ('stepNumber' in row) {
-              const key = `${row.householdId}:${row.stepNumber}`;
-              if (!firstWriteByKey.has(key)) {
-                firstWriteByKey.set(key, { ...row });
-              }
-            }
-            return Promise.resolve();
+    const { supabase } = makeFakeSupabase({
+      households: { [HH]: BASE_HH },
+      tables: {
+        baby_steps: [
+          babyStepRow(1, {
+            is_completed: true,
+            completed_at: '2026-04-12T10:00:00Z',
+            celebrated_at: celebratedAt,
+            updated_at: '2026-04-12T10:00:00Z',
           }),
-          onConflictDoNothing: jest.fn().mockResolvedValue(undefined),
-        }),
-      }),
-    } as any;
+        ],
+      },
+      maxSeq: 0,
+    });
+    const local = makeFakeLocalDb({ existingBabySteps: [{ stepNumber: 1 }] });
 
-    const supabase = makeRestoreSupabase(remoteRows);
-    const svc = new RestoreService(db, supabase as any);
-    await svc.restoreHousehold('hh-restore', 'owner', 'user-1');
+    const seeded: number[] = [];
+    const fakeRepo: SyncedRepo = {
+      insert: (row) => {
+        seeded.push(row.step_number as number);
+      },
+      update: jest.fn(),
+      softDelete: jest.fn(),
+      increment: jest.fn(),
+    };
 
-    // Step 1's first write (from restoreTable) must have the Supabase celebrated_at
-    const step1 = firstWriteByKey.get('hh-restore:1') as Record<string, unknown>;
-    expect(step1).toBeDefined();
-    expect(step1.celebratedAt).toBe(celebratedAt);
-    expect(step1.createdAt).toBe(remoteCreatedAt);
+    const svc = new RestoreService(local.db as LocalDb, supabase as SupabaseClient, {
+      repo: fakeRepo,
+    });
+    await svc.restoreHousehold(HH, 'owner', 'user-1');
+
+    const step1 = local.written.find((w) => w.table === 'baby_steps')?.row;
+    expect(step1).toMatchObject({ celebratedAt, createdAt: remoteCreatedAt });
+    // The seeder only backfills the steps that were missing — never step 1.
+    expect(seeded).not.toContain(1);
   });
 });
 
@@ -251,93 +193,60 @@ describe('6.2 — RestoreService + SeedBabyStepsUseCase: backfill without timest
 
 describe('6.7 — Seeder race cross-reference: RestoreService + concurrent SeedBabyStepsUseCase', () => {
   it('concurrent RestoreService.restoreHousehold + SeedBabyStepsUseCase.execute → final count = 7, no rejection', async () => {
-    const BASE_HH_CONCURRENT = {
-      id: 'hh-race',
-      name: 'Race HH',
-      payday_day: 1,
-      user_level: 1,
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-01T00:00:00Z',
-    };
+    const HH = 'hh-race';
+    const { supabase } = makeFakeSupabase({
+      households: {
+        [HH]: {
+          id: HH,
+          name: 'Race HH',
+          payday_day: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      },
+      // All entity tables empty — only the seeder writes baby_steps rows.
+      maxSeq: 0,
+    });
 
-    const supabase = {
-      from: (table: string) => ({
-        select: () => ({
-          eq: (_col: string, _val: unknown) => {
-            if (table === 'households') {
-              return { single: () => Promise.resolve({ data: BASE_HH_CONCURRENT, error: null }) };
-            }
-            if (table === 'household_members') {
-              return Promise.resolve({ data: [], error: null });
-            }
-            // All entity tables return empty — RestoreService's restoreTable finds nothing,
-            // so only the seeder call within restoreHousehold writes rows.
-            return Promise.resolve({ data: [], error: null });
-          },
-        }),
-      }),
-    } as any;
-
-    // Shared state simulating a real DB: tracks rows by (householdId, stepNumber)
+    // Shared state simulating a real DB: rows keyed by (householdId, stepNumber).
     const rows = new Map<string, unknown>();
+    const local = makeFakeLocalDb({
+      // SeedBabyStepsUseCase's existence pre-check reads the same shared map
+      // both seeder invocations write into.
+      existingBabySteps: () =>
+        Array.from(rows.keys())
+          .filter((k) => k.startsWith(`${HH}:`))
+          .map((k) => ({ stepNumber: Number(k.split(':')[1]) })),
+    });
 
-    const db = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: jest.fn().mockImplementation(() => {
-            // onConflictDoUpdate is used for household upsert
-            return Promise.resolve();
-          }),
-        }),
-      }),
-      // SeedBabyStepsUseCase's existence pre-check reads from the same
-      // shared `rows` map both seeder invocations write into.
-      select: () => ({
-        from: () => ({
-          where: () =>
-            Promise.resolve(
-              Array.from(rows.keys())
-                .filter((k) => k.startsWith('hh-race:'))
-                .map((k) => ({ stepNumber: Number(k.split(':')[1]) })),
-            ),
-        }),
-      }),
-    } as any;
-
-    // SeedBabyStepsUseCase now writes via the oplog synced repo. This fake
-    // reproduces the real `createSyncedRepo`'s race behavior: a second
-    // writer for the same (household_id, step_number) hits the same
+    // Reproduces the real `createSyncedRepo`'s race behavior: a second writer
+    // for the same (household_id, step_number) hits the same
     // UNIQUE-constraint-shaped error, which the use case's own catch treats
     // as an idempotent no-op (see SeedBabyStepsUseCase.ts).
-    const fakeRepo = {
-      insert: jest.fn((row: Record<string, unknown>) => {
-        const key = `${row.household_id}:${row.step_number}`;
+    const fakeRepo: SyncedRepo = {
+      insert: (row) => {
+        const key = `${row.household_id as string}:${row.step_number as number}`;
         if (rows.has(key)) {
           throw new Error(
             'UNIQUE constraint failed: baby_steps.household_id, baby_steps.step_number',
           );
         }
         rows.set(key, row);
-      }),
+      },
       update: jest.fn(),
       softDelete: jest.fn(),
       increment: jest.fn(),
     };
 
-    const svc = new RestoreService(db, supabase, { repo: fakeRepo as any });
-    const externalSeeder = new SeedBabyStepsUseCase(db as any, { repo: fakeRepo as any });
+    const svc = new RestoreService(local.db as LocalDb, supabase as SupabaseClient, {
+      repo: fakeRepo,
+    });
+    const externalSeeder = new SeedBabyStepsUseCase(local.db as LocalDb, { repo: fakeRepo });
 
-    // Fire both concurrently: RestoreService (which internally calls seed once)
-    // and an external seed() call for the same household.
     await expect(
-      Promise.all([
-        svc.restoreHousehold('hh-race', 'owner', 'user-1'),
-        externalSeeder.execute('hh-race'),
-      ]),
+      Promise.all([svc.restoreHousehold(HH, 'owner', 'user-1'), externalSeeder.execute(HH)]),
     ).resolves.not.toThrow();
 
-    // Final state: exactly 7 unique (householdId, stepNumber) rows
-    const stepKeys = Array.from(rows.keys()).filter((k) => k.startsWith('hh-race:'));
-    expect(stepKeys).toHaveLength(7);
+    expect(Array.from(rows.keys()).filter((k) => k.startsWith(`${HH}:`))).toHaveLength(7);
   });
 });

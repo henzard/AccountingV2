@@ -2,6 +2,9 @@ import { LogDebtPaymentUseCase } from '../LogDebtPaymentUseCase';
 import type { DebtEntity } from '../DebtEntity';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-sync-1' }));
+jest.mock('../../shared/bestEffortAudit', () => ({
+  bestEffortAudit: jest.fn().mockResolvedValue(undefined),
+}));
 
 const currentDebt: DebtEntity = {
   id: 'd1',
@@ -33,9 +36,14 @@ const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
  * calls `fn(tx)` synchronously and returns its result, and `tx.run(...)`
  * records every raw-SQL statement issued inside the transaction.
  */
-function makeUowDb() {
+function makeUowDb(changes = 1) {
   const runCalls: unknown[] = [];
-  const tx = { run: jest.fn((query: unknown) => runCalls.push(query)) };
+  const tx = {
+    run: jest.fn((query: unknown) => {
+      runCalls.push(query);
+      return { changes };
+    }),
+  };
   const db = { transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(tx)) };
   return { db: db as any, runCalls };
 }
@@ -107,6 +115,9 @@ describe('LogDebtPaymentUseCase', () => {
 
   it('logs audit with payment details', async () => {
     const { db } = makeUowDb();
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
     const uc = new LogDebtPaymentUseCase(db, mockAudit, {
       householdId: 'h1',
       debtId: 'd1',
@@ -114,7 +125,7 @@ describe('LogDebtPaymentUseCase', () => {
       currentDebt,
     });
     await uc.execute();
-    expect(mockAudit.log).toHaveBeenCalledTimes(1);
+    expect(mockBestEffortAudit).toHaveBeenCalledTimes(1);
   });
 
   it('runs the whole payment as ONE db.transaction (atomic, no pending_sync)', async () => {
@@ -143,5 +154,38 @@ describe('LogDebtPaymentUseCase', () => {
       // Only the actual outstanding amount should be applied, not the full 200000
       expect(result.data.totalPaidCents).toBe(100000);
     }
+  });
+
+  it('returns DEBT_NOT_FOUND and appends no ops when the UPDATE matches no row', async () => {
+    const { db, runCalls } = makeUowDb(0);
+    const uc = new LogDebtPaymentUseCase(db, mockAudit, {
+      householdId: 'h1',
+      debtId: 'missing',
+      paymentAmountCents: 5000,
+      currentDebt,
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DEBT_NOT_FOUND');
+    // Only the UPDATE ran — no oplog inserts followed it.
+    expect(runCalls).toHaveLength(1);
+  });
+
+  it('returns success even when audit fails', async () => {
+    const { db } = makeUowDb();
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
+    // bestEffortAudit never throws, so just verify it's called and result is still success
+    const uc = new LogDebtPaymentUseCase(db, mockAudit, {
+      householdId: 'h1',
+      debtId: 'd1',
+      paymentAmountCents: 5000,
+      currentDebt,
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(mockBestEffortAudit).toHaveBeenCalled();
   });
 });

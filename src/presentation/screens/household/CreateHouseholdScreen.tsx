@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Text, TextInput, Button } from 'react-native-paper';
+import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { db } from '../../../data/local/db';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateHouseholdUseCase } from '../../../domain/households/CreateHouseholdUseCase';
@@ -10,13 +9,15 @@ import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
-import type { CreateHouseholdStackParamList } from '../../navigation/types';
+import { supabase } from '../../../data/remote/supabaseClient';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 
 const audit = new AuditLogger(db);
 
 export const CreateHouseholdScreen: React.FC = () => {
   const { colors } = useAppTheme();
-  const navigation = useNavigation<NativeStackNavigationProp<CreateHouseholdStackParamList>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const navigation = useNavigation<any>();
   const session = useAppStore((s) => s.session);
   const setHouseholdId = useAppStore((s) => s.setHouseholdId);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
@@ -26,6 +27,7 @@ export const CreateHouseholdScreen: React.FC = () => {
   const enqueue = useToastStore((s) => s.enqueue);
 
   const [name, setName] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
   const [paydayDay, setPaydayDayInput] = useState('25');
   const [paydayError, setPaydayError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,8 +37,21 @@ export const CreateHouseholdScreen: React.FC = () => {
     if (paydayError) setPaydayError(null);
   };
 
+  const handleNameChange = (value: string): void => {
+    setName(value);
+    if (nameError) setNameError(null);
+  };
+
   const handleCreate = async (): Promise<void> => {
     if (!session) return;
+
+    // Validate household name is not empty
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setNameError('Household name is required');
+      return;
+    }
+    setNameError(null);
 
     // `parseInt` yields NaN when the field is cleared, and NaN fails both
     // `< 1` and `> 28` — so the use case's range guard silently lets it
@@ -84,12 +99,18 @@ export const CreateHouseholdScreen: React.FC = () => {
         <TextInput
           label="Household name"
           value={name}
-          onChangeText={setName}
+          onChangeText={handleNameChange}
           mode="outlined"
           testID="household-name-input"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
+          error={!!nameError}
         />
+        {nameError ? (
+          <HelperText type="error" visible={!!nameError} testID="household-name-error">
+            {nameError}
+          </HelperText>
+        ) : null}
 
         <TextInput
           label="Payday day of month (1–28)"
@@ -124,14 +145,51 @@ export const CreateHouseholdScreen: React.FC = () => {
           Create Household
         </Button>
 
-        <Button
-          mode="text"
-          onPress={() => navigation.navigate('JoinHouseholdGate')}
-          disabled={loading}
-          style={styles.joinLink}
-        >
-          Have an invite code? Join instead
-        </Button>
+        {navigation.getState().routeNames.includes('JoinHouseholdGate') ? (
+          <>
+            <Button
+              mode="text"
+              onPress={() => navigation.navigate('JoinHouseholdGate')}
+              disabled={loading}
+              style={styles.joinLink}
+            >
+              Have an invite code? Join instead
+            </Button>
+
+            <Button
+              mode="text"
+              onPress={async () => {
+                // `confirm()` (ConfirmDialogHost) replaces Alert.alert, which
+                // is a no-op on web (react-native-web) — this gate has no
+                // household yet, so `MainTabNavigator`'s own host isn't
+                // mounted; RootNavigator mounts one at the root for exactly
+                // this screen.
+                const confirmed = await confirm({
+                  title: 'Sign out?',
+                  message: 'You will need to sign in again to access your data.',
+                  confirmLabel: 'Sign out',
+                  destructive: true,
+                });
+                if (!confirmed) return;
+                await supabase.auth.signOut();
+              }}
+              disabled={loading}
+              style={styles.signOutLink}
+              testID="sign-out-button"
+            >
+              Sign out
+            </Button>
+          </>
+        ) : (
+          <Button
+            mode="text"
+            onPress={() => navigation.navigate('JoinHousehold')}
+            disabled={loading}
+            style={styles.joinLink}
+          >
+            Have an invite code? Join instead
+          </Button>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -146,4 +204,5 @@ const styles = StyleSheet.create({
   button: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
   joinLink: { marginTop: spacing.xs },
+  signOutLink: { marginTop: spacing.xs },
 });

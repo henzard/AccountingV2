@@ -11,10 +11,25 @@ afterAll(() => {
   jest.useRealTimers();
 });
 
-function makeDb() {
+/**
+ * `selectResults` feeds the reads the use case performs before writing, in
+ * order: the household's CURRENT payday (to work out whether the change moves
+ * the current period key), then — only when it does — the envelopes on the old
+ * key, the envelopes already on the new key, and that period's contribution
+ * rows. Defaulting every read to `[]` models "household row not found", so
+ * nothing is re-keyed and only the payday itself is written; the real
+ * re-keying behaviour is covered against a real engine in
+ * tests/realsql/updateHouseholdPaydayDay.test.ts.
+ */
+function makeDb(selectResults: unknown[][] = []) {
   const runCalls: unknown[] = [];
   const tx = { run: jest.fn((query: unknown) => (runCalls.push(query), { changes: 1 })) };
+  let selectCall = 0;
   return {
+    select: jest.fn(() => {
+      const rows = selectResults[selectCall++] ?? [];
+      return { from: jest.fn(() => ({ where: jest.fn(() => Promise.resolve(rows)) })) };
+    }),
     transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(tx)),
     _runCalls: runCalls,
   };
@@ -95,6 +110,22 @@ describe('UpdateHouseholdPaydayDayUseCase', () => {
 
     expect(db.transaction).toHaveBeenCalledTimes(1);
     // 1 raw UPDATE + 1 oplog INSERT = 2 tx.run() calls
+    expect(db._runCalls).toHaveLength(2);
+  });
+
+  it('re-keys nothing when the payday change leaves the current period key unchanged', async () => {
+    // Household already on payday 15; setting 15 again (the path onboarding's
+    // pre-filled PaydayStep takes) keeps the same period key, so only the
+    // households UPDATE + its oplog op are written — no envelope touched.
+    const db = makeDb([[{ paydayDay: 15 }]]);
+    const uc = new UpdateHouseholdPaydayDayUseCase(db as any, HOUSEHOLD_ID, 15);
+    const result = await uc.execute();
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.fromPeriodStart).toBe(result.data.toPeriodStart);
+    expect(result.data.reKeyedEnvelopeCount).toBe(0);
+    expect(result.data.reKeyedContributionCount).toBe(0);
     expect(db._runCalls).toHaveLength(2);
   });
 

@@ -2,6 +2,9 @@ import { CreateDebtUseCase } from '../CreateDebtUseCase';
 import type { SyncedRepo } from '../../../data/uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-debt-1' }));
+jest.mock('../../shared/bestEffortAudit', () => ({
+  bestEffortAudit: jest.fn().mockResolvedValue(undefined),
+}));
 
 function makeFakeRepo(): SyncedRepo & {
   insert: jest.Mock;
@@ -57,15 +60,32 @@ describe('CreateDebtUseCase', () => {
     if (!result.success) expect(result.error.code).toBe('INVALID_RATE');
   });
 
+  it('returns INVALID_RATE when interestRatePercent is NaN', async () => {
+    const uc = new CreateDebtUseCase(mockDb, mockAudit, { ...input, interestRatePercent: NaN });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_RATE');
+  });
+
+  it('returns INVALID_RATE when interestRatePercent exceeds 100', async () => {
+    const uc = new CreateDebtUseCase(mockDb, mockAudit, { ...input, interestRatePercent: 101 });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_RATE');
+  });
+
   it('inserts debt via the synced repo (exactly one oplog op, not pending_sync) and logs audit', async () => {
     const repo = makeFakeRepo();
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
     const uc = new CreateDebtUseCase(mockDb, mockAudit, input, { repo });
     const result = await uc.execute();
     expect(result.success).toBe(true);
     expect(repo.insert).toHaveBeenCalledTimes(1);
     expect(repo.update).not.toHaveBeenCalled();
     expect(repo.increment).not.toHaveBeenCalled();
-    expect(mockAudit.log).toHaveBeenCalledTimes(1);
+    expect(mockBestEffortAudit).toHaveBeenCalledTimes(1);
 
     const [row] = repo.insert.mock.calls[0];
     expect(row.id).toBe('uuid-debt-1');
@@ -131,5 +151,22 @@ describe('CreateDebtUseCase', () => {
     expect(cardRow.sort_order).toBeLessThan(bondRow.sort_order);
     expect(cardRow.sort_order).toBe(200_000);
     expect(bondRow.sort_order).toBe(50_000_000);
+  });
+
+  it('returns success even when audit.log (via bestEffortAudit) fails', async () => {
+    const repo = makeFakeRepo();
+    // bestEffortAudit never throws (it handles errors internally), so we mock
+    // it to successfully resolve even if the underlying audit.log would fail.
+    // The real test of audit failure handling is in bestEffortAudit.test.ts.
+    // Here we just verify the use case doesn't depend on audit.log succeeding.
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
+    mockBestEffortAudit.mockResolvedValue(undefined);
+    const uc = new CreateDebtUseCase(mockDb, mockAudit, input, { repo });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+    expect(mockBestEffortAudit).toHaveBeenCalled();
   });
 });

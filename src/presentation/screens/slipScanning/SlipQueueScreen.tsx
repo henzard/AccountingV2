@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { Text, Chip, FAB } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
+import { format, isValid, parseISO } from 'date-fns';
 import { useSlipHistory } from '../../hooks/useSlipHistory';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { formatCurrency } from '../../utils/currency';
 import type {
   SlipQueueRow,
   ISlipQueueRepository,
@@ -93,6 +95,12 @@ function statusLabel(status: SlipStatus): string {
   }
 }
 
+/** `createdAt` is a stored ISO timestamp — falls back to the raw string on the (unexpected) chance it doesn't parse, rather than crashing the list row. */
+function formatSlipDate(createdAt: string): string {
+  const parsed = parseISO(createdAt);
+  return isValid(parsed) ? format(parsed, 'd MMM yyyy') : createdAt.substring(0, 10);
+}
+
 type ThemeColors = ReturnType<typeof useAppTheme>['colors'];
 
 function statusColor(status: SlipStatus, colors: ThemeColors): string {
@@ -144,11 +152,11 @@ function SlipQueueItem({
       </View>
       {item.totalCents !== null && item.totalCents !== undefined && (
         <Text variant="bodySmall" style={{ color: colors.onSurface, marginTop: 2 }}>
-          R{(item.totalCents / 100).toFixed(2)}
+          {formatCurrency(item.totalCents)}
         </Text>
       )}
       <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant, marginTop: 2 }}>
-        {item.createdAt.substring(0, 10)}
+        {formatSlipDate(item.createdAt)}
       </Text>
     </TouchableOpacity>
   );
@@ -231,9 +239,16 @@ export function SlipQueueScreen({
           // navigated with only { slipId }. Hydrate it from the stored
           // response; if it is somehow missing/corrupt, fall back to a re-scan
           // rather than white-screening the confirm screen.
+          //
+          // `readOnly: true`: a 'completed' slip already has its transactions
+          // written (or, if not yet confirmed by the user, the confirm screen
+          // handles that case itself) — reopening it here is for REVIEW, not
+          // a second Save. SlipConfirmScreen previously reopened it as a
+          // fully editable form whose Save silently wrote nothing (see
+          // ConfirmSlipUseCase's idempotency guard).
           const extraction = hydrateExtraction(item);
           if (extraction) {
-            navigation.navigate('SlipConfirm', { slipId: item.id, extraction });
+            navigation.navigate('SlipConfirm', { slipId: item.id, extraction, readOnly: true });
           } else {
             navigation.navigate('SlipCapture', { householdId, slipId: item.id });
           }

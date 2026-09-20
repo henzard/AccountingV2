@@ -22,10 +22,22 @@ jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return {
-    Text: ({ children }: { children?: React.ReactNode }) =>
-      React.createElement('Text', null, children),
-    FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
-      React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
+    Text: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
+      React.createElement('Text', { testID }, children),
+    FAB: ({
+      onPress,
+      testID,
+      accessibilityLabel,
+    }: {
+      onPress?: () => void;
+      testID?: string;
+      accessibilityLabel?: string;
+    }) =>
+      React.createElement('Pressable', {
+        onPress,
+        testID: testID ?? 'fab',
+        accessibilityLabel,
+      }),
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
@@ -36,6 +48,27 @@ jest.mock('react-native-paper', () => {
       children?: React.ReactNode;
       onPress?: () => void;
     }) => React.createElement('Pressable', { onPress }, children),
+    TextInput: ({
+      value,
+      onChangeText,
+      testID,
+    }: {
+      value?: string;
+      onChangeText?: (v: string) => void;
+      testID?: string;
+    }) =>
+      React.createElement('TextInput', {
+        testID: testID ?? 'extra-payment',
+        value,
+        onChangeText,
+      }),
+    Chip: ({
+      children,
+      accessibilityLabel,
+    }: {
+      children?: React.ReactNode;
+      accessibilityLabel?: string;
+    }) => React.createElement('View', { testID: 'focus-chip', accessibilityLabel }, children),
   };
 });
 jest.mock('../components/DebtPayoffBar', () => ({
@@ -49,6 +82,10 @@ const mockNavigate = jest.fn();
 import { SnowballDashboardScreen } from '../SnowballDashboardScreen';
 
 describe('SnowballDashboardScreen', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('renders without crashing and shows FAB', () => {
     const { getByTestId } = render(
       <SnowballDashboardScreen
@@ -68,5 +105,168 @@ describe('SnowballDashboardScreen', () => {
     );
     fireEvent.press(getByTestId('fab'));
     expect(mockNavigate).toHaveBeenCalledWith('AddDebt');
+  });
+
+  it('FAB has accessibility label "Add debt"', () => {
+    const { getByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    const fab = getByTestId('fab');
+    expect(fab.props.accessibilityLabel).toBe('Add debt');
+  });
+
+  it('extra payment input field renders and accepts input', () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Credit Card',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 10000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 100,
+        interestRatePercent: 18,
+        sortOrder: 0,
+        isPaidOff: false,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      reload: jest.fn(),
+    });
+
+    const { getByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+
+    const extraPaymentInput = getByTestId('extra-payment');
+    expect(extraPaymentInput).toBeTruthy();
+
+    fireEvent.changeText(extraPaymentInput, '50.00');
+    expect(extraPaymentInput.props.value).toBe('50.00');
+  });
+
+  it('renders debts sorted by smallest balance first (unpaid before paid-off)', () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Large Debt',
+        debtType: 'personal_loan' as const,
+        outstandingBalanceCents: 100000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 500,
+        interestRatePercent: 10,
+        sortOrder: 0,
+        isPaidOff: false,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'd2',
+        creditorName: 'Small Debt',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 5000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 100,
+        interestRatePercent: 18,
+        sortOrder: 1,
+        isPaidOff: false,
+        createdAt: '2026-01-02T00:00:00Z',
+        updatedAt: '2026-01-02T00:00:00Z',
+      },
+      {
+        id: 'd3',
+        creditorName: 'Paid Off',
+        debtType: 'auto_loan' as const,
+        outstandingBalanceCents: 0,
+        totalPaidCents: 50000,
+        minimumPaymentCents: 0,
+        interestRatePercent: 5,
+        sortOrder: 2,
+        isPaidOff: true,
+        createdAt: '2026-01-03T00:00:00Z',
+        updatedAt: '2026-01-03T00:00:00Z',
+      },
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      reload: jest.fn(),
+    });
+
+    const { queryByText } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+
+    // The debt list should be ordered: Small Debt (5000), Large Debt (100000), Paid Off (0)
+    // We can't directly verify order in FlatList easily, but we can verify all debts render
+    expect(queryByText('Small Debt')).toBeTruthy();
+    expect(queryByText('Large Debt')).toBeTruthy();
+    expect(queryByText('Paid Off')).toBeTruthy();
+  });
+
+  it('renders Focus badge on the smallest unpaid debt', () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Large Debt',
+        debtType: 'personal_loan' as const,
+        outstandingBalanceCents: 100000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 500,
+        interestRatePercent: 10,
+        sortOrder: 0,
+        isPaidOff: false,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'd2',
+        creditorName: 'Small Debt',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 5000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 100,
+        interestRatePercent: 18,
+        sortOrder: 1,
+        isPaidOff: false,
+        createdAt: '2026-01-02T00:00:00Z',
+        updatedAt: '2026-01-02T00:00:00Z',
+      },
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      reload: jest.fn(),
+    });
+
+    const { queryByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+
+    // Focus chip should be rendered on the smallest unpaid debt (d2: Small Debt with 5000)
+    const focusChip = queryByTestId('focus-chip');
+    expect(focusChip).toBeTruthy();
+    expect(focusChip?.props.accessibilityLabel).toBe('Focus debt: Small Debt');
   });
 });

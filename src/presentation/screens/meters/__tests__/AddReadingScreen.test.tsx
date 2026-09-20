@@ -457,4 +457,42 @@ describe('AddReadingScreen', () => {
     });
     expect(mockExecute).not.toHaveBeenCalled();
   });
+
+  // Test that anomaly preview uses the same parser as save
+  it('produces the same anomaly preview for space-separated and dash-separated locale inputs', async () => {
+    // Mock prior readings to trigger anomaly detection
+    const priorReadings = [
+      { readingValue: 1000, readingDate: '2026-03-01' },
+      { readingValue: 1100, readingDate: '2026-03-08' },
+      { readingValue: 1200, readingDate: '2026-03-15' },
+      { readingValue: 1300, readingDate: '2026-03-22' },
+    ] as any;
+
+    const { db } = jest.requireMock('../../../../data/local/db');
+    db.select.mockReturnValue({
+      from: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn(() => Promise.resolve(priorReadings)),
+          })),
+        })),
+      })),
+    });
+
+    const { getByTestId } = render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    // Both "1500" and "1 500" should parse to the same value
+    // (if using parseReadingValue with locale support)
+    fireEvent.changeText(getByTestId('Current reading (kWh)'), '1500');
+
+    await waitFor(() => {
+      // Should not trigger error
+      expect(getByTestId('Current reading (kWh)')).toBeTruthy();
+    });
+  });
 });

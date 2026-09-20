@@ -10,10 +10,11 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 // ─── Navigation mock ──────────────────────────────────────────────────────────
 const mockNavigate = jest.fn();
 const mockReset = jest.fn();
+const mockGoBack = jest.fn();
 
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
-  useNavigation: () => ({ navigate: mockNavigate, reset: mockReset }),
+  useNavigation: () => ({ navigate: mockNavigate, reset: mockReset, goBack: mockGoBack }),
 }));
 
 // ─── react-native-paper mocks ─────────────────────────────────────────────────
@@ -153,7 +154,9 @@ jest.mock('../../../../../domain/envelopes/CreateEnvelopeUseCase', () => ({
 }));
 
 // ─── UpdateHouseholdPaydayDayUseCase mock ────────────────────────────────────
-const mockPaydayExecute = jest.fn().mockResolvedValue({ success: true, data: undefined });
+const mockPaydayExecute = jest
+  .fn()
+  .mockResolvedValue({ success: true, data: { reKeyedEnvelopeCount: 0 } });
 jest.mock('../../../../../domain/households/UpdateHouseholdPaydayDayUseCase', () => ({
   UpdateHouseholdPaydayDayUseCase: jest
     .fn()
@@ -220,13 +223,14 @@ describe('IncomeStep', () => {
     });
   });
 
-  it('stores monthly income in appStore and advances to ExpenseCategories', async () => {
+  it('stores monthly income in appStore and advances to Payday', async () => {
     const { getByText, getByTestId } = render(<IncomeStep />);
     fireEvent.changeText(getByTestId('income-amount-input'), '5000');
     fireEvent.press(getByText('Next'));
     await waitFor(() => {
       expect(mockSetMonthlyIncomeCents).toHaveBeenCalledWith(500000);
-      expect(mockNavigate).toHaveBeenCalledWith('ExpenseCategories');
+      // UX-5/DOM-6: payday is confirmed BEFORE any envelope is created.
+      expect(mockNavigate).toHaveBeenCalledWith('Payday');
     });
   });
 });
@@ -234,7 +238,7 @@ describe('IncomeStep', () => {
 describe('PaydayStep', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPaydayExecute.mockResolvedValue({ success: true, data: undefined });
+    mockPaydayExecute.mockResolvedValue({ success: true, data: { reKeyedEnvelopeCount: 0 } });
   });
 
   it('renders title and day input', () => {
@@ -257,7 +261,7 @@ describe('PaydayStep', () => {
     fireEvent.press(getByText('Next'));
     await waitFor(() => {
       expect(mockPaydayExecute).toHaveBeenCalled();
-      expect(mockNavigate).toHaveBeenCalledWith('MeterSetup');
+      expect(mockNavigate).toHaveBeenCalledWith('ExpenseCategories');
     });
   });
 

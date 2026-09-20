@@ -7,6 +7,7 @@ import {
   envelopeScopeCondition,
 } from '../../data/local/balances/EnvelopeBalanceQuery';
 import type { EnvelopeEntity } from '../../domain/envelopes/EnvelopeEntity';
+import { useReloadOnSync } from './useReloadOnSync';
 
 export interface UseEnvelopesResult {
   envelopes: EnvelopeEntity[];
@@ -60,6 +61,10 @@ export function useEnvelopes(householdId: string, periodStart: string): UseEnvel
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // A partner's envelope change lands in local SQLite during a sync round;
+  // without this the screen showed it only after navigating away and back.
+  useReloadOnSync(reload);
 
   return { envelopes, loading, error, reload };
 }

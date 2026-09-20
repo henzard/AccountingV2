@@ -31,11 +31,28 @@ jest.mock('../../../hooks/useEnvelopes', () => ({
 jest.mock('../../../hooks/useBabySteps', () => ({
   useBabySteps: jest.fn().mockReturnValue({ statuses: [] }),
 }));
+jest.mock('../../../hooks/usePersistentEnvelopeSavings', () => ({
+  usePersistentEnvelopeSavings: jest.fn().mockReturnValue({
+    savedCentsByEnvelopeId: new Map(),
+    loading: false,
+    error: null,
+    reload: jest.fn(),
+  }),
+}));
 jest.mock('../../../../domain/shared/resolveBabyStepIsActive', () => ({
   resolveBabyStepIsActive: jest.fn().mockResolvedValue(false),
 }));
 jest.mock('../../../../domain/scoring/resolveLoggingDays', () => ({
   resolveLoggingDays: jest.fn().mockResolvedValue(0),
+}));
+jest.mock('../resolveMeterReadingsLogged', () => ({
+  resolveMeterReadingsLogged: jest.fn().mockResolvedValue(false),
+}));
+// The current period has no envelopes (see the useEnvelopes mock below) and
+// an earlier period (June) does — this is what makes the wizard eligible to
+// open, per the new "zero this period, some earlier period" rule.
+jest.mock('../findLatestPeriodWithEnvelopes', () => ({
+  findLatestPeriodWithEnvelopes: jest.fn().mockResolvedValue('2026-06-01'),
 }));
 
 // New period detected, and not yet acknowledged (getItem resolves null).
@@ -87,6 +104,21 @@ jest.mock('../../../stores/appStore', () => ({
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
+  const Dialog = ({
+    children,
+    visible,
+    testID,
+  }: {
+    children?: React.ReactNode;
+    visible?: boolean;
+    testID?: string;
+  }) => (visible ? React.createElement('View', { testID }, children) : null);
+  Dialog.Title = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('Text', null, children);
+  Dialog.Content = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('View', null, children);
+  Dialog.Actions = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('View', null, children);
   return {
     Text: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('Text', null, children),
@@ -95,6 +127,8 @@ jest.mock('react-native-paper', () => {
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
+    Portal: ({ children }: { children?: React.ReactNode }) => children,
+    Dialog,
   };
 });
 jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');

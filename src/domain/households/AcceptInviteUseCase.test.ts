@@ -49,6 +49,53 @@ describe('AcceptInviteUseCase', () => {
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVITE_ALREADY_USED');
   });
+
+  // supabase/migrations/0007_harden_membership_and_rpcs.sql (DB-5): the
+  // current server collapses not-found/already-used/expired into one
+  // generic message, and throttles guessing. The branches above remain for
+  // an older (pre-0007) server that still raises the specific messages.
+  it("returns INVITE_INVALID with a clear, generic message for the current server's collapsed not-found/used/expired error", async () => {
+    const supabase = makeSupabase({ joinError: { message: 'invite code is invalid' } });
+    const uc = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
+      code: 'ZZZ999',
+      userId: 'u-1',
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INVITE_INVALID');
+      expect(result.error.message).toMatch(/isn't valid/i);
+    }
+  });
+
+  it('returns INVITE_INVALID when the server reports the rejection as a RESULT (so its throttle row commits)', async () => {
+    const supabase = makeSupabase({
+      joinData: { error: 'invite_invalid', message: 'invite code is invalid' },
+    });
+    const uc = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
+      code: 'ZZZ999',
+      userId: 'u-1',
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVITE_INVALID');
+  });
+
+  it('returns INVITE_THROTTLED when the server reports too many attempts', async () => {
+    const supabase = makeSupabase({
+      joinError: { message: 'too many attempts, try again later' },
+    });
+    const uc = new AcceptInviteUseCase(supabase as any, {} as any, {} as any, {
+      code: 'ZZZ999',
+      userId: 'u-1',
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INVITE_THROTTLED');
+      expect(result.error.message).toMatch(/too many attempts/i);
+    }
+  });
 });
 
 describe('AcceptInviteUseCase — success path', () => {

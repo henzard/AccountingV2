@@ -1,9 +1,6 @@
 import { SeedBabyStepsUseCase } from '../SeedBabyStepsUseCase';
 import { isUniqueConstraintError } from '../../../data/uow/createSyncedRepo';
-
-jest.mock('expo-crypto', () => ({
-  randomUUID: jest.fn().mockImplementation(() => 'uuid-' + Math.random().toString(36).slice(2)),
-}));
+import { uuidv5, APP_NAMESPACE } from '../../../infrastructure/crypto/uuidv5';
 
 beforeAll(() => {
   jest.useFakeTimers();
@@ -144,5 +141,87 @@ describe('SeedBabyStepsUseCase', () => {
         new Error('UNIQUE constraint failed: baby_steps.household_id, baby_steps.step_number'),
       ),
     ).toBe(true);
+  });
+
+  it('same household seeded twice produces the same 7 ids and inserts nothing the second time', async () => {
+    const db = makeDb();
+    const repo = makeFakeRepo();
+    const uc = new SeedBabyStepsUseCase(db as any, { repo: repo as any });
+
+    // First seed
+    await uc.execute(HOUSEHOLD_ID);
+    const firstIds = repo._inserted.map((r) => r.id);
+    expect(firstIds).toHaveLength(7);
+
+    // Prepare db/repo for second execution, simulating existing rows
+    const existingRows = firstIds.map((id, idx) => ({
+      id,
+      householdId: HOUSEHOLD_ID,
+      stepNumber: idx + 1,
+    }));
+    const db2 = makeDb(
+      existingRows.map((r) => ({ householdId: r.householdId, stepNumber: r.stepNumber })),
+    );
+    const repo2 = makeFakeRepo(
+      existingRows.map((r) => ({ householdId: r.householdId, stepNumber: r.stepNumber })),
+    );
+    const uc2 = new SeedBabyStepsUseCase(db2 as any, { repo: repo2 as any });
+
+    // Second seed — should generate the same ids and skip all inserts
+    await uc2.execute(HOUSEHOLD_ID);
+    const secondIds = repo2._inserted.map((r) => r.id);
+
+    expect(secondIds).toHaveLength(0); // No new inserts
+    expect(firstIds).toEqual(existingRows.map((r) => r.id)); // Verify stored ids match what we'd regenerate
+  });
+
+  it('two different households get different ids for the same step', async () => {
+    const hh1 = 'household-1';
+    const hh2 = 'household-2';
+
+    // Seed first household
+    const db1 = makeDb();
+    const repo1 = makeFakeRepo();
+    const uc1 = new SeedBabyStepsUseCase(db1 as any, { repo: repo1 as any });
+    await uc1.execute(hh1);
+
+    // Seed second household
+    const db2 = makeDb();
+    const repo2 = makeFakeRepo();
+    const uc2 = new SeedBabyStepsUseCase(db2 as any, { repo: repo2 as any });
+    await uc2.execute(hh2);
+
+    // Compare ids for step 1 — they must differ
+    const hh1Step1Id = repo1._inserted.find((r) => r.step_number === 1)?.id;
+    const hh2Step1Id = repo2._inserted.find((r) => r.step_number === 1)?.id;
+
+    expect(hh1Step1Id).toBeDefined();
+    expect(hh2Step1Id).toBeDefined();
+    expect(hh1Step1Id).not.toBe(hh2Step1Id);
+  });
+
+  it('a household that already has a random-id row for step 3 only gets the 6 missing steps', async () => {
+    // Simulate a household that was seeded with random ids before this fix
+    const existingRows = [
+      {
+        householdId: HOUSEHOLD_ID,
+        stepNumber: 3,
+      },
+    ];
+
+    const db = makeDb(existingRows);
+    const repo = makeFakeRepo(existingRows);
+    const uc = new SeedBabyStepsUseCase(db as any, { repo: repo as any });
+
+    await uc.execute(HOUSEHOLD_ID);
+
+    expect(repo._inserted).toHaveLength(6);
+    const insertedSteps = repo._inserted.map((r) => r.step_number).sort();
+    expect(insertedSteps).toEqual([1, 2, 4, 5, 6, 7]);
+    // Verify that the inserted ids are deterministic (not random)
+    for (const row of repo._inserted) {
+      const expectedId = uuidv5(`${HOUSEHOLD_ID}:baby_step:${row.step_number}`, APP_NAMESPACE);
+      expect(row.id).toBe(expectedId);
+    }
   });
 });

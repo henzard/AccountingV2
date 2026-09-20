@@ -105,6 +105,21 @@ describe('CashFlowForecaster', () => {
       expect(result).toHaveLength(0);
     });
 
+    it('excludes every PERSISTENT-scope envelope type (DOM-7/VAL-7)', () => {
+      // Their spentCents is an ALL-TIME total across every period the fund
+      // has existed, so dividing it by THIS period's elapsed days invented a
+      // daily burn rate out of years-old withdrawals. Only 'sinking_fund'
+      // used to be excluded, by name.
+      const types = ['sinking_fund', 'emergency_fund', 'savings', 'baby_step'] as const;
+      const result = forecaster.project({
+        envelopes: types.map((envelopeType, i) => env({ id: `env-${i}`, envelopeType })),
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result).toHaveLength(0);
+    });
+
     it('excludes archived envelopes', () => {
       const result = forecaster.project({
         envelopes: [env({ isArchived: true })],
@@ -115,16 +130,16 @@ describe('CashFlowForecaster', () => {
       expect(result).toHaveLength(0);
     });
 
-    it('includes spending, savings, emergency_fund, baby_step, utility types', () => {
-      const types = ['spending', 'savings', 'emergency_fund', 'baby_step', 'utility'] as const;
-      const envelopes = types.map((t, i) => env({ id: `env-${i}`, envelopeType: t as any }));
+    it('includes the PERIOD-scope types: spending and utility', () => {
+      const types = ['spending', 'utility'] as const;
+      const envelopes = types.map((envelopeType, i) => env({ id: `env-${i}`, envelopeType }));
       const result = forecaster.project({
         envelopes,
         periodStart,
         periodEnd,
         today,
       });
-      expect(result).toHaveLength(5);
+      expect(result).toHaveLength(2);
     });
   });
 

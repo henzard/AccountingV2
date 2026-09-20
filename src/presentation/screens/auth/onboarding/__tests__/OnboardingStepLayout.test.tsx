@@ -41,4 +41,21 @@ describe('OnboardingStepLayout', () => {
     fireEvent.press(getByText('Next'));
     expect(onCta).toHaveBeenCalledTimes(1);
   });
+
+  // UX-15: every step but the first offers a way back.
+  it('renders no back control when onBack is omitted', () => {
+    const { queryByTestId } = render(
+      <OnboardingStepLayout title="T" subtitle="S" onCta={jest.fn()} />,
+    );
+    expect(queryByTestId('onboarding-back')).toBeNull();
+  });
+
+  it('renders a back control and calls onBack when it is pressed', () => {
+    const onBack = jest.fn();
+    const { getByTestId } = render(
+      <OnboardingStepLayout title="T" subtitle="S" onCta={jest.fn()} onBack={onBack} />,
+    );
+    fireEvent.press(getByTestId('onboarding-back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
 });

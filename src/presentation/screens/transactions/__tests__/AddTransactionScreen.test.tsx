@@ -180,6 +180,7 @@ jest.mock('../../../../data/local/schema', () => ({
 import { ne } from 'drizzle-orm';
 import { AddTransactionScreen } from '../AddTransactionScreen';
 import { getEnvelopeSpentCents } from '../../../../data/local/balances/EnvelopeBalanceQuery';
+import { formatCurrency } from '../../../utils/currency';
 
 // Get the mocked db after import so we can configure it per test
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -269,12 +270,15 @@ describe('AddTransactionScreen', () => {
     expect(getByText('Groceries')).toBeTruthy();
     expect(getByText('Transport')).toBeTruthy();
 
-    // Verify balance text: allocated=1000 spent=200 → balance=800 cents → R8.00 left
+    // Verify balance text: allocated=1000 spent=200 → balance=800 cents,
+    // formatted via the shared formatCurrency util (not hand-typed — its
+    // separators are locale-dependent, e.g. a comma decimal / NBSP thousands
+    // separator under en-ZA).
     expect(getByTestId('envelope-balance-env-1')).toBeTruthy();
-    expect(getByText('R8.00 left')).toBeTruthy();
+    expect(getByText(`${formatCurrency(800)} left`)).toBeTruthy();
 
-    // Transport: 500-500=0 → R0.00 left
-    expect(getByText('R0.00 left')).toBeTruthy();
+    // Transport: 500-500=0
+    expect(getByText(`${formatCurrency(0)} left`)).toBeTruthy();
   });
 
   it('excludes income envelopes from picker (db query uses ne filter)', () => {

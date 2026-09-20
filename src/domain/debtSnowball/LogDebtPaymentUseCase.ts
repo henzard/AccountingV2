@@ -4,11 +4,13 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import type { AuditLogger } from '../../data/audit/AuditLogger';
 import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
+import { assertRunMatchedRow, isRowNotMatchedError } from '../../data/uow/createSyncedRepo';
 import type { SyncedRepoCtx } from '../../data/uow/createSyncedRepo';
 import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { bestEffortAudit } from '../shared/bestEffortAudit';
 import type { DebtEntity } from './DebtEntity';
 
 export interface LogDebtPaymentInput {
@@ -70,66 +72,76 @@ export class LogDebtPaymentUseCase {
     // §9g) from whatever `outstanding_balance_cents` the row actually holds —
     // it can no longer independently diverge, and the client has one fewer
     // op to push per payment.
-    runInUnitOfWork(this.db, (uow) => {
-      // ONE SQL statement recomputes outstanding_balance_cents,
-      // total_paid_cents, AND is_paid_off from the row's CURRENT (pre-update)
-      // values — not from `this.input.currentDebt`, which may be a stale
-      // snapshot. This closes the deep-review-flagged race where two
-      // concurrent/double-tapped payments each computed `newBalance` from the
-      // same stale snapshot and the second write clobbered the first's
-      // balance decrement (see docs/reviews/2026-07-02-deep-review-findings.md,
-      // "[C] Domain: debt snowball" — "LogDebtPaymentUseCase: balance update
-      // is a stale-snapshot lost-update"). SQLite evaluates every `SET`
-      // expression against the original row, so `is_paid_off`'s
-      // sub-expression sees the same pre-update `outstanding_balance_cents`
-      // the balance expression does.
-      uow.db.run(sql`
-        UPDATE debts
-        SET outstanding_balance_cents = MAX(0, outstanding_balance_cents - ${actualApplied}),
-            total_paid_cents = total_paid_cents + ${actualApplied},
-            is_paid_off = (MAX(0, outstanding_balance_cents - ${actualApplied}) = 0),
-            updated_at = ${now}
-        WHERE id = ${this.input.debtId} AND household_id = ${this.input.householdId}
-      `);
+    try {
+      runInUnitOfWork(this.db, (uow) => {
+        // ONE SQL statement recomputes outstanding_balance_cents,
+        // total_paid_cents, AND is_paid_off from the row's CURRENT (pre-update)
+        // values — not from `this.input.currentDebt`, which may be a stale
+        // snapshot. This closes the deep-review-flagged race where two
+        // concurrent/double-tapped payments each computed `newBalance` from the
+        // same stale snapshot and the second write clobbered the first's
+        // balance decrement (see docs/reviews/2026-07-02-deep-review-findings.md,
+        // "[C] Domain: debt snowball" — "LogDebtPaymentUseCase: balance update
+        // is a stale-snapshot lost-update"). SQLite evaluates every `SET`
+        // expression against the original row, so `is_paid_off`'s
+        // sub-expression sees the same pre-update `outstanding_balance_cents`
+        // the balance expression does.
+        const updateResult = uow.db.run(sql`
+          UPDATE debts
+          SET outstanding_balance_cents = MAX(0, outstanding_balance_cents - ${actualApplied}),
+              total_paid_cents = total_paid_cents + ${actualApplied},
+              is_paid_off = (MAX(0, outstanding_balance_cents - ${actualApplied}) = 0),
+              updated_at = ${now}
+          WHERE id = ${this.input.debtId} AND household_id = ${this.input.householdId}
+        `);
+        // A missing/other-household debt must not append increment ops for a
+        // row that was never updated — throw so the unit of work rolls back.
+        assertRunMatchedRow('debts', this.input.debtId, this.input.householdId, updateResult);
 
-      // Two `increment` ops — one per money column — appended in this SAME
-      // local transaction, so a payment either applies both column changes
-      // or neither (fixing the "two non-transactional writes" half of the
-      // deep-review finding). Each op is independently well-formed for the
-      // server's existing single-field `increment` RPC branch.
-      uow.appendOp({
-        opId: resolveOpId(ctx),
-        householdId: this.input.householdId,
-        tableName: 'debts',
-        rowId: this.input.debtId,
-        opType: 'increment',
-        payload: {
-          field: 'outstanding_balance_cents',
-          delta: -actualApplied,
-          clamp: 'floor_zero',
-        },
-        actorUserId: ctx.actorUserId,
-        deviceId: ctx.deviceId,
-        clientCreatedAt: now,
+        // Two `increment` ops — one per money column — appended in this SAME
+        // local transaction, so a payment either applies both column changes
+        // or neither (fixing the "two non-transactional writes" half of the
+        // deep-review finding). Each op is independently well-formed for the
+        // server's existing single-field `increment` RPC branch.
+        uow.appendOp({
+          opId: resolveOpId(ctx),
+          householdId: this.input.householdId,
+          tableName: 'debts',
+          rowId: this.input.debtId,
+          opType: 'increment',
+          payload: {
+            field: 'outstanding_balance_cents',
+            delta: -actualApplied,
+            clamp: 'floor_zero',
+          },
+          actorUserId: ctx.actorUserId,
+          deviceId: ctx.deviceId,
+          clientCreatedAt: now,
+        });
+        uow.appendOp({
+          opId: resolveOpId(ctx),
+          householdId: this.input.householdId,
+          tableName: 'debts',
+          rowId: this.input.debtId,
+          opType: 'increment',
+          payload: {
+            field: 'total_paid_cents',
+            delta: actualApplied,
+            clamp: 'none',
+          },
+          actorUserId: ctx.actorUserId,
+          deviceId: ctx.deviceId,
+          clientCreatedAt: now,
+        });
       });
-      uow.appendOp({
-        opId: resolveOpId(ctx),
-        householdId: this.input.householdId,
-        tableName: 'debts',
-        rowId: this.input.debtId,
-        opType: 'increment',
-        payload: {
-          field: 'total_paid_cents',
-          delta: actualApplied,
-          clamp: 'none',
-        },
-        actorUserId: ctx.actorUserId,
-        deviceId: ctx.deviceId,
-        clientCreatedAt: now,
-      });
-    });
+    } catch (err) {
+      if (isRowNotMatchedError(err)) {
+        return createFailure({ code: 'DEBT_NOT_FOUND', message: 'Debt no longer exists' });
+      }
+      throw err;
+    }
 
-    await this.audit.log({
+    await bestEffortAudit(this.audit, {
       householdId: this.input.householdId,
       entityType: 'debt',
       entityId: this.input.debtId,

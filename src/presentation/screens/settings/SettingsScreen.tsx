@@ -1,12 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Alert, Switch } from 'react-native';
-import { List, Surface, Divider, Button, SegmentedButtons } from 'react-native-paper';
+import { View, ScrollView, StyleSheet, Switch } from 'react-native';
+import {
+  List,
+  Surface,
+  Divider,
+  Button,
+  SegmentedButtons,
+  Portal,
+  Dialog,
+  TextInput,
+  HelperText,
+} from 'react-native-paper';
 import { useThemeStore } from '../../stores/themeStore';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { supabase } from '../../../data/remote/supabaseClient';
+import { db } from '../../../data/local/db';
+import { UpdateHouseholdPaydayDayUseCase } from '../../../domain/households/UpdateHouseholdPaydayDayUseCase';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { unregisterFcmToken } from '../../../infrastructure/notifications/FcmTokenRegistrar';
 import { radius, spacing, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -29,7 +43,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const setThemePref = useThemeStore((s) => s.setPreference);
   const userId = session?.user?.id;
 
+  const paydayDay = useAppStore((s) => s.paydayDay);
+  const setPaydayDay = useAppStore((s) => s.setPaydayDay);
+  const enqueue = useToastStore((s) => s.enqueue);
+
   const [wifiOnly, setWifiOnly] = useState(false);
+
+  const [paydayDialogVisible, setPaydayDialogVisible] = useState(false);
+  const [paydayDayInput, setPaydayDayInput] = useState(String(paydayDay));
+  const [paydayError, setPaydayError] = useState<string | null>(null);
+  const [paydaySaving, setPaydaySaving] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(WIFI_ONLY_KEY).then((v) => setWifiOnly(v === 'true'));
@@ -57,11 +80,55 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
     // on any sign-out (including token expiry) so we don't duplicate it here.
   };
 
-  const confirmSignOut = (): void => {
-    Alert.alert('Sign out?', 'You will need to sign in again to access your data.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: handleSignOut },
-    ]);
+  const confirmSignOut = async (): Promise<void> => {
+    const confirmed = await confirm({
+      title: 'Sign out?',
+      message: 'You will need to sign in again to access your data.',
+      confirmLabel: 'Sign out',
+      destructive: true,
+    });
+    if (confirmed) {
+      await handleSignOut();
+    }
+  };
+
+  const openPaydayDialog = (): void => {
+    setPaydayDayInput(String(paydayDay));
+    setPaydayError(null);
+    setPaydayDialogVisible(true);
+  };
+
+  const handleSavePaydayDay = async (): Promise<void> => {
+    setPaydayError(null);
+    const day = Number.parseInt(paydayDayInput, 10);
+    if (!Number.isInteger(day) || String(day) !== paydayDayInput.trim() || day < 1 || day > 31) {
+      setPaydayError('Enter a day between 1 and 31');
+      return;
+    }
+    if (!householdId) return;
+
+    setPaydaySaving(true);
+    try {
+      const uc = new UpdateHouseholdPaydayDayUseCase(db, householdId, day);
+      const result = await uc.execute();
+      if (!result.success) {
+        setPaydayError(result.error.message);
+        return;
+      }
+      setPaydayDay(day);
+      setPaydayDialogVisible(false);
+      const { collidedEnvelopeCount } = result.data;
+      enqueue(
+        collidedEnvelopeCount > 0
+          ? `Payday updated. ${collidedEnvelopeCount} envelope${collidedEnvelopeCount === 1 ? '' : 's'} stayed in the previous period.`
+          : 'Payday updated',
+        'success',
+      );
+    } catch (e) {
+      setPaydayError(e instanceof Error ? e.message : 'Something went wrong.');
+    } finally {
+      setPaydaySaving(false);
+    }
   };
 
   return (
@@ -107,6 +174,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             left={(props) => <List.Icon {...props} icon="account-multiple-plus-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
             onPress={() => rootNavigation.navigate('JoinHousehold')}
+          />
+          <Divider />
+          <List.Item
+            title="Payday day"
+            description={`Day ${paydayDay} of the month`}
+            left={(props) => <List.Icon {...props} icon="calendar-month-outline" />}
+            right={(props) => <List.Icon {...props} icon="chevron-right" />}
+            onPress={openPaydayDialog}
+            testID="payday-day-item"
           />
           {availableHouseholds.length > 1 && (
             <>
@@ -242,6 +318,49 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           Sign out
         </Button>
       </View>
+
+      <Portal>
+        <Dialog
+          visible={paydayDialogVisible}
+          onDismiss={() => setPaydayDialogVisible(false)}
+          testID="payday-dialog"
+        >
+          <Dialog.Title>Change payday</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Day of month (1–31)"
+              value={paydayDayInput}
+              onChangeText={setPaydayDayInput}
+              keyboardType="numeric"
+              mode="outlined"
+              disabled={paydaySaving}
+              testID="payday-day-input"
+            />
+            {paydayError !== null && (
+              <HelperText type="error" visible testID="payday-error">
+                {paydayError}
+              </HelperText>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={() => setPaydayDialogVisible(false)}
+              disabled={paydaySaving}
+              testID="payday-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onPress={handleSavePaydayDay}
+              loading={paydaySaving}
+              disabled={paydaySaving}
+              testID="payday-save"
+            >
+              Save
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </ScrollView>
   );
 };

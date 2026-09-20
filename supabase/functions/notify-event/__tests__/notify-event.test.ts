@@ -299,7 +299,7 @@ Deno.test('UNREGISTERED token: pruned from user_fcm_tokens, not counted as sent'
   assertEquals(deletedTokens[0], ['dead-token']);
 });
 
-Deno.test('INVALID_ARGUMENT token: pruned from user_fcm_tokens', async () => {
+Deno.test('INVALID_ARGUMENT naming the token field: pruned from user_fcm_tokens', async () => {
   const deletedTokens: string[][] = [];
   const deps = makeBaseDeps({
     createAdminClient: () =>
@@ -315,7 +315,19 @@ Deno.test('INVALID_ARGUMENT token: pruned from user_fcm_tokens', async () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              error: { code: 400, message: 'Bad token', status: 'INVALID_ARGUMENT' },
+              error: {
+                code: 400,
+                message: 'Invalid registration token',
+                status: 'INVALID_ARGUMENT',
+                details: [
+                  {
+                    '@type': 'type.googleapis.com/google.rpc.BadRequest',
+                    fieldViolations: [
+                      { field: 'message.token', description: 'Invalid registration token' },
+                    ],
+                  },
+                ],
+              },
             }),
             { status: 400, headers: { 'Content-Type': 'application/json' } },
           ),
@@ -330,6 +342,95 @@ Deno.test('INVALID_ARGUMENT token: pruned from user_fcm_tokens', async () => {
   assertEquals(json.pruned, 1);
   assertEquals(deletedTokens[0], ['malformed-token']);
 });
+
+Deno.test(
+  'INVALID_ARGUMENT NOT naming the token field (e.g. bad message shape): token kept, not pruned',
+  async () => {
+    const deletedTokens: string[][] = [];
+    const deps = makeBaseDeps({
+      createAdminClient: () =>
+        makeAdminSupabase({ tokens: [{ token: 'healthy-token' }], deletedTokens }) as any,
+      fetchImpl: ((input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('oauth2.googleapis.com/token')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), {
+              status: 200,
+            }),
+          );
+        }
+        if (url.includes('/messages:send')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: 400,
+                  message: 'Invalid value at message.notification.title',
+                  status: 'INVALID_ARGUMENT',
+                  details: [
+                    {
+                      '@type': 'type.googleapis.com/google.rpc.BadRequest',
+                      fieldViolations: [
+                        {
+                          field: 'message.notification.title',
+                          description: 'title must be a string',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        throw new Error(`Unexpected fetch to ${url}`);
+      }) as any,
+    });
+    const resp = await handle(makeRequest(validPayload, 'Bearer tok'), deps);
+    const json = await resp.json();
+    assertEquals(json.sent, 0);
+    assertEquals(json.pruned, 0);
+    assertEquals(deletedTokens.length, 0);
+  },
+);
+
+Deno.test(
+  'INVALID_ARGUMENT with no details at all: token kept, not pruned (DB-12 regression guard)',
+  async () => {
+    const deletedTokens: string[][] = [];
+    const deps = makeBaseDeps({
+      createAdminClient: () =>
+        makeAdminSupabase({ tokens: [{ token: 'healthy-token-2' }], deletedTokens }) as any,
+      fetchImpl: ((input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('oauth2.googleapis.com/token')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), {
+              status: 200,
+            }),
+          );
+        }
+        if (url.includes('/messages:send')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: { code: 400, message: 'Bad request', status: 'INVALID_ARGUMENT' },
+              }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        throw new Error(`Unexpected fetch to ${url}`);
+      }) as any,
+    });
+    const resp = await handle(makeRequest(validPayload, 'Bearer tok'), deps);
+    const json = await resp.json();
+    assertEquals(json.sent, 0);
+    assertEquals(json.pruned, 0);
+    assertEquals(deletedTokens.length, 0);
+  },
+);
 
 Deno.test('non-prunable FCM error (e.g. UNAVAILABLE): token kept, not sent', async () => {
   const deletedTokens: string[][] = [];

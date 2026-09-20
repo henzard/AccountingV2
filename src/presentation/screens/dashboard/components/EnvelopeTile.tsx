@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, useColorScheme } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { EnvelopeFillBar } from '../../../components/shared/EnvelopeFillBar';
 import { CurrencyText } from '../../../components/shared/CurrencyText';
 import {
@@ -17,6 +17,7 @@ import {
 import type { EnvelopeEntity } from '../../../../domain/envelopes/EnvelopeEntity';
 import { P } from './HeroSummaryCard';
 import { radius, spacing, fontSize } from '../../../theme/tokens';
+import { useAppTheme } from '../../../theme/useAppTheme';
 
 interface Props {
   envelope: EnvelopeEntity;
@@ -32,7 +33,10 @@ function statusLine(pct: number, over: boolean): string {
 }
 
 export function EnvelopeTile({ envelope, onPress }: Props): React.JSX.Element {
-  const isDark = useColorScheme() === 'dark';
+  // Uses the app's in-app Light/Dark preference (`useAppTheme`), not the
+  // raw OS scheme — otherwise this tile ignores a user override of the
+  // system setting (UX-11).
+  const { dark: isDark } = useAppTheme();
   const remaining = getRemainingCents(envelope);
   const pct = getPercentRemaining(envelope);
   const over = isOverBudget(envelope);

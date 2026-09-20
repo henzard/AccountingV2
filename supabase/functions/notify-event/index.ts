@@ -391,13 +391,37 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     }
 
     let fcmStatus: string | undefined;
+    let invalidArgumentNamesToken = false;
     try {
-      const errJson = (await res.json()) as { error?: { status?: unknown } };
+      const errJson = (await res.json()) as {
+        error?: {
+          status?: unknown;
+          details?: Array<{ fieldViolations?: Array<{ field?: unknown }> }>;
+        };
+      };
       if (typeof errJson.error?.status === 'string') fcmStatus = errJson.error.status;
+      // DB-12 (deep-review finding): INVALID_ARGUMENT is FCM's generic
+      // "the request body is malformed" status — it fires for a bad message
+      // shape too, not just a dead/malformed registration token. Only prune
+      // when the error's field-violation details actually name the token
+      // field (FCM v1's google.rpc.BadRequest detail, e.g.
+      // "message.token"); otherwise a transient/unrelated bad-request error
+      // would wrongly unregister a device that never did anything wrong.
+      if (fcmStatus === 'INVALID_ARGUMENT') {
+        const details = errJson.error?.details ?? [];
+        invalidArgumentNamesToken = details.some((d) =>
+          (d.fieldViolations ?? []).some(
+            (fv) => typeof fv.field === 'string' && fv.field.toLowerCase().includes('token'),
+          ),
+        );
+      }
     } catch {
       // Non-JSON error body — nothing to prune on, just skip this token.
     }
-    if (fcmStatus === 'UNREGISTERED' || fcmStatus === 'INVALID_ARGUMENT') {
+    if (
+      fcmStatus === 'UNREGISTERED' ||
+      (fcmStatus === 'INVALID_ARGUMENT' && invalidArgumentNamesToken)
+    ) {
       staleTokens.push(token);
     }
   }

@@ -15,6 +15,7 @@ import {
   getReadingDisplayDate,
 } from '../../../../domain/meterReadings/MeterReadingEntity';
 import { UnitRateCalculator } from '../../../../domain/meterReadings/UnitRateCalculator';
+import { formatCurrency } from '../../../utils/currency';
 
 interface MeterReadingCardProps {
   meterType: MeterType;
@@ -43,7 +44,7 @@ export function MeterReadingCard({
       const unit = getMeterUnitLabel(meterType);
       consumptionText = `${result.data.consumptionUnits.toFixed(1)} ${unit}`;
       if (result.data.unitRateCents > 0) {
-        rateText = `R${(result.data.unitRateCents / 100).toFixed(2)}/${unit}`;
+        rateText = `${formatCurrency(result.data.unitRateCents)}/${unit}`;
       }
     }
   }
@@ -66,7 +67,8 @@ export function MeterReadingCard({
             {latestReading ? (
               <>
                 <Text variant="bodyMedium" style={[styles.reading, { color: colors.onSurface }]}>
-                  {latestReading.readingValue.toLocaleString()} {getMeterUnitLabel(meterType)}
+                  {latestReading.readingValue.toLocaleString('en-ZA')}{' '}
+                  {getMeterUnitLabel(meterType)}
                 </Text>
                 <Text variant="bodySmall" style={[styles.meta, { color: colors.onSurfaceVariant }]}>
                   {getReadingDisplayDate(latestReading)} · {consumptionText} · {rateText}

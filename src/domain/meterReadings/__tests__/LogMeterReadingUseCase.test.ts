@@ -3,6 +3,9 @@ import type { IMeterReadingRepository } from '../../ports/IMeterReadingRepositor
 import type { SyncedRepo } from '../../../data/uow/createSyncedRepo';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-meter-1' }));
+jest.mock('../../shared/bestEffortAudit', () => ({
+  bestEffortAudit: jest.fn().mockResolvedValue(undefined),
+}));
 
 const mockDb = {} as any;
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
@@ -24,7 +27,7 @@ function makeFakeRepo(): SyncedRepo & {
 function makeMockMeterRepo(existing: any = null): IMeterReadingRepository {
   return {
     findById: jest.fn().mockResolvedValue(null),
-    findByHousehold: jest.fn().mockResolvedValue([]),
+    findByHousehold: jest.fn().mockResolvedValue(existing ? [existing] : []),
     findByDate: jest.fn().mockResolvedValue(existing),
     insert: jest.fn().mockResolvedValue(undefined),
   };
@@ -96,6 +99,9 @@ describe('LogMeterReadingUseCase', () => {
   });
 
   it('inserts reading via the synced repo (exactly one oplog op) and logs audit', async () => {
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
     const meterRepo = makeMockMeterRepo();
     const repo = makeFakeRepo();
     const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, { repo }, meterRepo);
@@ -103,7 +109,7 @@ describe('LogMeterReadingUseCase', () => {
     expect(result.success).toBe(true);
     expect(repo.insert).toHaveBeenCalledTimes(1);
     expect(repo.update).not.toHaveBeenCalled();
-    expect(mockAudit.log).toHaveBeenCalledTimes(1);
+    expect(mockBestEffortAudit).toHaveBeenCalledTimes(1);
 
     const [row] = repo.insert.mock.calls[0];
     expect(row.household_id).toBe('h1');
@@ -123,5 +129,272 @@ describe('LogMeterReadingUseCase', () => {
       expect(result.data.readingValue).toBe(1500);
       expect(result.data.costCents).toBe(52500);
     }
+  });
+
+  // Validation tests for new requirements
+  it('returns failure when readingValue is not finite', async () => {
+    const meterRepo = makeMockMeterRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, readingValue: Infinity },
+      {},
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_READING');
+  });
+
+  it('returns failure when readingValue is NaN', async () => {
+    const meterRepo = makeMockMeterRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, readingValue: NaN },
+      {},
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_READING');
+  });
+
+  it('returns failure when costCents is not a safe integer', async () => {
+    const meterRepo = makeMockMeterRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, costCents: 52500.5 },
+      {},
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_READING');
+  });
+
+  it('returns failure when costCents is negative', async () => {
+    const meterRepo = makeMockMeterRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, costCents: -100 },
+      {},
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_READING');
+  });
+
+  it('allows costCents to be null', async () => {
+    const meterRepo = makeMockMeterRepo();
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, costCents: null },
+      { repo },
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+
+  it('returns failure when reading date is in the future', async () => {
+    const meterRepo = makeMockMeterRepo();
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 1);
+    const futureDateString = futureDate.toISOString().split('T')[0];
+
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, readingDate: futureDateString },
+      {},
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('FUTURE_READING_DATE');
+  });
+
+  it('returns failure when reading is below previous reading', async () => {
+    const previousReading = {
+      id: 'prev-1',
+      householdId: 'h1',
+      meterType: 'electricity' as const,
+      readingValue: 2000,
+      readingDate: '2026-04-01',
+      costCents: 50000,
+      vehicleId: null,
+      notes: null,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+
+    const meterRepo = {
+      findById: jest.fn().mockResolvedValue(null),
+      findByHousehold: jest.fn().mockResolvedValue([previousReading]),
+      findByDate: jest.fn().mockResolvedValue(null),
+      insert: jest.fn().mockResolvedValue(undefined),
+    } as unknown as IMeterReadingRepository;
+
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, readingValue: 1500, readingDate: '2026-04-02' },
+      {},
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('READING_BELOW_PREVIOUS');
+  });
+
+  it('returns failure when a back-dated reading is above the next later reading', async () => {
+    const laterReading = {
+      id: 'later-1',
+      householdId: 'h1',
+      meterType: 'electricity' as const,
+      readingValue: 1500,
+      readingDate: '2026-04-10',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+      createdAt: '2026-04-10T00:00:00.000Z',
+      updatedAt: '2026-04-10T00:00:00.000Z',
+    };
+    const meterRepo = {
+      findById: jest.fn().mockResolvedValue(null),
+      findByHousehold: jest.fn().mockResolvedValue([laterReading]),
+      findByDate: jest.fn().mockResolvedValue(null),
+      insert: jest.fn().mockResolvedValue(undefined),
+    } as unknown as IMeterReadingRepository;
+
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, readingValue: 1600, readingDate: '2026-04-02' },
+      {},
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('READING_ABOVE_NEXT');
+  });
+
+  it('allows reading equal to previous reading', async () => {
+    const previousReading = {
+      id: 'prev-1',
+      householdId: 'h1',
+      meterType: 'electricity' as const,
+      readingValue: 1500,
+      readingDate: '2026-04-01',
+      costCents: 50000,
+      vehicleId: null,
+      notes: null,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+
+    const meterRepo = {
+      findById: jest.fn().mockResolvedValue(null),
+      findByHousehold: jest.fn().mockResolvedValue([previousReading]),
+      findByDate: jest.fn().mockResolvedValue(null),
+      insert: jest.fn().mockResolvedValue(undefined),
+    } as unknown as IMeterReadingRepository;
+
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, readingValue: 1500, readingDate: '2026-04-02' },
+      { repo },
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+
+  it('returns failure when duplicate reading exists for same vehicleId', async () => {
+    const existingReading = {
+      id: 'existing-1',
+      householdId: 'h1',
+      meterType: 'odometer' as const,
+      readingValue: 10000,
+      readingDate: '2026-04-01',
+      costCents: null,
+      vehicleId: 'v1',
+      notes: null,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+
+    const meterRepo = {
+      findById: jest.fn().mockResolvedValue(null),
+      findByHousehold: jest.fn().mockResolvedValue([existingReading]),
+      findByDate: jest.fn().mockResolvedValue(existingReading),
+      insert: jest.fn().mockResolvedValue(undefined),
+    } as unknown as IMeterReadingRepository;
+
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, meterType: 'odometer', vehicleId: 'v1', readingDate: '2026-04-01' },
+      { repo },
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DUPLICATE_READING');
+  });
+
+  it('allows duplicate reading date if vehicleId differs', async () => {
+    const existingReading = {
+      id: 'existing-1',
+      householdId: 'h1',
+      meterType: 'odometer' as const,
+      readingValue: 10000,
+      readingDate: '2026-04-01',
+      costCents: null,
+      vehicleId: 'v1',
+      notes: null,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+
+    const meterRepo = {
+      findById: jest.fn().mockResolvedValue(null),
+      findByHousehold: jest.fn().mockResolvedValue([existingReading]),
+      findByDate: jest.fn().mockResolvedValue(existingReading),
+      insert: jest.fn().mockResolvedValue(undefined),
+    } as unknown as IMeterReadingRepository;
+
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, meterType: 'odometer', vehicleId: 'v2', readingDate: '2026-04-01' },
+      { repo },
+      meterRepo,
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+  });
+
+  it('returns success even when audit fails', async () => {
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
+    const meterRepo = makeMockMeterRepo();
+    const repo = makeFakeRepo();
+    const uc = new LogMeterReadingUseCase(mockDb, mockAudit, input, { repo }, meterRepo);
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+    expect(mockBestEffortAudit).toHaveBeenCalled();
   });
 });

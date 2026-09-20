@@ -11,7 +11,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(14);
+select plan(17);
 
 -- ---------------------------------------------------------------------------
 -- Seed (as postgres, RLS bypassed): one household with an owner and a plain
@@ -99,27 +99,57 @@ select is(
      and role = 'member'),
   1, 'P3: the joiner is now a household member');
 
+-- Read as the table owner: since 0007 (DB-10) a plain member -- which the
+-- joiner now is -- can no longer select invitation rows under RLS.
+reset role;
 select isnt(
   (select used_by from public.invitations where code = (select result ->> 'code' from t_invite)),
   null, 'P3: the invitation is marked used after a successful join');
+set local role authenticated;
+
+-- ===========================================================================
+-- Probe 3b (0010 DB-6(a)): the OWNER sees the join via sync_pull -- proves
+-- join_household_via_invite's new oplog append actually reaches other
+-- devices, not just the joiner's own local insert (which the owner's
+-- device never sees any other way).
+-- ===========================================================================
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+
+select ok(
+  exists (
+    select 1 from public.sync_pull('hh-invite', 0, 1000)
+    where table_name = 'household_members'
+      and op_type = 'insert'
+      and payload ->> 'user_id' = '00000000-0000-0000-0000-00000000000c'
+  ),
+  'P3b: the owner sees the joiner''s household_members insert via sync_pull');
 
 -- ===========================================================================
 -- Probe 4: an expired code is rejected
+--
+-- 0007 DB-5: not-found / already-used / expired now all raise the SAME
+-- generic message (an enumeration oracle otherwise), so this no longer
+-- matches on '%expired%' specifically -- see Probe 5 below and the 0007
+-- migration header for the client-side (mapJoinError) implication.
 -- ===========================================================================
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}';
 
-select throws_like(
-  $$select public.join_household_via_invite('EXPIRD')$$,
-  '%expired%',
-  'P4: an expired invitation code is rejected');
+select is(
+  public.join_household_via_invite('EXPIRD') ->> 'error',
+  'invite_invalid',
+  'P4: an expired invitation code is rejected with the generic invalid-code result');
 
 -- ===========================================================================
 -- Probe 5: an already-consumed code is rejected
+--
+-- 0007 DB-5: same generic message as Probe 4 (an already-expired vs.
+-- already-used vs. never-existed code must be indistinguishable to the
+-- caller).
 -- ===========================================================================
-select throws_like(
-  $$select public.join_household_via_invite((select result ->> 'code' from t_invite))$$,
-  '%already used%',
-  'P5: an already-consumed invitation code is rejected');
+select is(
+  public.join_household_via_invite((select result ->> 'code' from t_invite)) ->> 'error',
+  'invite_invalid',
+  'P5: an already-consumed invitation code is rejected with the generic invalid-code result');
 
 -- ===========================================================================
 -- Probe 6: TOCTOU dup-membership guard. Concurrent joins via different
@@ -183,6 +213,42 @@ select is(
      and user_id = '00000000-0000-0000-0000-00000000000b'
      and deleted_at is null),
   1, 'P7: a soft-deleted member who rejoins has exactly one active membership again');
+
+-- ===========================================================================
+-- Probe 8 (0007 DB-5): guessing throttle. Ten failed join attempts with a
+-- bogus code in the same hour are all rejected with the SAME generic
+-- message (no not-found/used/expired oracle); the 11th is throttled outright
+-- with a distinct message, before the code is even looked up.
+-- ===========================================================================
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}';
+
+do $$
+declare
+  i int;
+begin
+  for i in 1..10 loop
+    begin
+      perform public.join_household_via_invite('BADCOD');
+    exception when others then
+      null; -- once 10 failures are on record the remaining calls raise the throttle error
+    end;
+  end loop;
+end
+$$;
+
+select throws_like(
+  $$select public.join_household_via_invite('BADCOD')$$,
+  '%too many attempts%',
+  'P8: the 11th bad invite code from the same caller within an hour is throttled');
+
+reset role;
+select cmp_ok(
+  (select count(*)::int from public.invite_attempts
+     where user_id = '00000000-0000-0000-0000-00000000000d'),
+  '>=', 10::int,
+  'P8: invite_attempts recorded at least the 10 throttled failures for that caller');
 
 select * from finish();
 rollback;

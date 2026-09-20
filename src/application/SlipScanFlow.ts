@@ -17,6 +17,16 @@ export type SlipScanFlowDeps = {
   captureSlip: Pick<CaptureSlipUseCase, 'execute'>;
   uploadSlipImages: Pick<UploadSlipImagesUseCase, 'execute'>;
   extractSlip: Pick<ExtractSlipUseCase, 'execute'>;
+  /**
+   * DB-13: the slip_queue row created by `captureSlip` must have been pushed
+   * to the server BEFORE `extractSlip` calls the `extract-slip` edge
+   * function — it 403s if the row isn't there yet. When supplied, `start`
+   * triggers and awaits one sync round for the household after upload
+   * succeeds and before extraction begins. Optional because this flow has
+   * no direct access to a sync engine/scheduler instance (see the
+   * constructor call site for the concrete wiring this needs).
+   */
+  ensureSynced?: (householdId: string) => Promise<void>;
 };
 
 export class SlipScanFlow {
@@ -46,6 +56,20 @@ export class SlipScanFlow {
       onProgress({ stage: 'failed', slipId, error: err });
       return createFailure(err);
     }
+
+    // DB-13: the slip_queue insert must reach the server before extraction
+    // calls the edge function, which 403s on a row it hasn't seen yet.
+    if (this.deps.ensureSynced) {
+      try {
+        await this.deps.ensureSynced(input.householdId);
+      } catch (syncErr) {
+        const message = syncErr instanceof Error ? syncErr.message : 'Sync failed';
+        const err: SlipScanError = { code: 'SLIP_OFFLINE', message };
+        onProgress({ stage: 'failed', slipId, error: err });
+        return createFailure(err);
+      }
+    }
+
     onProgress({ stage: 'extracting', slipId });
 
     const extract = await this.deps.extractSlip.execute({

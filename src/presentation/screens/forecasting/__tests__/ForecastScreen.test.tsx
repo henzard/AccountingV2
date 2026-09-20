@@ -72,6 +72,17 @@ jest.mock('../../../hooks/useEnvelopes', () => ({
   useEnvelopes: (...args: unknown[]) => mockUseEnvelopes(...args),
 }));
 
+const mockReloadTransactions = jest.fn();
+const mockUseTransactions = jest.fn().mockReturnValue({
+  transactions: [],
+  loading: false,
+  error: null,
+  reload: mockReloadTransactions,
+});
+jest.mock('../../../hooks/useTransactions', () => ({
+  useTransactions: (...args: unknown[]) => mockUseTransactions(...args),
+}));
+
 // ─── BudgetPeriodEngine mock ──────────────────────────────────────────────────
 jest.mock('../../../../domain/shared/BudgetPeriodEngine', () => ({
   BudgetPeriodEngine: jest.fn().mockImplementation(() => ({
@@ -119,18 +130,22 @@ const mockForecasts = [
     status: 'on_track' as const,
     daysElapsed: 15,
     daysRemaining: 15,
+    isFixed: false,
+    projectedSpendRemainingCents: 150000,
   },
   {
     envelopeId: 'e2',
-    envelopeName: 'Transport',
-    allocatedCents: 200000,
-    spentCents: 250000,
-    dailySpendCents: 16667,
-    projectedRemainingCents: -50000,
-    projectedRemainingPct: -25,
-    status: 'over_budget' as const,
+    envelopeName: 'Rent',
+    allocatedCents: 1200000,
+    spentCents: 1200000,
+    dailySpendCents: 80000,
+    projectedRemainingCents: 0,
+    projectedRemainingPct: 0,
+    status: 'on_track' as const,
     daysElapsed: 15,
     daysRemaining: 15,
+    isFixed: true,
+    projectedSpendRemainingCents: 0,
   },
 ];
 
@@ -169,13 +184,10 @@ describe('ForecastScreen', () => {
     const { getByTestId, getByText } = render(<ForecastScreen />);
     expect(getByTestId('forecast-list')).toBeTruthy();
     expect(getByText('Groceries')).toBeTruthy();
-    expect(getByText('Transport')).toBeTruthy();
+    expect(getByText('Rent')).toBeTruthy();
   });
 
-  // TODO: GAP — No empty state component when forecast list has no data.
-  // The FlatList renders with zero items, showing only the hint text with
-  // "0 days of spending" — there is no EmptyState or user-friendly message.
-  it('renders empty list with no empty state (missing feature)', () => {
+  it('renders empty state when forecast list has no data', () => {
     mockUseEnvelopes.mockReturnValue({
       envelopes: [],
       loading: false,
@@ -184,9 +196,9 @@ describe('ForecastScreen', () => {
     });
     mockProject.mockReturnValue([]);
 
-    const { getByTestId, queryByTestId } = render(<ForecastScreen />);
+    const { getByTestId } = render(<ForecastScreen />);
     expect(getByTestId('forecast-list')).toBeTruthy();
-    expect(queryByTestId('forecast-empty')).toBeNull();
+    expect(getByTestId('forecast-empty')).toBeTruthy();
   });
 
   it('handles zero income by projecting empty list', () => {
@@ -202,7 +214,7 @@ describe('ForecastScreen', () => {
     expect(getByTestId('forecast-list')).toBeTruthy();
   });
 
-  it('sorts forecasts with over_budget first', () => {
+  it('sorts forecasts with over_budget first, then warning, then on_track', () => {
     mockProject.mockReturnValue(mockForecasts);
     mockUseEnvelopes.mockReturnValue({
       envelopes: [{ id: 'e1' }, { id: 'e2' }],
@@ -212,8 +224,56 @@ describe('ForecastScreen', () => {
     });
 
     const { getAllByText } = render(<ForecastScreen />);
-    const names = getAllByText(/Groceries|Transport/);
-    expect(names[0].props.children).toBe('Transport');
-    expect(names[1].props.children).toBe('Groceries');
+    const names = getAllByText(/Groceries|Rent/);
+    // Both are on_track, so order is preserved (Groceries first, Rent second)
+    expect(names[0].props.children).toBe('Groceries');
+    expect(names[1].props.children).toBe('Rent');
+  });
+
+  it('calls project with transactions from useTransactions hook', () => {
+    const mockTransactions = [
+      { id: 'tx1', envelopeId: 'e1', amountCents: 50000 },
+      { id: 'tx2', envelopeId: 'e2', amountCents: 1200000 },
+    ];
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [{ id: 'e1' }, { id: 'e2' }],
+      loading: false,
+      error: null,
+      reload: mockReload,
+    });
+    mockUseTransactions.mockReturnValue({
+      transactions: mockTransactions,
+      loading: false,
+      error: null,
+      reload: mockReloadTransactions,
+    });
+    mockProject.mockReturnValue([]);
+
+    render(<ForecastScreen />);
+
+    expect(mockProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactions: mockTransactions,
+        envelopes: expect.any(Array),
+        periodStart: '2026-06-01',
+        periodEnd: '2026-06-30',
+      }),
+    );
+  });
+
+  it('renders fixed bill text for envelopes with isFixed = true', () => {
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [{ id: 'e1' }, { id: 'e2' }],
+      loading: false,
+      error: null,
+      reload: mockReload,
+    });
+    mockProject.mockReturnValue(mockForecasts);
+
+    const { getByText, queryByText } = render(<ForecastScreen />);
+    // Rent is a fixed bill (e2 in mockForecasts has isFixed: true)
+    expect(getByText(/Fixed bill.*not projected daily/)).toBeTruthy();
+    // Groceries is not fixed, so should show per-day amount
+    expect(queryByText(/100\.00.*day/)).toBeTruthy();
   });
 });

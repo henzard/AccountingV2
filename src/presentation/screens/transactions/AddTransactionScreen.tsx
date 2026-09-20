@@ -1,17 +1,22 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, View, Switch } from 'react-native';
 import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { and, eq, ne } from 'drizzle-orm';
 import { format } from 'date-fns';
 import { db } from '../../../data/local/db';
-import { envelopes as envelopesTable } from '../../../data/local/schema';
+import {
+  envelopes as envelopesTable,
+  transactions as transactionsTable,
+} from '../../../data/local/schema';
 import {
   envelopeScopeCondition,
   getEnvelopeSpentCents,
 } from '../../../data/local/balances/EnvelopeBalanceQuery';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTransactionUseCase';
+import { UpdateTransactionUseCase } from '../../../domain/transactions/UpdateTransactionUseCase';
+import type { TransactionEntity } from '../../../domain/transactions/TransactionEntity';
+import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
@@ -21,22 +26,31 @@ import type { AddTransactionScreenProps } from '../../navigation/types';
 import { EnvelopePickerSheet } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 import type { EnvelopeOption } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 import { PickerField } from '../../components/shared/PickerField';
+import { DateField } from '../../components/shared/DateField';
+import { formatCurrency } from '../../utils/currency';
 import { SpendingCoach } from '../../../domain/coaching/SpendingCoach';
 import { CoachingModal } from '../../components/shared/CoachingModal';
 import type { CoachingResult } from '../../../domain/coaching/SpendingCoach';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
+import { detectThresholdCrossing, buildThresholdToastMessage } from './envelopeUsageThreshold';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
 const coach = new SpendingCoach();
 
 function formatBalance(env: EnvelopeOption): string {
-  const balance = env.allocatedCents - env.spentCents;
-  const absR = Math.abs(balance / 100).toFixed(2);
-  return balance < 0 ? `-R${absR}` : `R${absR}`;
+  return formatCurrency(env.allocatedCents - env.spentCents);
 }
 
-export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navigation }) => {
+/** Cents -> a plain "12.34" string for prefilling the amount input, mirroring AddEditEnvelopeScreen's toRandString. */
+function centsToInputString(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
+  navigation,
+  route,
+}) => {
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId) ?? '';
   const paydayDay = useAppStore((s) => s.paydayDay);
@@ -44,6 +58,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
 
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = formatPeriodDateKey(period.startDate);
+
+  // UX-9: editing an existing transaction (route param) vs. VAL-9: preselecting
+  // an envelope when creating a new one. transactionId, when present, always
+  // wins — envelopeId is only consulted in create mode.
+  const transactionId = route.params?.transactionId;
+  const presetEnvelopeId = route.params?.envelopeId;
 
   const [envelopes, setEnvelopes] = useState<EnvelopeOption[]>([]);
   const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeOption | null>(null);
@@ -57,13 +77,102 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
   const [isBusinessExpense, setIsBusinessExpense] = useState(false);
   const [spendingTriggerNote, setSpendingTriggerNote] = useState('');
 
-  // Date picker
-  const [transactionDate, setTransactionDate] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  // Date picker — held as a 'yyyy-MM-dd' local-date string (DateField's
+  // value/onChange contract), not a Date object, so no timezone conversion
+  // happens between what's shown, stored, and saved.
+  const [transactionDate, setTransactionDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+
+  // Non-null only in edit mode: the row loaded for `transactionId`. Passed as
+  // UpdateTransactionUseCase's `current` and used to compute this envelope's
+  // usage BEFORE this save (VAL-13) net of this transaction's own old amount.
+  const [existingTransaction, setExistingTransaction] = useState<TransactionEntity | null>(null);
 
   const [coachingResult, setCoachingResult] = useState<CoachingResult | null>(null);
   const pendingAmountCents = useRef<number>(0);
   const isSaving = useRef(false);
+
+  // This envelope's spend BEFORE this save — see the matching comment in
+  // doSave (VAL-13) for why an edit of a transaction already on this
+  // envelope must subtract its own old amount back out first.
+  const previousSpentCentsForSelectedEnvelope = useMemo(() => {
+    if (!selectedEnvelope) return 0;
+    const oldAmountOnThisEnvelope =
+      existingTransaction && existingTransaction.envelopeId === selectedEnvelope.id
+        ? existingTransaction.amountCents
+        : 0;
+    return selectedEnvelope.spentCents - oldAmountOnThisEnvelope;
+  }, [selectedEnvelope, existingTransaction]);
+
+  useEffect(() => {
+    navigation.setOptions({ title: transactionId ? 'Edit transaction' : 'Add Transaction' });
+  }, [transactionId, navigation]);
+
+  // Fetches one envelope by id (regardless of the picker list's current-period
+  // filter) for prefill purposes — the edited transaction's envelope, or a
+  // create-mode preselected one, may not be in that filtered list.
+  const loadEnvelopeOption = useCallback(
+    async (envelopeId: string): Promise<EnvelopeOption | null> => {
+      const [row] = await db
+        .select({
+          id: envelopesTable.id,
+          name: envelopesTable.name,
+          allocatedCents: envelopesTable.allocatedCents,
+          envelopeType: envelopesTable.envelopeType,
+        })
+        .from(envelopesTable)
+        .where(and(eq(envelopesTable.id, envelopeId), eq(envelopesTable.householdId, householdId)))
+        .limit(1);
+      if (!row) return null;
+      const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, periodStart);
+      return { ...row, spentCents: spentByEnvelope.get(row.id) ?? 0 } as EnvelopeOption;
+    },
+    [householdId, periodStart],
+  );
+
+  // Edit mode: load the transaction row and prefill every field.
+  useEffect(() => {
+    if (!transactionId || !householdId) return;
+    let cancelled = false;
+    db.select()
+      .from(transactionsTable)
+      .where(
+        and(
+          eq(transactionsTable.id, transactionId),
+          eq(transactionsTable.householdId, householdId),
+        ),
+      )
+      .limit(1)
+      .then(async ([row]) => {
+        if (cancelled || !row) return;
+        const tx = row as TransactionEntity;
+        setExistingTransaction(tx);
+        setAmountStr(centsToInputString(tx.amountCents));
+        setPayee(tx.payee ?? '');
+        setDescription(tx.description ?? '');
+        setTransactionDate(tx.transactionDate);
+        setIsBusinessExpense(tx.isBusinessExpense);
+        const envOption = await loadEnvelopeOption(tx.envelopeId);
+        if (!cancelled && envOption) setSelectedEnvelope(envOption);
+      })
+      .catch(() => {
+        if (!cancelled) enqueue('Failed to load transaction', 'error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [transactionId, householdId, loadEnvelopeOption, enqueue]);
+
+  // VAL-9: create mode only — preselect the envelope passed via route params.
+  useEffect(() => {
+    if (transactionId || !presetEnvelopeId || !householdId) return;
+    let cancelled = false;
+    loadEnvelopeOption(presetEnvelopeId).then((envOption) => {
+      if (!cancelled && envOption) setSelectedEnvelope(envOption);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [transactionId, presetEnvelopeId, householdId, loadEnvelopeOption]);
 
   useEffect(() => {
     db.select({
@@ -110,19 +219,54 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       setLoading(true);
       setError(null);
       try {
-        const uc = new CreateTransactionUseCase(db, audit, {
-          householdId,
-          envelopeId: selectedEnvelope!.id,
-          amountCents,
-          payee: payee.trim() || null,
-          description: description.trim() || null,
-          transactionDate: format(transactionDate, 'yyyy-MM-dd'),
-          isBusinessExpense,
-          spendingTriggerNote: isBusinessExpense ? spendingTriggerNote.trim() || null : null,
-        });
-        const result = await uc.execute();
+        const envelope = selectedEnvelope!;
+        const previousSpentCents = previousSpentCentsForSelectedEnvelope;
+
+        const result = existingTransaction
+          ? await new UpdateTransactionUseCase(db, audit, existingTransaction, {
+              envelopeId: envelope.id,
+              amountCents,
+              payee: payee.trim() || null,
+              description: description.trim() || null,
+              transactionDate,
+              isBusinessExpense,
+            }).execute()
+          : await new CreateTransactionUseCase(db, audit, {
+              householdId,
+              envelopeId: envelope.id,
+              amountCents,
+              payee: payee.trim() || null,
+              description: description.trim() || null,
+              transactionDate,
+              isBusinessExpense,
+              spendingTriggerNote: isBusinessExpense ? spendingTriggerNote.trim() || null : null,
+            }).execute();
+
         if (result.success) {
-          enqueue('Transaction saved', 'success');
+          enqueue(existingTransaction ? 'Transaction updated' : 'Transaction saved', 'success');
+
+          // VAL-13: only for period-scoped envelopes, and only when THIS
+          // save is the one that crosses 80%/100% (not every save above it).
+          if (getEnvelopeScope({ envelopeType: envelope.envelopeType }) === 'period') {
+            const newSpentCents = previousSpentCents + amountCents;
+            const crossing = detectThresholdCrossing(
+              previousSpentCents,
+              newSpentCents,
+              envelope.allocatedCents,
+            );
+            if (crossing) {
+              enqueue(
+                buildThresholdToastMessage(
+                  crossing,
+                  envelope.name,
+                  envelope.allocatedCents,
+                  newSpentCents,
+                ),
+                crossing === 100 ? 'error' : 'regression',
+              );
+            }
+          }
+
           navigation.goBack();
         } else {
           setError(result.error.message);
@@ -130,7 +274,10 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'An unexpected error occurred';
         setError(message);
-        enqueue('Failed to save transaction', 'error');
+        enqueue(
+          existingTransaction ? 'Failed to update transaction' : 'Failed to save transaction',
+          'error',
+        );
       } finally {
         setLoading(false);
         isSaving.current = false;
@@ -138,6 +285,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
     },
     [
       selectedEnvelope,
+      existingTransaction,
+      previousSpentCentsForSelectedEnvelope,
       payee,
       description,
       householdId,
@@ -168,7 +317,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
     const coaching = coach.evaluate({
       amountCents,
       allocatedCents: selectedEnvelope.allocatedCents,
-      spentCents: selectedEnvelope.spentCents,
+      spentCents: previousSpentCentsForSelectedEnvelope,
     });
 
     if (coaching) {
@@ -178,7 +327,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
     }
 
     void doSave(amountCents);
-  }, [selectedEnvelope, amountStr, doSave]);
+  }, [selectedEnvelope, amountStr, previousSpentCentsForSelectedEnvelope, doSave]);
 
   const handleCoachingProceed = useCallback((): void => {
     setCoachingResult(null);
@@ -265,7 +414,11 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           />
         </View>
 
-        {isBusinessExpense && (
+        {/* UpdateTransactionUseCase does not accept spendingTriggerNote (not
+            an editable field on an existing transaction), so this only makes
+            sense in create mode — showing it in edit mode would silently
+            discard whatever the user typed. */}
+        {isBusinessExpense && !existingTransaction && (
           <TextInput
             label="Trigger note (optional)"
             value={spendingTriggerNote}
@@ -279,25 +432,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
         )}
 
         {/* Date picker row */}
-        <PickerField
+        <DateField
           label="Date"
-          value={format(transactionDate, 'd MMM yyyy')}
-          onPress={() => setShowDatePicker(true)}
+          value={transactionDate}
+          onChange={setTransactionDate}
           testID="date-picker-trigger"
         />
-
-        {showDatePicker && (
-          <DateTimePicker
-            value={transactionDate}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            maximumDate={new Date()}
-            onChange={(_, date) => {
-              setShowDatePicker(false);
-              if (date) setTransactionDate(date);
-            }}
-          />
-        )}
 
         <Button
           mode="contained"
@@ -308,18 +448,20 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({ navi
           contentStyle={styles.buttonContent}
           testID="record-transaction-submit"
         >
-          Record Transaction
+          {existingTransaction ? 'Save Changes' : 'Record Transaction'}
         </Button>
 
-        <Button
-          mode="outlined"
-          onPress={() => navigation.navigate('SlipScanning' as never)}
-          style={styles.button}
-          contentStyle={styles.buttonContent}
-          testID="scan-slip-button"
-        >
-          Scan slip
-        </Button>
+        {!existingTransaction && (
+          <Button
+            mode="outlined"
+            onPress={() => navigation.navigate('SlipScanning' as never)}
+            style={styles.button}
+            contentStyle={styles.buttonContent}
+            testID="scan-slip-button"
+          >
+            Scan slip
+          </Button>
+        )}
       </ScrollView>
 
       {/* Envelope picker — extracted to shared component */}

@@ -2,8 +2,13 @@
  * TransactionListScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { Alert } from 'react-native';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
+
+// ─── confirm() mock (ConfirmDialogHost) ────────────────────────────────────────
+const mockConfirm = jest.fn();
+jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
+  confirm: (...args: unknown[]) => mockConfirm(...args),
+}));
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 jest.mock('@react-navigation/native', () => ({
@@ -44,9 +49,10 @@ jest.mock('../../../stores/appStore', () => ({
     sel({ householdId: mockHouseholdId, paydayDay: 25 }),
   ),
 }));
+const mockEnqueue = jest.fn();
 jest.mock('../../../stores/toastStore', () => ({
   useToastStore: jest.fn((sel: (s: { enqueue: () => void }) => unknown) =>
-    sel({ enqueue: jest.fn() }),
+    sel({ enqueue: (...args: unknown[]) => mockEnqueue(...args) }),
   ),
 }));
 jest.mock('react-native-paper', () => {
@@ -121,6 +127,7 @@ describe('TransactionListScreen', () => {
     jest.clearAllMocks();
     mockHouseholdId = 'hh-1';
     mockUseTransactions.mockReturnValue({ transactions: [], loading: false, reload: jest.fn() });
+    mockConfirm.mockResolvedValue(true);
   });
 
   it('renders without crashing and shows FAB', () => {
@@ -177,13 +184,12 @@ describe('TransactionListScreen', () => {
     expect(getByTestId('transaction-list-empty-state')).toBeTruthy();
   });
 
-  it('shows delete confirmation Alert when delete button pressed', () => {
+  it('shows delete confirmation via confirm() when delete button pressed', () => {
     mockUseTransactions.mockReturnValue({
       transactions: [mockTransaction],
       loading: false,
       reload: jest.fn(),
     });
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     const { getByTestId } = render(
       <TransactionListScreen
         route={{} as never}
@@ -191,15 +197,101 @@ describe('TransactionListScreen', () => {
       />,
     );
     fireEvent.press(getByTestId('delete-tx-tx-1'));
-    expect(alertSpy).toHaveBeenCalledWith(
-      'Delete transaction?',
-      expect.stringContaining('Woolworths'),
-      expect.arrayContaining([
-        expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
-        expect.objectContaining({ text: 'Delete', style: 'destructive' }),
-      ]),
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Delete transaction?',
+        message: expect.stringContaining('Woolworths'),
+        confirmLabel: 'Delete',
+        destructive: true,
+      }),
     );
-    alertSpy.mockRestore();
+  });
+
+  it('does not delete when the confirm dialog is dismissed', async () => {
+    mockConfirm.mockResolvedValue(false);
+    mockUseTransactions.mockReturnValue({
+      transactions: [mockTransaction],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    fireEvent.press(getByTestId('delete-tx-tx-1'));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    expect(mockEnqueue).not.toHaveBeenCalledWith('Transaction deleted', 'success');
+  });
+
+  it('shows a success toast after a confirmed delete', async () => {
+    mockConfirm.mockResolvedValue(true);
+    mockUseTransactions.mockReturnValue({
+      transactions: [mockTransaction],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    fireEvent.press(getByTestId('delete-tx-tx-1'));
+
+    await waitFor(() => {
+      expect(mockEnqueue).toHaveBeenCalledWith('Transaction deleted', 'success');
+    });
+  });
+
+  it('pressing a transaction row navigates to AddTransaction with its transactionId', () => {
+    mockUseTransactions.mockReturnValue({
+      transactions: [mockTransaction],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    fireEvent.press(getByTestId('tx-row-tx-1'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddTransaction', { transactionId: 'tx-1' });
+  });
+
+  it('the row has an accessibility label naming the payee', () => {
+    mockUseTransactions.mockReturnValue({
+      transactions: [mockTransaction],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(getByTestId('tx-row-tx-1').props.accessibilityLabel).toBe('Edit transaction Woolworths');
+  });
+
+  it('pressing the delete button does not also navigate to edit', () => {
+    mockUseTransactions.mockReturnValue({
+      transactions: [mockTransaction],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    fireEvent.press(getByTestId('delete-tx-tx-1'));
+    expect(mockConfirm).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('shows error banner when hook returns error', () => {

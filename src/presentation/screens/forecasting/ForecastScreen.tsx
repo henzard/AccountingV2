@@ -3,11 +3,13 @@ import { View, StyleSheet, FlatList } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
+import { useTransactions } from '../../hooks/useTransactions';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { CashFlowForecaster } from '../../../domain/forecasting/CashFlowForecaster';
 import { formatCurrency } from '../../utils/currency';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
+import { EmptyState } from '../../components/shared/EmptyState';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { spacing, radius, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -30,16 +32,18 @@ export function ForecastScreen(): React.JSX.Element {
   const periodEnd = formatPeriodDateKey(period.endDate);
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
+  const { transactions, reload: reloadTransactions } = useTransactions(householdId, periodStart);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
-    }, [reload]),
+      void reloadTransactions();
+    }, [reload, reloadTransactions]),
   );
 
   const forecasts = useMemo(
-    () => forecaster.project({ envelopes, periodStart, periodEnd }),
-    [envelopes, periodStart, periodEnd],
+    () => forecaster.project({ envelopes, transactions, periodStart, periodEnd }),
+    [envelopes, transactions, periodStart, periodEnd],
   );
 
   const sorted = useMemo(
@@ -49,7 +53,7 @@ export function ForecastScreen(): React.JSX.Element {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <ScreenHeader eyebrow={period.label} title="90-Day Forecast" />
+      <ScreenHeader eyebrow={period.label} title="This period's forecast" />
 
       {loading ? (
         <LoadingSkeletonList count={4} testID="forecast-loading" />
@@ -61,10 +65,19 @@ export function ForecastScreen(): React.JSX.Element {
           testID="forecast-list"
           renderItem={({ item }) => <ForecastRow item={item} />}
           ListHeaderComponent={
-            <Text variant="bodySmall" style={[styles.hint, { color: colors.onSurfaceVariant }]}>
-              Based on {sorted[0]?.daysElapsed ?? 0} days of spending.{' '}
-              {sorted[0]?.daysRemaining ?? 0} days left in period.
-            </Text>
+            sorted.length > 0 ? (
+              <Text variant="bodySmall" style={[styles.hint, { color: colors.onSurfaceVariant }]}>
+                Based on {sorted[0]?.daysElapsed ?? 0} days of spending.{' '}
+                {sorted[0]?.daysRemaining ?? 0} days left in period.
+              </Text>
+            ) : null
+          }
+          ListEmptyComponent={
+            <EmptyState
+              title="Nothing to forecast yet"
+              body="Add envelopes and log spending to see where this period is heading."
+              testID="forecast-empty"
+            />
           }
         />
       )}
@@ -104,7 +117,10 @@ function ForecastRow({ item }: { item: EnvelopeForecast }): React.JSX.Element {
 
       <View style={styles.rowFooter}>
         <Text style={[styles.meta, { color: colors.onSurfaceVariant }]}>
-          {formatCurrency(item.spentCents)} spent · {formatCurrency(item.dailySpendCents)}/day
+          {formatCurrency(item.spentCents)} spent ·{' '}
+          {item.isFixed
+            ? 'Fixed bill — not projected daily'
+            : `${formatCurrency(item.dailySpendCents)}/day`}
         </Text>
         <Text style={[styles.meta, { color: colors.onSurfaceVariant }]}>
           {item.projectedRemainingPct}% projected left

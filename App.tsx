@@ -43,7 +43,9 @@ import { useSyncEngineStore } from './src/presentation/stores/syncEngineStore';
 import { networkObserver } from './src/infrastructure/network/NetworkObserver';
 import { createSyncEngine, type SyncEngine } from './src/data/sync/SyncEngine';
 import { SyncScheduler } from './src/data/sync/SyncScheduler';
+import { registerSyncRuntime } from './src/data/sync/syncRuntime';
 import { getDeviceId } from './src/infrastructure/device/deviceId';
+import { setSyncWriteDefaults } from './src/domain/shared/syncWrite';
 import { DrizzleSlipQueueRepository } from './src/data/repositories/DrizzleSlipQueueRepository';
 import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImageLocalStore';
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
@@ -145,6 +147,22 @@ let syncEngineSingleton: SyncEngine | null = null;
 let syncSchedulerSingleton: SyncScheduler | null = null;
 let syncRuntimeInitPromise: Promise<{ engine: SyncEngine; scheduler: SyncScheduler }> | null = null;
 
+// ─── Write attribution (SYNC-1) ───────────────────────────────────────────────
+//
+// Every synced write stamps the oplog op with this device's id, and the
+// puller skips THIS device's own `increment` ops because they are already
+// folded into local state. Before this wiring, writes were attributed to the
+// `unassigned-device` placeholder while the engine ran with the real id, so
+// the two never matched: after a push, the very next pull re-applied the
+// device's own increments and a debt payment was counted twice locally.
+//
+// It therefore must be installed BEFORE any use case can write, which means
+// on the local boot gate — `resolveSyncedRepoCtx` refuses to write without it
+// in a production build rather than silently falling back again.
+async function installWriteAttribution(): Promise<void> {
+  setSyncWriteDefaults({ deviceId: await getDeviceId() });
+}
+
 function ensureSyncRuntime(): Promise<{ engine: SyncEngine; scheduler: SyncScheduler }> {
   if (syncEngineSingleton && syncSchedulerSingleton) {
     return Promise.resolve({ engine: syncEngineSingleton, scheduler: syncSchedulerSingleton });
@@ -175,6 +193,14 @@ function ensureSyncRuntime(): Promise<{ engine: SyncEngine; scheduler: SyncSched
       syncEngineSingleton = engine;
       syncSchedulerSingleton = scheduler;
       useSyncEngineStore.getState().setSyncRuntime(engine, scheduler);
+      // Publish an await-able sync trigger for callers outside this
+      // composition root (pull-to-refresh, the slip flow's push-before-upload)
+      // — see data/sync/syncRuntime.ts.
+      registerSyncRuntime({
+        requestSyncNow: async (targetHouseholdId) => {
+          await scheduler.syncNow(targetHouseholdId);
+        },
+      });
       return { engine, scheduler };
     })().catch((err) => {
       // Reset so a future call can retry instead of being stuck on a
@@ -311,6 +337,18 @@ function resetInitSessionGuard(): void {
 }
 
 function resetAllStoresOnSignOut(): void {
+  // Stop the sync triggers for the signed-out session (SYNC-11). Without
+  // this, the scheduler stays wired to the previous user's household: a
+  // reconnect/foreground/realtime nudge keeps calling `engine.sync()` for it
+  // after sign-out, and a sign-in as a DIFFERENT user finds `isStarted`
+  // already true so the household re-point is a no-op.
+  syncSchedulerSingleton?.stop();
+  // A stopped scheduler must not be reachable from a screen either — an
+  // await-able trigger after sign-out would sync the previous user's
+  // household. Re-registered by `ensureSyncRuntime` on the next sign-in.
+  registerSyncRuntime(null);
+  // Writes are refused until the next sign-in re-attributes them.
+  setSyncWriteDefaults({ actorUserId: null });
   // Stop listening for FCM token rotation for the just-ended session —
   // otherwise a rotated token after sign-out would still be upserted under
   // the signed-out user's id.
@@ -437,6 +475,16 @@ export default function App(): React.JSX.Element | null {
       }
       if (cancelled) return;
       setSession(session);
+      setSyncWriteDefaults({ actorUserId: session?.user?.id ?? null });
+
+      // Awaited on the LOCAL boot gate, before anything can write: a synced
+      // write with no device id is refused outright (see
+      // `installWriteAttribution`). AsyncStorage-only, never network.
+      try {
+        await installWriteAttribution();
+      } catch (err) {
+        captureBoot('installWriteAttribution (cold start)', err);
+      }
 
       if (session?.user?.id) {
         void hydrateThemeFromRemote(session.user.id);
@@ -477,6 +525,7 @@ export default function App(): React.JSX.Element | null {
     // the household restore + a would-be sync push on every silent refresh).
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session ?? null);
+      setSyncWriteDefaults({ actorUserId: session?.user?.id ?? null });
 
       if (event === 'SIGNED_OUT' || !session) {
         resetAllStoresOnSignOut();

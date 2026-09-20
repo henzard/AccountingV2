@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
-import { Text, Button } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { markOnboardingComplete } from '../../../../infrastructure/storage/onboardingFlag';
 import { useAppStore } from '../../../stores/appStore';
-import { spacing } from '../../../theme/tokens';
-import { useAppTheme } from '../../../theme/useAppTheme';
+import type { OnboardingStackParamList } from './OnboardingNavigator';
+import { ONBOARDING_TOTAL_STEPS, onboardingStepNumber } from './onboardingSteps';
+import { OnboardingStepLayout } from './OnboardingStepLayout';
+
+type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Finish'>;
 
 export function FinishStep(): React.JSX.Element {
-  const { colors } = useAppTheme();
+  const navigation = useNavigation<Nav>();
   const session = useAppStore((s) => s.session);
   const householdId = useAppStore((s) => s.householdId);
   const setOnboardingCompleted = useAppStore((s) => s.setOnboardingCompleted);
@@ -33,46 +36,17 @@ export function FinishStep(): React.JSX.Element {
   };
 
   return (
-    <ScrollView
-      style={[styles.flex, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.container}
-    >
-      <Text variant="displaySmall" style={[styles.title, { color: colors.primary }]}>
-        Your budget is ready.
-      </Text>
-      <Text variant="bodyLarge" style={[styles.body, { color: colors.onSurface }]}>
-        You've set up your income, spending envelopes, and payday. Start logging transactions to
-        grow your Habit Score.
-      </Text>
-      <Button
-        mode="contained"
-        onPress={handleDone}
-        loading={loading}
-        disabled={loading}
-        style={styles.button}
-        contentStyle={styles.buttonContent}
-      >
-        Go to Dashboard
-      </Button>
-    </ScrollView>
+    <OnboardingStepLayout
+      title="Your budget is ready."
+      subtitle="You've set up your income, payday, and spending envelopes. Start logging transactions to grow your Habit Score."
+      step={onboardingStepNumber('Finish')}
+      totalSteps={ONBOARDING_TOTAL_STEPS}
+      avoidKeyboard={false}
+      ctaLabel="Go to Dashboard"
+      onCta={handleDone}
+      ctaLoading={loading}
+      ctaDisabled={loading}
+      onBack={() => navigation.goBack()}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: {
-    flexGrow: 1,
-    padding: spacing.xl,
-    justifyContent: 'center',
-  },
-  title: {
-    fontFamily: 'PlusJakartaSans_700Bold',
-    marginBottom: spacing.base,
-  },
-  body: {
-    marginBottom: spacing.xl,
-    lineHeight: 24,
-  },
-  button: { marginTop: spacing.lg },
-  buttonContent: { paddingVertical: spacing.xs },
-});

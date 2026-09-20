@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, ScrollView, View } from 'react-native';
-import { Text, TextInput, Button, SegmentedButtons, HelperText, Chip } from 'react-native-paper';
+import { Text, TextInput, Button, SegmentedButtons, HelperText, Surface } from 'react-native-paper';
 import { format } from 'date-fns';
 import { and, eq, desc } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -85,8 +85,8 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
 
   const checkAnomaly = useCallback(
     (valueStr: string) => {
-      const value = parseFloat(valueStr);
-      if (isNaN(value) || priorReadings.length < 4) {
+      const parsedReading = parseReadingValue(valueStr);
+      if (!parsedReading.ok || priorReadings.length < 4) {
         setAnomalyWarning(null);
         return;
       }
@@ -94,7 +94,7 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
         id: 'preview',
         householdId,
         meterType,
-        readingValue: value,
+        readingValue: parsedReading.value,
         readingDate: today,
         costCents: null,
         vehicleId: null,
@@ -195,13 +195,14 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       />
 
       {anomalyWarning ? (
-        <Chip
-          icon="alert"
-          style={[styles.anomalyChip, { backgroundColor: colors.warningContainer }]}
-          textStyle={[styles.anomalyText, { color: colors.warning }]}
+        <Surface
+          style={[styles.anomalySurface, { backgroundColor: colors.warningContainer }]}
+          accessibilityRole="alert"
         >
-          {anomalyWarning}
-        </Chip>
+          <View style={styles.anomalyContent}>
+            <Text style={[styles.anomalyText, { color: colors.warning }]}>{anomalyWarning}</Text>
+          </View>
+        </Surface>
       ) : null}
 
       <TextInput
@@ -248,7 +249,14 @@ const styles = StyleSheet.create({
   label: { fontFamily: 'PlusJakartaSans_600SemiBold' },
   segmented: { marginBottom: spacing.sm },
   input: {},
-  anomalyChip: {},
-  anomalyText: { fontSize: 12, flexShrink: 1 },
+  anomalySurface: {
+    borderRadius: 8,
+    padding: spacing.base,
+    elevation: 1,
+  },
+  anomalyContent: {
+    gap: spacing.xs,
+  },
+  anomalyText: { fontSize: 14, lineHeight: 20 },
   button: { marginTop: spacing.base },
 });

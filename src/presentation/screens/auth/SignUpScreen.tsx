@@ -24,6 +24,8 @@ export function SignUpScreen(): React.JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmVisible, setConfirmVisible] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState<'idle' | 'check-email' | 'pending-session'>('idle');
@@ -141,7 +143,7 @@ export function SignUpScreen(): React.JSX.Element {
             label="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={!passwordVisible}
             autoComplete="password-new"
             textContentType="newPassword"
             mode="outlined"
@@ -151,13 +153,20 @@ export function SignUpScreen(): React.JSX.Element {
             accessibilityLabel="Password, at least 8 characters"
             accessibilityRole="none"
             maxFontSizeMultiplier={1.6}
+            right={
+              <TextInput.Icon
+                icon={passwordVisible ? 'eye-off' : 'eye'}
+                onPress={() => setPasswordVisible((v) => !v)}
+                accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}
+              />
+            }
           />
 
           <TextInput
             label="Confirm password"
             value={confirm}
             onChangeText={setConfirm}
-            secureTextEntry
+            secureTextEntry={!confirmVisible}
             autoComplete="password-new"
             textContentType="newPassword"
             mode="outlined"
@@ -167,6 +176,13 @@ export function SignUpScreen(): React.JSX.Element {
             accessibilityLabel="Confirm password"
             accessibilityRole="none"
             maxFontSizeMultiplier={1.6}
+            right={
+              <TextInput.Icon
+                icon={confirmVisible ? 'eye-off' : 'eye'}
+                onPress={() => setConfirmVisible((v) => !v)}
+                accessibilityLabel={confirmVisible ? 'Hide password' : 'Show password'}
+              />
+            }
           />
 
           {err !== null && (

@@ -88,14 +88,19 @@ describe('CashFlowForecaster', () => {
     // Allocated R5000 → projected remaining = 5000 - 1000 - 2000 = 2000
     const result = forecaster.project({
       envelopes: [env({ allocatedCents: 500000, spentCents: 100000 })],
+      // Four modest transactions: ongoing spending, so the daily rate IS
+      // meaningful and gets extrapolated (see `isFixedCommitment`).
       transactions: [
-        tx({ amountCents: 50000, transactionDate: '2026-04-05' }),
-        tx({ amountCents: 50000, transactionDate: '2026-04-09' }),
+        tx({ id: 'tx-1', amountCents: 25000, transactionDate: '2026-04-03' }),
+        tx({ id: 'tx-2', amountCents: 25000, transactionDate: '2026-04-05' }),
+        tx({ id: 'tx-3', amountCents: 25000, transactionDate: '2026-04-07' }),
+        tx({ id: 'tx-4', amountCents: 25000, transactionDate: '2026-04-09' }),
       ],
       periodStart,
       periodEnd,
       today,
     });
+    expect(result[0].isFixed).toBe(false);
     expect(result[0].dailySpendCents).toBe(10000); // 100000 / 10 days
     expect(result[0].projectedSpendRemainingCents).toBe(200000); // 10000 * 20
     expect(result[0].projectedRemainingCents).toBe(200000); // 500000 - 100000 - 200000
@@ -105,7 +110,13 @@ describe('CashFlowForecaster', () => {
   it('marks status as over_budget when projected remaining is negative', () => {
     const result = forecaster.project({
       envelopes: [env({ allocatedCents: 500000, spentCents: 350000 })],
-      transactions: [tx({ amountCents: 350000, transactionDate: '2026-04-05' })],
+      transactions: [
+        tx({ id: 'tx-1', amountCents: 70000, transactionDate: '2026-04-02' }),
+        tx({ id: 'tx-2', amountCents: 70000, transactionDate: '2026-04-04' }),
+        tx({ id: 'tx-3', amountCents: 70000, transactionDate: '2026-04-06' }),
+        tx({ id: 'tx-4', amountCents: 70000, transactionDate: '2026-04-08' }),
+        tx({ id: 'tx-5', amountCents: 70000, transactionDate: '2026-04-10' }),
+      ],
       periodStart,
       periodEnd,
       today,
@@ -118,11 +129,82 @@ describe('CashFlowForecaster', () => {
     // 12000 = 100000 - spent - (spent/10 * 20) → spent ≈ 29333
     const result = forecaster.project({
       envelopes: [env({ allocatedCents: 100000, spentCents: 29333 })],
-      transactions: [tx({ amountCents: 29333, transactionDate: '2026-04-05' })],
+      transactions: [
+        tx({ id: 'tx-1', amountCents: 9778, transactionDate: '2026-04-04' }),
+        tx({ id: 'tx-2', amountCents: 9778, transactionDate: '2026-04-06' }),
+        tx({ id: 'tx-3', amountCents: 9777, transactionDate: '2026-04-08' }),
+      ],
       periodStart,
       periodEnd,
       today,
     });
     expect(result[0].status).toBe('warning');
+  });
+
+  // ─── Fixed commitments (DOM-7/VAL-7) ──────────────────────────────────────
+  describe('fixed commitments are not extrapolated', () => {
+    it('does not project another month of rent from a single day-1 debit order', () => {
+      // R12,000 rent out of a R15,000 allocation, paid once on 1 Apr. The old
+      // maths read that as R12,000/day and projected a further R240,000,
+      // reporting a perfectly healthy budget as catastrophically over.
+      const result = forecaster.project({
+        envelopes: [
+          env({ id: 'env-rent', name: 'Rent', allocatedCents: 1_500_000, spentCents: 1_200_000 }),
+        ],
+        transactions: [
+          tx({
+            id: 'tx-rent',
+            envelopeId: 'env-rent',
+            amountCents: 1_200_000,
+            transactionDate: '2026-04-01',
+          }),
+        ],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].isFixed).toBe(true);
+      expect(result[0].projectedSpendRemainingCents).toBe(0);
+      expect(result[0].projectedRemainingCents).toBe(300_000);
+      expect(result[0].status).toBe('on_track');
+    });
+
+    it('treats one dominant transaction as fixed even with small extras alongside it', () => {
+      // Four transactions, so the "at most two" rule does not apply — but one
+      // of them is 80% of the allocation, so the envelope's purpose has
+      // already been paid.
+      const result = forecaster.project({
+        envelopes: [
+          env({
+            id: 'env-school',
+            name: 'School Fees',
+            allocatedCents: 1_000_000,
+            spentCents: 830_000,
+          }),
+        ],
+        transactions: [
+          tx({ id: 'tx-1', envelopeId: 'env-school', amountCents: 800_000 }),
+          tx({ id: 'tx-2', envelopeId: 'env-school', amountCents: 10_000 }),
+          tx({ id: 'tx-3', envelopeId: 'env-school', amountCents: 10_000 }),
+          tx({ id: 'tx-4', envelopeId: 'env-school', amountCents: 10_000 }),
+        ],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].isFixed).toBe(true);
+      expect(result[0].projectedSpendRemainingCents).toBe(0);
+    });
+
+    it('still extrapolates when transactions are not supplied at all', () => {
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 500000, spentCents: 100000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].isFixed).toBe(false);
+      expect(result[0].projectedSpendRemainingCents).toBe(200000);
+    });
   });
 });

@@ -87,6 +87,35 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
 
   const adminSupabase = deps.createAdminClient();
 
+  // DB-6(b) (deep-review finding): every slip_queue write below used to go
+  // straight to the table via the admin client, bypassing the oplog
+  // entirely — so status/merchant/total_cents/openai_cost_cents existed
+  // ONLY on the server and this calling device; the household's OTHER
+  // devices (which converge purely by pulling public.oplog rows) never
+  // learned a slip had failed or completed. Routing every write through
+  // `apply_server_op` (supabase/migrations/0001 ~1188-1206) makes it take
+  // the same per-household advisory lock and append the same oplog row any
+  // other writer would, so `sync_pull` fans it out like any other change.
+  // `apply_server_op` funnels into the SAME `private.apply_one_op` used by
+  // client pushes, but is called here with the service_role key (no
+  // authenticated JWT `sub`), which `apply_one_op` uses to recognize this as
+  // the privileged server path and skip the slip_queue client-column
+  // stripping it applies to ordinary client pushes (see 0010's apply_one_op
+  // comment) — so `openai_cost_cents` written here is NOT discarded.
+  const applySlipUpdate = (payload: Record<string, unknown>) =>
+    adminSupabase.rpc('apply_server_op', {
+      p_op: {
+        v: '1',
+        op_id: crypto.randomUUID(),
+        household_id,
+        table: 'slip_queue',
+        row_id: slip_id,
+        op_type: 'update',
+        payload,
+        device_id: 'server:extract-slip',
+      },
+    });
+
   // 2. Household membership check
   // NOTE: re-pointed from the dropped public.user_households to
   // public.household_members (the 2026-07-04 baseline's replacement table).
@@ -224,14 +253,11 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   let openaiResp = await callOpenAI();
   if (openaiResp.status >= 500) openaiResp = await callOpenAI();
   if (!openaiResp.ok) {
-    await adminSupabase
-      .from('slip_queue')
-      .update({
-        status: 'failed',
-        error_message: 'OpenAI unreachable',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', slip_id);
+    await applySlipUpdate({
+      status: 'failed',
+      error_message: 'OpenAI unreachable',
+      updated_at: new Date().toISOString(),
+    });
     return new Response('OpenAI unreachable', { status: 503 });
   }
 
@@ -250,40 +276,31 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   };
   const rawContent: string | null | undefined = openaiJson.choices?.[0]?.message?.content;
   if (!rawContent) {
-    await adminSupabase
-      .from('slip_queue')
-      .update({
-        status: 'failed',
-        error_message: 'Empty OpenAI response',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', slip_id);
+    await applySlipUpdate({
+      status: 'failed',
+      error_message: 'Empty OpenAI response',
+      updated_at: new Date().toISOString(),
+    });
     return new Response('Empty OpenAI response', { status: 503 });
   }
   try {
     parsed = JSON.parse(rawContent);
   } catch {
-    await adminSupabase
-      .from('slip_queue')
-      .update({
-        status: 'failed',
-        error_message: 'OpenAI returned invalid JSON',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', slip_id);
+    await applySlipUpdate({
+      status: 'failed',
+      error_message: 'OpenAI returned invalid JSON',
+      updated_at: new Date().toISOString(),
+    });
     return new Response('Invalid OpenAI response', { status: 503 });
   }
 
   // 11. Validate
   if (Array.isArray(parsed.items) && parsed.items.length > 100) {
-    await adminSupabase
-      .from('slip_queue')
-      .update({
-        status: 'failed',
-        error_message: 'Unreasonable extraction',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', slip_id);
+    await applySlipUpdate({
+      status: 'failed',
+      error_message: 'Unreasonable extraction',
+      updated_at: new Date().toISOString(),
+    });
     return new Response('Unreasonable extraction', { status: 422 });
   }
   // Defend against prompt injection: validate suggested_envelope_id values
@@ -297,18 +314,15 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   // 12. Cost + persist
   const costCents = calculateOpenAIcost(openaiJson.usage as OpenAIUsage);
   const rawResponse = JSON.stringify(parsed);
-  await adminSupabase
-    .from('slip_queue')
-    .update({
-      status: 'completed',
-      merchant: parsed.merchant,
-      slip_date: parsed.slip_date,
-      total_cents: parsed.total_cents,
-      raw_response_json: rawResponse,
-      openai_cost_cents: costCents,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', slip_id);
+  await applySlipUpdate({
+    status: 'completed',
+    merchant: parsed.merchant,
+    slip_date: parsed.slip_date,
+    total_cents: parsed.total_cents,
+    raw_response_json: rawResponse,
+    openai_cost_cents: costCents,
+    updated_at: new Date().toISOString(),
+  });
 
   // 13. Return
   return new Response(

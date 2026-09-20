@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, StyleSheet, Modal, FlatList, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Modal, FlatList, Pressable } from 'react-native';
 import { Text, TouchableRipple, Surface } from 'react-native-paper';
 import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
+import { formatCurrency } from '../../../utils/currency';
 import type { EnvelopeType } from '../../../../domain/envelopes/EnvelopeEntity';
 
 export interface EnvelopeOption {
@@ -15,9 +16,7 @@ export interface EnvelopeOption {
 
 function formatBalance(env: EnvelopeOption): string {
   const balance = env.allocatedCents - env.spentCents;
-  const rands = Math.abs(balance) / 100;
-  const sign = balance < 0 ? '-R' : 'R';
-  return `${sign}${rands.toFixed(2)}`;
+  return `${formatCurrency(balance)} left`;
 }
 
 export type EnvelopePickerSheetProps = {
@@ -44,14 +43,15 @@ export function EnvelopePickerSheet({
       onRequestClose={onClose}
       accessibilityViewIsModal
     >
-      <TouchableOpacity
-        style={styles.backdrop}
-        onPress={onClose}
-        activeOpacity={1}
-        accessibilityLabel="Close envelope picker"
-        accessibilityRole="button"
-        testID="envelope-picker-backdrop"
-      >
+      <View style={styles.containerFlex}>
+        <Pressable
+          style={[styles.backdrop, StyleSheet.absoluteFill]}
+          onPress={onClose}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel="Close envelope picker"
+          testID="envelope-picker-backdrop"
+        />
         <Surface style={[styles.sheet, { backgroundColor: colors.surface }]} elevation={4}>
           <View style={[styles.handle, { backgroundColor: colors.outline }]} />
           <Text variant="titleMedium" style={[styles.title, { color: colors.onSurface }]}>
@@ -71,6 +71,8 @@ export function EnvelopePickerSheet({
                   }}
                   style={styles.item}
                   testID={`envelope-option-${item.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={item.name}
                 >
                   <View style={styles.itemInner}>
                     <Text
@@ -90,7 +92,7 @@ export function EnvelopePickerSheet({
                       }}
                       testID={`envelope-balance-${item.id}`}
                     >
-                      {formatBalance(item)} left
+                      {formatBalance(item)}
                     </Text>
                   </View>
                 </TouchableRipple>
@@ -105,16 +107,18 @@ export function EnvelopePickerSheet({
             }
           />
         </Surface>
-      </TouchableOpacity>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  containerFlex: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
+  },
+  backdrop: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   sheet: {
     borderTopLeftRadius: radius.lg,
