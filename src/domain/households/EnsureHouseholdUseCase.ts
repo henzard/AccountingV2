@@ -1,5 +1,5 @@
 import { randomUUID } from 'expo-crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { households, householdMembers } from '../../data/local/schema';
@@ -26,11 +26,19 @@ export class EnsureHouseholdUseCase {
   ) {}
 
   async execute(): Promise<Result<HouseholdSummary>> {
-    // 1. Check if user already has a membership row
+    // 1. Check if user already has an ACTIVE membership row.
+    //
+    // `deleted_at IS NULL` is load-bearing, not tidiness: membership rows are
+    // SOFT-deleted (LeaveHouseholdUseCase's synced delete, the pulled delete
+    // an owner's remove_household_member RPC appends, and
+    // SyncEngine.evictHousehold all stamp deleted_at and leave the row in
+    // place). Without this filter, cold start picks up the tombstoned row,
+    // re-selects the household the user just left or was removed from, and
+    // resurrects it on the picker — with no server access behind it.
     const [membership] = await this.db
       .select()
       .from(householdMembers)
-      .where(eq(householdMembers.userId, this.userId))
+      .where(and(eq(householdMembers.userId, this.userId), isNull(householdMembers.deletedAt)))
       .limit(1);
 
     if (membership) {

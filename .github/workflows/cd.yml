@@ -69,7 +69,9 @@ jobs:
 
       - uses: supabase/setup-cli@v2
         with:
-          version: latest
+          # Pinned: `latest` resolves through the GitHub API, which rate-limits and
+          # flaked this job; a release gate should not float its toolchain either.
+          version: 2.117.0
 
       - name: Boot local Supabase stack
         run: supabase start
@@ -147,7 +149,9 @@ jobs:
 
       - uses: supabase/setup-cli@v2
         with:
-          version: latest
+          # Pinned: `latest` resolves through the GitHub API, which rate-limits and
+          # flaked this job; a release gate should not float its toolchain either.
+          version: 2.117.0
 
       - name: Boot local Supabase stack (backs the tier-4 authenticated journey)
         run: supabase start

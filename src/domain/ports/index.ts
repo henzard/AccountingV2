@@ -9,3 +9,8 @@ export type { ISlipImageCompressor } from './ISlipImageCompressor';
 export type { ISlipImageUploader } from './ISlipImageUploader';
 export type { ISlipQueueRepository, SlipQueueRow } from './ISlipQueueRepository';
 export type { IUserConsentRepository, UserConsentRow } from './IUserConsentRepository';
+export type {
+  IHouseholdNotifier,
+  HouseholdNotificationEvent,
+  HouseholdNotificationKind,
+} from './IHouseholdNotifier';

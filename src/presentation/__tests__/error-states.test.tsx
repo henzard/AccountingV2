@@ -34,8 +34,10 @@ jest.mock('drizzle-orm', () => {
 
   return {
     and: jest.fn((...a: unknown[]) => a),
+    or: jest.fn((...a: unknown[]) => a),
     eq: jest.fn((c: unknown, v: unknown) => ({ c, v })),
     gte: jest.fn((c: unknown, v: unknown) => ({ c, v })),
+    lte: jest.fn((c: unknown, v: unknown) => ({ c, v })),
     isNull: jest.fn((c: unknown) => ({ c })),
     asc: jest.fn((c: unknown) => c),
     desc: jest.fn((c: unknown) => c),
@@ -54,6 +56,8 @@ jest.mock('../../data/local/schema', () => ({
   transactions: {
     householdId: 'householdId',
     transactionDate: 'transactionDate',
+    envelopeId: 'envelopeId',
+    deletedAt: 'deletedAt',
   },
   debts: {
     householdId: 'householdId',

@@ -126,6 +126,10 @@ jest.mock('../../../../data/local/db', () => ({
   },
 }));
 
+jest.mock('../../../../infrastructure/notifications/HouseholdNotifier', () => ({
+  householdNotifier: { notifyHousehold: jest.fn() },
+}));
+
 // spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored
 // column — mocked so setupDbChain's row fixtures (which already carry a
 // `spentCents` value) flow straight through unchanged.

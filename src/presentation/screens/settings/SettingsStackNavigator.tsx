@@ -6,6 +6,7 @@ import { SettingsScreen } from './SettingsScreen';
 import { NotificationPreferencesScreen } from './NotificationPreferencesScreen';
 import { SyncHealthScreen } from './SyncHealthScreen';
 import { CrashLogViewer } from './CrashLogViewer';
+import { DeleteAccountScreen } from './DeleteAccountScreen';
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
 
@@ -35,6 +36,11 @@ export function SettingsStackNavigator(): React.JSX.Element {
         options={{ title: 'Sync Health' }}
       />
       <Stack.Screen name="CrashLog" component={CrashLogViewer} options={{ title: 'Crash log' }} />
+      <Stack.Screen
+        name="DeleteAccount"
+        component={DeleteAccountScreen}
+        options={{ title: 'Delete account' }}
+      />
     </Stack.Navigator>
   );
 }

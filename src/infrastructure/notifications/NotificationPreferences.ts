@@ -6,6 +6,15 @@ export interface NotificationPreferences {
   meterReadingReminderDay: number; // 1–28 (default 1)
   monthStartPreflightEnabled: boolean;
   envelopeWarningEnabled: boolean;
+  /**
+   * VAL-6/DB-7: gates SENDING a household-activity push (transaction created,
+   * envelope over budget, slip confirmed) from this device. There is no
+   * server-side per-user receiving preference — `user_preferences`
+   * (supabase/migrations/0001_baseline.sql) only stores `theme_preference`,
+   * and notify-event/index.ts has no preference lookup — so this can only
+   * gate what THIS device sends, not what a partner's device receives.
+   */
+  householdActivityEnabled: boolean;
 }
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
@@ -16,4 +25,5 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   meterReadingReminderDay: 1,
   monthStartPreflightEnabled: true,
   envelopeWarningEnabled: true,
+  householdActivityEnabled: true,
 };

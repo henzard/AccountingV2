@@ -74,6 +74,7 @@ export type SettingsStackParamList = {
   NotificationPreferences: undefined;
   SyncHealth: undefined;
   CrashLog: undefined;
+  DeleteAccount: undefined;
 };
 
 export type MainTabParamList = {
@@ -92,6 +93,7 @@ export type RootStackParamList = {
   HouseholdPicker: undefined;
   CreateHousehold: undefined;
   ShareInvite: { householdId: string; householdName: string };
+  HouseholdMembers: { householdId: string; householdName: string };
   JoinHousehold: undefined;
   SlipScanning: undefined;
   ResetPassword: undefined;

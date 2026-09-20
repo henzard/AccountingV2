@@ -31,6 +31,10 @@ const NOW = '2026-01-01T00:00:00.000Z';
 // the factory can't reference other top-level imports/consts.
 let mockRawDb: Database.Database;
 
+jest.mock('../../../../infrastructure/notifications/HouseholdNotifier', () => ({
+  householdNotifier: { notifyHousehold: jest.fn() },
+}));
+
 jest.mock('../../../../data/local/db', () => {
   const { drizzle } = require('drizzle-orm/better-sqlite3');
   const { openMigratedDb } = require('../../../../../tests/realsql/harness/openMigratedDb');

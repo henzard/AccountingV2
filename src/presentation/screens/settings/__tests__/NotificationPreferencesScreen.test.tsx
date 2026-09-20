@@ -302,6 +302,37 @@ describe('NotificationPreferencesScreen', () => {
     expect(getAllByText(/Daily Log Prompt/i).length).toBeGreaterThan(0);
     expect(getAllByText(/Meter Reading Reminder/i).length).toBeGreaterThan(0);
     expect(getAllByText(/Budget Period/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/Household Activity/i).length).toBeGreaterThan(0);
+  });
+
+  // VAL-6/DB-7 — sending-side gate for household-activity pushes.
+  describe('Household activity toggle', () => {
+    it('renders the household activity toggle', () => {
+      const { getAllByText } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+      expect(getAllByText(/Household activity/i).length).toBeGreaterThan(0);
+    });
+
+    it('calls setPreferences and repo.save when the household activity toggle fires', async () => {
+      mockPreferences = { ...mockPreferences, householdActivityEnabled: true } as never;
+      const { UNSAFE_root } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+      const switches = UNSAFE_root.findAllByType('Switch');
+      const householdActivitySwitch = switches[switches.length - 1];
+      await act(async () => {
+        householdActivitySwitch.props.onValueChange(false);
+      });
+      await waitFor(() => {
+        expect(mockSetPreferences).toHaveBeenCalledWith(
+          expect.objectContaining({ householdActivityEnabled: false }),
+        );
+        expect(mockSave).toHaveBeenCalledWith(
+          expect.objectContaining({ householdActivityEnabled: false }),
+        );
+      });
+    });
   });
 
   // L10 — a single shared debounce timer meant editing hour then minute

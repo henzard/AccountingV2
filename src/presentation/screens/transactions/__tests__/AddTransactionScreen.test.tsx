@@ -118,6 +118,10 @@ jest.mock('../../../../data/local/db', () => ({
   },
 }));
 
+jest.mock('../../../../infrastructure/notifications/HouseholdNotifier', () => ({
+  householdNotifier: { notifyHousehold: jest.fn() },
+}));
+
 // spentCents is derived from the ledger (getEnvelopeSpentCents), not a stored
 // column — mocked so setupDbChain's row fixtures (which already carry a
 // `spentCents` value) flow straight through unchanged.
@@ -384,5 +388,43 @@ describe('AddTransactionScreen', () => {
       expect.anything(),
       expect.objectContaining({ amountCents: 150 }),
     );
+  });
+
+  // VAL-6/DB-7 — a successful CREATE wakes the household; an edit must not.
+  describe('household notification on save', () => {
+    it('notifies the household after a successful create, with formatCurrency-built copy', async () => {
+      const {
+        householdNotifier,
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+      } = require('../../../../infrastructure/notifications/HouseholdNotifier');
+      (householdNotifier.notifyHousehold as jest.Mock).mockClear();
+
+      setupDbChain([
+        {
+          id: 'env-1',
+          name: 'Groceries',
+          allocatedCents: 1_000_000,
+          spentCents: 0,
+          envelopeType: 'spending',
+        },
+      ]);
+
+      const { getByText, getByTestId } = render(<AddTransactionScreen {...makeNavProps()} />);
+
+      await waitFor(() => {
+        fireEvent.changeText(getByTestId('amount-input'), '25.00');
+        fireEvent.press(getByText('Record Transaction'));
+        expect(mockExecute).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(householdNotifier.notifyHousehold).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: 'transaction_created',
+            body: expect.stringContaining('R25,00'),
+          }),
+        );
+      });
+    });
   });
 });

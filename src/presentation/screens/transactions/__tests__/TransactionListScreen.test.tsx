@@ -2,7 +2,7 @@
  * TransactionListScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 // ─── confirm() mock (ConfirmDialogHost) ────────────────────────────────────────
 const mockConfirm = jest.fn();
@@ -67,9 +67,35 @@ jest.mock('react-native-paper', () => {
       animating !== false ? React.createElement('View', { testID: 'loading' }) : null,
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
-    IconButton: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
-      React.createElement('Pressable', { onPress, testID }),
+    IconButton: ({
+      onPress,
+      testID,
+      disabled,
+      accessibilityLabel,
+    }: {
+      onPress?: () => void;
+      testID?: string;
+      disabled?: boolean;
+      accessibilityLabel?: string;
+    }) => React.createElement('Pressable', { onPress, testID, disabled, accessibilityLabel }),
     Divider: () => React.createElement('View'),
+    Searchbar: ({
+      value,
+      onChangeText,
+      testID,
+      placeholder,
+    }: {
+      value?: string;
+      onChangeText?: (text: string) => void;
+      testID?: string;
+      placeholder?: string;
+    }) =>
+      React.createElement('TextInput', {
+        value,
+        onChangeText,
+        testID,
+        placeholder,
+      }),
   };
 });
 
@@ -308,5 +334,142 @@ describe('TransactionListScreen', () => {
       />,
     );
     expect(getByTestId('error-banner')).toBeTruthy();
+  });
+
+  // ─── Period switcher ────────────────────────────────────────────────────
+
+  it('renders the period switcher with the next-period button disabled on the current period', () => {
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(getByTestId('period-switcher')).toBeTruthy();
+    expect(getByTestId('period-next-button').props.disabled).toBe(true);
+  });
+
+  it('pressing the previous-period button moves the view back and re-enables next', () => {
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    fireEvent.press(getByTestId('period-prev-button'));
+    expect(getByTestId('period-next-button').props.disabled).toBe(false);
+  });
+
+  it('pressing next after going back returns to the current period (next disabled again)', () => {
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    fireEvent.press(getByTestId('period-prev-button'));
+    fireEvent.press(getByTestId('period-next-button'));
+    expect(getByTestId('period-next-button').props.disabled).toBe(true);
+  });
+
+  it('passes the viewed period as periodStart/periodEnd to useTransactions', () => {
+    render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    const [, arg] = mockUseTransactions.mock.calls[0] as [
+      string,
+      { periodStart: string; periodEnd: string },
+    ];
+    expect(typeof arg.periodStart).toBe('string');
+    expect(typeof arg.periodEnd).toBe('string');
+    expect(arg.periodStart <= arg.periodEnd).toBe(true);
+  });
+
+  // ─── Search ─────────────────────────────────────────────────────────────
+
+  it('filters the visible rows by payee, case-insensitively, after the debounce', async () => {
+    jest.useFakeTimers();
+    mockUseTransactions.mockReturnValue({
+      transactions: [
+        { ...mockTransaction, id: 'tx-1', payee: 'Woolworths' },
+        { ...mockTransaction, id: 'tx-2', payee: 'Pick n Pay' },
+      ],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId, queryByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('transaction-search'), 'woolworths');
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('tx-row-tx-1')).toBeTruthy();
+      expect(queryByTestId('tx-row-tx-2')).toBeNull();
+    });
+    jest.useRealTimers();
+  });
+
+  it('shows "no matches" empty state when the search finds nothing, distinct from the no-transactions state', async () => {
+    jest.useFakeTimers();
+    mockUseTransactions.mockReturnValue({
+      transactions: [{ ...mockTransaction, id: 'tx-1', payee: 'Woolworths' }],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId, queryByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('transaction-search'), 'nonexistent-merchant');
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('transaction-list-no-matches')).toBeTruthy();
+      expect(queryByTestId('transaction-list-empty-state')).toBeNull();
+    });
+    jest.useRealTimers();
+  });
+
+  it('shows the period-total reflecting only the filtered rows', async () => {
+    jest.useFakeTimers();
+    mockUseTransactions.mockReturnValue({
+      transactions: [
+        { ...mockTransaction, id: 'tx-1', payee: 'Woolworths', amountCents: 5000 },
+        { ...mockTransaction, id: 'tx-2', payee: 'Pick n Pay', amountCents: 3000 },
+      ],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId('transaction-search'), 'woolworths');
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+
+    await waitFor(() => {
+      expect(getByTestId('period-total').props.children).toContain('50');
+    });
+    jest.useRealTimers();
   });
 });

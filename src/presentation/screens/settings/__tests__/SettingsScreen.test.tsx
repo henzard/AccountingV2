@@ -343,6 +343,21 @@ describe('SettingsScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('SlipScanning', { screen: 'SlipConsent' });
   });
 
+  it('opens the household members screen from the Household section', () => {
+    const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+    fireEvent.press(getByTestId('household-members-row'));
+    expect(mockRootNavigate).toHaveBeenCalledWith(
+      'HouseholdMembers',
+      expect.objectContaining({ householdId: expect.any(String) }),
+    );
+  });
+
+  it('opens the delete-account screen from below Sign out', () => {
+    const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+    fireEvent.press(getByTestId('delete-account-row'));
+    expect(mockNavigate).toHaveBeenCalledWith('DeleteAccount');
+  });
+
   describe('Payday day', () => {
     it('shows the current payday day', () => {
       const { getByText } = render(<SettingsScreen {...makeNavProps()} />);

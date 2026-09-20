@@ -193,6 +193,25 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
           />
         </Surface>
       </List.Section>
+
+      <List.Section>
+        <List.Subheader style={[styles.subheader, { color: colors.onSurfaceVariant }]}>
+          Household Activity
+        </List.Subheader>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
+          <List.Item
+            title="Household activity"
+            description="Push your partner when you log a transaction, go over budget, or confirm a slip. There is no server-side receiving preference yet — this only controls what THIS device sends."
+            right={() => (
+              <Switch
+                value={preferences.householdActivityEnabled}
+                onValueChange={(v) => updatePref({ householdActivityEnabled: v })}
+                color={colors.primary}
+              />
+            )}
+          />
+        </Surface>
+      </List.Section>
     </ScrollView>
   );
 };

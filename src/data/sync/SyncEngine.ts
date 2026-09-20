@@ -39,6 +39,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { notifyOplogWrite, type PortableDb } from '../uow/UnitOfWork';
 import { UNASSIGNED_DEVICE_ID, getSyncWriteDefaults } from '../../domain/shared/syncWrite';
 import { isActiveEmergencyFund, resolveIncomingEmergencyFund } from './emergencyFundConflict';
+import { publishHouseholdEviction } from './householdEviction';
 import { logger } from '../../infrastructure/logging/Logger';
 
 // ---------------------------------------------------------------------------
@@ -102,6 +103,23 @@ export interface SyncTransport {
     rowId: string,
     signal: AbortSignal,
   ): Promise<Record<string, unknown> | null>;
+  /**
+   * Authoritative answer to "is this device's user still an ACTIVE member of
+   * `householdId`?" — the single check that decides whether a household is
+   * evicted locally (see `SyncEngine.checkMembershipAndEvict`).
+   *
+   * The contract is deliberately three-valued, encoded as resolve/resolve/
+   * throw, because a false "no" destroys a household's presence on this
+   * device:
+   *   - resolves `true`  — the server answered and the user IS a member;
+   *   - resolves `false` — the server EXPLICITLY answered that they are not;
+   *   - THROWS           — inconclusive (offline, 5xx, timeout, abort, no
+   *                        signed-in user, unrecognised error). Never guess.
+   *
+   * Optional so existing push/pull-only test doubles stay valid; the
+   * production transport (`createSupabaseSyncTransport`) implements it.
+   */
+  membershipCheck?(householdId: string, signal: AbortSignal): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +228,28 @@ export const PERMANENT_REJECT_CODES: ReadonlySet<string> = new Set([
   'forbidden_column',
   'wrong_household',
   'not_member',
+  // Both are `private.apply_one_op`'s household_members guard (0007, live
+  // body in 0010) and are as deterministic as the four above: the SAME op
+  // re-pushed re-evaluates the SAME committed state and is refused
+  // identically. They were missing from this set, so they fell through to
+  // the "unexpected code" branch in `drainPush` — retried ten times with
+  // capped backoff and, worse, marking the household `stalled` on every one
+  // of those rounds, which holds up every UNRELATED op behind them. They now
+  // dead-letter on the first rejection and never stall the queue.
+  //
+  // `forbidden_member`: the op tried to write somebody else's membership row,
+  //   insert a second/elevated row for itself, or update a membership row at
+  //   all. Only the owner RPCs (create_invitation,
+  //   join_household_via_invite, remove_household_member) may do those, and
+  //   they bypass sync_push entirely — so no amount of retrying turns this
+  //   into an applied op.
+  // `last_owner`: a household's last ACTIVE owner tried to delete their own
+  //   membership row (leave). `LeaveHouseholdUseCase` pre-checks the exact
+  //   same condition locally so a correct client never emits this op; a
+  //   second device acting on a stale roster still can, and it must surface
+  //   as one inspectable dead letter rather than ten stalled rounds.
+  'forbidden_member',
+  'last_owner',
 ]);
 
 /**
@@ -228,6 +268,34 @@ export const PERMANENT_REJECT_CODES: ReadonlySet<string> = new Set([
  * the first place; this is the safety net for an op that already got ahead.
  */
 export const TRANSIENT_REJECT_CODES: ReadonlySet<string> = new Set(['row_missing']);
+
+/**
+ * The push reject code that means "the server does not consider you a member
+ * of this household". It is already PERMANENT (the op is dead-lettered), but
+ * it is ALSO the only signal a removed member's device can ever receive that
+ * it has been removed: `sync_pull` is SECURITY INVOKER over an RLS-protected
+ * `oplog`, so the removal op — like every other op for that household — is
+ * simply invisible to them, and their pulls return zero rows forever, which
+ * is indistinguishable from "nothing new". See `checkMembershipAndEvict`.
+ */
+const MEMBERSHIP_REJECT_CODE = 'not_member';
+
+/**
+ * A pull failure whose SHAPE says "permission", not "network". Only these
+ * make the engine even ASK whether it is still a member; the answer itself
+ * always comes from `transport.membershipCheck`, never from this predicate.
+ *
+ * Today the server cannot actually produce one of these for `sync_pull` (RLS
+ * returns zero rows rather than an error, and EXECUTE is granted to every
+ * authenticated role), so this is the safety net for a server that later
+ * tightens that — it must not be read as the main detection path.
+ */
+const PERMISSION_ERROR_RE = /\b42501\b|permission denied|insufficient_privilege|not authori[sz]ed/i;
+
+function isPermissionShapedError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return PERMISSION_ERROR_RE.test(message);
+}
 
 export interface SyncEngineOptions {
   /** Max ops per `sync_push` call. Default 50. */
@@ -623,6 +691,10 @@ export class SyncEngine {
     // rejected op's `next_attempt_at` now holds the line via `fetchPushable`.
     const stalledHouseholds = new Set<string>();
 
+    // Households the server rejected `not_member` during THIS drain. Checked
+    // (authoritatively) once the drain is over — see `checkMembershipAndEvict`.
+    const membershipRejected = new Set<string>();
+
     for (;;) {
       const batch = this.fetchPushable(this.clock(), this.batchSize, stalledHouseholds);
       if (batch.length === 0) break;
@@ -674,6 +746,10 @@ export class SyncEngine {
         } else if (res.code !== null && PERMANENT_REJECT_CODES.has(res.code)) {
           this.deadLetter(op.op_id, now, res.code);
           summary.deadLettered += 1;
+          // NOT added to `stalledHouseholds`: a permanent rejection is this
+          // op's own verdict, not an ordering problem, so the household's
+          // remaining ops keep draining this round.
+          if (res.code === MEMBERSHIP_REJECT_CODE) membershipRejected.add(op.household_id);
         } else if (op.retry_count + 1 >= this.maxRejectRetries) {
           // Unexpected reject code retried to the cap -> journal it (R1: never
           // silently drop a committed write; a dead-letter is inspectable).
@@ -691,7 +767,149 @@ export class SyncEngine {
       // until no eligible op remains (all remaining are backing off).
     }
 
+    // After the drain, never during it: a `not_member` rejection is the only
+    // way this device can learn it has been removed from a household, but the
+    // rejection alone is not proof (it is also what a household whose
+    // bootstrap ops have not landed yet looks like), so each suspect gets ONE
+    // authoritative check before anything local is touched.
+    for (const householdId of membershipRejected) {
+      await this.checkMembershipAndEvict(householdId);
+    }
+
     return summary;
+  }
+
+  // ----- membership loss / local eviction -----------------------------------
+
+  /**
+   * Confirms, authoritatively, whether this device's user is still a member of
+   * `householdId` — and if the server says they are NOT, evicts the household
+   * locally (`evictHousehold`). Returns true only if an eviction happened.
+   *
+   * The whole point of the round trip is that the TRIGGER is not trusted. A
+   * `not_member` push rejection and a permission-shaped pull error are both
+   * suggestive, never conclusive; only `transport.membershipCheck` resolving
+   * `false` is. Every inconclusive outcome — no transport support, network
+   * failure, 5xx, timeout, abort, no signed-in user, an error shape the
+   * transport did not recognise — throws out of the check and is swallowed
+   * here as "do nothing", because evicting a household that the user is in
+   * fact still a member of would tear a live household off their device over
+   * a flaky connection.
+   */
+  async checkMembershipAndEvict(householdId: string): Promise<boolean> {
+    // Bound to the transport: a transport may legitimately implement this as a
+    // class method that uses `this` (test doubles do), and an unbound call
+    // would throw and be swallowed below as "inconclusive" — silently turning
+    // detection off.
+    const membershipCheck = this.transport.membershipCheck?.bind(this.transport);
+    if (!membershipCheck) {
+      logger.warn(
+        'SyncEngine: membership loss suspected but the transport cannot verify it — not evicting',
+        { householdId },
+      );
+      return false;
+    }
+
+    let stillMember: boolean;
+    try {
+      stillMember = await this.withTimeout((signal) => membershipCheck(householdId, signal));
+    } catch (err) {
+      // Inconclusive. Deliberately NOT an eviction and NOT a retry schedule:
+      // the next push that gets rejected `not_member` asks again.
+      logger.warn('SyncEngine: membership check inconclusive — not evicting', {
+        householdId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+
+    if (stillMember) {
+      logger.info('SyncEngine: membership check says still a member — no eviction', {
+        householdId,
+      });
+      return false;
+    }
+
+    return this.evictHousehold(householdId);
+  }
+
+  /**
+   * Makes a household this device is no longer a member of UNREACHABLE
+   * locally, in ONE transaction, and announces it once.
+   *
+   * What it does, and why each part:
+   *   - soft-deletes this user's local `household_members` row WITHOUT
+   *     appending an oplog op. The server already holds the truth (it is the
+   *     one that removed them); an op would be a push this device is no
+   *     longer entitled to make, rejected `not_member`, dead-lettered. This
+   *     is also what stops `EnsureHouseholdUseCase` resurrecting the
+   *     household on the next cold start.
+   *   - dead-letters the household's remaining UNPUSHED ops instead of
+   *     leaving them to be re-pushed and rejected one by one forever. They
+   *     are journaled, not dropped (R1): still listed by `listDeadLettered`,
+   *     so nothing committed is silently lost if the user is re-invited.
+   *   - drops the pull cursor, so a re-invite restores from seq 0 rather than
+   *     resuming mid-stream past ops it never applied.
+   *
+   * It deliberately does NOT delete the household's financial rows: if the
+   * user is re-invited, `RestoreService` reconciles them, and a wrongly
+   * triggered eviction must not be able to destroy data.
+   *
+   * Idempotent: the active-membership-row probe is the guard, so a second
+   * call is a no-op that announces nothing.
+   */
+  evictHousehold(householdId: string): boolean {
+    const userId = getSyncWriteDefaults().actorUserId;
+    if (!userId) {
+      // Without an actor there is no way to know WHOSE membership row to
+      // retire, and a signed-out process should not be syncing at all.
+      logger.error(
+        'SyncEngine.evictHousehold: no actor user id installed — refusing to evict',
+        new Error('missing actorUserId'),
+        { householdId },
+      );
+      return false;
+    }
+
+    const now = this.clock();
+    const evicted = this.db.transaction((tx) => {
+      const active = tx.get(sql`
+        SELECT 1 AS x FROM household_members
+        WHERE household_id = ${householdId} AND user_id = ${userId} AND deleted_at IS NULL
+      `);
+      if (!active) return false; // already evicted (or never joined here) -- no-op, no event
+
+      tx.run(sql`
+        UPDATE household_members SET deleted_at = ${now}
+        WHERE household_id = ${householdId} AND user_id = ${userId} AND deleted_at IS NULL
+      `);
+      tx.run(sql`
+        UPDATE oplog SET dead_lettered_at = ${now}
+        WHERE household_id = ${householdId} AND pushed_at IS NULL AND dead_lettered_at IS NULL
+      `);
+      tx.run(sql`DELETE FROM sync_cursor WHERE household_id = ${householdId}`);
+      return true;
+    });
+
+    if (!evicted) {
+      logger.info('SyncEngine.evictHousehold: already evicted locally, nothing to do', {
+        householdId,
+      });
+      return false;
+    }
+
+    // In-memory puller state for a household this device can no longer read.
+    this.pullBackoff.delete(householdId);
+    this.pullApplyFailures.delete(householdId);
+    this.pullBlocked.delete(householdId);
+
+    logger.warn('SyncEngine: household evicted locally — this device is no longer a member', {
+      householdId,
+    });
+    // AFTER the commit, so every listener sees a local DB that already
+    // reflects the eviction.
+    publishHouseholdEviction({ householdId, detectedAt: now });
+    return true;
   }
 
   /**
@@ -826,6 +1044,14 @@ export class SyncEngine {
         // flaky link every time the trigger loop calls pull() again.
         this.backoffTransientPull(householdId, err);
         summary.transportFailed = true;
+        // A permission-SHAPED failure is the other place membership loss
+        // could surface (see PERMISSION_ERROR_RE for why it currently cannot
+        // on this server). The answer still comes from the authoritative
+        // check, so an ordinary network failure — which never matches this
+        // predicate — can never evict.
+        if (isPermissionShapedError(err)) {
+          await this.checkMembershipAndEvict(householdId);
+        }
         break;
       }
       if (rows.length === 0) break;
@@ -1230,7 +1456,70 @@ export function createSupabaseSyncTransport(supabase: SupabaseClient): SyncTrans
       if (error) throw new Error(`sync_row_state failed: ${error.message}`);
       return (data ?? null) as Record<string, unknown> | null;
     },
+    async membershipCheck(householdId, signal): Promise<boolean> {
+      // Primary: `public.list_household_members` (0011) raises 42501 for a
+      // caller who is not an ACTIVE member, and succeeds for one who is. It
+      // is the cheapest call that gives an explicit, authoritative answer.
+      const { error } = await supabase
+        .rpc('list_household_members', { p_household_id: householdId })
+        .abortSignal(signal);
+      if (!error) return true;
+
+      if (isNotAMemberError(error)) return false;
+
+      if (isMissingFunctionError(error)) {
+        // Fallback for a client running ahead of the deployed schema (0011
+        // not applied yet): read the caller's OWN membership row directly.
+        // RLS (`private.is_household_member`) makes this return zero rows for
+        // a non-member, which is the same authoritative answer.
+        const userId = (await supabase.auth.getSession()).data.session?.user.id;
+        if (!userId) {
+          throw new Error('membership_check failed: no signed-in user');
+        }
+        const { data: rows, error: selectError } = await supabase
+          .from('household_members')
+          .select('id')
+          .eq('household_id', householdId)
+          .eq('user_id', userId)
+          .is('deleted_at', null)
+          .limit(1)
+          .abortSignal(signal);
+        if (selectError) {
+          throw new Error(`membership_check fallback failed: ${selectError.message}`);
+        }
+        return (rows ?? []).length > 0;
+      }
+
+      // Anything else (network, 5xx, timeout, abort, an unrecognised shape)
+      // is INCONCLUSIVE — throw so the engine does not evict. See
+      // SyncTransport.membershipCheck's three-valued contract.
+      throw new Error(`membership_check failed: ${error.message}`);
+    },
   };
+}
+
+/** The PostgREST error fields this module inspects. Structural so neither the
+ * engine nor its tests need to import `PostgrestError`. */
+interface TransportErrorLike {
+  code?: string;
+  message?: string;
+}
+
+/** An explicit "you are not a member" from `list_household_members`: the RPC
+ * raises `insufficient_privilege` (SQLSTATE 42501), which PostgREST surfaces
+ * as `code: '42501'`. The message is checked too because some gateway
+ * versions forward only the message. */
+function isNotAMemberError(error: TransportErrorLike): boolean {
+  if (error.code === '42501') return true;
+  return (error.message ?? '').toLowerCase().includes('not a member of this household');
+}
+
+/** The RPC does not exist on this server — migration 0011 has not been
+ * deployed yet. PostgREST reports an unknown function as `PGRST202`. */
+function isMissingFunctionError(error: TransportErrorLike): boolean {
+  if (error.code === 'PGRST202') return true;
+  const message = (error.message ?? '').toLowerCase();
+  return message.includes('could not find the function') || message.includes('schema cache');
 }
 
 /** Convenience: builds a `SyncEngine` wired to the supabase RPC transport. */

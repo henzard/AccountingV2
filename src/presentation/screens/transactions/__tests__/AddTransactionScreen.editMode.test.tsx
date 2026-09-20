@@ -181,8 +181,14 @@ jest.mock('../../../../domain/transactions/UpdateTransactionUseCase', () => ({
 
 // ─── DB mock: a tiny fake query engine keyed by table + eq(id, ...) ──────────
 jest.mock('../../../../data/local/db', () => ({ db: { select: jest.fn() } }));
+jest.mock('../../../../infrastructure/notifications/HouseholdNotifier', () => ({
+  householdNotifier: { notifyHousehold: jest.fn() },
+}));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { db: mockDb } = require('../../../../data/local/db');
+const { householdNotifier: mockHouseholdNotifier } = jest.requireMock(
+  '../../../../infrastructure/notifications/HouseholdNotifier',
+) as { householdNotifier: { notifyHousehold: jest.Mock } };
 
 let envelopesById: Record<string, Record<string, unknown>> = {};
 let transactionsById: Record<string, Record<string, unknown>> = {};
@@ -325,6 +331,10 @@ describe('AddTransactionScreen — edit mode (UX-9)', () => {
     await waitFor(() => expect(mockUpdateExecute).toHaveBeenCalled());
     expect(mockCreateExecute).not.toHaveBeenCalled();
     expect(mockEnqueue).toHaveBeenCalledWith('Transaction updated', 'success');
+    // VAL-6/DB-7: an edit is not a new spend — must not wake the household.
+    expect(mockHouseholdNotifier.notifyHousehold).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'transaction_created' }),
+    );
   });
 
   it('shows an error and does not navigate back when the update fails', async () => {
@@ -400,6 +410,10 @@ describe('AddTransactionScreen — VAL-13 envelope usage threshold toast', () =>
     await waitFor(() => {
       expect(mockEnqueue).toHaveBeenCalledWith("You've used 80% of Groceries", 'regression');
     });
+    // VAL-6/DB-7: only the 100% crossing wakes the household, not 80%.
+    expect(mockHouseholdNotifier.notifyHousehold).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'envelope_over_budget' }),
+    );
   });
 
   it('shows the over-budget toast when this save crosses 100%', async () => {
@@ -418,6 +432,11 @@ describe('AddTransactionScreen — VAL-13 envelope usage threshold toast', () =>
         'error',
       );
     });
+    // VAL-6/DB-7: the 100% crossing wakes the household; 80% does not (see
+    // the 80% test above, which asserts no notifyHousehold call at all).
+    expect(mockHouseholdNotifier.notifyHousehold).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'envelope_over_budget' }),
+    );
   });
 
   it('does not re-fire the toast on a save that keeps the envelope above a threshold it already crossed', async () => {

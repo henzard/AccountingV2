@@ -18,6 +18,14 @@ import {
 } from '../../../domain/budgets/StartNewPeriodUseCase';
 import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../../../domain/shared/syncWrite';
 import type { SyncWriteDeps } from '../../../domain/shared/syncWrite';
+import { formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
+import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
+import { resolvePeriodHabitScoreInput } from '../../../domain/scoring/resolvePeriodHabitScoreInput';
+import { RecordPeriodScoreUseCase } from '../../../domain/scoring/RecordPeriodScoreUseCase';
+import { getPeriodScoresAscending } from '../../../domain/scoring/getPeriodScoresAscending';
+import { useLevelAdvancement } from '../../hooks/useLevelAdvancement';
+import { useAppStore } from '../../stores/appStore';
+import { logger } from '../../../infrastructure/logging/Logger';
 import { formatCurrency } from '../../utils/currency';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { spacing, radius, fontSize } from '../../theme/tokens';
@@ -92,6 +100,25 @@ function fromCents(cents: number): string {
 }
 
 /**
+ * The last calendar day of the CLOSING period (`fromPeriodStart`) — one UTC
+ * day before `toPeriodStart` (periods are contiguous, per
+ * `BudgetPeriodEngine`). Computed with UTC calendar fields via
+ * `formatPeriodDateKey`'s own convention: a local-timezone `date-fns
+ * subDays` here would be off by one on UTC-negative devices, the exact class
+ * of scope-key bug `periodStart`/`periodEnd` keys must avoid elsewhere in
+ * this app (see `DashboardScreen`'s `periodStart` comment).
+ */
+function periodEndBefore(toPeriodStart: string): string {
+  const [year, month, day] = toPeriodStart.split('-').map(Number);
+  return formatPeriodDateKey(new Date(Date.UTC(year, month - 1, day - 1)));
+}
+
+const scoreCalculator = new HabitScoreCalculator();
+
+/** Mirrors SettingsScreen's level-name mapping, for the success block's "Level up" line. */
+const LEVEL_LABELS: Record<number, string> = { 1: 'Learner', 2: 'Practitioner', 3: 'Mentor' };
+
+/**
  * RolloverWizard — replaces the old `PeriodRolloverModal`, whose copy falsely
  * implied envelopes had already been cleared out when nothing had actually
  * happened. This wizard actually runs `StartNewPeriodUseCase`: (1) review the
@@ -125,6 +152,15 @@ export function RolloverWizard({
   // user sees where that money went instead of it silently updating a
   // balance they'd only notice on another screen.
   const [contributedCents, setContributedCents] = useState<number | null>(null);
+  // The most recently recorded `score_history` entry for this household, if
+  // any exists yet (a brand-new household, or one that has never rolled over
+  // before, has none) — shown in the review step as "Last period's score".
+  const [previousScore, setPreviousScore] = useState<number | null>(null);
+  // Set to the new level (2) when this commit's level check advances it —
+  // rendered as a "Level up" line in the success block below.
+  const [leveledUpTo, setLeveledUpTo] = useState<number | null>(null);
+
+  const { check: checkLevelAdvancement } = useLevelAdvancement();
 
   // Mirrors the load effect's local `cancelled` flag, but at component scope:
   // guards setState calls made after `handleCommit`'s awaits so a commit that
@@ -168,6 +204,26 @@ export function RolloverWizard({
     };
   }, [visible, householdId, fromPeriodStart]);
 
+  // Best-effort read of the household's score history for the review step's
+  // "Last period's score" line — swallows its own errors (stays `null`,
+  // simply hiding the line) rather than surfacing a load error for a
+  // display-only nicety unrelated to the rollover itself.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    getPeriodScoresAscending(db, householdId)
+      .then((history) => {
+        if (cancelled) return;
+        setPreviousScore(history.length > 0 ? history[history.length - 1].score : null);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviousScore(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, householdId, fromPeriodStart]);
+
   // Reset transient wizard state each time it is (re)opened for a new period.
   // Clearing `allocationStr` here (not just step/commit state) matters because
   // it's keyed by envelope id, and a different period generally has a
@@ -182,6 +238,7 @@ export function RolloverWizard({
       setCommitError(null);
       setCommittedCount(null);
       setContributedCents(null);
+      setLeveledUpTo(null);
       setAllocationStr({});
     }
   }, [visible, toPeriodStart]);
@@ -280,6 +337,42 @@ export function RolloverWizard({
       if (!mountedRef.current) return;
       setCommittedCount(result.data.count);
       setContributedCents(result.data.contributedCents);
+
+      // Score/level bookkeeping is best-effort: the rollover above already
+      // committed successfully, so nothing in this block may ever surface an
+      // error to the user or be treated as a rollover failure — it only ever
+      // logs to the console and leaves the success block's score/level lines
+      // blank on failure (see RecordPeriodScoreUseCase's doc comment).
+      try {
+        const fromPeriodEnd = periodEndBefore(toPeriodStart);
+        const scoreInput = await resolvePeriodHabitScoreInput(
+          db,
+          householdId,
+          fromPeriodStart,
+          fromPeriodEnd,
+          lastPeriod,
+        );
+        const scoreResult = scoreCalculator.calculate(scoreInput);
+        await new RecordPeriodScoreUseCase(db).execute({
+          householdId,
+          periodStart: fromPeriodStart,
+          periodEnd: fromPeriodEnd,
+          score: scoreResult,
+        });
+
+        const levelBefore = useAppStore.getState().userLevel;
+        const history = await getPeriodScoresAscending(db, householdId);
+        checkLevelAdvancement(history.map((h) => h.score));
+        const levelAfter = useAppStore.getState().userLevel;
+        if (mountedRef.current && levelAfter > levelBefore) {
+          setLeveledUpTo(levelAfter);
+        }
+      } catch (scoreErr) {
+        logger.error('RolloverWizard: failed to record period score/level', scoreErr, {
+          householdId,
+          periodStart: fromPeriodStart,
+        });
+      }
     } catch (err) {
       if (mountedRef.current) {
         setCommitError(err instanceof Error ? err.message : 'Failed to start new period');
@@ -287,7 +380,15 @@ export function RolloverWizard({
     } finally {
       if (mountedRef.current) setCommitting(false);
     }
-  }, [householdId, fromPeriodStart, toPeriodStart, edits, syncDeps]);
+  }, [
+    householdId,
+    fromPeriodStart,
+    toPeriodStart,
+    edits,
+    lastPeriod,
+    syncDeps,
+    checkLevelAdvancement,
+  ]);
 
   if (!visible) return null;
 
@@ -358,6 +459,14 @@ export function RolloverWizard({
                   {`Moved ${formatCurrency(contributedCents)} into your savings funds`}
                 </Text>
               )}
+              {leveledUpTo !== null && (
+                <Text
+                  testID="rollover-level-up"
+                  style={{ color: colors.success, textAlign: 'center' }}
+                >
+                  {`Level up — Lv${leveledUpTo} ${LEVEL_LABELS[leveledUpTo] ?? ''}`}
+                </Text>
+              )}
             </View>
           )}
 
@@ -366,6 +475,14 @@ export function RolloverWizard({
               <Text variant="titleMedium" style={{ color: colors.onSurface }}>
                 Here&apos;s how last period went
               </Text>
+              {previousScore !== null && (
+                <Text
+                  testID="rollover-previous-score"
+                  style={{ color: colors.onSurfaceVariant, marginTop: spacing.xs }}
+                >
+                  {`Last period's score: ${previousScore}`}
+                </Text>
+              )}
               {lastPeriod.length === 0 ? (
                 <Text style={{ color: colors.onSurfaceVariant, marginTop: spacing.sm }}>
                   No envelopes to review for last period.

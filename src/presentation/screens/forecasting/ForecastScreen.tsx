@@ -32,7 +32,10 @@ export function ForecastScreen(): React.JSX.Element {
   const periodEnd = formatPeriodDateKey(period.endDate);
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
-  const { transactions, reload: reloadTransactions } = useTransactions(householdId, periodStart);
+  const { transactions, reload: reloadTransactions } = useTransactions(householdId, {
+    periodStart,
+    periodEnd,
+  });
 
   useFocusEffect(
     useCallback(() => {

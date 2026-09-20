@@ -105,7 +105,7 @@ export default (_ctx: ConfigContext): ExpoConfig & ConfigExtra => ({
     '@config-plugins/detox', // must precede build-property-consuming plugins
     'expo-sqlite',
     'expo-secure-store',
-    ['expo-camera', { barcodeScannerEnabled: false }],
+    ['expo-camera', { barcodeScannerEnabled: false, recordAudioAndroid: false }],
     '@react-native-community/datetimepicker',
     '@react-native-firebase/app',
     '@react-native-firebase/crashlytics',

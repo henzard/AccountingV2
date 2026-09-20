@@ -24,6 +24,7 @@ import { calculateSafeToSpendToday } from './calculateSafeToSpendToday';
 import { EnvelopeDetailSheet } from './components/EnvelopeDetailSheet';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
+import { buildHabitScoreInput } from '../../../domain/scoring/buildHabitScoreInput';
 import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
 import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
 import { calculateBudgetBalance } from '../../../domain/budgets/BudgetBalanceCalculator';
@@ -33,6 +34,8 @@ import { useAppTheme } from '../../theme/useAppTheme';
 import { spacing, radius, fontSize } from '../../theme/tokens';
 import { format, differenceInDays } from 'date-fns';
 import { db } from '../../../data/local/db';
+import { useLevelAdvancement } from '../../hooks/useLevelAdvancement';
+import { logger } from '../../../infrastructure/logging/Logger';
 import type { DashboardScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
@@ -75,6 +78,24 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const { savedCentsByEnvelopeId, reload: reloadSavings } = usePersistentEnvelopeSavings(hid);
 
   const scheduler = useSyncEngineStore((s) => s.scheduler);
+
+  const { hydrate: hydrateLevel } = useLevelAdvancement();
+  // Derives the current level from `hid`'s durable local score_history on
+  // every household change (including the initial cold-start mount) —
+  // `appStore.userLevel` is in-memory only, so without this Settings shows a
+  // stale/default Lv1 badge until the next rollover happens to call
+  // `check()` again. Best-effort: a read failure here must never break the
+  // dashboard, so it's swallowed to the app logger, not surfaced to the user.
+  useEffect(() => {
+    if (!hid) return;
+    let cancelled = false;
+    hydrateLevel(hid).catch((err: unknown) => {
+      if (!cancelled) logger.error('DashboardScreen: failed to hydrate user level', err, { hid });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hid, hydrateLevel]);
 
   const [babyStepIsActive, setBabyStepIsActive] = useState(false);
   const [loggingDaysCount, setLoggingDaysCount] = useState(0);
@@ -230,17 +251,19 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   );
   const safeToSpendTodayCents = calculateSafeToSpendToday(periodSpendRemainingCents, daysRemaining);
 
-  const envelopesOnBudget = budgetSpendEnvelopes.filter(
-    (e) => e.spentCents <= e.allocatedCents,
-  ).length;
-  const scoreResult = scoreCalculator.calculate({
-    loggingDaysCount,
-    totalDaysInPeriod,
-    envelopesOnBudget,
-    totalEnvelopes: budgetSpendEnvelopes.length,
-    meterReadingsLoggedThisPeriod,
-    babyStepIsActive,
-  });
+  // Assembly extracted to `buildHabitScoreInput` (VAL-14/DOM-13) so the
+  // dashboard's LIVE score and `RecordPeriodScoreUseCase`'s CLOSING-period
+  // score (computed in RolloverWizard on commit) share the exact same "on
+  // budget" rule instead of two copies that could silently drift apart.
+  const scoreResult = scoreCalculator.calculate(
+    buildHabitScoreInput({
+      loggingDaysCount,
+      totalDaysInPeriod,
+      envelopes: budgetSpendEnvelopes,
+      meterReadingsLoggedThisPeriod,
+      babyStepIsActive,
+    }),
+  );
 
   // ── Theme-derived colors ──────────────────────────────────────────────────
   const cardBg = isDark ? P.tileBgDark : '#FFFFFF';
