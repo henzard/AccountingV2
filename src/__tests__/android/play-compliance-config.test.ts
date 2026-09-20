@@ -79,6 +79,13 @@ describe('Android Play Console compliance configuration', () => {
     expect(proguard).toContain('-renamesourcefileattribute SourceFile');
   });
 
+  it('keeps the expo-modules-core records package so R8 cannot break Record arguments', () => {
+    // Without this, R8 optimisation makes expo-sqlite's openDatabaseSync options
+    // conversion throw at bundle load, which aborts the process on launch.
+    const proguard = fs.readFileSync(path.join(repoRoot, 'android/app/proguard-rules.pro'), 'utf8');
+    expect(proguard).toContain('-keep class expo.modules.kotlin.records.** { *; }');
+  });
+
   it('leaves resource shrinking off (RN resolves some drawables by name at runtime)', () => {
     const gradleProps = fs.readFileSync(path.join(repoRoot, 'android/gradle.properties'), 'utf8');
     expect(gradleProps).not.toMatch(/^android\.enableShrinkResourcesInReleaseBuilds=true$/m);
