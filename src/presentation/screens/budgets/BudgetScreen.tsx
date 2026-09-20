@@ -26,6 +26,7 @@ import { RolloverWizard } from './RolloverWizard';
 import { computeSpentDeltaVsPreviousPeriod } from './computeSpentDeltaVsPreviousPeriod';
 import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
 import { EmptyState } from '../../components/shared/EmptyState';
+import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { EnvelopeDetailSheet } from '../dashboard/components/EnvelopeDetailSheet';
 import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeSavings';
@@ -81,7 +82,10 @@ export const BudgetScreen: React.FC = () => {
     );
   }, [paydayDay]);
 
-  const { envelopes, loading, error, reload } = useEnvelopes(householdId, viewedPeriodStart);
+  const { envelopes, loading, refreshing, error, reload } = useEnvelopes(
+    householdId,
+    viewedPeriodStart,
+  );
   // "vs previous month" delta (VAL2-4) — matched by name + type, since a
   // PERIOD-scoped envelope gets a fresh id every period. Read-only lookup,
   // never mutated here.
@@ -218,6 +222,7 @@ export const BudgetScreen: React.FC = () => {
           accessibilityLabel="Next period"
         />
       </Surface>
+      <RefreshingBar refreshing={refreshing} />
 
       {isPastPeriod && (
         <View
@@ -292,7 +297,10 @@ export const BudgetScreen: React.FC = () => {
           )}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl refreshing={loading} onRefresh={reload} colors={[colors.primary]} />
+            // REG-9: `loading` is first-load-only — using it here meant the
+            // platform pull-to-refresh spinner stopped reflecting an
+            // in-flight reload the moment the first load finished.
+            <RefreshControl refreshing={refreshing} onRefresh={reload} colors={[colors.primary]} />
           }
           stickySectionHeadersEnabled={false}
         />

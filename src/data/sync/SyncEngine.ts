@@ -144,6 +144,11 @@ export interface PushSummary {
   applied: number;
   deadLettered: number;
   backedOff: number;
+  /** Ops the server answered `row_exists` (SEC2-5): the row already existed
+   * server-side under the same (deterministic) id, so this op is superseded
+   * rather than failed — it is marked pushed and the local row is refreshed
+   * from the server. Neither dead-lettered nor retried. */
+  superseded: number;
   /** True if a `sync_push` call itself failed (network / 5xx / timeout /
    * abort). The ops are intact and backed off — but the round did NOT reach
    * the server, so the caller must not report it as a successful sync
@@ -279,6 +284,31 @@ export const TRANSIENT_REJECT_CODES: ReadonlySet<string> = new Set(['row_missing
  * is indistinguishable from "nothing new". See `checkMembershipAndEvict`.
  */
 const MEMBERSHIP_REJECT_CODE = 'not_member';
+
+/**
+ * SEC2-5. The server refused an INSERT because a row with that id already
+ * exists in this household (`private.apply_one_op`, migration 0016).
+ *
+ * It is deliberately in NEITHER `PERMANENT_REJECT_CODES` nor
+ * `TRANSIENT_REJECT_CODES`: this op is not broken (dead-lettering it would
+ * park a perfectly ordinary write in the DLQ for every user who rolls a
+ * period over on two devices) and retrying it can never succeed (the row
+ * stays there). It is SUPERSEDED — the server already holds an authoritative
+ * row for that id, written by whichever device got there first.
+ *
+ * Several client writes use deterministic uuidv5 ids precisely so two devices
+ * doing the same thing produce the same row — rollover contributions
+ * (`PersistentContributions.ts`), the rollover envelope copies, the baby-step
+ * seeds. Same id, possibly different VALUE. Before 0016 the server answered
+ * such an insert `applied` and the client kept its own figure forever; the
+ * winner's insert, once pulled, is an `INSERT OR IGNORE` no-op locally, so
+ * nothing ever reconciled the two. The handling here is what converges them:
+ * mark the op pushed (it is resolved) and copy the SERVER's row down.
+ *
+ * An OLD server never emits this code, so nothing about this path changes on
+ * one.
+ */
+const ROW_EXISTS_REJECT_CODE = 'row_exists';
 
 /**
  * A pull failure whose SHAPE says "permission", not "network". Only these
@@ -660,16 +690,9 @@ export class SyncEngine {
     `);
     if (!op) return; // already discarded/retried/never existed -- idempotent no-op
 
-    const rowState = this.transport.rowState;
-    if (!rowState) {
-      throw new Error('SyncEngine.discardDeadLettered: transport does not support rowState');
-    }
-
     let state: Record<string, unknown> | null;
     try {
-      state = await this.withTimeout((signal) =>
-        rowState(op.household_id, op.table_name, op.row_id, signal),
-      );
+      state = await this.fetchServerRowState(op.household_id, op.table_name, op.row_id);
     } catch (err) {
       logger.warn('SyncEngine.discardDeadLettered: sync_row_state failed, op left dead-lettered', {
         opId,
@@ -681,32 +704,7 @@ export class SyncEngine {
     const table = assertIdent(op.table_name);
     this.db.transaction((tx) => {
       if (state) {
-        // Full replace with the server's current row -- converges local
-        // state to server truth regardless of what the rejected write left
-        // behind locally.
-        //
-        // Intersect with the LOCAL table's real columns (SYNC-8): the server
-        // row legitimately carries columns this schema does not have (e.g.
-        // `envelopes.spent_cents`, derived server-side and deliberately
-        // dropped locally in migration 0012), and naming a nonexistent column
-        // makes the INSERT throw -- turning "discard this dead-lettered op"
-        // into an unrecoverable error for exactly the tables most likely to
-        // need it.
-        const localColumns = this.localColumns(tx, table);
-        const keys = Object.keys(state)
-          .map(assertIdent)
-          .filter((k) => localColumns.has(k));
-        if (keys.length === 0) {
-          throw new Error(
-            `SyncEngine.discardDeadLettered: server row for "${table}" has no column in common with the local schema`,
-          );
-        }
-        const colList = sql.raw(keys.join(', '));
-        const values = sql.join(
-          keys.map((k) => sql`${coerceValue(state![k])}`),
-          sql.raw(', '),
-        );
-        tx.run(sql`INSERT OR REPLACE INTO ${sql.raw(table)} (${colList}) VALUES (${values})`);
+        this.replaceLocalRowFromServer(tx, table, state);
       } else {
         // No server truth for this row -- remove the local phantom row so
         // discard can't leave it silently diverged forever (spec §6.10).
@@ -717,6 +715,63 @@ export class SyncEngine {
       tx.run(sql`DELETE FROM oplog WHERE op_id = ${opId}`);
     });
     logger.info('SyncEngine: dead-lettered op discarded, row refreshed from server', { opId });
+  }
+
+  /**
+   * Reads one row's CURRENT server state via the `sync_row_state` transport
+   * call (membership-checked + table-allowlisted server-side). Throws when
+   * the transport cannot do it at all, and propagates a transport failure —
+   * both callers (`discardDeadLettered`, the SEC2-5 `row_exists` refresh)
+   * must be able to tell "no such row server-side" (`null`) from "could not
+   * ask".
+   */
+  private async fetchServerRowState(
+    householdId: string,
+    table: string,
+    rowId: string,
+  ): Promise<Record<string, unknown> | null> {
+    const rowState = this.transport.rowState;
+    if (!rowState) {
+      throw new Error('SyncEngine: transport does not support rowState');
+    }
+    return this.withTimeout((signal) => rowState(householdId, table, rowId, signal));
+  }
+
+  /**
+   * Full replace of the local row with the server's current one — converges
+   * local state to server truth regardless of what the local write left
+   * behind. Used by `discardDeadLettered` (spec §6.10) and by the SEC2-5
+   * `row_exists` refresh.
+   *
+   * Intersects with the LOCAL table's real columns (SYNC-8): the server row
+   * legitimately carries columns this schema does not have (e.g.
+   * `envelopes.spent_cents`, derived server-side and deliberately dropped
+   * locally in migration 0012), and naming a nonexistent column makes the
+   * INSERT throw — turning a recovery path into an unrecoverable error for
+   * exactly the tables most likely to need it.
+   *
+   * `table` is already `assertIdent`-checked by the caller.
+   */
+  private replaceLocalRowFromServer(
+    tx: PortableDb,
+    table: string,
+    state: Record<string, unknown>,
+  ): void {
+    const localColumns = this.localColumns(tx, table);
+    const keys = Object.keys(state)
+      .map(assertIdent)
+      .filter((k) => localColumns.has(k));
+    if (keys.length === 0) {
+      throw new Error(
+        `SyncEngine: server row for "${table}" has no column in common with the local schema`,
+      );
+    }
+    const colList = sql.raw(keys.join(', '));
+    const values = sql.join(
+      keys.map((k) => sql`${coerceValue(state[k])}`),
+      sql.raw(', '),
+    );
+    tx.run(sql`INSERT OR REPLACE INTO ${sql.raw(table)} (${colList}) VALUES (${values})`);
   }
 
   /** The column names the LOCAL `table` actually has, via `PRAGMA table_info`
@@ -734,6 +789,7 @@ export class SyncEngine {
       applied: 0,
       deadLettered: 0,
       backedOff: 0,
+      superseded: 0,
       transportFailed: false,
     };
 
@@ -748,6 +804,12 @@ export class SyncEngine {
     // Households the server rejected `not_member` during THIS drain. Checked
     // (authoritatively) once the drain is over — see `checkMembershipAndEvict`.
     const membershipRejected = new Set<string>();
+
+    // Ops the server answered `row_exists` during THIS drain (SEC2-5). Their
+    // rows are refreshed from the server once the drain is over — never
+    // mid-drain, so one slow `sync_row_state` call cannot hold up the rest of
+    // the outbox.
+    const superseded: PushableOp[] = [];
 
     for (;;) {
       const batch = this.fetchPushable(this.clock(), this.batchSize, stalledHouseholds);
@@ -790,6 +852,15 @@ export class SyncEngine {
           // concurrent drain / dead-letter is never clobbered.
           this.markPushed(op.op_id, now);
           summary.applied += 1;
+        } else if (res.code === ROW_EXISTS_REJECT_CODE) {
+          // SEC2-5: superseded, not failed. Mark it pushed so it leaves the
+          // eligible set for good (no DLQ entry, no retry loop, and the
+          // household keeps draining — the row DOES exist server-side now, so
+          // the ops queued behind this one are not blocked on it). The
+          // authoritative row is fetched after the drain.
+          this.markPushed(op.op_id, now);
+          summary.superseded += 1;
+          superseded.push(op);
         } else if (res.code !== null && TRANSIENT_REJECT_CODES.has(res.code)) {
           // Known-transient (see TRANSIENT_REJECT_CODES): back off forever,
           // never dead-letter — the op is valid, its prerequisite just hasn't
@@ -830,7 +901,67 @@ export class SyncEngine {
       await this.checkMembershipAndEvict(householdId);
     }
 
+    // SEC2-5: converge every superseded row on the SERVER's value.
+    for (const op of superseded) {
+      await this.refreshSupersededRow(op);
+    }
+
     return summary;
+  }
+
+  /**
+   * SEC2-5. Overwrites the local row an op was superseded on with the
+   * server's authoritative one, in ONE transaction.
+   *
+   * Best-effort by design: the op is already marked pushed, so a failure
+   * here leaves the local row on its own (diverged) value rather than
+   * re-queueing a write the server will refuse again. It is logged loudly
+   * instead — the next `row_exists` for the same row, or a DLQ discard, takes
+   * another run at it. Never throws: one unreachable row must not fail the
+   * whole push round.
+   */
+  private async refreshSupersededRow(op: PushableOp): Promise<void> {
+    let state: Record<string, unknown> | null;
+    try {
+      state = await this.fetchServerRowState(op.household_id, op.table_name, op.row_id);
+    } catch (err) {
+      logger.warn(
+        'SyncEngine.push: op superseded by an existing server row, but sync_row_state failed — ' +
+          'the local row keeps its own value for now',
+        { opId: op.op_id, error: err instanceof Error ? err.message : String(err) },
+      );
+      return;
+    }
+
+    if (!state) {
+      // The server said the id is taken and then had no row for it: a race
+      // with a concurrent delete, or an RLS answer we must not act on.
+      // Deleting the local row here would destroy a committed local write on
+      // the strength of an answer that contradicts itself — do nothing.
+      logger.warn(
+        'SyncEngine.push: op superseded but the server returned no row state — local row left alone',
+        { opId: op.op_id, table: op.table_name },
+      );
+      return;
+    }
+
+    const serverRow = state;
+    try {
+      const table = assertIdent(op.table_name);
+      this.db.transaction((tx) => {
+        this.replaceLocalRowFromServer(tx, table, serverRow);
+      });
+    } catch (err) {
+      logger.error('SyncEngine.push: failed to write the superseding server row locally', err, {
+        opId: op.op_id,
+        table: op.table_name,
+      });
+      return;
+    }
+    logger.info('SyncEngine.push: op superseded — local row converged on the server row', {
+      opId: op.op_id,
+      table: op.table_name,
+    });
   }
 
   // ----- membership loss / local eviction -----------------------------------
@@ -851,6 +982,27 @@ export class SyncEngine {
    * a flaky connection.
    */
   async checkMembershipAndEvict(householdId: string): Promise<boolean> {
+    return (await this.verifyMembershipAndEvict(householdId)).evicted;
+  }
+
+  /**
+   * The same check as `checkMembershipAndEvict`, reporting ALSO whether the
+   * server actually answered.
+   *
+   * `checkMembershipAndEvict` collapses "still a member" and "could not ask"
+   * into the same `false`, which is right for its own callers (both mean "do
+   * nothing") but wrong for the periodic check in `SyncScheduler`: that one
+   * must not record a 24h "checked" timestamp for a round trip that never
+   * reached the server, or a removed member's read-only device would be let
+   * off the hook for a day by a single flaky foreground.
+   *
+   * `answered: false` therefore covers every inconclusive outcome — no
+   * transport support, network failure, 5xx, timeout, abort, no signed-in
+   * user, an error shape the transport did not recognise.
+   */
+  async verifyMembershipAndEvict(
+    householdId: string,
+  ): Promise<{ answered: boolean; evicted: boolean }> {
     // Bound to the transport: a transport may legitimately implement this as a
     // class method that uses `this` (test doubles do), and an unbound call
     // would throw and be swallowed below as "inconclusive" — silently turning
@@ -861,7 +1013,7 @@ export class SyncEngine {
         'SyncEngine: membership loss suspected but the transport cannot verify it — not evicting',
         { householdId },
       );
-      return false;
+      return { answered: false, evicted: false };
     }
 
     let stillMember: boolean;
@@ -874,17 +1026,17 @@ export class SyncEngine {
         householdId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return { answered: false, evicted: false };
     }
 
     if (stillMember) {
       logger.info('SyncEngine: membership check says still a member — no eviction', {
         householdId,
       });
-      return false;
+      return { answered: true, evicted: false };
     }
 
-    return this.evictHousehold(householdId);
+    return { answered: true, evicted: this.evictHousehold(householdId) };
   }
 
   /**

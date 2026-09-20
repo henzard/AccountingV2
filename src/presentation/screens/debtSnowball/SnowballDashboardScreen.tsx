@@ -12,6 +12,7 @@ import {
 } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { db } from '../../../data/local/db';
 import { useAppStore } from '../../stores/appStore';
 import { useDebts } from '../../hooks/useDebts';
 import { SnowballPayoffProjector } from '../../../domain/debtSnowball/SnowballPayoffProjector';
@@ -19,29 +20,75 @@ import {
   getDebtTypeLabel,
   getPayoffProgressPercent,
 } from '../../../domain/debtSnowball/DebtEntity';
+import { getLatestDebtSnapshot } from '../../../domain/scoring/getLatestDebtSnapshot';
+import type { DebtSnapshot } from '../../../domain/scoring/RecordPeriodScoreUseCase';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
+import { computeDebtProgressMessage } from './debtProgressMessage';
 import { DebtPayoffBar } from './components/DebtPayoffBar';
 import { PayoffProjectionCard } from './components/PayoffProjectionCard';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
+import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { formatCurrency } from '../../utils/currency';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
+import { logger } from '../../../infrastructure/logging/Logger';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import type { SnowballDashboardScreenProps } from '../../navigation/types';
 
 const projector = new SnowballPayoffProjector();
+const periodEngine = new BudgetPeriodEngine();
 
 export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId)!;
-  const { debts, loading, reload } = useDebts(householdId);
+  const paydayDay = useAppStore((s) => s.paydayDay);
+  const { debts, loading, refreshing, reload } = useDebts(householdId);
   const [extraPaymentRands, setExtraPaymentRands] = useState('');
+  // Last recorded (device-local) debt-plan snapshot, strictly before the
+  // CURRENT period — "last month's" numbers for the progress line below
+  // (VAL2-10). `null` when there is none yet (new plan, or a household that
+  // hasn't rolled a period since this shipped) — the progress line simply
+  // doesn't render in that case.
+  const [previousSnapshot, setPreviousSnapshot] = useState<DebtSnapshot | null>(null);
+  const currentPeriodStart = formatPeriodDateKey(
+    periodEngine.getCurrentPeriod(paydayDay).startDate,
+  );
 
   useFocusEffect(
     useCallback(() => {
       void reload();
     }, [reload]),
+  );
+
+  // Re-runs on every focus (not just when householdId/currentPeriodStart
+  // change) — a rollover completed elsewhere (another tab, another device
+  // via sync) writes a new snapshot without touching either of those, and
+  // this screen used to keep showing a stale (or, across a household
+  // switch, a WRONG) snapshot until something else happened to remount it.
+  // Cleared up front on every run (not just on failure) so a slow/failed
+  // lookup can never leave the PREVIOUS household's snapshot on screen.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setPreviousSnapshot(null);
+      getLatestDebtSnapshot(db, householdId, currentPeriodStart)
+        .then((snapshot) => {
+          if (!cancelled) setPreviousSnapshot(snapshot);
+        })
+        .catch((err: unknown) => {
+          // Best-effort, read-only — the dashboard's own numbers are
+          // unaffected. Explicitly null (not left stale) on failure.
+          if (!cancelled) setPreviousSnapshot(null);
+          logger.error('SnowballDashboardScreen: failed to load previous debt snapshot', err, {
+            householdId,
+          });
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [householdId, currentPeriodStart]),
   );
 
   const extraPaymentCents = useMemo(() => {
@@ -58,6 +105,19 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
 
   const totalDebtCents = debts.reduce((s, d) => s + d.outstandingBalanceCents, 0);
   const totalPaidCents = debts.reduce((s, d) => s + d.totalPaidCents, 0);
+
+  // Compared against `planNoExtra` (0 extra), matching how the snapshot
+  // recorded at rollover is computed (see `RolloverWizard`) — comparing
+  // against `plan` here would mix in whatever extra payment happens to be
+  // typed into the field above right now.
+  const debtProgress = useMemo(
+    () =>
+      computeDebtProgressMessage(
+        { totalDebtCents, debtFreeDate: planNoExtra.debtFreeDate },
+        previousSnapshot,
+      ),
+    [totalDebtCents, planNoExtra.debtFreeDate, previousSnapshot],
+  );
 
   // Sort debts by balance (smallest unpaid first, paid-off last)
   const sortedDebts = useMemo(() => {
@@ -148,6 +208,7 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
           }
         />
       </Surface>
+      <RefreshingBar refreshing={refreshing} />
 
       <FlatList
         data={sortedDebts}
@@ -181,7 +242,30 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
                         {monthsDifference} {monthsDifference === 1 ? 'month' : 'months'} sooner
                       </Text>
                     )}
+                    {debtProgress.dateMessage && (
+                      <Text
+                        variant="bodySmall"
+                        style={{ color: colors.onSurfaceVariant }}
+                        testID="debt-progress-date-message"
+                      >
+                        {debtProgress.dateMessage}
+                      </Text>
+                    )}
                   </View>
+                )}
+                {/* Independent of `plan.debtFreeDate` — total debt can drop
+                    (and is worth celebrating) even when every debt just got
+                    paid off, or when the remaining balance/payments make a
+                    payoff date uncomputable. Gating this on the date above
+                    hid it exactly when it mattered most. */}
+                {debtProgress.paidOffMessage && (
+                  <Text
+                    variant="bodySmall"
+                    style={{ color: colors.success }}
+                    testID="debt-progress-paid-off-message"
+                  >
+                    {debtProgress.paidOffMessage}
+                  </Text>
                 )}
               </View>
               <PayoffProjectionCard plan={plan} totalDebtCents={totalDebtCents} />

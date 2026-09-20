@@ -6,6 +6,10 @@ export interface NotificationPreferences {
   meterReadingReminderDay: number; // 1–28 (default 1)
   monthStartPreflightEnabled: boolean;
   envelopeWarningEnabled: boolean;
+  /** VAL2-11: "payday countdown" pull-back nudge, 3 days before period end. */
+  periodClosingNudgeEnabled: boolean;
+  /** VAL2-11: "weekly check-in" pull-back nudge, every Sunday. */
+  weeklyCheckInNudgeEnabled: boolean;
   /**
    * VAL-6/DB-7: gates SENDING a household-activity push (transaction created,
    * envelope over budget, slip confirmed) from this device. There is no
@@ -25,5 +29,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   meterReadingReminderDay: 1,
   monthStartPreflightEnabled: true,
   envelopeWarningEnabled: true,
+  periodClosingNudgeEnabled: true,
+  weeklyCheckInNudgeEnabled: true,
   householdActivityEnabled: true,
 };

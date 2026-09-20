@@ -67,6 +67,8 @@ jest.mock('react-native-paper', () => {
       testID?: string;
       [k: string]: unknown;
     }) => React.createElement('Pressable', { onPress, testID: testID ?? 'fab', ...p }),
+    ProgressBar: ({ testID, ...p }: { testID?: string; [k: string]: unknown }) =>
+      React.createElement('View', { testID: testID ?? 'progress-bar', ...p }),
   };
 });
 
@@ -195,6 +197,34 @@ describe('SinkingFundsScreen', () => {
     expect(getByTestId('sinking-funds-list')).toBeTruthy();
     expect(getByText('Holiday')).toBeTruthy();
     expect(getByText('Car Service')).toBeTruthy();
+  });
+
+  it('shows the RefreshingBar while refreshing, without blanking the list (REG-9)', () => {
+    const funds = [
+      {
+        id: 'sf-1',
+        name: 'Holiday',
+        envelopeType: 'sinking_fund',
+        allocatedCents: 300000,
+        spentCents: 0,
+      },
+    ];
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: funds,
+      loading: false,
+      refreshing: true,
+      error: null,
+      reload: mockReload,
+    });
+
+    const { getByTestId } = render(<SinkingFundsScreen {...makeProps()} />);
+    expect(getByTestId('refreshing-bar')).toBeTruthy();
+    expect(getByTestId('sinking-funds-list')).toBeTruthy();
+  });
+
+  it('hides the RefreshingBar when not refreshing', () => {
+    const { queryByTestId } = render(<SinkingFundsScreen {...makeProps()} />);
+    expect(queryByTestId('refreshing-bar')).toBeNull();
   });
 
   it('filters out non-sinking-fund envelopes', () => {

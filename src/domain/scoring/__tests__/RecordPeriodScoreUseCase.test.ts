@@ -62,6 +62,64 @@ describe('RecordPeriodScoreUseCase', () => {
     expect(JSON.parse(insertedValues.components)).toEqual(SCORE);
   });
 
+  it('VAL2-10: folds a supplied debtSnapshot additively into components, alongside the score', async () => {
+    const db = makeDb([]);
+    const useCase = new RecordPeriodScoreUseCase(db as any);
+
+    const result = await useCase.execute({
+      householdId: 'hh-1',
+      periodStart: '2026-06-01',
+      periodEnd: '2026-06-30',
+      score: SCORE,
+      debtSnapshot: { totalDebtCents: 500000, debtFreeDateISO: '2028-01-01T00:00:00.000Z' },
+    });
+
+    expect(result.success).toBe(true);
+    const insertedValues = db.__valuesMock.mock.calls[0][0];
+    const components = JSON.parse(insertedValues.components);
+    expect(components).toEqual({
+      ...SCORE,
+      debtSnapshot: { totalDebtCents: 500000, debtFreeDateISO: '2028-01-01T00:00:00.000Z' },
+    });
+    // The top-level `score` column stays the plain habit score, unaffected
+    // by the additive debt snapshot.
+    expect(insertedValues.score).toBe(72);
+  });
+
+  it('VAL2-10: omitting debtSnapshot keeps the old components shape exactly (old readers keep working)', async () => {
+    const db = makeDb([]);
+    const useCase = new RecordPeriodScoreUseCase(db as any);
+
+    await useCase.execute({
+      householdId: 'hh-1',
+      periodStart: '2026-06-01',
+      periodEnd: '2026-06-30',
+      score: SCORE,
+    });
+
+    const insertedValues = db.__valuesMock.mock.calls[0][0];
+    expect(JSON.parse(insertedValues.components)).toEqual(SCORE);
+  });
+
+  it('VAL2-10: is idempotent with a debtSnapshot too — a replay for an existing period still does not insert', async () => {
+    const id = periodScoreId('hh-1', '2026-06-01');
+    const db = makeDb([{ id }]);
+    const useCase = new RecordPeriodScoreUseCase(db as any);
+
+    const result = await useCase.execute({
+      householdId: 'hh-1',
+      periodStart: '2026-06-01',
+      periodEnd: '2026-06-30',
+      score: SCORE,
+      debtSnapshot: { totalDebtCents: 100, debtFreeDateISO: null },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.created).toBe(false);
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
   it('uses a deterministic id — same (household, periodStart) always produces the same id', () => {
     expect(periodScoreId('hh-1', '2026-06-01')).toBe(periodScoreId('hh-1', '2026-06-01'));
     expect(periodScoreId('hh-1', '2026-06-01')).not.toBe(periodScoreId('hh-1', '2026-07-01'));

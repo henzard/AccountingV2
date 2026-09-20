@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { debts as debtsTable } from '../../data/local/schema';
 import type { DebtEntity } from '../../domain/debtSnowball/DebtEntity';
@@ -28,10 +28,15 @@ export function useDebts(householdId: string): UseDebtsResult {
     else setLoading(true);
     setError(null);
     try {
+      // Excludes soft-deleted debts (a tombstone from this device or a
+      // partner's) — without this, a deleted debt stayed in the live list
+      // and projection forever, while RolloverWizard's snapshot (which does
+      // filter `deletedAt`) silently used a DIFFERENT debt set than the
+      // dashboard/Snowball screens it's compared against.
       const rows = await db
         .select()
         .from(debtsTable)
-        .where(eq(debtsTable.householdId, householdId))
+        .where(and(eq(debtsTable.householdId, householdId), isNull(debtsTable.deletedAt)))
         .orderBy(asc(debtsTable.sortOrder));
       setDebts(rows as DebtEntity[]);
     } catch (e) {

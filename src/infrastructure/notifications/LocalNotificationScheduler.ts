@@ -1,5 +1,5 @@
 import * as Notifications from 'expo-notifications';
-import { addDays, format } from 'date-fns';
+import { addDays, format, nextSunday, subDays } from 'date-fns';
 import { NOTIFICATION_COPY } from '../../domain/babySteps/BabyStepRules';
 
 /** Deterministic per-day identifier prefix — see `scheduleEveningLogPrompt`. */
@@ -8,6 +8,56 @@ const EVENING_LOG_PREFIX = 'evening-log-';
 const LEGACY_EVENING_LOG_IDENTIFIER = 'evening-log';
 /** How many evenings ahead stay scheduled at once. */
 const EVENING_LOG_WINDOW_DAYS = 7;
+
+/** Deterministic per-period identifier prefix — see `schedulePeriodClosingNudge` (VAL2-11). */
+const PERIOD_CLOSING_PREFIX = 'period-closing-';
+/** How many days before the period ends the "payday countdown" nudge fires. */
+const PERIOD_CLOSING_DAYS_BEFORE = 3;
+/** Deterministic per-Sunday identifier prefix — see `scheduleWeeklyCheckIn` (VAL2-11). */
+const WEEKLY_CHECKIN_PREFIX = 'weekly-checkin-';
+
+/** A pre-built notification title/body pair — see `LocalNotificationScheduler`'s
+ * class doc for why the scheduler never computes these itself. */
+export interface NudgeMessage {
+  title: string;
+  body: string;
+}
+
+/**
+ * `BudgetPeriodEngine.getCurrentPeriod` builds `endDate` with `Date.UTC(...)`
+ * (a UTC-midnight instant) so it round-trips exactly through
+ * `formatPeriodDateKey` elsewhere in the app. `subDays`/`format` (date-fns)
+ * both read/write the LOCAL calendar day, though — on any NEGATIVE UTC
+ * offset, a UTC-midnight instant is still the PREVIOUS local calendar day
+ * (e.g. UTC 2026-04-30T00:00Z is 2026-04-29 19:00 local at UTC-5), so
+ * subtracting local days from it — or `format`-ing it — silently lands the
+ * nudge (and its identifier) a full day early. This rebuilds a Date at
+ * LOCAL midnight carrying the SAME calendar year/month/day as `date`'s UTC
+ * fields, so every local-time operation downstream
+ * (`subDays`/`setHours`/`format`) operates on the intended calendar day
+ * regardless of the host's offset.
+ */
+function utcInstantToLocalCalendarDay(date: Date): Date {
+  return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+/**
+ * The calendar day `scheduleWeeklyCheckIn` should key its "weekly check-in"
+ * nudge to, given `today` and the user's evening-prompt `hour`/`minute`:
+ * the FOLLOWING Sunday, UNLESS `today` is itself a Sunday and that time
+ * hasn't passed yet today — in which case today is correct (there is no
+ * reason to wait a further 7 days when today already qualifies). Matches
+ * `date-fns`'s `nextSunday`, which always returns a date strictly AFTER
+ * `today` even when `today` is a Sunday.
+ */
+function resolveWeeklyCheckInDay(today: Date, hour: number, minute: number): Date {
+  if (today.getDay() === 0) {
+    const todayAtTime = new Date(today);
+    todayAtTime.setHours(hour, minute, 0, 0);
+    if (todayAtTime.getTime() > today.getTime()) return today;
+  }
+  return nextSunday(today);
+}
 
 export class LocalNotificationScheduler {
   /**
@@ -99,6 +149,105 @@ export class LocalNotificationScheduler {
     );
     await Notifications.cancelScheduledNotificationAsync(LEGACY_EVENING_LOG_IDENTIFIER).catch(
       () => {},
+    );
+  }
+
+  /**
+   * VAL2-11: "payday countdown" pull-back nudge — one notification
+   * `PERIOD_CLOSING_DAYS_BEFORE` days before `periodEndDate` ends, at the
+   * user's evening-prompt time. `message` is pre-built by a pure caller-side
+   * builder (see `presentation/boot/budgetNudgeMessages.ts`) from local
+   * envelope/spend data at SCHEDULE time — this class never computes money
+   * or counts itself, and never imports presentation code, so it stays a
+   * thin, easily-testable wrapper over `expo-notifications` exactly like
+   * every other method here.
+   *
+   * Deterministic identifier (`period-closing-YYYY-MM-DD`, keyed by
+   * `periodEndDate`) + idempotent re-arm (cancels its own previous
+   * occurrence first) — the same rolling-window discipline as
+   * `scheduleEveningLogPrompt`, just for a single date instead of a window.
+   * A trigger time that has already passed (e.g. re-arming after the 3-day
+   * mark has gone by for this period) is silently skipped, same as the
+   * evening-log window's per-day skip.
+   */
+  async schedulePeriodClosingNudge(
+    periodEndDate: Date,
+    hour: number,
+    minute: number,
+    message: NudgeMessage,
+  ): Promise<void> {
+    await this.cancelPeriodClosingNudge();
+
+    const periodEndLocalDay = utcInstantToLocalCalendarDay(periodEndDate);
+    const triggerDate = subDays(periodEndLocalDay, PERIOD_CLOSING_DAYS_BEFORE);
+    triggerDate.setHours(hour, minute, 0, 0);
+    if (triggerDate.getTime() <= this.now().getTime()) return;
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: `${PERIOD_CLOSING_PREFIX}${format(periodEndLocalDay, 'yyyy-MM-dd')}`,
+      content: {
+        title: message.title,
+        body: message.body,
+        sound: true,
+        data: { target: 'dashboard' },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: triggerDate,
+      },
+    });
+  }
+
+  /** Cancels every `period-closing-YYYY-MM-DD` identifier this scheduler owns. Never touches another feature's notifications. */
+  async cancelPeriodClosingNudge(): Promise<void> {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(
+      () => [] as Notifications.NotificationRequest[],
+    );
+    const ours = scheduled.filter((n) => n.identifier.startsWith(PERIOD_CLOSING_PREFIX));
+    await Promise.all(
+      ours.map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier).catch(() => {})),
+    );
+  }
+
+  /**
+   * VAL2-11: "weekly check-in" pull-back nudge — one notification next
+   * Sunday, at the user's evening-prompt time. Same pre-built `message`
+   * contract as `schedulePeriodClosingNudge`, and the same deterministic
+   * identifier (`weekly-checkin-YYYY-MM-DD`, keyed by the resolved Sunday) +
+   * idempotent re-arm discipline.
+   */
+  async scheduleWeeklyCheckIn(hour: number, minute: number, message: NudgeMessage): Promise<void> {
+    await this.cancelWeeklyCheckIn();
+
+    const today = this.now();
+    const sunday = resolveWeeklyCheckInDay(today, hour, minute);
+    const triggerDate = new Date(sunday);
+    triggerDate.setHours(hour, minute, 0, 0);
+    if (triggerDate.getTime() <= today.getTime()) return;
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: `${WEEKLY_CHECKIN_PREFIX}${format(sunday, 'yyyy-MM-dd')}`,
+      content: {
+        title: message.title,
+        body: message.body,
+        sound: true,
+        data: { target: 'dashboard' },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: triggerDate,
+      },
+    });
+  }
+
+  /** Cancels every `weekly-checkin-YYYY-MM-DD` identifier this scheduler owns. Never touches another feature's notifications. */
+  async cancelWeeklyCheckIn(): Promise<void> {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(
+      () => [] as Notifications.NotificationRequest[],
+    );
+    const ours = scheduled.filter((n) => n.identifier.startsWith(WEEKLY_CHECKIN_PREFIX));
+    await Promise.all(
+      ours.map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier).catch(() => {})),
     );
   }
 

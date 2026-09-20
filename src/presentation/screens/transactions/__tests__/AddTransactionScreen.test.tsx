@@ -14,6 +14,7 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 const mockGoBack = jest.fn();
 jest.mock('../../../boot/eveningLogPrompt', () => ({
   rearmEveningLogPrompt: jest.fn().mockResolvedValue(undefined),
+  rearmBudgetNudges: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
@@ -409,7 +410,7 @@ describe('AddTransactionScreen', () => {
 
   // VAL-6/DB-7 — a successful CREATE wakes the household; an edit must not.
   describe('household notification on save', () => {
-    it('notifies the household after a successful create, with formatCurrency-built copy', async () => {
+    it('notifies the household after a successful create, with typed fields only', async () => {
       const {
         householdNotifier,
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -435,12 +436,16 @@ describe('AddTransactionScreen', () => {
       });
 
       await waitFor(() => {
-        expect(householdNotifier.notifyHousehold).toHaveBeenCalledWith(
-          expect.objectContaining({
-            kind: 'transaction_created',
-            body: expect.stringContaining('R25,00'),
-          }),
-        );
+        // SEC2-12: no caller-authored title/body — notify-event renders the
+        // words from these typed fields server-side.
+        expect(householdNotifier.notifyHousehold).toHaveBeenCalledWith({
+          kind: 'transaction_created',
+          householdId: expect.any(String),
+          senderId: expect.any(String),
+          amountCents: 2500,
+          envelopeName: 'Groceries',
+          payee: undefined,
+        });
       });
       // Logged today, so the evening "log your spending" window is re-armed.
       const { rearmEveningLogPrompt } = jest.requireMock('../../../boot/eveningLogPrompt') as {

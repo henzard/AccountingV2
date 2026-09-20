@@ -11,7 +11,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(47);
+select plan(55);
 
 -- ---------------------------------------------------------------------------
 -- Seed (as postgres, RLS bypassed)
@@ -303,7 +303,11 @@ select is(
   null, 'P10: non-member gets null row state');
 
 -- ===========================================================================
--- Probe 11: insert whose row already exists with same id -> applied no-op
+-- Probe 11: insert whose row already exists with same id but DIFFERENT values.
+-- Until 0016 this answered `applied` while silently keeping the old row (spec
+-- 6.6), which let two devices hold different values forever. It is now
+-- rejected `row_exists` so the losing client overwrites itself from the server
+-- (an IDENTICAL duplicate is still `applied` -- see Probe 21).
 -- ===========================================================================
 select is(
   public.sync_push(jsonb_build_array(jsonb_build_object(
@@ -317,8 +321,8 @@ select is(
       'name', 'Should Not Overwrite', 'period_start', '2026-01-01',
       'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
     'device_id', 'dev-a'
-  ))) -> 0 ->> 'status',
-  'applied', 'P11: insert onto existing id returns applied (no-op)');
+  ))) -> 0 ->> 'code',
+  'row_exists', 'P11: a differing insert onto an existing id is rejected row_exists');
 
 select is(
   (select name from public.envelopes where id = 'env-a1'),
@@ -696,6 +700,148 @@ select ok(
       and (payload ->> 'amount_cents')::bigint = -25000
   ),
   'P20: the NEGATIVE adjustment is visible via sync_pull with its sign intact');
+
+-- ===========================================================================
+-- Probe 21 (SEC2-5): a SECOND insert of an id that already exists is
+-- REJECTED `row_exists`, not falsely reported `applied`.
+--
+-- This is the deterministic-id divergence: `envelope_contributions` rows
+-- written at rollover carry a uuidv5 id derived from stable inputs
+-- (src/domain/budgets/PersistentContributions.ts), so two devices rolling
+-- the same period over produce the SAME id -- but not necessarily the same
+-- `amount_cents`. Until 0016 the loser's insert hit
+-- `ON CONFLICT (id) DO NOTHING` and still answered `applied`, so it marked
+-- its op pushed and kept its own figure forever (and the winner's insert,
+-- once pulled, is an `INSERT OR IGNORE` no-op on the client too).
+--
+-- Note the DIFFERENT op_id: a resend of the SAME op_id never reaches the
+-- insert at all -- the oplog append at the top of apply_one_op's savepoint
+-- short-circuits it to `applied`/`duplicate` (probe 2, and re-pinned at the
+-- end of this probe). `row_exists` is therefore reachable ONLY for a
+-- genuinely different op targeting an id that is already taken.
+--
+-- And a suppressed insert is only rejected when the row is genuinely
+-- DIFFERENT. Two phones rolling the same period over normally write the same
+-- deterministic rows with the SAME numbers, and a client already in the field
+-- (1.1.130/1.1.134) does not know `row_exists`: it would retry it to the cap,
+-- stalling that household's push queue meanwhile, then dead-letter it and tell
+-- the user the write "couldn't be saved to the cloud". So the benign duplicate
+-- keeps its old `applied` answer -- including when only `created_at` /
+-- `updated_at` differ, which two devices ALWAYS do.
+-- ===========================================================================
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000023',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-initial',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 50000, 'period_start', '2026-01-01',
+      'source', 'initial',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-b',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'status',
+  'applied', 'P21: an IDENTICAL re-insert under a different op_id is still applied');
+
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000024',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-initial',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 50000, 'period_start', '2026-01-01',
+      'source', 'initial',
+      'created_at', '2026-02-02T09:15:00Z', 'updated_at', '2026-02-02T09:15:00Z'),
+    'device_id', 'dev-b',
+    'client_created_at', '2026-02-02T09:15:00Z'
+  ))) -> 0 ->> 'status',
+  'applied', 'P21: differing ONLY in created_at/updated_at is still applied');
+
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000021',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-initial',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 12345, 'period_start', '2026-01-01',
+      'source', 'rollover',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-b',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'status',
+  'rejected', 'P21: a second insert of an existing id is rejected, not applied');
+
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-000000000022',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-initial',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 12345, 'period_start', '2026-01-01',
+      'source', 'rollover',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-b',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'code',
+  'row_exists', 'P21: the rejection code is row_exists');
+
+select is(
+  (select amount_cents::int from public.envelope_contributions where id = 'contrib-initial'),
+  50000, 'P21: the SERVER row is untouched by the losing insert');
+
+select is(
+  (select count(*)::int from public.oplog
+   where op_id in ('a0000000-0000-0000-0000-000000000021',
+                   'a0000000-0000-0000-0000-000000000022')),
+  0, 'P21: a rejected insert appends NO oplog row (never reaches the pull stream)');
+
+-- Idempotent re-delivery is unaffected: the ORIGINAL op_id resent still gets
+-- the duplicate-ack, because it never reaches the insert path.
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-00000000001b',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-initial',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 50000, 'period_start', '2026-01-01',
+      'source', 'initial',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'status',
+  'applied', 'P21: resending the ORIGINAL op_id is still acknowledged applied');
+
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-00000000001b',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-initial',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 50000, 'period_start', '2026-01-01',
+      'source', 'initial',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'code',
+  'duplicate', 'P21: ... and still as a DUPLICATE, never as row_exists');
 
 select * from finish();
 rollback;

@@ -316,10 +316,12 @@ describe('SlipScanningScreen', () => {
         totalCents: 300,
       });
 
+      // SEC2-12: typed fields only — notify-event renders the words.
       expect(mockHouseholdNotifier.notifyHousehold).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: 'slip_confirmed',
-          body: expect.stringContaining('Confirmed 2 items'),
+          itemCount: 2,
+          merchant: 'Pick n Pay',
         }),
       );
     });

@@ -43,11 +43,12 @@ import { formatCurrency } from '../../utils/currency';
 import { SpendingCoach } from '../../../domain/coaching/SpendingCoach';
 import { CoachingModal } from '../../components/shared/CoachingModal';
 import type { CoachingResult } from '../../../domain/coaching/SpendingCoach';
+import { MoveAllocationUseCase } from '../../../domain/envelopes/MoveAllocationUseCase';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
 import { detectThresholdCrossing, buildThresholdToastMessage } from './envelopeUsageThreshold';
 import { computeAfterThisPreview } from './afterThisPreview';
 import { householdNotifier } from '../../../infrastructure/notifications/HouseholdNotifier';
-import { rearmEveningLogPrompt } from '../../boot/eveningLogPrompt';
+import { rearmBudgetNudges, rearmEveningLogPrompt } from '../../boot/eveningLogPrompt';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
@@ -135,6 +136,9 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const [existingTransaction, setExistingTransaction] = useState<TransactionEntity | null>(null);
 
   const [coachingResult, setCoachingResult] = useState<CoachingResult | null>(null);
+  // VAL2-9: "cover it from another envelope" — the sheet listing PERIOD
+  // envelopes with enough unspent money to cover the current shortfall.
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
   const pendingAmountCents = useRef<number>(0);
   const isSaving = useRef(false);
 
@@ -309,13 +313,38 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   }, [householdId, periodStart, enqueue, focusAmount]);
 
   const doSave = useCallback(
-    async (amountCents: number): Promise<void> => {
+    async (
+      amountCents: number,
+      options?: {
+        /**
+         * VAL2-9 cover-flow fix (round-3 review, item 1): `selectedEnvelope`
+         * state was updated by `handleCoverEnvelopeSelected` just before
+         * calling `doSave`, but `doSave` is the memoized closure from the
+         * render BEFORE that state update landed — it still captures the
+         * PRE-move `allocatedCents` (via the `selectedEnvelope` dependency
+         * this `useCallback` closed over), so threshold detection and
+         * `overByCents` below would silently use the wrong (smaller,
+         * pre-cover) allocation. Passing the post-move envelope explicitly
+         * bypasses the stale closure instead of trusting React to have
+         * re-rendered in time.
+         */
+        envelopeOverride?: EnvelopeOption;
+        /**
+         * Set only by the cover flow: a save that follows a cover landing
+         * the envelope at EXACTLY its (now larger) allocation is fully
+         * spent, not over budget — suppresses the 100%-crossing toast/push
+         * for that exact-cap case only, leaving the ordinary (non-cover)
+         * exact-100% convention elsewhere in this screen unchanged.
+         */
+        suppressExactCapOverBudget?: boolean;
+      },
+    ): Promise<void> => {
       if (isSaving.current) return; // guard against double-tap race
       isSaving.current = true;
       setLoading(true);
       setError(null);
       try {
-        const envelope = selectedEnvelope!;
+        const envelope = options?.envelopeOverride ?? selectedEnvelope!;
         const previousSpentCents = previousSpentCentsForSelectedEnvelope;
 
         const result = existingTransaction
@@ -346,14 +375,24 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           if (!existingTransaction) {
             // Logged today, so tonight's "log your spending" reminder is moot.
             void rearmEveningLogPrompt().catch(() => undefined);
+            // SEC2-12: typed fields only — notify-event writes the words.
             householdNotifier.notifyHousehold({
               kind: 'transaction_created',
               householdId,
               senderId,
-              title: (payee.trim() || envelope.name).slice(0, 120),
-              body: `${payee.trim() || envelope.name} · ${formatCurrency(amountCents)} from ${envelope.name}`,
+              amountCents,
+              envelopeName: envelope.name,
+              payee: payee.trim() || undefined,
             });
           }
+
+          // Round-3 review item 4: unlike the evening-log rearm and the
+          // household "new transaction" push above (both create-only — an
+          // edit isn't a new spend), the payday-countdown/weekly-check-in
+          // NUMBERS change on every save that moves money, including an
+          // edit and the cover flow's resumed save — so this runs
+          // unconditionally, not just for `!existingTransaction`.
+          void rearmBudgetNudges().catch(() => undefined);
 
           // VAL-13: only for period-scoped envelopes, and only when THIS
           // save is the one that crosses 80%/100% (not every save above it).
@@ -365,30 +404,37 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
               envelope.allocatedCents,
             );
             if (crossing) {
-              enqueue(
-                buildThresholdToastMessage(
-                  crossing,
-                  envelope.name,
-                  envelope.allocatedCents,
-                  newSpentCents,
-                ),
-                crossing === 100 ? 'error' : 'regression',
-              );
               // VAL-6/DB-7: only the 100% ("over budget") crossing wakes the
               // household — the 80% heads-up is a solo nudge, not shared news.
-              if (crossing === 100) {
-                householdNotifier.notifyHousehold({
-                  kind: 'envelope_over_budget',
-                  householdId,
-                  senderId,
-                  title: envelope.name.slice(0, 120),
-                  body: buildThresholdToastMessage(
+              // Landing exactly ON the allocation is "fully spent", not over,
+              // and notify-event requires a positive overByCents.
+              const overByCents = newSpentCents - envelope.allocatedCents;
+              // Round-3 review item 1: a save that follows a cover landing
+              // EXACTLY at the (new, larger) allocation is fully spent, not
+              // over — suppress the toast+push for that specific case only,
+              // so this never touches the ordinary (non-cover) exact-100%
+              // convention used everywhere else in this screen.
+              const suppressExactCap =
+                options?.suppressExactCapOverBudget && crossing === 100 && overByCents <= 0;
+              if (!suppressExactCap) {
+                enqueue(
+                  buildThresholdToastMessage(
                     crossing,
                     envelope.name,
                     envelope.allocatedCents,
                     newSpentCents,
                   ),
-                });
+                  crossing === 100 ? 'error' : 'regression',
+                );
+                if (crossing === 100 && overByCents > 0) {
+                  householdNotifier.notifyHousehold({
+                    kind: 'envelope_over_budget',
+                    householdId,
+                    senderId,
+                    envelopeName: envelope.name,
+                    overByCents,
+                  });
+                }
               }
             }
           }
@@ -476,6 +522,74 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const handleCoachingCancel = useCallback((): void => {
     setCoachingResult(null);
   }, []);
+
+  // VAL2-9: PERIOD envelopes (other than the one being overspent) that hold
+  // enough UNSPENT allocation to cover the current shortfall — the list the
+  // "cover it from another envelope" picker offers. Never offered for a
+  // persistent-scope (fund) overspend: a fund's "over budget" reading is
+  // against its own saved balance, which no sibling allocation can fix.
+  const coverCandidates = useMemo((): EnvelopeOption[] => {
+    if (!coachingResult || coachingResult.scope !== 'period' || !selectedEnvelope) return [];
+    return envelopes.filter((env) => {
+      if (env.id === selectedEnvelope.id) return false;
+      if (getEnvelopeScope({ envelopeType: env.envelopeType }) !== 'period') return false;
+      const unspentCents = env.allocatedCents - env.spentCents;
+      return unspentCents >= coachingResult.overspendCents;
+    });
+  }, [coachingResult, selectedEnvelope, envelopes]);
+
+  const handleCoverFromAnotherEnvelope = useCallback((): void => {
+    setShowCoverPicker(true);
+  }, []);
+
+  const handleCoverEnvelopeSelected = useCallback(
+    (fromEnvelope: EnvelopeOption): void => {
+      if (!coachingResult || !selectedEnvelope) return;
+      const amountToMoveCents = coachingResult.overspendCents;
+      void (async (): Promise<void> => {
+        const result = await new MoveAllocationUseCase(db, audit).execute({
+          householdId,
+          periodStart,
+          fromEnvelopeId: fromEnvelope.id,
+          toEnvelopeId: selectedEnvelope.id,
+          amountCents: amountToMoveCents,
+        });
+        if (!result.success) {
+          enqueue(result.error.message, 'error');
+          return;
+        }
+        // Round-3 review item 1: the envelope this save must use, with the
+        // move already applied. Passed explicitly into `doSave` below —
+        // NOT read back from `selectedEnvelope` state, which `doSave`'s
+        // memoized closure (captured at the LAST render, before this state
+        // update lands) would still see as the pre-move allocation.
+        const updatedSelectedEnvelope: EnvelopeOption = {
+          ...selectedEnvelope,
+          allocatedCents: result.data.toAllocatedCents,
+        };
+        // Keep local envelope state in step with the move it just committed.
+        setEnvelopes((prev) =>
+          prev.map((env) => {
+            if (env.id === result.data.fromEnvelopeId) {
+              return { ...env, allocatedCents: result.data.fromAllocatedCents };
+            }
+            if (env.id === result.data.toEnvelopeId) {
+              return { ...env, allocatedCents: result.data.toAllocatedCents };
+            }
+            return env;
+          }),
+        );
+        setSelectedEnvelope(updatedSelectedEnvelope);
+        enqueue(`Moved ${formatCurrency(amountToMoveCents)} from ${fromEnvelope.name}`, 'success');
+        setCoachingResult(null);
+        void doSave(pendingAmountCents.current, {
+          envelopeOverride: updatedSelectedEnvelope,
+          suppressExactCapOverBudget: true,
+        });
+      })();
+    },
+    [coachingResult, selectedEnvelope, householdId, periodStart, enqueue, doSave],
+  );
 
   // UX2-10: an explicit way out of a transaction, from inside edit mode.
   const handleDelete = useCallback(async (): Promise<void> => {
@@ -741,8 +855,21 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           scope={coachingResult.scope}
           onProceed={handleCoachingProceed}
           onCancel={handleCoachingCancel}
+          onCoverFromAnotherEnvelope={
+            coverCandidates.length > 0 ? handleCoverFromAnotherEnvelope : undefined
+          }
         />
       )}
+
+      {/* VAL2-9: "cover it from another envelope" — reuses the same picker
+          sheet as envelope selection, scoped to envelopes with enough
+          unspent money to cover the current shortfall. */}
+      <EnvelopePickerSheet
+        visible={showCoverPicker}
+        envelopes={coverCandidates}
+        onSelect={handleCoverEnvelopeSelected}
+        onClose={() => setShowCoverPicker(false)}
+      />
     </KeyboardAvoidingView>
   );
 };

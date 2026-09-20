@@ -171,6 +171,12 @@ android {
             // "Missing classes detected" (minifyE2eAndroidTestWithR8). The test
             // APK is never shipped, so it needs no shrinking — only to link.
             testProguardFile "proguard-rules-e2e-test.pro"
+            // Detox's instrumentation runs INSIDE the app process and resolves
+            // the Kotlin stdlib from the APP apk. R8 strips stdlib members the
+            // app itself never calls, so the first run that ever connected
+            // crashed with NoClassDefFoundError: kotlin.TuplesKt. Keep the
+            // stdlib whole for this build type only.
+            proguardFile "proguard-rules-e2e-app.pro"
         }
     }
     packagingOptions {

@@ -33,6 +33,7 @@ let mockRawDb: Database.Database;
 
 jest.mock('../../../boot/eveningLogPrompt', () => ({
   rearmEveningLogPrompt: jest.fn().mockResolvedValue(undefined),
+  rearmBudgetNudges: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../../../../infrastructure/notifications/HouseholdNotifier', () => ({
   householdNotifier: { notifyHousehold: jest.fn() },

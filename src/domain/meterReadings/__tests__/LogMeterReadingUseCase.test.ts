@@ -1,6 +1,7 @@
 import { LogMeterReadingUseCase } from '../LogMeterReadingUseCase';
 import type { IMeterReadingRepository } from '../../ports/IMeterReadingRepository';
 import type { SyncedRepo } from '../../../data/uow/createSyncedRepo';
+import { addDays, format } from 'date-fns';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-meter-1' }));
 jest.mock('../../shared/bestEffortAudit', () => ({
@@ -204,9 +205,10 @@ describe('LogMeterReadingUseCase', () => {
 
   it('returns failure when reading date is in the future', async () => {
     const meterRepo = makeMockMeterRepo();
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 1);
-    const futureDateString = futureDate.toISOString().split('T')[0];
+    // LOCAL calendar date, like the use case. Building "tomorrow" from
+    // toISOString() (UTC) made this test fail between 00:00 and 02:00 SAST,
+    // when UTC-tomorrow is still local-today.
+    const futureDateString = format(addDays(new Date(), 2), 'yyyy-MM-dd');
 
     const uc = new LogMeterReadingUseCase(
       mockDb,

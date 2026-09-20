@@ -25,9 +25,13 @@ import { isOnboardingComplete } from '../../infrastructure/storage/onboardingFla
 import type { RootStackParamList } from './types';
 import { SlipScanningScreen } from './SlipScanningScreen';
 import { useAppTheme } from '../theme/useAppTheme';
-import { hasLoggedTransactionToday, rearmEveningLogPrompt } from '../boot/eveningLogPrompt';
+import {
+  hasLoggedTransactionToday,
+  rearmEveningLogPrompt,
+  rearmBudgetNudges,
+} from '../boot/eveningLogPrompt';
 
-export { rearmEveningLogPrompt };
+export { rearmEveningLogPrompt, rearmBudgetNudges };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const prefsRepo = new NotificationPreferencesRepository();
@@ -164,6 +168,10 @@ export function RootNavigator(): React.JSX.Element {
       if (prefs.monthStartPreflightEnabled) {
         await scheduler.scheduleMonthStartPreflight(paydayDay);
       }
+      // VAL2-11: pull-back nudges — reads the preferences/permission just
+      // set above straight back out of the stores, so it arms only what
+      // this init just enabled.
+      await rearmBudgetNudges();
     };
 
     void initNotifications();
@@ -243,7 +251,13 @@ export function RootNavigator(): React.JSX.Element {
   // re-run.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
-      if (state === 'active') void rearmEveningLogPrompt();
+      if (state === 'active') {
+        void rearmEveningLogPrompt();
+        // VAL2-11: pull-back nudges — same "recompute on foreground" reason
+        // as the evening-log rearm above (a transaction logged elsewhere
+        // while backgrounded should be reflected next time these fire).
+        void rearmBudgetNudges();
+      }
     });
     return () => sub.remove();
   }, []);

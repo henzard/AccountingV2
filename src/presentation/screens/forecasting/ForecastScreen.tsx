@@ -11,6 +11,7 @@ import { formatCurrency } from '../../utils/currency';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
+import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { spacing, radius, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type {
@@ -31,11 +32,25 @@ export function ForecastScreen(): React.JSX.Element {
   const periodStart = formatPeriodDateKey(period.startDate);
   const periodEnd = formatPeriodDateKey(period.endDate);
 
-  const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
-  const { transactions, reload: reloadTransactions } = useTransactions(householdId, {
+  const {
+    envelopes,
+    loading,
+    refreshing: envelopesRefreshing,
+    reload,
+  } = useEnvelopes(householdId, periodStart);
+  const {
+    transactions,
+    refreshing: transactionsRefreshing,
+    reload: reloadTransactions,
+  } = useTransactions(householdId, {
     periodStart,
     periodEnd,
   });
+  // The screen reloads both together (see the focus effect below), so
+  // either one still being in flight (e.g. envelopes resolved first) must
+  // keep the bar visible — tracking only `envelopesRefreshing` let it
+  // disappear while transactions were still loading.
+  const refreshing = envelopesRefreshing || transactionsRefreshing;
 
   useFocusEffect(
     useCallback(() => {
@@ -57,6 +72,7 @@ export function ForecastScreen(): React.JSX.Element {
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <ScreenHeader eyebrow={period.label} title="This period's forecast" />
+      <RefreshingBar refreshing={refreshing} />
 
       {loading ? (
         <LoadingSkeletonList count={4} testID="forecast-loading" />

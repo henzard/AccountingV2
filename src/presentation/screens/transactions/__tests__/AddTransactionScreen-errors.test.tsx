@@ -13,6 +13,7 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 const mockGoBack = jest.fn();
 jest.mock('../../../boot/eveningLogPrompt', () => ({
   rearmEveningLogPrompt: jest.fn().mockResolvedValue(undefined),
+  rearmBudgetNudges: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),

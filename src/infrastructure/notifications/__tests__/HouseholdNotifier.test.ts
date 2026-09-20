@@ -23,6 +23,9 @@ import { HouseholdNotifier } from '../HouseholdNotifier';
 import { logger } from '../../logging/Logger';
 import type { HouseholdNotificationEvent } from '../../../domain/ports/IHouseholdNotifier';
 
+/** Mirrors HouseholdNotifier's own DEBOUNCE_MS. */
+const DEBOUNCE_MS = 5_000;
+
 const mockNetInfoFetch = NetInfo.fetch as jest.Mock;
 const mockLoggerWarn = logger.warn as jest.Mock;
 
@@ -56,8 +59,8 @@ const baseEvent: HouseholdNotificationEvent = {
   kind: 'transaction_created',
   householdId: 'h1',
   senderId: 'u1',
-  title: 'Groceries',
-  body: 'R123,45 from Groceries',
+  amountCents: 12_345,
+  envelopeName: 'Groceries',
 };
 
 describe('HouseholdNotifier', () => {
@@ -66,7 +69,7 @@ describe('HouseholdNotifier', () => {
     mockNetInfoFetch.mockResolvedValue({ isConnected: true, isInternetReachable: true });
   });
 
-  it('invokes notify-event with exactly the expected contract for each other member', async () => {
+  it('invokes notify-event once with the typed event shape', async () => {
     const supabase = makeFakeSupabase();
     const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);
     const notifier = new HouseholdNotifier({
@@ -82,11 +85,14 @@ describe('HouseholdNotifier', () => {
 
     expect(supabase.functions.invoke).toHaveBeenCalledTimes(1);
     expect(supabase.functions.invoke).toHaveBeenCalledWith('notify-event', {
-      body: { userId: 'u2', householdId: 'h1', title: 'Groceries', body: 'R123,45 from Groceries' },
+      body: {
+        householdId: 'h1',
+        event: { kind: 'transaction_created', amountCents: 12_345, envelopeName: 'Groceries' },
+      },
     });
   });
 
-  it('never notifies the sender', async () => {
+  it('REG-15: sends ONE request for a 3-member household, not one per recipient', async () => {
     const supabase = makeFakeSupabase();
     const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' }]);
     const notifier = new HouseholdNotifier({
@@ -100,9 +106,89 @@ describe('HouseholdNotifier', () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    const targets = supabase.functions.invoke.mock.calls.map((c: any[]) => c[1].body.userId);
-    expect(targets).not.toContain('u1');
-    expect(targets.sort()).toEqual(['u2', 'u3']);
+    // The server resolves the recipients; the client never addresses one, so
+    // a bigger household no longer costs a bigger slice of the hourly budget.
+    expect(supabase.functions.invoke).toHaveBeenCalledTimes(1);
+    const body = supabase.functions.invoke.mock.calls[0][1].body;
+    expect(body).not.toHaveProperty('userId');
+  });
+
+  it('SEC2-12: never sends a caller-authored title or body', async () => {
+    const supabase = makeFakeSupabase();
+    const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);
+    const notifier = new HouseholdNotifier({
+      supabase,
+      db,
+      preferencesRepository: makePrefsRepo(),
+      now: () => 1_000,
+    });
+
+    notifier.notifyHousehold(baseEvent);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const body = supabase.functions.invoke.mock.calls[0][1].body;
+    expect(body).not.toHaveProperty('title');
+    expect(body).not.toHaveProperty('body');
+    expect(body.event).not.toHaveProperty('title');
+    expect(body.event).not.toHaveProperty('body');
+  });
+
+  it('projects each event kind onto its own typed field set', async () => {
+    const supabase = makeFakeSupabase();
+    const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);
+    let now = 1_000;
+    const notifier = new HouseholdNotifier({
+      supabase,
+      db,
+      preferencesRepository: makePrefsRepo(),
+      now: () => now,
+    });
+
+    notifier.notifyHousehold({
+      kind: 'envelope_over_budget',
+      householdId: 'h1',
+      senderId: 'u1',
+      envelopeName: 'Groceries',
+      overByCents: 500,
+    });
+    now += DEBOUNCE_MS;
+    notifier.notifyHousehold({
+      kind: 'slip_confirmed',
+      householdId: 'h1',
+      senderId: 'u1',
+      itemCount: 3,
+      merchant: 'Checkers',
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(supabase.functions.invoke.mock.calls.map((c: any[]) => c[1].body.event)).toEqual([
+      { kind: 'envelope_over_budget', envelopeName: 'Groceries', overByCents: 500 },
+      { kind: 'slip_confirmed', itemCount: 3, merchant: 'Checkers' },
+    ]);
+  });
+
+  it('omits an empty optional free-text field and truncates an over-long one', async () => {
+    const supabase = makeFakeSupabase();
+    const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);
+    let now = 1_000;
+    const notifier = new HouseholdNotifier({
+      supabase,
+      db,
+      preferencesRepository: makePrefsRepo(),
+      now: () => now,
+    });
+
+    notifier.notifyHousehold({ ...baseEvent, payee: '   ' });
+    now += DEBOUNCE_MS;
+    notifier.notifyHousehold({ ...baseEvent, payee: 'p'.repeat(80) });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const events = supabase.functions.invoke.mock.calls.map((c: any[]) => c[1].body.event);
+    expect(events[0]).not.toHaveProperty('payee');
+    expect(events[1].payee).toBe('p'.repeat(60));
   });
 
   it('skips entirely when offline', async () => {
@@ -124,7 +210,7 @@ describe('HouseholdNotifier', () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it('skips when the household has only one active member', async () => {
+  it('skips when the household has only the sender as an active member', async () => {
     const supabase = makeFakeSupabase();
     const db = makeFakeDb([{ userId: 'u1' }]);
     const notifier = new HouseholdNotifier({
@@ -212,6 +298,30 @@ describe('HouseholdNotifier', () => {
     await flushMicrotasks();
 
     expect(supabase.functions.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('prunes debounce entries older than the window so the map cannot grow forever', async () => {
+    const supabase = makeFakeSupabase();
+    const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);
+    let now = 1_000;
+    const notifier = new HouseholdNotifier({
+      supabase,
+      db,
+      preferencesRepository: makePrefsRepo(),
+      now: () => now,
+    });
+
+    for (let i = 0; i < 25; i++) {
+      notifier.notifyHousehold({ ...baseEvent, amountCents: 100 + i });
+      now += DEBOUNCE_MS;
+    }
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const map = (notifier as unknown as { lastSentAt: Map<string, number> }).lastSentAt;
+    expect(supabase.functions.invoke).toHaveBeenCalledTimes(25);
+    // Only the most recent entry can still be inside the window.
+    expect(map.size).toBe(1);
   });
 
   it('does not debounce the same event once the debounce window has passed', async () => {

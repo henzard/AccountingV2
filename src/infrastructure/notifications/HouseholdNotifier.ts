@@ -17,6 +17,11 @@ import type {
  * guard, just for the notification side-effect rather than the write. */
 const DEBOUNCE_MS = 5_000;
 
+/** Mirrors notify-event's MAX_FREE_TEXT. Truncating here rather than letting
+ * the function reject the whole request keeps an unusually long envelope or
+ * merchant name from silently costing the household its notification. */
+const MAX_FREE_TEXT = 60;
+
 export interface HouseholdNotifierDeps {
   supabase: SupabaseClient;
   db: ExpoSQLiteDatabase<typeof schema>;
@@ -24,15 +29,60 @@ export interface HouseholdNotifierDeps {
   now: () => number;
 }
 
+/** The `event` object sent to notify-event: the kind plus its typed fields,
+ * and nothing else — the function rejects unknown keys. */
+type NotifyEventBody = Record<string, string | number>;
+
+function trimText(value: string): string {
+  return value.trim().slice(0, MAX_FREE_TEXT);
+}
+
+/**
+ * Projects a client event onto notify-event's wire shape. Optional free-text
+ * fields are omitted entirely when empty rather than sent as '' (the function
+ * treats an empty string as nothing renderable, and omitting keeps the
+ * request minimal).
+ */
+function toRequestEvent(event: HouseholdNotificationEvent): NotifyEventBody {
+  switch (event.kind) {
+    case 'transaction_created': {
+      const payee = event.payee ? trimText(event.payee) : '';
+      return {
+        kind: event.kind,
+        amountCents: event.amountCents,
+        envelopeName: trimText(event.envelopeName),
+        ...(payee ? { payee } : {}),
+      };
+    }
+    case 'envelope_over_budget':
+      return {
+        kind: event.kind,
+        envelopeName: trimText(event.envelopeName),
+        overByCents: event.overByCents,
+      };
+    case 'slip_confirmed': {
+      const merchant = event.merchant ? trimText(event.merchant) : '';
+      return {
+        kind: event.kind,
+        itemCount: event.itemCount,
+        ...(merchant ? { merchant } : {}),
+      };
+    }
+  }
+}
+
 /**
  * HouseholdNotifier — VAL-6/DB-7 client side of the "push notifications are
  * fully dead" gap.
  *
- * notify-event/index.ts's contract is per-target-member:
- * `{ userId, householdId, title, body }`. There is no server-side fan-out or
- * "event type" — this class is the thing that decides WHO in the household
- * to notify (every active member except the sender) and calls the function
- * once per recipient.
+ * REG-15: ONE request per event. The function resolves the recipients itself
+ * and charges the sender a single unit of their hourly budget, so a busy
+ * three-person household no longer burns the whole budget on chatter and gets
+ * its over-budget alert rejected.
+ *
+ * SEC2-12: this class no longer builds a title or body. It describes what
+ * happened with typed, bounded fields and the server writes the words — a
+ * member cannot put arbitrary text on another member's lock screen.
  *
  * Fire-and-forget by design: `notifyHousehold` returns immediately and never
  * throws into the caller. A push is a nice-to-have; it must never block or
@@ -45,8 +95,15 @@ export class HouseholdNotifier implements IHouseholdNotifier {
   constructor(private readonly deps: HouseholdNotifierDeps) {}
 
   notifyHousehold(event: HouseholdNotificationEvent): void {
-    const key = `${event.kind}:${event.householdId}:${event.senderId}:${event.title}:${event.body}`;
+    const requestEvent = toRequestEvent(event);
+    const key = `${event.householdId}:${event.senderId}:${JSON.stringify(requestEvent)}`;
     const now = this.deps.now();
+
+    // The map is keyed by event content, so a long session would otherwise
+    // grow it without bound (one entry per distinct transaction ever saved).
+    // Anything older than the window can never suppress anything again.
+    this.pruneDebounceMap(now);
+
     const last = this.lastSentAt.get(key);
     if (last !== undefined && now - last < DEBOUNCE_MS) {
       return; // double-tap / duplicate save within the debounce window
@@ -56,12 +113,23 @@ export class HouseholdNotifier implements IHouseholdNotifier {
     // the second one to resolve.
     this.lastSentAt.set(key, now);
 
-    this.send(event).catch((err: unknown) => {
+    this.send(event, requestEvent).catch((err: unknown) => {
       logger.warn('[HouseholdNotifier] send failed', { kind: event.kind, err: String(err) });
     });
   }
 
-  private async send(event: HouseholdNotificationEvent): Promise<void> {
+  private pruneDebounceMap(now: number): void {
+    for (const [key, sentAt] of this.lastSentAt) {
+      if (now - sentAt >= DEBOUNCE_MS) {
+        this.lastSentAt.delete(key);
+      }
+    }
+  }
+
+  private async send(
+    event: HouseholdNotificationEvent,
+    requestEvent: NotifyEventBody,
+  ): Promise<void> {
     try {
       const netState = await NetInfo.fetch();
       if (!(netState.isConnected && netState.isInternetReachable !== false)) {
@@ -73,6 +141,8 @@ export class HouseholdNotifier implements IHouseholdNotifier {
         return; // user turned household-activity pushes off on this device
       }
 
+      // The server resolves the real recipient list; this local read only
+      // avoids waking the function at all for a solo household.
       const members = await this.deps.db
         .select({ userId: schema.householdMembers.userId })
         .from(schema.householdMembers)
@@ -83,34 +153,26 @@ export class HouseholdNotifier implements IHouseholdNotifier {
           ),
         );
 
-      const recipients = members.map((m) => m.userId).filter((userId) => userId !== event.senderId);
-
-      if (recipients.length === 0) {
+      const hasOtherMember = members.some((m) => m.userId !== event.senderId);
+      if (!hasOtherMember) {
         return; // solo household — nothing to wake the function for
       }
 
-      for (const userId of recipients) {
-        try {
-          const { error } = await this.deps.supabase.functions.invoke('notify-event', {
-            body: {
-              userId,
-              householdId: event.householdId,
-              title: event.title,
-              body: event.body,
-            },
-          });
-          if (error) {
-            logger.warn('[HouseholdNotifier] notify-event returned an error', {
-              kind: event.kind,
-              error: error.message,
-            });
-          }
-        } catch (err) {
-          logger.warn('[HouseholdNotifier] notify-event invoke threw', {
+      try {
+        const { error } = await this.deps.supabase.functions.invoke('notify-event', {
+          body: { householdId: event.householdId, event: requestEvent },
+        });
+        if (error) {
+          logger.warn('[HouseholdNotifier] notify-event returned an error', {
             kind: event.kind,
-            err: String(err),
+            error: error.message,
           });
         }
+      } catch (err) {
+        logger.warn('[HouseholdNotifier] notify-event invoke threw', {
+          kind: event.kind,
+          err: String(err),
+        });
       }
     } catch (err) {
       logger.warn('[HouseholdNotifier] unexpected failure building/sending notification', {

@@ -225,6 +225,23 @@ describe('Android Play Console compliance configuration', () => {
       expect(rules).toContain('-dontshrink');
     });
 
+    it('keeps the Kotlin stdlib in the e2e APP apk, where Detox links against it', () => {
+      // First run that ever connected died with NoClassDefFoundError:
+      // kotlin.TuplesKt — R8 had stripped stdlib members the app never calls.
+      const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
+      const buildTypes = gradleBlock(buildGradle, 'buildTypes {');
+      expect(gradleBlock(buildTypes, 'e2e {')).toContain(
+        'proguardFile "proguard-rules-e2e-app.pro"',
+      );
+      // …and never in the production build type.
+      expect(gradleBlock(buildTypes, 'release {')).not.toContain('proguard-rules-e2e-app.pro');
+      const rules = fs.readFileSync(
+        path.join(repoRoot, 'android/app/proguard-rules-e2e-app.pro'),
+        'utf8',
+      );
+      expect(rules).toContain('-keep class kotlin.** { *; }');
+    });
+
     it('registers the :detox androidTest dependency and instrumentation runner', () => {
       const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
       expect(buildGradle).toContain("androidTestImplementation(project(':detox'))");

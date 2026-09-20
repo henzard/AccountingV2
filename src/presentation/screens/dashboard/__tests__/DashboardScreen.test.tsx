@@ -29,6 +29,10 @@ jest.mock('../../../hooks/useEnvelopes', () => ({
   useEnvelopes: jest.fn().mockReturnValue({ envelopes: [], loading: false, reload: jest.fn() }),
 }));
 
+jest.mock('../../../hooks/useDebts', () => ({
+  useDebts: jest.fn().mockReturnValue({ debts: [], loading: false, reload: jest.fn() }),
+}));
+
 jest.mock('../../../hooks/useBabySteps', () => ({
   useBabySteps: jest.fn().mockReturnValue({ statuses: [] }),
 }));
@@ -116,6 +120,8 @@ jest.mock('react-native-paper', () => {
       React.createElement('View', null, children),
     Portal: ({ children }: { children?: React.ReactNode }) => children,
     Dialog,
+    ProgressBar: ({ testID }: { testID?: string }) =>
+      React.createElement('View', { testID: testID ?? 'progress-bar' }),
   };
 });
 
@@ -142,6 +148,7 @@ jest.mock('react-native-svg', () => {
 });
 
 import { useEnvelopes } from '../../../hooks/useEnvelopes';
+import { useDebts } from '../../../hooks/useDebts';
 import { DashboardScreen } from '../DashboardScreen';
 
 const mockEnvelopes = [
@@ -346,5 +353,97 @@ describe('DashboardScreen', () => {
       <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
     );
     expect(getByTestId('dashboard-loading')).toBeTruthy();
+  });
+
+  it('shows the RefreshingBar while refreshing, without blanking the list (REG-9)', () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: mockEnvelopes,
+      loading: false,
+      refreshing: true,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(getByTestId('refreshing-bar')).toBeTruthy();
+    expect(getByTestId('dashboard-kpi-row')).toBeTruthy();
+  });
+
+  it('hides the RefreshingBar when not refreshing', () => {
+    (useEnvelopes as jest.Mock).mockReturnValue({
+      envelopes: [],
+      loading: false,
+      refreshing: false,
+      reload: jest.fn(),
+    });
+    const { queryByTestId } = render(
+      <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+    expect(queryByTestId('refreshing-bar')).toBeNull();
+  });
+
+  describe('debt-free header line (VAL2-10)', () => {
+    const unpaidDebt = {
+      id: 'd1',
+      creditorName: 'Credit Card',
+      debtType: 'credit_card' as const,
+      outstandingBalanceCents: 10000,
+      initialBalanceCents: 10000,
+      totalPaidCents: 0,
+      minimumPaymentCents: 5000,
+      interestRatePercent: 0,
+      sortOrder: 0,
+      isPaidOff: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    };
+
+    afterEach(() => {
+      (useDebts as jest.Mock).mockReturnValue({ debts: [], loading: false, reload: jest.fn() });
+    });
+
+    it('is hidden when there are no debts', () => {
+      const { queryByTestId } = render(
+        <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+      );
+      expect(queryByTestId('dashboard-debt-line')).toBeNull();
+    });
+
+    it('is hidden when every debt is paid off', () => {
+      (useDebts as jest.Mock).mockReturnValue({
+        debts: [{ ...unpaidDebt, isPaidOff: true, outstandingBalanceCents: 0 }],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { queryByTestId } = render(
+        <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+      );
+      expect(queryByTestId('dashboard-debt-line')).toBeNull();
+    });
+
+    it('shows "Debt-free by …" when at least one debt is unpaid', () => {
+      (useDebts as jest.Mock).mockReturnValue({
+        debts: [unpaidDebt],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId } = render(
+        <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+      );
+      expect(getByTestId('dashboard-debt-line')).toBeTruthy();
+    });
+
+    it('tapping the debt line navigates to the Snowball tab', () => {
+      (useDebts as jest.Mock).mockReturnValue({
+        debts: [unpaidDebt],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId } = render(
+        <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+      );
+      fireEvent.press(getByTestId('dashboard-debt-line'));
+      expect(mockNavigate).toHaveBeenCalledWith('Snowball');
+    });
   });
 });

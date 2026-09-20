@@ -93,11 +93,19 @@ export class RestoreService {
   ) {}
 
   async restore(userId: string): Promise<RestoredHousehold[]> {
-    // 1. Fetch memberships from Supabase
+    // 1. Fetch memberships from Supabase. `deleted_at IS NULL` is explicit,
+    // not implied: membership removal is a SOFT delete (the row stays,
+    // stamped), and today only RLS keeps the retired row out of this result.
+    // A restore that resurrected a household the user has LEFT (or been
+    // removed from) would put it back on the device, complete with a local
+    // membership row for `EnsureHouseholdUseCase` to find — undoing
+    // `SyncEngine.evictHousehold` — the moment that RLS policy is relaxed.
+    // The filter costs nothing and makes the intent the query's own.
     const { data: members, error: memberError } = await this.supabase
       .from('household_members')
       .select('household_id, role')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .is('deleted_at', null);
 
     if (memberError) throw new Error(memberError.message);
     if (!members || members.length === 0) return [];
