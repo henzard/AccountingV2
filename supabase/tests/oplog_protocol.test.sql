@@ -11,7 +11,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(41);
+select plan(47);
 
 -- ---------------------------------------------------------------------------
 -- Seed (as postgres, RLS bypassed)
@@ -590,6 +590,112 @@ select ok(
 -- needed here to "guard the revert bug" once 0008 was fixed to derive from
 -- 0007 instead of 0005.
 -- ===========================================================================
+
+-- ===========================================================================
+-- Probe 20: the savings ledger's NEW `source` values replicate unchanged.
+--
+-- `envelope_contributions.source` is plain `text NOT NULL` (0008) with no
+-- CHECK constraint, no enum and no allowlist, and private.apply_one_op
+-- validates payload KEYS (from pg_attribute) but never payload VALUES. So
+-- the three values the savings work added --
+--   * 'initial'           -- a fund created mid-period funds its creation
+--                            period in the same unit of work, under the SAME
+--                            deterministic id a later rollover into that
+--                            period would use (REG-7);
+--   * 'monthly_confirmed' -- a ZERO-amount MARKER recording that the user has
+--                            told us a LEGACY envelope's real monthly
+--                            contribution (REG-4);
+--   * 'adjustment'        -- a manual correction, which may be NEGATIVE;
+-- -- need NO migration and NO function change. This probe pins that: if
+-- anyone ever adds a CHECK or an allowlist to `source`, these three go red
+-- rather than silently dead-lettering real savings rows on every client.
+--
+-- Deliberately NO new COLUMN is exercised here, because there is none: the
+-- contribution row's column set is frozen at what 0008/0016 shipped. The
+-- SHIPPED 1.1.130 puller builds its INSERT straight from a pulled payload's
+-- keys (SyncEngine.applyOne) without intersecting them against the local
+-- table's real columns, so one unknown key would throw, roll the batch back
+-- and pull-block that household until the device was updated.
+-- ===========================================================================
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-00000000001b',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-initial',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 50000, 'period_start', '2026-01-01',
+      'source', 'initial',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'status',
+  'applied', 'P20: an ''initial'' contribution applies');
+
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-00000000001c',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-marker',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', 0, 'period_start', '2026-01-01',
+      'source', 'monthly_confirmed',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'status',
+  'applied', 'P20: a zero-amount ''monthly_confirmed'' marker applies');
+
+select is(
+  public.sync_push(jsonb_build_array(jsonb_build_object(
+    'v', 1,
+    'op_id', 'a0000000-0000-0000-0000-00000000001d',
+    'household_id', 'hh-a',
+    'table', 'envelope_contributions',
+    'row_id', 'contrib-adjust',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'envelope_id', 'env-a1', 'amount_cents', -25000, 'period_start', '2026-01-01',
+      'source', 'adjustment',
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'dev-a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ))) -> 0 ->> 'status',
+  'applied', 'P20: a NEGATIVE ''adjustment'' applies');
+
+select ok(
+  exists (
+    select 1 from public.sync_pull('hh-a', 0, 1000)
+    where table_name = 'envelope_contributions'
+      and row_id = 'contrib-initial'
+      and payload ->> 'source' = 'initial'
+  ),
+  'P20: the ''initial'' contribution is visible via sync_pull with its source intact');
+
+select ok(
+  exists (
+    select 1 from public.sync_pull('hh-a', 0, 1000)
+    where table_name = 'envelope_contributions'
+      and row_id = 'contrib-marker'
+      and payload ->> 'source' = 'monthly_confirmed'
+      and (payload ->> 'amount_cents')::bigint = 0
+  ),
+  'P20: the ''monthly_confirmed'' marker is visible via sync_pull, carrying no money');
+
+select ok(
+  exists (
+    select 1 from public.sync_pull('hh-a', 0, 1000)
+    where table_name = 'envelope_contributions'
+      and row_id = 'contrib-adjust'
+      and payload ->> 'source' = 'adjustment'
+      and (payload ->> 'amount_cents')::bigint = -25000
+  ),
+  'P20: the NEGATIVE adjustment is visible via sync_pull with its sign intact');
 
 select * from finish();
 rollback;

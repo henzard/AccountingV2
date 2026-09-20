@@ -22,6 +22,7 @@ type CallLog = {
   deletedUsers: string[];
   removedPaths: string[][];
   listedPrefixes: string[];
+  jobLogInserts: Array<{ job: string; detail: unknown }>;
 };
 
 type FakeOverrides = {
@@ -31,10 +32,18 @@ type FakeOverrides = {
   slipsError?: unknown;
   authDeleteError?: unknown;
   storageThrows?: boolean;
+  storageListError?: unknown;
+  storageRemoveError?: unknown;
 };
 
 function makeDeps(overrides: FakeOverrides = {}): { deps: HandleDeps; log: CallLog } {
-  const log: CallLog = { rpcCalls: [], deletedUsers: [], removedPaths: [], listedPrefixes: [] };
+  const log: CallLog = {
+    rpcCalls: [],
+    deletedUsers: [],
+    removedPaths: [],
+    listedPrefixes: [],
+    jobLogInserts: [],
+  };
 
   const getUserResult = overrides.getUserResult ?? {
     data: { user: { id: 'user-1' } },
@@ -62,6 +71,14 @@ function makeDeps(overrides: FakeOverrides = {}): { deps: HandleDeps; log: CallL
           }),
         };
       }
+      if (table === 'job_log') {
+        return {
+          insert: (row: { job: string; detail: unknown }) => {
+            log.jobLogInserts.push(row);
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
+      }
       throw new Error(`Unexpected table ${table}`);
     },
     storage: {
@@ -69,10 +86,16 @@ function makeDeps(overrides: FakeOverrides = {}): { deps: HandleDeps; log: CallL
         list: (prefix: string) => {
           if (overrides.storageThrows) throw new Error('storage exploded');
           log.listedPrefixes.push(prefix);
+          if (overrides.storageListError) {
+            return Promise.resolve({ data: null, error: overrides.storageListError });
+          }
           return Promise.resolve({ data: [{ name: '0.jpg' }, { name: '1.jpg' }], error: null });
         },
         remove: (paths: string[]) => {
           log.removedPaths.push(paths);
+          if (overrides.storageRemoveError) {
+            return Promise.resolve({ data: null, error: overrides.storageRemoveError });
+          }
           return Promise.resolve({ data: null, error: null });
         },
       }),
@@ -148,12 +171,18 @@ Deno.test('RPC failure: auth user is NOT deleted and the error is generic', asyn
   assertEquals(log.deletedUsers.length, 0);
 });
 
-Deno.test('auth-user delete failure: generic 500, no internals leaked', async () => {
-  const { deps } = makeDeps({ authDeleteError: { message: 'service_role key revoked' } });
-  const resp = await handle(makeRequest('Bearer tok'), deps);
-  assertEquals(resp.status, 500);
-  assertEquals(await resp.json(), { error: 'Account deletion failed' });
-});
+Deno.test(
+  'auth-user delete failure: 200 with deleted:false, data_deleted:true so the client can retry (SEC2-7)',
+  async () => {
+    const { deps, log } = makeDeps({ authDeleteError: { message: 'service_role key revoked' } });
+    const resp = await handle(makeRequest('Bearer tok'), deps);
+    assertEquals(resp.status, 200);
+    assertEquals(await resp.json(), { deleted: false, data_deleted: true });
+    // The RPC (the data-erasing half) still ran — only the auth-user delete
+    // failed.
+    assertEquals(log.rpcCalls, ['delete_my_account_data']);
+  },
+);
 
 Deno.test(
   "slip images: the caller's own slip folders are swept before the auth delete",
@@ -174,22 +203,52 @@ Deno.test(
   },
 );
 
-Deno.test('storage failure is best effort: the account is still deleted', async () => {
+Deno.test(
+  'storage failure is best effort: the account is still deleted, and the prefix is logged to job_log (SEC2-7)',
+  async () => {
+    const { deps, log } = makeDeps({
+      slips: [{ id: 'slip-1', household_id: 'hh-1' }],
+      storageThrows: true,
+    });
+    const resp = await handle(makeRequest('Bearer tok'), deps);
+    assertEquals(resp.status, 200);
+    assertEquals(await resp.json(), { deleted: true });
+    assertEquals(log.removedPaths.length, 0);
+    assertEquals(log.deletedUsers, ['user-1']);
+    assertEquals(log.jobLogInserts.length, 1);
+    assertEquals(log.jobLogInserts[0].job, 'delete-account');
+    assertEquals((log.jobLogInserts[0].detail as { prefix: string }).prefix, 'hh-1/slip-1');
+  },
+);
+
+Deno.test('storage list error (not a throw) is also logged to job_log', async () => {
   const { deps, log } = makeDeps({
     slips: [{ id: 'slip-1', household_id: 'hh-1' }],
-    storageThrows: true,
+    storageListError: { message: 'list failed' },
   });
   const resp = await handle(makeRequest('Bearer tok'), deps);
   assertEquals(resp.status, 200);
-  assertEquals(await resp.json(), { deleted: true });
-  assertEquals(log.removedPaths.length, 0);
-  assertEquals(log.deletedUsers, ['user-1']);
+  assertEquals(log.jobLogInserts.length, 1);
 });
 
-Deno.test('slip lookup failure is best effort: the account is still deleted', async () => {
-  const { deps, log } = makeDeps({ slipsError: { message: 'timeout' } });
+Deno.test('storage remove error is also logged to job_log', async () => {
+  const { deps, log } = makeDeps({
+    slips: [{ id: 'slip-1', household_id: 'hh-1' }],
+    storageRemoveError: { message: 'remove failed' },
+  });
   const resp = await handle(makeRequest('Bearer tok'), deps);
   assertEquals(resp.status, 200);
-  assertEquals(log.removedPaths.length, 0);
-  assertEquals(log.deletedUsers, ['user-1']);
+  assertEquals(log.jobLogInserts.length, 1);
 });
+
+Deno.test(
+  'slip lookup failure now stops BEFORE the RPC runs: 500, no data erased, retryable (SEC2-7)',
+  async () => {
+    const { deps, log } = makeDeps({ slipsError: { message: 'timeout' } });
+    const resp = await handle(makeRequest('Bearer tok'), deps);
+    assertEquals(resp.status, 500);
+    assertEquals(await resp.json(), { error: 'Account deletion failed' });
+    assertEquals(log.rpcCalls.length, 0);
+    assertEquals(log.deletedUsers.length, 0);
+  },
+);

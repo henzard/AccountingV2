@@ -51,9 +51,13 @@ set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","
 create temporary table t_invite as
 select public.create_invitation('hh-invite') as result;
 
+-- SEC2-2(d) (0015_security_followups.sql): invite codes lengthened from 6
+-- to 10 characters (same 32-char alphabet) to shrink the guessable
+-- keyspace. Existing 6-char codes still join — see Probe 9 in
+-- security_followups.test.sql.
 select ok(
-  (select result ->> 'code' from t_invite) ~ '^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$',
-  'P1: owner-created invitation code uses the unbiased 32-char alphabet');
+  (select result ->> 'code' from t_invite) ~ '^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$',
+  'P1: owner-created invitation code uses the unbiased 32-char alphabet, 10 characters (SEC2-2(d))');
 
 select ok(
   (select (result ->> 'expires_at')::timestamptz from t_invite)

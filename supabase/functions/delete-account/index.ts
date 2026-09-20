@@ -63,20 +63,73 @@ interface SlipFolder {
   household_id: string;
 }
 
+/** Supabase client errors are plain `{ message, ... }` objects, not `Error`
+ * instances — `String()` on one of those yields the useless "[object
+ * Object]", so this checks for a string `.message` first. */
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message;
+  }
+  return String(error ?? 'unknown');
+}
+
+/** Best-effort log of a storage prefix this request could not clean up, so
+ * the folder is not just silently lost — SEC2-7. Writes go through job_log
+ * (0001_baseline.sql: id bigserial, job text, detail jsonb, created_at
+ * timestamptz), service-role only, same table cleanup_old_slip_images
+ * already logs failures to. This itself is best-effort: if job_log can't be
+ * written, the request must still complete — that would only cost
+ * observability, never correctness. */
+async function logFailedPrefix(admin: any, prefix: string, error: unknown): Promise<void> {
+  try {
+    await admin.from('job_log').insert({
+      job: 'delete-account',
+      detail: {
+        event: 'STORAGE_REMOVE_FAILED',
+        prefix,
+        error: errorMessage(error),
+      },
+    });
+  } catch {
+    // job_log is diagnostics, not correctness — never let a logging failure
+    // affect the account-deletion request itself.
+  }
+}
+
 /** Best-effort removal of every object under `<household_id>/<slip_id>/`.
- * Returns how many objects were actually removed; never throws. */
+ * Returns how many objects were actually removed; never throws. Every
+ * prefix it could not clean up is logged to job_log (SEC2-7) so the folder
+ * is not just silently lost — the RPC that ran before this already
+ * tombstoned slip_queue.created_by, so this is the LAST point at which the
+ * prefix is still identifiable at all. */
 async function removeSlipImages(admin: any, folders: SlipFolder[]): Promise<number> {
   let removed = 0;
   for (const folder of folders) {
     const prefix = `${folder.household_id}/${folder.id}`;
     try {
       const { data: entries, error } = await admin.storage.from(SLIP_BUCKET).list(prefix);
-      if (error || !entries || entries.length === 0) continue;
+      if (error) {
+        await logFailedPrefix(admin, prefix, error);
+        continue;
+      }
+      if (!entries || entries.length === 0) continue;
       const paths = entries.map((e: { name: string }) => `${prefix}/${e.name}`);
       const { error: removeErr } = await admin.storage.from(SLIP_BUCKET).remove(paths);
-      if (!removeErr) removed += paths.length;
-    } catch {
-      // Storage is best effort — see the header note. Move on to the next folder.
+      if (removeErr) {
+        await logFailedPrefix(admin, prefix, removeErr);
+        continue;
+      }
+      removed += paths.length;
+    } catch (err) {
+      // Storage is best effort — see the header note. Move on to the next
+      // folder, but log it first so the prefix isn't lost completely.
+      await logFailedPrefix(admin, prefix, err);
     }
   }
   return removed;
@@ -103,14 +156,20 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
   const adminSupabase = deps.createAdminClient();
 
   // 2. Snapshot the caller's slip folders BEFORE the RPC anonymises
-  //    slip_queue.created_by. A failure here is not fatal: it only costs the
-  //    (cron-purged) images, never the deletion itself.
-  let slipFolders: SlipFolder[] = [];
+  //    slip_queue.created_by. SEC2-7: this lookup used to be treated as
+  //    best-effort and the request proceeded regardless — but once the RPC
+  //    below tombstones slip_queue.created_by, this lookup is the ONLY way
+  //    to ever find the caller's image folders again. If it errors, the
+  //    folders would become unfindable forever, so this now stops BEFORE
+  //    calling the RPC rather than after.
   const { data: slips, error: slipsErr } = await adminSupabase
     .from('slip_queue')
     .select('id, household_id')
     .eq('created_by', userId);
-  if (!slipsErr && Array.isArray(slips)) slipFolders = slips as SlipFolder[];
+  if (slipsErr) {
+    return jsonResponse(500, { error: 'Account deletion failed' });
+  }
+  const slipFolders: SlipFolder[] = Array.isArray(slips) ? (slips as SlipFolder[]) : [];
 
   // 3. Erase the user's data, as the user. If this fails, STOP — the auth
   //    user must survive so the operation stays retryable.
@@ -119,15 +178,23 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
     return jsonResponse(500, { error: 'Account deletion failed' });
   }
 
-  // 4. Best-effort image sweep.
+  // 4. Best-effort image sweep. Individual prefix failures are logged to
+  //    job_log (SEC2-7) rather than silently dropped.
   await removeSlipImages(adminSupabase, slipFolders);
 
   // 5. Finally remove the auth user itself. user_preferences cascades off
   //    this (the only FK to auth.users in the schema); everything else was
-  //    already handled by the RPC.
+  //    already handled by the RPC. SEC2-7: the RPC already succeeded at this
+  //    point — the user's data IS gone — so a failure here must not be
+  //    reported as a flat 500 "Account deletion failed" (that reads as
+  //    "nothing happened", which is false: retrying would just fail the RPC
+  //    again as a no-op and never actually retry the one thing that failed).
+  //    Report 200 with `deleted: false, data_deleted: true` instead, so the
+  //    client can tell the user their data is erased but the account itself
+  //    needs a retry.
   const { error: authErr } = await adminSupabase.auth.admin.deleteUser(userId);
   if (authErr) {
-    return jsonResponse(500, { error: 'Account deletion failed' });
+    return jsonResponse(200, { deleted: false, data_deleted: true });
   }
 
   return jsonResponse(200, { deleted: true });
