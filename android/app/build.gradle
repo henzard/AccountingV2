@@ -166,6 +166,11 @@ android {
             // classes Detox's UI-Automator bridge reflects into, and the
             // instrumented run crashes/hangs instead of connecting.
             proguardFile "${rootProject.projectDir}/../node_modules/detox/android/detox/proguard-rules-app.pro"
+            // The instrumentation (androidTest) APK of a minified build type is
+            // itself run through R8, which failed the first e2e build with
+            // "Missing classes detected" (minifyE2eAndroidTestWithR8). The test
+            // APK is never shipped, so it needs no shrinking — only to link.
+            testProguardFile "proguard-rules-e2e-test.pro"
         }
     }
     packagingOptions {

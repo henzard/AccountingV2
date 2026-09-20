@@ -212,6 +212,19 @@ describe('Android Play Console compliance configuration', () => {
       ).toBe(true);
     });
 
+    it('gives the e2e instrumentation APK its own R8 rules so it can link', () => {
+      // minifyE2eAndroidTestWithR8 failed the first e2e build with "Missing
+      // classes detected"; the test APK is never shipped, so it is not shrunk.
+      const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
+      expect(buildGradle).toContain('testProguardFile "proguard-rules-e2e-test.pro"');
+      const rules = fs.readFileSync(
+        path.join(repoRoot, 'android/app/proguard-rules-e2e-test.pro'),
+        'utf8',
+      );
+      expect(rules).toContain('-dontwarn **');
+      expect(rules).toContain('-dontshrink');
+    });
+
     it('registers the :detox androidTest dependency and instrumentation runner', () => {
       const buildGradle = fs.readFileSync(path.join(repoRoot, 'android/app/build.gradle'), 'utf8');
       expect(buildGradle).toContain("androidTestImplementation(project(':detox'))");
