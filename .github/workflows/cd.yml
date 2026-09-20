@@ -4,6 +4,14 @@ on:
   push:
     branches: [master]
 
+# One publish at a time. Two overlapping runs both open a Google Play edit and
+# the second commit fails with "A change was made to the application outside of
+# this Edit" (seen when two PRs merged minutes apart). Queue instead of cancel:
+# a cancelled run could be killed mid-upload.
+concurrency:
+  group: cd-google-play
+  cancel-in-progress: false
+
 jobs:
   # ci-gate mirrors ci.yml's `check` job line-for-line. It is duplicated (rather
   # than depended on via workflow_run) so this workflow's own run status is the
