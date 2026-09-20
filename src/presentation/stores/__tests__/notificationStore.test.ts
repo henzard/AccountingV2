@@ -26,6 +26,8 @@ describe('notificationStore', () => {
           meterReadingReminderDay: 1,
           monthStartPreflightEnabled: true,
           envelopeWarningEnabled: true,
+          periodClosingNudgeEnabled: true,
+          weeklyCheckInNudgeEnabled: true,
           householdActivityEnabled: true,
         },
         permissionsGranted: false,
@@ -41,6 +43,8 @@ describe('notificationStore', () => {
         meterReadingReminderDay: 15,
         monthStartPreflightEnabled: false,
         envelopeWarningEnabled: false,
+        periodClosingNudgeEnabled: false,
+        weeklyCheckInNudgeEnabled: false,
         householdActivityEnabled: false,
       });
       const { preferences } = useNotificationStore.getState();

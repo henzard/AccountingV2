@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
-import { envelopes as envelopesTable } from '../../../data/local/schema';
+import { envelopes as envelopesTable, debts as debtsTable } from '../../../data/local/schema';
 import {
   envelopeScopeCondition,
   getEnvelopeSpentCents,
@@ -37,7 +37,10 @@ import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { resolvePeriodHabitScoreInput } from '../../../domain/scoring/resolvePeriodHabitScoreInput';
 import { RecordPeriodScoreUseCase } from '../../../domain/scoring/RecordPeriodScoreUseCase';
+import type { DebtSnapshot } from '../../../domain/scoring/RecordPeriodScoreUseCase';
 import { getPeriodScoresAscending } from '../../../domain/scoring/getPeriodScoresAscending';
+import { SnowballPayoffProjector } from '../../../domain/debtSnowball/SnowballPayoffProjector';
+import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 import { useLevelAdvancement } from '../../hooks/useLevelAdvancement';
 import { useAppStore } from '../../stores/appStore';
 import { logger } from '../../../infrastructure/logging/Logger';
@@ -148,6 +151,7 @@ function closingPeriodEnd(fromPeriodStart: string, paydayDay: number): string {
 }
 
 const scoreCalculator = new HabitScoreCalculator();
+const snowballProjector = new SnowballPayoffProjector();
 
 /** Mirrors SettingsScreen's level-name mapping, for the success block's "Level up" line. */
 const LEVEL_LABELS: Record<number, string> = { 1: 'Learner', 2: 'Practitioner', 3: 'Mentor' };
@@ -515,11 +519,36 @@ export function RolloverWizard({
           lastPeriod,
         );
         const scoreResult = scoreCalculator.calculate(scoreInput);
+
+        // Debt-plan snapshot (VAL2-10) — kept independent of the score
+        // recording above (its own try/catch, defaulting to `undefined` on
+        // failure) so a debt-query error never also costs the household its
+        // score/level bookkeeping, which worked fine before this existed.
+        let debtSnapshot: DebtSnapshot | undefined;
+        try {
+          const debtRows = await db
+            .select()
+            .from(debtsTable)
+            .where(and(eq(debtsTable.householdId, householdId), isNull(debtsTable.deletedAt)));
+          const totalDebtCents = debtRows.reduce((sum, d) => sum + d.outstandingBalanceCents, 0);
+          const plan = snowballProjector.project(debtRows as DebtEntity[], 0);
+          debtSnapshot = {
+            totalDebtCents,
+            debtFreeDateISO: plan.debtFreeDate ? plan.debtFreeDate.toISOString() : null,
+          };
+        } catch (debtSnapErr) {
+          logger.error('RolloverWizard: failed to compute debt snapshot', debtSnapErr, {
+            householdId,
+            periodStart: fromPeriodStart,
+          });
+        }
+
         await new RecordPeriodScoreUseCase(db).execute({
           householdId,
           periodStart: fromPeriodStart,
           periodEnd: fromPeriodEnd,
           score: scoreResult,
+          debtSnapshot,
         });
 
         const levelBefore = useAppStore.getState().userLevel;

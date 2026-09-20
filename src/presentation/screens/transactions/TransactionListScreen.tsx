@@ -19,6 +19,7 @@ import { DeleteTransactionUseCase } from '../../../domain/transactions/DeleteTra
 import { useTransactions } from '../../hooks/useTransactions';
 import { CurrencyText } from '../../components/shared/CurrencyText';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
+import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
@@ -88,7 +89,13 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   }, [paydayDay]);
 
   const hid = householdId ?? '';
-  const { transactions, loading, error, reload } = useTransactions(hid, { periodStart, periodEnd });
+  const {
+    transactions,
+    loading,
+    refreshing: hookRefreshing,
+    error,
+    reload,
+  } = useTransactions(hid, { periodStart, periodEnd });
   const [envelopeNames, setEnvelopeNames] = useState<Map<string, string>>(new Map());
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -132,9 +139,9 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   // (best-effort; a rejection just means offline or no runtime registered,
   // which the local reload below still serves fine) before reloading from
   // local storage.
-  const [refreshing, setRefreshing] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const handleRefresh = useCallback(async (): Promise<void> => {
-    setRefreshing(true);
+    setPullRefreshing(true);
     try {
       await requestSyncNow(hid);
     } catch {
@@ -142,8 +149,14 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
       // still shows whatever this device already has.
     }
     await reload();
-    setRefreshing(false);
+    setPullRefreshing(false);
   }, [hid, reload]);
+  // The pull gesture's own spinner AND any background reload (a sync round
+  // landing via `useReloadOnSync`, the focus refetch below) both drive the
+  // same RefreshControl — REG-9: `loading` is first-load-only and must never
+  // be used here, or the platform spinner would stop reflecting an in-flight
+  // reload once the first load has completed.
+  const refreshing = pullRefreshing || hookRefreshing;
 
   const handleDelete = useCallback(
     async (tx: TransactionEntity): Promise<void> => {
@@ -205,6 +218,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
             </Text>
           </TouchableOpacity>
         </View>
+        <RefreshingBar refreshing={refreshing} />
 
         <View style={styles.periodRow} testID="period-switcher">
           <IconButton

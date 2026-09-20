@@ -20,6 +20,25 @@ export class LocalNotificationScheduler {
 
   async cancelEveningLogPrompt(): Promise<void> {}
 
+  // VAL2-11: pull-back nudges — no-op on web, same as every other local
+  // reminder here.
+  async schedulePeriodClosingNudge(
+    _periodEndDate: Date,
+    _hour: number,
+    _minute: number,
+    _message: { title: string; body: string },
+  ): Promise<void> {}
+
+  async cancelPeriodClosingNudge(): Promise<void> {}
+
+  async scheduleWeeklyCheckIn(
+    _hour: number,
+    _minute: number,
+    _message: { title: string; body: string },
+  ): Promise<void> {}
+
+  async cancelWeeklyCheckIn(): Promise<void> {}
+
   async scheduleMeterReadingReminder(_dayOfMonth: number): Promise<void> {}
 
   async scheduleMonthStartPreflight(_paydayDay: number): Promise<void> {}

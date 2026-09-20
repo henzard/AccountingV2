@@ -21,7 +21,10 @@ export interface FakeSupabaseConfig {
   households?: Record<string, Record<string, unknown> | null>;
   /** Rows per remote table name (`household_members`, `envelopes`, ...). */
   tables?: Record<string, Record<string, unknown>[]>;
-  /** Memberships returned for `household_members` filtered by `user_id`. */
+  /** Memberships returned for `household_members` filtered by `user_id`.
+   * `RestoreService` chains `.is('deleted_at', null)` onto that query, and
+   * this double applies the filter for real — a row carrying a non-null
+   * `deleted_at` is dropped, exactly as PostgREST would. */
   memberships?: Record<string, unknown>[];
   /** Highest server oplog `seq` for the household; omitted means "no ops". */
   maxSeq?: number | null;
@@ -43,6 +46,8 @@ export interface FakeSupabaseConfig {
 export interface FakeSupabaseRecorder {
   /** Every `(table, column)` pair queried, in order. */
   queries: { table: string; column: string }[];
+  /** Every `.is(column, value)` filter applied, per table, in order. */
+  isFilters: { table: string; column: string; value: unknown }[];
   /** Every `.range(from, to)` a table fetch asked for. */
   ranges: { table: string; from: number; to: number }[];
   /** How many times the household's max oplog seq was read. */
@@ -60,7 +65,12 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
   supabase: unknown;
   recorder: FakeSupabaseRecorder;
 } {
-  const recorder: FakeSupabaseRecorder = { queries: [], ranges: [], maxSeqReads: 0 };
+  const recorder: FakeSupabaseRecorder = {
+    queries: [],
+    isFilters: [],
+    ranges: [],
+    maxSeqReads: 0,
+  };
 
   const nextMaxSeq = (): number | null => {
     const sequence = config.maxSeqSequence;
@@ -83,37 +93,58 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
     return config.tables?.[table] ?? [];
   };
 
+  /** The chainable part of the builder — `.is()` returns one of these too,
+   * so a filter can be appended anywhere in the chain. */
+  interface FakeQueryBuilder {
+    is(column: string, value: unknown): FakeQueryBuilder;
+    maybeSingle(): QueryResult;
+    range(from: number, to: number): QueryResult;
+    order(col: string, opts?: unknown): { limit(n: number): QueryResult };
+    then(resolve: (r: { data: unknown; error: { message: string } | null }) => unknown): unknown;
+  }
+
+  const makeBuilder = (
+    table: string,
+    rows: Record<string, unknown>[],
+    error: { message: string } | null,
+  ): FakeQueryBuilder => ({
+    is: (column: string, value: unknown): FakeQueryBuilder => {
+      recorder.isFilters.push({ table, column, value });
+      return makeBuilder(
+        table,
+        rows.filter((row) => (row[column] ?? null) === value),
+        error,
+      );
+    },
+    maybeSingle: (): QueryResult =>
+      Promise.resolve({ data: error ? null : (rows[0] ?? null), error }),
+    range: (from: number, to: number): QueryResult => {
+      recorder.ranges.push({ table, from, to });
+      const page = error ? null : rows.slice(from, to + 1);
+      config.onTableFetch?.(table);
+      return Promise.resolve({ data: page, error });
+    },
+    order: (_col: string, _opts?: unknown) => ({
+      limit: (n: number): QueryResult => {
+        recorder.maxSeqReads += 1;
+        const seq = nextMaxSeq();
+        return Promise.resolve({
+          data: error ? null : seq == null ? [] : [{ seq }].slice(0, n),
+          error,
+        });
+      },
+    }),
+    then: (
+      resolve: (r: { data: unknown; error: { message: string } | null }) => unknown,
+    ): unknown => resolve({ data: error ? null : rows, error }),
+  });
+
   const supabase = {
     from: (table: string) => ({
       select: (_columns?: string) => ({
-        eq: (column: string, value: string) => {
+        eq: (column: string, value: string): FakeQueryBuilder => {
           recorder.queries.push({ table, column });
-          const error = errorFor(table);
-          const rows = rowsFor(table, column, value);
-          const builder = {
-            maybeSingle: (): QueryResult =>
-              Promise.resolve({ data: error ? null : (rows[0] ?? null), error }),
-            range: (from: number, to: number): QueryResult => {
-              recorder.ranges.push({ table, from, to });
-              const page = error ? null : rows.slice(from, to + 1);
-              config.onTableFetch?.(table);
-              return Promise.resolve({ data: page, error });
-            },
-            order: (_col: string, _opts?: unknown) => ({
-              limit: (n: number): QueryResult => {
-                recorder.maxSeqReads += 1;
-                const seq = nextMaxSeq();
-                return Promise.resolve({
-                  data: error ? null : seq == null ? [] : [{ seq }].slice(0, n),
-                  error,
-                });
-              },
-            }),
-            then: (
-              resolve: (r: { data: unknown; error: { message: string } | null }) => unknown,
-            ): unknown => resolve({ data: error ? null : rows, error }),
-          };
-          return builder;
+          return makeBuilder(table, rowsFor(table, column, value), errorFor(table));
         },
       }),
     }),

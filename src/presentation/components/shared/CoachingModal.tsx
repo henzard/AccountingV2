@@ -19,6 +19,16 @@ interface CoachingModalProps {
    * original, budget-scoped wording) so existing callers are unaffected.
    */
   scope?: EnvelopeScope;
+  /**
+   * VAL2-9: "cover it from another envelope" — moving unspent ALLOCATION
+   * from a sibling envelope only makes sense for a PERIOD-scoped overspend
+   * (a fund's "over budget" reading is against its own saved balance, not a
+   * monthly allocation another fund could lend it). Omit — or pass
+   * `undefined` — to hide the action entirely: this happens both when
+   * `scope` is 'persistent' and when the caller found no sibling envelope
+   * with enough unspent money to cover the shortfall.
+   */
+  onCoverFromAnotherEnvelope?: () => void;
 }
 
 export function CoachingModal({
@@ -28,6 +38,7 @@ export function CoachingModal({
   onProceed,
   onCancel,
   scope = 'period',
+  onCoverFromAnotherEnvelope,
 }: CoachingModalProps): React.JSX.Element {
   const { colors } = useAppTheme();
 
@@ -54,6 +65,17 @@ export function CoachingModal({
               ? `This transaction is ${formatCurrency(overspendCents)} more than what's saved in this fund.`
               : `This transaction puts you ${formatCurrency(overspendCents)} over budget.`}
           </Text>
+
+          {scope === 'period' && onCoverFromAnotherEnvelope && (
+            <Button
+              mode="text"
+              onPress={onCoverFromAnotherEnvelope}
+              style={styles.coverBtn}
+              testID="coaching-cover-from-another-envelope"
+            >
+              Cover it from another envelope
+            </Button>
+          )}
 
           <View style={styles.buttons}>
             <Button mode="outlined" onPress={onCancel} style={styles.btn} testID="coaching-cancel">
@@ -106,6 +128,9 @@ const styles = StyleSheet.create({
   overspend: {
     textAlign: 'center',
     marginBottom: spacing.lg,
+  },
+  coverBtn: {
+    marginBottom: spacing.sm,
   },
   buttons: {
     flexDirection: 'row',

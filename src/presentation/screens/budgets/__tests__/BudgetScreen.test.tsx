@@ -76,6 +76,8 @@ jest.mock('react-native-paper', () => {
       onPress?: () => void;
       testID?: string;
     }) => React.createElement('Pressable', { onPress, testID }, children),
+    ProgressBar: ({ testID }: { testID?: string }) =>
+      React.createElement('View', { testID: testID ?? 'progress-bar' }),
   };
 });
 
@@ -204,6 +206,26 @@ describe('BudgetScreen', () => {
     expect(getByTestId('envelope-card-Groceries')).toBeTruthy();
     expect(getByTestId('section-Income')).toBeTruthy();
     expect(getByTestId('section-Expenses')).toBeTruthy();
+  });
+
+  it('shows the RefreshingBar while refreshing, without blanking the section list (REG-9)', () => {
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [
+        makeEnvelope('e1', 'Salary', 'income'),
+        makeEnvelope('e2', 'Groceries', 'spending'),
+      ],
+      loading: false,
+      refreshing: true,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(<BudgetScreen />);
+    expect(getByTestId('refreshing-bar')).toBeTruthy();
+    expect(getByTestId('envelope-card-Groceries')).toBeTruthy();
+  });
+
+  it('hides the RefreshingBar when not refreshing', () => {
+    const { queryByTestId } = render(<BudgetScreen />);
+    expect(queryByTestId('refreshing-bar')).toBeNull();
   });
 
   it('always renders the monthly income card, even with no envelopes', () => {

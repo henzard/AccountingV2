@@ -34,6 +34,7 @@ import { eq, ne, and, isNull } from 'drizzle-orm';
 import { useAppStore } from '../stores/appStore';
 import type { EnvelopeOption } from '../screens/slipScanning/components/EnvelopePickerSheet';
 import { householdNotifier } from '../../infrastructure/notifications/HouseholdNotifier';
+import { format } from 'date-fns';
 
 const budgetEngine = new BudgetPeriodEngine();
 
@@ -174,7 +175,7 @@ export function SlipScanningScreen(): React.JSX.Element {
         const result = await confirmSlipUseCase.execute({
           slipId: input.slipId,
           householdId,
-          transactionDate: input.items[0]?.transactionDate ?? new Date().toISOString().slice(0, 10),
+          transactionDate: input.items[0]?.transactionDate ?? format(new Date(), 'yyyy-MM-dd'),
           items: input.items.map((i) => ({
             description: i.description,
             amountCents: i.amountCents,
@@ -184,16 +185,20 @@ export function SlipScanningScreen(): React.JSX.Element {
         // DOM-12: surface a Σ(items) vs slip.totalCents mismatch to the
         // caller as a warning flag — it never blocks the save.
         if (result.success) {
+          // SEC2-12: typed fields only — notify-event writes the words. Its
+          // contract bounds itemCount to 1..200; a slip outside that range
+          // simply does not raise a push rather than being rejected as a
+          // malformed request.
           const itemCount = input.items.length;
-          householdNotifier.notifyHousehold({
-            kind: 'slip_confirmed',
-            householdId,
-            senderId: createdBy,
-            title: (input.merchant ?? 'Slip confirmed').slice(0, 120),
-            body: `Confirmed ${itemCount} item${itemCount === 1 ? '' : 's'}${
-              input.merchant ? ` from ${input.merchant}` : ''
-            }`,
-          });
+          if (itemCount >= 1 && itemCount <= 200) {
+            householdNotifier.notifyHousehold({
+              kind: 'slip_confirmed',
+              householdId,
+              senderId: createdBy,
+              itemCount,
+              merchant: input.merchant ?? undefined,
+            });
+          }
         }
         return {
           success: result.success,

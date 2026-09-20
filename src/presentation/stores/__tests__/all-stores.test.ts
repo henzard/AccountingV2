@@ -313,6 +313,8 @@ describe('notificationStore', () => {
         meterReadingReminderDay: 1,
         monthStartPreflightEnabled: false,
         envelopeWarningEnabled: false,
+        periodClosingNudgeEnabled: false,
+        weeklyCheckInNudgeEnabled: false,
         householdActivityEnabled: false,
       },
     });
@@ -327,6 +329,8 @@ describe('notificationStore', () => {
       meterReadingReminderDay: 15,
       monthStartPreflightEnabled: true,
       envelopeWarningEnabled: false,
+      periodClosingNudgeEnabled: true,
+      weeklyCheckInNudgeEnabled: true,
       householdActivityEnabled: true,
     };
     useNotificationStore.getState().setPreferences(prefs);

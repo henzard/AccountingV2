@@ -5,6 +5,7 @@ import { NotificationPreferencesRepository } from '../../../infrastructure/notif
 import { LocalNotificationScheduler } from '../../../infrastructure/notifications/LocalNotificationScheduler';
 import * as Notifications from 'expo-notifications';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { rearmBudgetNudges } from '../../boot/eveningLogPrompt';
 import { radius, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppStore } from '../../stores/appStore';
@@ -63,6 +64,20 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
         await scheduler.scheduleMonthStartPreflight(paydayDay);
       } else {
         await Notifications.cancelScheduledNotificationAsync('month-start').catch(() => {});
+      }
+      // VAL2-11: pull-back nudges — `rearmBudgetNudges` reads current
+      // preferences straight back out of the store (already updated above
+      // via `setPreferences`), so it arms whichever of the two is enabled;
+      // an explicitly-disabled one is cancelled here, same pattern as the
+      // other toggles in this screen.
+      if (updated.periodClosingNudgeEnabled || updated.weeklyCheckInNudgeEnabled) {
+        await rearmBudgetNudges();
+      }
+      if (!updated.periodClosingNudgeEnabled) {
+        await scheduler.cancelPeriodClosingNudge();
+      }
+      if (!updated.weeklyCheckInNudgeEnabled) {
+        await scheduler.cancelWeeklyCheckIn();
       }
     }
   };
@@ -255,6 +270,30 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                 value={preferences.monthStartPreflightEnabled}
                 onValueChange={(v) => updatePref({ monthStartPreflightEnabled: v })}
                 color={colors.primary}
+              />
+            )}
+          />
+          <List.Item
+            title="Payday countdown"
+            description="A nudge 3 days before payday with how much is left across your envelopes."
+            right={() => (
+              <Switch
+                value={preferences.periodClosingNudgeEnabled}
+                onValueChange={(v) => updatePref({ periodClosingNudgeEnabled: v })}
+                color={colors.primary}
+                testID="period-closing-nudge-toggle"
+              />
+            )}
+          />
+          <List.Item
+            title="Weekly check-in"
+            description="Every Sunday, a summary of what you spent this week and how many envelopes are on track."
+            right={() => (
+              <Switch
+                value={preferences.weeklyCheckInNudgeEnabled}
+                onValueChange={(v) => updatePref({ weeklyCheckInNudgeEnabled: v })}
+                color={colors.primary}
+                testID="weekly-checkin-nudge-toggle"
               />
             )}
           />

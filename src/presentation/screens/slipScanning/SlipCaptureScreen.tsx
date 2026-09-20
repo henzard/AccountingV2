@@ -9,13 +9,15 @@ import { useSyncStore } from '../../stores/syncStore';
 import { useToastStore } from '../../stores/toastStore';
 import { fontSize, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { format } from 'date-fns';
 
 const MAX_FRAMES = 5;
 const DAILY_LIMIT = 25;
 const COACHMARK_KEY = 'slip_capture_coachmark_shown';
 const DAILY_COUNT_KEY = '@slip:daily_count';
 
-const todayKey = (): string => new Date().toISOString().slice(0, 10);
+// Local calendar day: the UTC date is still "yesterday" until 02:00 in South Africa.
+const todayKey = (): string => format(new Date(), 'yyyy-MM-dd');
 
 export type SlipCaptureScreenProps = {
   householdId: string;

@@ -1,34 +1,24 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /**
- * AddTransactionScreen.periodScope.test.tsx — C3 "AddTransactionScreen note"
- * (2026-07-05 exhaustive audit).
+ * AddTransactionScreen.coverFromEnvelope.test.tsx — VAL2-9, "cover it from
+ * another envelope".
  *
- * The envelope-picker query used a raw `eq(period_start, periodStart)`
- * equality, which — exactly like the useEnvelopes bug (C3) — permanently
- * excludes PERSISTENT envelope types (sinking_fund, emergency_fund, savings,
- * baby_step) from manual transaction entry once the period has rolled
- * forward past their creation period, since persistent rows are never
- * re-created per period and their `period_start` never advances.
- *
- * This exercises the REAL query (`envelopeScopeCondition`, real
- * `getEnvelopeSpentCents`) against a REAL migrated better-sqlite3 database —
- * mirroring src/presentation/hooks/__tests__/useEnvelopes.periodScope.test.ts
- * — instead of the fully-mocked `db` used by the other AddTransactionScreen
- * tests, so it actually proves the SQL scope is correct rather than just the
- * screen's JS wiring.
+ * Mirrors AddTransactionScreen.periodScope.test.tsx: a REAL migrated
+ * better-sqlite3 database (not a mocked `db`), so MoveAllocationUseCase's
+ * own query/validation/write path runs for real — only CreateTransactionUseCase
+ * and AuditLogger are mocked, the same seam every other AddTransactionScreen
+ * test in this suite uses.
  */
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import type Database from 'better-sqlite3';
 
 const HOUSEHOLD = 'hh-1';
-const OLD_PERIOD = '2026-06-01';
 const CURRENT_PERIOD = '2026-07-01';
 const NOW = '2026-01-01T00:00:00.000Z';
 
 // Variable name must be prefixed with `mock` so babel-plugin-jest-hoist
-// allows referencing it from inside the (hoisted) jest.mock factory below —
-// the factory can't reference other top-level imports/consts.
+// allows referencing it from inside the (hoisted) jest.mock factory below.
 let mockRawDb: Database.Database;
 
 jest.mock('../../../boot/eveningLogPrompt', () => ({
@@ -49,7 +39,9 @@ jest.mock('../../../../data/local/db', () => {
 });
 
 jest.mock('../../../../data/audit/AuditLogger', () => ({
-  AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
+  AuditLogger: jest
+    .fn()
+    .mockImplementation(() => ({ log: jest.fn().mockResolvedValue(undefined) })),
 }));
 
 const mockExecute = jest.fn().mockResolvedValue({ success: true });
@@ -64,9 +56,6 @@ jest.mock('../../../../domain/shared/BudgetPeriodEngine', () => ({
       endDate: new Date('2026-07-31T00:00:00.000Z'),
     })),
   })),
-  // `formatPeriodDateKey` (L7 tz-consistent period key) is a plain exported
-  // function, not a class member — the screen now imports it alongside
-  // `BudgetPeriodEngine`, so this manual module mock must also provide it.
   formatPeriodDateKey: (date: Date): string => {
     const year = date.getUTCFullYear();
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -168,16 +157,22 @@ function seedHousehold(raw: Database.Database, id: string): void {
 
 function seedEnvelope(
   raw: Database.Database,
-  args: { id: string; name: string; envelopeType: string; periodStart: string },
+  args: { id: string; name: string; allocatedCents: number },
 ): void {
   raw
     .prepare(
       `INSERT INTO envelopes
          (id, household_id, name, allocated_cents, envelope_type,
           is_savings_locked, is_archived, period_start, created_at, updated_at)
-       VALUES (?, ?, ?, 50000, ?, 0, 0, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'spending', 0, 0, ?, ?, ?)`,
     )
-    .run(args.id, HOUSEHOLD, args.name, args.envelopeType, args.periodStart, NOW, NOW);
+    .run(args.id, HOUSEHOLD, args.name, args.allocatedCents, CURRENT_PERIOD, NOW, NOW);
+}
+
+function envelopeRow(raw: Database.Database, id: string): { allocated_cents: number } {
+  return raw.prepare('SELECT allocated_cents FROM envelopes WHERE id = ?').get(id) as {
+    allocated_cents: number;
+  };
 }
 
 const makeNavProps = () => ({
@@ -198,12 +193,11 @@ const makeNavProps = () => ({
   route: { key: 'AddTransaction', name: 'AddTransaction', params: undefined } as never,
 });
 
-// The first render pays this screen's whole module-load cost; on a loaded CI
-// worker that alone can exceed jest's 5s default.
 jest.setTimeout(15000);
 
-describe('AddTransactionScreen — envelope picker period scope (real SQLite)', () => {
+describe('AddTransactionScreen — "cover it from another envelope" (VAL2-9, real SQLite)', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     mockRawDb.exec('DELETE FROM envelopes; DELETE FROM transactions; DELETE FROM households;');
     seedHousehold(mockRawDb, HOUSEHOLD);
   });
@@ -212,42 +206,58 @@ describe('AddTransactionScreen — envelope picker period scope (real SQLite)', 
     mockRawDb.close();
   });
 
-  it('includes a persistent envelope created in an OLD period in the picker for the CURRENT period, and excludes a stale OLD period-scoped one', async () => {
-    // Persistent envelope, created back in the OLD period — its period_start
-    // never gets updated on rollover, so it must still be selectable now.
-    seedEnvelope(mockRawDb, {
-      id: 'env-emergency-fund',
-      name: 'Emergency Fund',
-      envelopeType: 'emergency_fund',
-      periodStart: OLD_PERIOD,
-    });
-    // Period-scoped envelope left over from the OLD period — must NOT leak
-    // into the current period's picker.
-    seedEnvelope(mockRawDb, {
-      id: 'env-old-spending',
-      name: 'Old Groceries',
-      envelopeType: 'spending',
-      periodStart: OLD_PERIOD,
-    });
-    // Period-scoped envelope belonging to the CURRENT period — must be
-    // included.
-    seedEnvelope(mockRawDb, {
-      id: 'env-current-spending',
-      name: 'Groceries',
-      envelopeType: 'spending',
-      periodStart: CURRENT_PERIOD,
+  it('moves the shortfall from the chosen envelope, toasts, and continues the save', async () => {
+    seedEnvelope(mockRawDb, { id: 'env-groceries', name: 'Groceries', allocatedCents: 10000 });
+    seedEnvelope(mockRawDb, { id: 'env-fun', name: 'Fun money', allocatedCents: 20000 });
+
+    const { getByTestId, getByText } = render(<AddTransactionScreen {...makeNavProps()} />);
+
+    fireEvent.press(getByTestId('envelope-picker-trigger'));
+    await waitFor(() => expect(getByText('Groceries')).toBeTruthy());
+    fireEvent.press(getByTestId('envelope-option-env-groceries'));
+
+    // R150 against a R100 envelope with nothing spent yet -> R50 overspend.
+    fireEvent.changeText(getByTestId('amount-input'), '150.00');
+    fireEvent.press(getByTestId('record-transaction-submit'));
+
+    await waitFor(() => expect(getByTestId('coaching-modal')).toBeTruthy());
+    expect(getByTestId('coaching-cover-from-another-envelope')).toBeTruthy();
+
+    fireEvent.press(getByTestId('coaching-cover-from-another-envelope'));
+    await waitFor(() => expect(getByTestId('envelope-option-env-fun')).toBeTruthy());
+    fireEvent.press(getByTestId('envelope-option-env-fun'));
+
+    await waitFor(() => {
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.stringMatching(/^Moved R50[,.]00 from Fun money$/),
+        'success',
+      );
     });
 
-    const { getByTestId, getByText, queryByText } = render(
+    // The move committed for real: 5000 cents left Fun money and landed on Groceries.
+    expect(envelopeRow(mockRawDb, 'env-groceries').allocated_cents).toBe(15000);
+    expect(envelopeRow(mockRawDb, 'env-fun').allocated_cents).toBe(15000);
+
+    // The save then continued automatically.
+    await waitFor(() => expect(mockExecute).toHaveBeenCalled());
+  });
+
+  it('does not offer "cover it from another envelope" when no sibling envelope has enough unspent money', async () => {
+    seedEnvelope(mockRawDb, { id: 'env-groceries', name: 'Groceries', allocatedCents: 10000 });
+    seedEnvelope(mockRawDb, { id: 'env-fun', name: 'Fun money', allocatedCents: 2000 });
+
+    const { getByTestId, getByText, queryByTestId } = render(
       <AddTransactionScreen {...makeNavProps()} />,
     );
 
     fireEvent.press(getByTestId('envelope-picker-trigger'));
+    await waitFor(() => expect(getByText('Groceries')).toBeTruthy());
+    fireEvent.press(getByTestId('envelope-option-env-groceries'));
 
-    await waitFor(() => {
-      expect(getByText('Emergency Fund')).toBeTruthy();
-    });
-    expect(getByText('Groceries')).toBeTruthy();
-    expect(queryByText('Old Groceries')).toBeNull();
+    fireEvent.changeText(getByTestId('amount-input'), '150.00');
+    fireEvent.press(getByTestId('record-transaction-submit'));
+
+    await waitFor(() => expect(getByTestId('coaching-modal')).toBeTruthy());
+    expect(queryByTestId('coaching-cover-from-another-envelope')).toBeNull();
   });
 });

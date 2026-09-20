@@ -144,6 +144,121 @@ describe('LocalNotificationScheduler', () => {
     });
   });
 
+  describe('schedulePeriodClosingNudge (VAL2-11)', () => {
+    const PERIOD_END = new Date(2026, 3, 30, 0, 0, 0, 0); // 30 Apr
+
+    it('schedules 3 days before periodEndDate, at the requested hour/minute, with a deterministic identifier', async () => {
+      const scheduler = new LocalNotificationScheduler({ now: () => NOW });
+      await scheduler.schedulePeriodClosingNudge(PERIOD_END, 19, 0, {
+        title: '3 days to payday',
+        body: 'R500 left across 2 envelopes',
+      });
+
+      expect(mockSchedule).toHaveBeenCalledTimes(1);
+      const call = mockSchedule.mock.calls[0][0] as {
+        identifier: string;
+        content: { title: string; body: string; data: { target: string } };
+        trigger: { type: string; date: Date };
+      };
+      expect(call.identifier).toBe('period-closing-2026-04-30');
+      expect(call.content.title).toBe('3 days to payday');
+      expect(call.content.body).toBe('R500 left across 2 envelopes');
+      expect(call.content.data).toEqual({ target: 'dashboard' });
+      expect(call.trigger.type).toBe('date');
+      expect(call.trigger.date.getDate()).toBe(27); // 30 Apr - 3 days
+      expect(call.trigger.date.getHours()).toBe(19);
+      expect(call.trigger.date.getMinutes()).toBe(0);
+    });
+
+    it('is idempotent: cancels its own previous period-closing occurrence before scheduling', async () => {
+      mockGetAllScheduled.mockResolvedValue([
+        { identifier: 'period-closing-2026-03-30' },
+        { identifier: 'evening-log-2026-04-13' }, // another feature's notification — must be left alone
+      ]);
+      const scheduler = new LocalNotificationScheduler({ now: () => NOW });
+      await scheduler.schedulePeriodClosingNudge(PERIOD_END, 19, 0, {
+        title: 't',
+        body: 'b',
+      });
+
+      expect(mockCancel).toHaveBeenCalledWith('period-closing-2026-03-30');
+      expect(mockCancel).not.toHaveBeenCalledWith('evening-log-2026-04-13');
+    });
+
+    it('does not schedule when the trigger time has already passed', async () => {
+      // NOW is 2026-04-13 12:00 — a period ending 2026-04-14 puts the trigger
+      // (2026-04-11 19:00) well in the past.
+      const scheduler = new LocalNotificationScheduler({ now: () => NOW });
+      await scheduler.schedulePeriodClosingNudge(new Date(2026, 3, 14), 19, 0, {
+        title: 't',
+        body: 'b',
+      });
+      expect(mockSchedule).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelPeriodClosingNudge (VAL2-11)', () => {
+    it('cancels every period-closing-YYYY-MM-DD identifier, and nothing else', async () => {
+      mockGetAllScheduled.mockResolvedValue([
+        { identifier: 'period-closing-2026-03-30' },
+        { identifier: 'period-closing-2026-04-30' },
+        { identifier: 'weekly-checkin-2026-04-19' },
+      ]);
+      const scheduler = new LocalNotificationScheduler({ now: () => NOW });
+      await scheduler.cancelPeriodClosingNudge();
+
+      expect(mockCancel).toHaveBeenCalledWith('period-closing-2026-03-30');
+      expect(mockCancel).toHaveBeenCalledWith('period-closing-2026-04-30');
+      expect(mockCancel).not.toHaveBeenCalledWith('weekly-checkin-2026-04-19');
+    });
+  });
+
+  describe('scheduleWeeklyCheckIn (VAL2-11)', () => {
+    it('schedules for next Sunday at the requested hour/minute, with a deterministic identifier', async () => {
+      // NOW is Monday 2026-04-13 — next Sunday is 2026-04-19.
+      const scheduler = new LocalNotificationScheduler({ now: () => NOW });
+      await scheduler.scheduleWeeklyCheckIn(19, 0, {
+        title: 'Your week in envelopes',
+        body: 'This week: R150 spent, 2 envelopes on track',
+      });
+
+      expect(mockSchedule).toHaveBeenCalledTimes(1);
+      const call = mockSchedule.mock.calls[0][0] as {
+        identifier: string;
+        content: { title: string; body: string; data: { target: string } };
+        trigger: { type: string; date: Date };
+      };
+      expect(call.identifier).toBe('weekly-checkin-2026-04-19');
+      expect(call.content.title).toBe('Your week in envelopes');
+      expect(call.content.data).toEqual({ target: 'dashboard' });
+      expect(call.trigger.date.getDate()).toBe(19);
+      expect(call.trigger.date.getHours()).toBe(19);
+    });
+
+    it('is idempotent: cancels its own previous weekly-checkin occurrence before scheduling', async () => {
+      mockGetAllScheduled.mockResolvedValue([{ identifier: 'weekly-checkin-2026-04-12' }]);
+      const scheduler = new LocalNotificationScheduler({ now: () => NOW });
+      await scheduler.scheduleWeeklyCheckIn(19, 0, { title: 't', body: 'b' });
+      expect(mockCancel).toHaveBeenCalledWith('weekly-checkin-2026-04-12');
+    });
+  });
+
+  describe('cancelWeeklyCheckIn (VAL2-11)', () => {
+    it('cancels every weekly-checkin-YYYY-MM-DD identifier, and nothing else', async () => {
+      mockGetAllScheduled.mockResolvedValue([
+        { identifier: 'weekly-checkin-2026-04-12' },
+        { identifier: 'weekly-checkin-2026-04-19' },
+        { identifier: 'period-closing-2026-04-30' },
+      ]);
+      const scheduler = new LocalNotificationScheduler({ now: () => NOW });
+      await scheduler.cancelWeeklyCheckIn();
+
+      expect(mockCancel).toHaveBeenCalledWith('weekly-checkin-2026-04-12');
+      expect(mockCancel).toHaveBeenCalledWith('weekly-checkin-2026-04-19');
+      expect(mockCancel).not.toHaveBeenCalledWith('period-closing-2026-04-30');
+    });
+  });
+
   it('scheduleMeterReadingReminder uses identifier "meter-reading" and data.target "meters" (VAL-12)', async () => {
     const scheduler = new LocalNotificationScheduler();
     await scheduler.scheduleMeterReadingReminder(1);

@@ -36,6 +36,7 @@ import { AppState } from 'react-native';
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { onOplogWrite } from '../uow/UnitOfWork';
 import type { PullHealth, SyncSummary } from './SyncEngine';
+import { isMembershipCheckDue, recordMembershipCheck } from './membershipCheckSchedule';
 import { logger } from '../../infrastructure/logging/Logger';
 
 /** Minimal shape of `SyncEngine` this scheduler drives — an interface (not
@@ -45,6 +46,11 @@ export interface SyncRunner {
   sync(householdId: string): Promise<SyncSummary>;
   getPullHealth(householdId: string): PullHealth;
   getPendingPushCount(): number;
+  /** Authoritative membership check + local eviction, reporting whether the
+   * server actually ANSWERED — see `runMembershipCheckIfDue`. Optional so
+   * existing `SyncRunner` doubles stay valid; the production `SyncEngine`
+   * implements it. */
+  verifyMembershipAndEvict?(householdId: string): Promise<{ answered: boolean; evicted: boolean }>;
 }
 
 /** Minimal shape of `NetworkObserver` this scheduler needs — the real
@@ -197,9 +203,12 @@ export class SyncScheduler {
       this.requestSync(writtenHouseholdId);
     });
 
-    // (b) AppState foreground.
+    // (b) AppState foreground. Also the trigger for the periodic membership
+    // check — the only thing that ever evicts a device that merely READS.
     this.appStateSub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'active') this.requestSync(householdId, { immediate: true });
+      if (next !== 'active') return;
+      this.requestSync(householdId, { immediate: true });
+      void this.runMembershipCheckIfDue(householdId);
     });
 
     // (c) NetInfo reconnect (the existing NetworkObserver singleton). The
@@ -266,6 +275,59 @@ export class SyncScheduler {
       const hh = this.pendingHouseholdId;
       if (hh) void this.runSync(hh);
     }, this.debounceMs);
+  }
+
+  /**
+   * At most once per household per 24h, on foreground: ask the server
+   * whether this device's user is still a member, and evict locally through
+   * the engine's existing routine if it says no.
+   *
+   * This is the ONLY eviction path a read-only device ever reaches. Eviction
+   * otherwise fires solely off a push rejected `not_member`, and a device
+   * that never writes never gets one: its pulls come back with zero rows
+   * (RLS hides the household's oplog from a non-member), which looks exactly
+   * like "nothing new", so a removed member keeps the household — and its
+   * data — on screen indefinitely.
+   *
+   * Bounded and fail-safe:
+   *  - the 24h window lives in device-local storage (never the oplog — see
+   *    membershipCheckSchedule.ts), so this costs at most one extra round
+   *    trip per household per day;
+   *  - an INCONCLUSIVE answer (offline, 5xx, timeout, no transport support)
+   *    never evicts AND never records the timestamp, so the next foreground
+   *    asks again rather than writing the household off for a day;
+   *  - it never throws: a background check must not be able to take down the
+   *    foreground sync trigger it rides on.
+   */
+  private async runMembershipCheckIfDue(householdId: string): Promise<void> {
+    const verify = this.engine.verifyMembershipAndEvict?.bind(this.engine);
+    if (!verify) return;
+
+    try {
+      if (!(await isMembershipCheckDue(householdId, Date.parse(this.clock())))) return;
+    } catch (err) {
+      logger.warn('SyncScheduler: could not read the membership-check schedule', {
+        householdId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+
+    let answered: boolean;
+    try {
+      ({ answered } = await verify(householdId));
+    } catch (err) {
+      // The engine already swallows every inconclusive outcome; this is the
+      // belt-and-braces path for an unexpected throw. Timestamp untouched.
+      logger.warn('SyncScheduler: periodic membership check failed — timestamp not advanced', {
+        householdId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+
+    if (!answered) return;
+    await recordMembershipCheck(householdId, Date.parse(this.clock()));
   }
 
   private clearDebounce(): void {

@@ -1,10 +1,19 @@
-import { and, eq, isNull } from 'drizzle-orm';
-import { format } from 'date-fns';
+import { and, eq, isNull, ne } from 'drizzle-orm';
+import { format, startOfWeek } from 'date-fns';
 import { db } from '../../data/local/db';
-import { transactions } from '../../data/local/schema';
+import { envelopes, transactions } from '../../data/local/schema';
 import { LocalNotificationScheduler } from '../../infrastructure/notifications/LocalNotificationScheduler';
+import {
+  envelopeScopeCondition,
+  getEnvelopeSpentCents,
+} from '../../data/local/balances/EnvelopeBalanceQuery';
+import { getEnvelopeScope } from '../../domain/envelopes/EnvelopeEntity';
+import type { EnvelopeType } from '../../domain/envelopes/EnvelopeEntity';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../stores/appStore';
 import { useNotificationStore } from '../stores/notificationStore';
+import { buildPeriodClosingMessage, buildWeeklyCheckInMessage } from './budgetNudgeMessages';
+import type { PeriodEnvelopeSnapshot } from './budgetNudgeMessages';
 
 // Lives outside RootNavigator so screens (AddTransactionScreen re-arms after a
 // save) can import it without importing the navigator that renders them.
@@ -59,4 +68,110 @@ export async function rearmEveningLogPrompt(): Promise<void> {
     preferences.eveningLogPromptHour,
     preferences.eveningLogPromptMinute,
   );
+}
+
+/**
+ * VAL2-11: every PERIOD-scoped ('spending' | 'income' | 'utility') envelope
+ * of `householdId` for `periodStart`, with its derived period-to-date spend
+ * — the raw numbers `budgetNudgeMessages`'s pure builders turn into copy.
+ * Persistent envelopes (funds) are excluded: they don't have a monthly
+ * allocation to be "on track" against (see `getEnvelopeScope`).
+ */
+async function loadPeriodEnvelopeSnapshots(
+  householdId: string,
+  periodStart: string,
+): Promise<PeriodEnvelopeSnapshot[]> {
+  const rows = await db
+    .select({
+      id: envelopes.id,
+      allocatedCents: envelopes.allocatedCents,
+      envelopeType: envelopes.envelopeType,
+    })
+    .from(envelopes)
+    .where(
+      and(
+        eq(envelopes.householdId, householdId),
+        isNull(envelopes.deletedAt),
+        envelopeScopeCondition(periodStart),
+        eq(envelopes.isArchived, false),
+        ne(envelopes.envelopeType, 'income'),
+      ),
+    );
+  const periodRows = rows.filter(
+    (row) => getEnvelopeScope({ envelopeType: row.envelopeType as EnvelopeType }) === 'period',
+  );
+  const spentByEnvelopeId = await getEnvelopeSpentCents(db, householdId, periodStart);
+  return periodRows.map((row) => ({
+    allocatedCents: row.allocatedCents,
+    spentCents: spentByEnvelopeId.get(row.id) ?? 0,
+  }));
+}
+
+/** VAL2-11: sum of `householdId`'s non-deleted transactions from the start of THIS week (Sunday) through `now`, inclusive. */
+async function computeWeekSpentCents(householdId: string, now: Date): Promise<number> {
+  const weekStart = format(startOfWeek(now), 'yyyy-MM-dd');
+  const today = format(now, 'yyyy-MM-dd');
+  const rows = await db
+    .select({
+      amountCents: transactions.amountCents,
+      transactionDate: transactions.transactionDate,
+    })
+    .from(transactions)
+    .where(and(eq(transactions.householdId, householdId), isNull(transactions.deletedAt)));
+  return rows
+    .filter((row) => row.transactionDate >= weekStart && row.transactionDate <= today)
+    .reduce((sum, row) => sum + row.amountCents, 0);
+}
+
+/**
+ * VAL2-11: standalone re-arm entry point for the two "pull-back" nudges —
+ * "payday countdown" (3 days before the current period ends) and "weekly
+ * check-in" (next Sunday) — both at the user's evening-prompt time. Mirrors
+ * `rearmEveningLogPrompt`'s shape exactly: called from RootNavigator's init
+ * effect and its `AppState` 'active' handler, and MUST also run right after
+ * a transaction is successfully saved (that call site, AddTransactionScreen.tsx,
+ * belongs to another agent this round — see this change's final report for
+ * the one-line call to add there, alongside the existing
+ * `rearmEveningLogPrompt` call).
+ *
+ * Each nudge's copy is computed HERE, at schedule time, from local
+ * envelope/spend data via the pure builders in `budgetNudgeMessages` — the
+ * scheduler itself never touches presentation code or domain data, it only
+ * schedules the pre-built strings it's handed (see
+ * `LocalNotificationScheduler.schedulePeriodClosingNudge`/`scheduleWeeklyCheckIn`).
+ *
+ * `now` is injectable for tests; defaults to `new Date()`.
+ */
+export async function rearmBudgetNudges(now: () => Date = () => new Date()): Promise<void> {
+  const { householdId, paydayDay } = useAppStore.getState();
+  if (!householdId) return;
+  const { preferences, permissionsGranted } = useNotificationStore.getState();
+  if (!permissionsGranted) return;
+  if (!preferences.periodClosingNudgeEnabled && !preferences.weeklyCheckInNudgeEnabled) return;
+
+  const engine = new BudgetPeriodEngine();
+  const period = engine.getCurrentPeriod(paydayDay, now());
+  const periodStart = formatPeriodDateKey(period.startDate);
+  const envelopeSnapshots = await loadPeriodEnvelopeSnapshots(householdId, periodStart);
+
+  const scheduler = new LocalNotificationScheduler({ now });
+
+  if (preferences.periodClosingNudgeEnabled) {
+    const message = buildPeriodClosingMessage(envelopeSnapshots);
+    await scheduler.schedulePeriodClosingNudge(
+      period.endDate,
+      preferences.eveningLogPromptHour,
+      preferences.eveningLogPromptMinute,
+      message,
+    );
+  }
+  if (preferences.weeklyCheckInNudgeEnabled) {
+    const weekSpentCents = await computeWeekSpentCents(householdId, now());
+    const message = buildWeeklyCheckInMessage(envelopeSnapshots, weekSpentCents);
+    await scheduler.scheduleWeeklyCheckIn(
+      preferences.eveningLogPromptHour,
+      preferences.eveningLogPromptMinute,
+      message,
+    );
+  }
 }

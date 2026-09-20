@@ -14,8 +14,22 @@ import { rolloverEnvelopeId } from '../../../../domain/budgets/StartNewPeriodUse
 // ─── db mock (chain: select().from().where()) ────────────────────────────────
 const mockFrom = jest.fn();
 const mockWhere = jest.fn();
+// VAL2-10's debt-snapshot query targets `debtsTable` specifically — routed
+// to its own mock chain (keyed by table identity, since both queries share
+// the same `db.select()`) so it can return debt-shaped rows independently
+// of whatever envelope-shaped `rows` the rest of the suite has configured.
+const mockDebtsWhere = jest.fn().mockResolvedValue([]);
 jest.mock('../../../../data/local/db', () => ({
-  db: { select: () => ({ from: mockFrom }) },
+  db: {
+    select: () => ({
+      from: (...args: unknown[]) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { debts: debtsTableReal } = require('../../../../data/local/schema');
+        if (args[0] === debtsTableReal) return { where: mockDebtsWhere };
+        return mockFrom(...args);
+      },
+    }),
+  },
 }));
 
 // ─── EnvelopeBalanceQuery mock ────────────────────────────────────────────────
@@ -620,6 +634,64 @@ describe('RolloverWizard', () => {
       expect(input.periodStart).toBe(FROM_PERIOD);
       expect(input.periodEnd).toBe('2026-06-30');
       expect(typeof input.score.score).toBe('number');
+    });
+
+    it("VAL2-10: snapshots the household's current debt-payoff plan alongside the score", async () => {
+      mockDebtsWhere.mockResolvedValueOnce([
+        {
+          id: 'd1',
+          householdId: HOUSEHOLD,
+          creditorName: 'Credit Card',
+          debtType: 'credit_card',
+          outstandingBalanceCents: 10000,
+          initialBalanceCents: 10000,
+          totalPaidCents: 0,
+          minimumPaymentCents: 5000,
+          interestRatePercent: 0,
+          sortOrder: 0,
+          isPaidOff: false,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+          deletedAt: null,
+        },
+      ]);
+
+      const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+      await findByTestId('rollover-step-review');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-adjust');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      await findByTestId('rollover-success');
+      await waitFor(() => {
+        expect(mockRecordExecute).toHaveBeenCalledTimes(1);
+      });
+      const [input] = mockRecordExecute.mock.calls[0];
+      expect(input.debtSnapshot.totalDebtCents).toBe(10000);
+      expect(typeof input.debtSnapshot.debtFreeDateISO).toBe('string');
+    });
+
+    it('VAL2-10: a debt-query failure never blocks score recording or the rollover itself', async () => {
+      mockDebtsWhere.mockRejectedValueOnce(new Error('db locked'));
+
+      const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+      await findByTestId('rollover-step-review');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-adjust');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      // Still reaches success, and the score is still recorded — just
+      // without a debtSnapshot this time.
+      await findByTestId('rollover-success');
+      await waitFor(() => {
+        expect(mockRecordExecute).toHaveBeenCalledTimes(1);
+      });
+      const [input] = mockRecordExecute.mock.calls[0];
+      expect(input.debtSnapshot).toBeUndefined();
     });
 
     // REG-14: the closing period's end used to be computed as

@@ -134,4 +134,44 @@ describe('CoachingModal', () => {
     expect(queryAllByText(/over budget/i).length).toBe(0);
     expect(getAllByText(/saved in this fund/i).length).toBeGreaterThan(0);
   });
+
+  // VAL2-9: "cover it from another envelope".
+  it('shows the "cover from another envelope" action for a period-scope overspend when a handler is supplied', () => {
+    const onCoverFromAnotherEnvelope = jest.fn();
+    const { getByTestId } = render(
+      <CoachingModal
+        {...defaultProps}
+        scope="period"
+        onCoverFromAnotherEnvelope={onCoverFromAnotherEnvelope}
+      />,
+    );
+    fireEvent.press(getByTestId('coaching-cover-from-another-envelope'));
+    expect(onCoverFromAnotherEnvelope).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the "cover from another envelope" action when no handler is supplied', () => {
+    const { queryByTestId } = render(<CoachingModal {...defaultProps} scope="period" />);
+    expect(queryByTestId('coaching-cover-from-another-envelope')).toBeNull();
+  });
+
+  it('never shows "cover from another envelope" for a persistent-scope (fund) overspend, even with a handler', () => {
+    const onCoverFromAnotherEnvelope = jest.fn();
+    const { queryByTestId } = render(
+      <CoachingModal
+        {...defaultProps}
+        scope="persistent"
+        onCoverFromAnotherEnvelope={onCoverFromAnotherEnvelope}
+      />,
+    );
+    expect(queryByTestId('coaching-cover-from-another-envelope')).toBeNull();
+  });
+
+  it('still keeps Proceed and Cancel alongside the cover action', () => {
+    const { getByTestId } = render(
+      <CoachingModal {...defaultProps} scope="period" onCoverFromAnotherEnvelope={jest.fn()} />,
+    );
+    expect(getByTestId('coaching-cancel')).toBeTruthy();
+    expect(getByTestId('coaching-proceed')).toBeTruthy();
+    expect(getByTestId('coaching-cover-from-another-envelope')).toBeTruthy();
+  });
 });

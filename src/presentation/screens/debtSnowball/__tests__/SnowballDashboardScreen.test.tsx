@@ -2,7 +2,7 @@
  * SnowballDashboardScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
@@ -13,9 +13,12 @@ jest.mock('../../../hooks/useDebts', () => ({
   useDebts: jest.fn().mockReturnValue({ debts: [], loading: false, reload: jest.fn() }),
 }));
 jest.mock('../../../stores/appStore', () => ({
-  useAppStore: jest.fn((sel: (s: { householdId: string }) => unknown) =>
-    sel({ householdId: 'hh-1' }),
+  useAppStore: jest.fn((sel: (s: { householdId: string; paydayDay: number }) => unknown) =>
+    sel({ householdId: 'hh-1', paydayDay: 25 }),
   ),
+}));
+jest.mock('../../../../domain/scoring/getLatestDebtSnapshot', () => ({
+  getLatestDebtSnapshot: jest.fn().mockResolvedValue(null),
 }));
 jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 jest.mock('react-native-paper', () => {
@@ -41,6 +44,8 @@ jest.mock('react-native-paper', () => {
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
+    ProgressBar: ({ testID }: { testID?: string }) =>
+      React.createElement('View', { testID: testID ?? 'progress-bar' }),
     TouchableRipple: ({
       children,
       onPress,
@@ -268,5 +273,118 @@ describe('SnowballDashboardScreen', () => {
     const focusChip = queryByTestId('focus-chip');
     expect(focusChip).toBeTruthy();
     expect(focusChip?.props.accessibilityLabel).toBe('Focus debt: Small Debt');
+  });
+
+  it('shows the RefreshingBar while refreshing, without blanking the debt list (REG-9)', () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Credit Card',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 10000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 5000,
+        interestRatePercent: 0,
+        sortOrder: 0,
+        isPaidOff: false,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      refreshing: true,
+      reload: jest.fn(),
+    });
+
+    const { getByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(getByTestId('refreshing-bar')).toBeTruthy();
+    expect(getByTestId('fab')).toBeTruthy();
+  });
+
+  it('VAL2-10: shows "paid off since last month" when the previous snapshot recorded more total debt', async () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Credit Card',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 50000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 50000,
+        interestRatePercent: 0,
+        sortOrder: 0,
+        isPaidOff: false,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      reload: jest.fn(),
+    });
+    jest
+      .mocked(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('../../../../domain/scoring/getLatestDebtSnapshot').getLatestDebtSnapshot,
+      )
+      .mockResolvedValue({ totalDebtCents: 150000, debtFreeDateISO: null });
+
+    const { findByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(await findByTestId('debt-progress-paid-off-message')).toBeTruthy();
+  });
+
+  it('VAL2-10: shows no progress line when there is no previous snapshot', async () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Credit Card',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 50000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 50000,
+        interestRatePercent: 0,
+        sortOrder: 0,
+        isPaidOff: false,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      reload: jest.fn(),
+    });
+    jest
+      .mocked(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('../../../../domain/scoring/getLatestDebtSnapshot').getLatestDebtSnapshot,
+      )
+      .mockResolvedValue(null);
+
+    const { queryByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    await waitFor(() => {
+      expect(queryByTestId('debt-progress-paid-off-message')).toBeNull();
+      expect(queryByTestId('debt-progress-date-message')).toBeNull();
+    });
   });
 });

@@ -7,6 +7,20 @@ import type { HabitScoreResult } from './RamseyScoreCalculator';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 
+/**
+ * A point-in-time snapshot of the household's debt-snowball plan, taken at
+ * rollover (VAL2-10) so a later period can say "N months sooner/later than
+ * last month" and "R… paid off since last month" — see
+ * `computeDebtProgressMessage` (src/presentation/screens/debtSnowball) and
+ * `getLatestDebtSnapshot`, which reads this back.
+ */
+export interface DebtSnapshot {
+  /** Sum of `outstandingBalanceCents` across the household's non-deleted debts. */
+  totalDebtCents: number;
+  /** `SnowballPayoffProjector.project(...).debtFreeDate` as an ISO string, or null when unpayable/no debts. */
+  debtFreeDateISO: string | null;
+}
+
 export interface RecordPeriodScoreInput {
   householdId: string;
   /** ISO date (YYYY-MM-DD) of the period being CLOSED. */
@@ -15,6 +29,14 @@ export interface RecordPeriodScoreInput {
   periodEnd: string;
   /** The closing period's computed score breakdown, e.g. from `HabitScoreCalculator.calculate`. */
   score: HabitScoreResult;
+  /**
+   * Optional debt-plan snapshot (VAL2-10), folded additively into the
+   * `components` JSON alongside `score` — see the class doc comment.
+   * Omitted (or its computation having failed) is expected and safe: older
+   * rows, and any row written without it, simply have no `debtSnapshot` key
+   * for readers to find.
+   */
+  debtSnapshot?: DebtSnapshot;
 }
 
 export interface RecordPeriodScoreOutput {
@@ -63,6 +85,11 @@ export function periodScoreId(householdId: string, periodStart: string): string 
  * caught and returned as a `Result` failure — so a caller can (and must, per
  * the rollover's contract) treat this as fire-and-forget and never let a
  * failure here block or roll back the period rollover itself.
+ *
+ * `components` is additive JSON: it always carries the score breakdown, and
+ * — when the caller supplies one — a `debtSnapshot` alongside it. Every
+ * reader must tolerate rows written before VAL2-10 (or any row whose
+ * snapshot computation failed) having no `debtSnapshot` key at all.
  */
 export class RecordPeriodScoreUseCase {
   constructor(private readonly db: ExpoSQLiteDatabase<typeof schema>) {}
@@ -81,6 +108,10 @@ export class RecordPeriodScoreUseCase {
         return createSuccess({ id, created: false });
       }
 
+      const components = input.debtSnapshot
+        ? { ...input.score, debtSnapshot: input.debtSnapshot }
+        : input.score;
+
       await this.db
         .insert(scoreHistory)
         .values({
@@ -88,7 +119,7 @@ export class RecordPeriodScoreUseCase {
           householdId: input.householdId,
           periodStart: input.periodStart,
           score: input.score.score,
-          components: JSON.stringify(input.score),
+          components: JSON.stringify(components),
           createdAt: new Date().toISOString(),
         })
         .onConflictDoNothing({ target: scoreHistory.id });

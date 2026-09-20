@@ -43,11 +43,12 @@ import { formatCurrency } from '../../utils/currency';
 import { SpendingCoach } from '../../../domain/coaching/SpendingCoach';
 import { CoachingModal } from '../../components/shared/CoachingModal';
 import type { CoachingResult } from '../../../domain/coaching/SpendingCoach';
+import { MoveAllocationUseCase } from '../../../domain/envelopes/MoveAllocationUseCase';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
 import { detectThresholdCrossing, buildThresholdToastMessage } from './envelopeUsageThreshold';
 import { computeAfterThisPreview } from './afterThisPreview';
 import { householdNotifier } from '../../../infrastructure/notifications/HouseholdNotifier';
-import { rearmEveningLogPrompt } from '../../boot/eveningLogPrompt';
+import { rearmBudgetNudges, rearmEveningLogPrompt } from '../../boot/eveningLogPrompt';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
@@ -135,6 +136,9 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const [existingTransaction, setExistingTransaction] = useState<TransactionEntity | null>(null);
 
   const [coachingResult, setCoachingResult] = useState<CoachingResult | null>(null);
+  // VAL2-9: "cover it from another envelope" — the sheet listing PERIOD
+  // envelopes with enough unspent money to cover the current shortfall.
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
   const pendingAmountCents = useRef<number>(0);
   const isSaving = useRef(false);
 
@@ -346,12 +350,16 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           if (!existingTransaction) {
             // Logged today, so tonight's "log your spending" reminder is moot.
             void rearmEveningLogPrompt().catch(() => undefined);
+            // …and the payday-countdown / weekly figures just changed.
+            void rearmBudgetNudges().catch(() => undefined);
+            // SEC2-12: typed fields only — notify-event writes the words.
             householdNotifier.notifyHousehold({
               kind: 'transaction_created',
               householdId,
               senderId,
-              title: (payee.trim() || envelope.name).slice(0, 120),
-              body: `${payee.trim() || envelope.name} · ${formatCurrency(amountCents)} from ${envelope.name}`,
+              amountCents,
+              envelopeName: envelope.name,
+              payee: payee.trim() || undefined,
             });
           }
 
@@ -376,18 +384,16 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
               );
               // VAL-6/DB-7: only the 100% ("over budget") crossing wakes the
               // household — the 80% heads-up is a solo nudge, not shared news.
-              if (crossing === 100) {
+              // Landing exactly ON the allocation is "fully spent", not over,
+              // and notify-event requires a positive overByCents.
+              const overByCents = newSpentCents - envelope.allocatedCents;
+              if (crossing === 100 && overByCents > 0) {
                 householdNotifier.notifyHousehold({
                   kind: 'envelope_over_budget',
                   householdId,
                   senderId,
-                  title: envelope.name.slice(0, 120),
-                  body: buildThresholdToastMessage(
-                    crossing,
-                    envelope.name,
-                    envelope.allocatedCents,
-                    newSpentCents,
-                  ),
+                  envelopeName: envelope.name,
+                  overByCents,
                 });
               }
             }
@@ -476,6 +482,66 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const handleCoachingCancel = useCallback((): void => {
     setCoachingResult(null);
   }, []);
+
+  // VAL2-9: PERIOD envelopes (other than the one being overspent) that hold
+  // enough UNSPENT allocation to cover the current shortfall — the list the
+  // "cover it from another envelope" picker offers. Never offered for a
+  // persistent-scope (fund) overspend: a fund's "over budget" reading is
+  // against its own saved balance, which no sibling allocation can fix.
+  const coverCandidates = useMemo((): EnvelopeOption[] => {
+    if (!coachingResult || coachingResult.scope !== 'period' || !selectedEnvelope) return [];
+    return envelopes.filter((env) => {
+      if (env.id === selectedEnvelope.id) return false;
+      if (getEnvelopeScope({ envelopeType: env.envelopeType }) !== 'period') return false;
+      const unspentCents = env.allocatedCents - env.spentCents;
+      return unspentCents >= coachingResult.overspendCents;
+    });
+  }, [coachingResult, selectedEnvelope, envelopes]);
+
+  const handleCoverFromAnotherEnvelope = useCallback((): void => {
+    setShowCoverPicker(true);
+  }, []);
+
+  const handleCoverEnvelopeSelected = useCallback(
+    (fromEnvelope: EnvelopeOption): void => {
+      if (!coachingResult || !selectedEnvelope) return;
+      const amountToMoveCents = coachingResult.overspendCents;
+      void (async (): Promise<void> => {
+        const result = await new MoveAllocationUseCase(db, audit).execute({
+          householdId,
+          periodStart,
+          fromEnvelopeId: fromEnvelope.id,
+          toEnvelopeId: selectedEnvelope.id,
+          amountCents: amountToMoveCents,
+        });
+        if (!result.success) {
+          enqueue(result.error.message, 'error');
+          return;
+        }
+        // Keep local envelope state in step with the move it just committed.
+        setEnvelopes((prev) =>
+          prev.map((env) => {
+            if (env.id === result.data.fromEnvelopeId) {
+              return { ...env, allocatedCents: result.data.fromAllocatedCents };
+            }
+            if (env.id === result.data.toEnvelopeId) {
+              return { ...env, allocatedCents: result.data.toAllocatedCents };
+            }
+            return env;
+          }),
+        );
+        setSelectedEnvelope((prev) =>
+          prev && prev.id === result.data.toEnvelopeId
+            ? { ...prev, allocatedCents: result.data.toAllocatedCents }
+            : prev,
+        );
+        enqueue(`Moved ${formatCurrency(amountToMoveCents)} from ${fromEnvelope.name}`, 'success');
+        setCoachingResult(null);
+        void doSave(pendingAmountCents.current);
+      })();
+    },
+    [coachingResult, selectedEnvelope, householdId, periodStart, enqueue, doSave],
+  );
 
   // UX2-10: an explicit way out of a transaction, from inside edit mode.
   const handleDelete = useCallback(async (): Promise<void> => {
@@ -741,8 +807,21 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           scope={coachingResult.scope}
           onProceed={handleCoachingProceed}
           onCancel={handleCoachingCancel}
+          onCoverFromAnotherEnvelope={
+            coverCandidates.length > 0 ? handleCoverFromAnotherEnvelope : undefined
+          }
         />
       )}
+
+      {/* VAL2-9: "cover it from another envelope" — reuses the same picker
+          sheet as envelope selection, scoped to envelopes with enough
+          unspent money to cover the current shortfall. */}
+      <EnvelopePickerSheet
+        visible={showCoverPicker}
+        envelopes={coverCandidates}
+        onSelect={handleCoverEnvelopeSelected}
+        onClose={() => setShowCoverPicker(false)}
+      />
     </KeyboardAvoidingView>
   );
 };

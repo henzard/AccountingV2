@@ -117,6 +117,8 @@ jest.mock('react-native-paper', () => {
         testID,
         placeholder,
       }),
+    ProgressBar: ({ testID }: { testID?: string }) =>
+      React.createElement('View', { testID: testID ?? 'progress-bar' }),
   };
 });
 
@@ -574,5 +576,38 @@ describe('TransactionListScreen', () => {
 
       expect(mockReload).toHaveBeenCalled();
     });
+  });
+
+  it('shows the RefreshingBar while the hook is refreshing, without blanking the list (REG-9)', () => {
+    mockUseTransactions.mockReturnValue({
+      transactions: [{ ...mockTransaction, id: 'tx-1' }],
+      loading: false,
+      refreshing: true,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(getByTestId('refreshing-bar')).toBeTruthy();
+    expect(getByTestId('period-total')).toBeTruthy();
+  });
+
+  it('hides the RefreshingBar when the hook is not refreshing', () => {
+    mockUseTransactions.mockReturnValue({
+      transactions: [{ ...mockTransaction, id: 'tx-1' }],
+      loading: false,
+      refreshing: false,
+      reload: jest.fn(),
+    });
+    const { queryByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(queryByTestId('refreshing-bar')).toBeNull();
   });
 });

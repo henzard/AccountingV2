@@ -42,11 +42,19 @@ jest.mock('../../../../infrastructure/notifications/NotificationPreferencesRepos
 const mockScheduleEvening = jest.fn().mockResolvedValue(undefined);
 const mockScheduleMeter = jest.fn().mockResolvedValue(undefined);
 const mockScheduleMonthStart = jest.fn().mockResolvedValue(undefined);
+const mockCancelPeriodClosingNudge = jest.fn().mockResolvedValue(undefined);
+const mockCancelWeeklyCheckIn = jest.fn().mockResolvedValue(undefined);
+const mockRearmBudgetNudges = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../boot/eveningLogPrompt', () => ({
+  rearmBudgetNudges: (...args: unknown[]) => mockRearmBudgetNudges(...args),
+}));
 jest.mock('../../../../infrastructure/notifications/LocalNotificationScheduler', () => ({
   LocalNotificationScheduler: jest.fn().mockImplementation(() => ({
     scheduleEveningLogPrompt: (...args: unknown[]) => mockScheduleEvening(...args),
     scheduleMeterReadingReminder: (...args: unknown[]) => mockScheduleMeter(...args),
     scheduleMonthStartPreflight: (...args: unknown[]) => mockScheduleMonthStart(...args),
+    cancelPeriodClosingNudge: (...args: unknown[]) => mockCancelPeriodClosingNudge(...args),
+    cancelWeeklyCheckIn: (...args: unknown[]) => mockCancelWeeklyCheckIn(...args),
   })),
 }));
 
@@ -69,6 +77,8 @@ let mockPreferences = {
   meterReadingReminderEnabled: false,
   meterReadingReminderDay: 1,
   monthStartPreflightEnabled: false,
+  periodClosingNudgeEnabled: true,
+  weeklyCheckInNudgeEnabled: true,
 };
 let mockPermissionsGranted = false;
 
@@ -198,6 +208,8 @@ describe('NotificationPreferencesScreen', () => {
       meterReadingReminderEnabled: false,
       meterReadingReminderDay: 1,
       monthStartPreflightEnabled: false,
+      periodClosingNudgeEnabled: true,
+      weeklyCheckInNudgeEnabled: true,
     };
     mockPermissionsGranted = false;
   });
@@ -284,6 +296,89 @@ describe('NotificationPreferencesScreen', () => {
       <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
     );
     expect(getAllByText(/Payday reminder/i).length).toBeGreaterThan(0);
+  });
+
+  // VAL2-11: pull-back nudges — "Payday countdown" and "Weekly check-in" toggles.
+  it('renders the payday countdown and weekly check-in toggles, default ON', () => {
+    const { getByTestId, getAllByText } = render(
+      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+    );
+    expect(getAllByText(/Payday countdown/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/Weekly check-in/i).length).toBeGreaterThan(0);
+    expect(getByTestId('period-closing-nudge-toggle').props.value).toBe(true);
+    expect(getByTestId('weekly-checkin-nudge-toggle').props.value).toBe(true);
+  });
+
+  it('re-arms the pull-back nudges and saves when the payday countdown toggle is switched on with permissions granted', async () => {
+    jest.useFakeTimers();
+    mockPermissionsGranted = true;
+    mockPreferences = { ...mockPreferences, periodClosingNudgeEnabled: false };
+    const { getByTestId } = render(
+      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+    );
+    act(() => {
+      fireEvent(getByTestId('period-closing-nudge-toggle'), 'onValueChange', true);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(700);
+    });
+    expect(mockSave).toHaveBeenCalledWith(
+      expect.objectContaining({ periodClosingNudgeEnabled: true }),
+    );
+    expect(mockRearmBudgetNudges).toHaveBeenCalled();
+    expect(mockCancelPeriodClosingNudge).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('cancels the period-closing nudge when its toggle is switched off with permissions granted', async () => {
+    jest.useFakeTimers();
+    mockPermissionsGranted = true;
+    mockPreferences = { ...mockPreferences, periodClosingNudgeEnabled: true };
+    const { getByTestId } = render(
+      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+    );
+    act(() => {
+      fireEvent(getByTestId('period-closing-nudge-toggle'), 'onValueChange', false);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(700);
+    });
+    expect(mockCancelPeriodClosingNudge).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('cancels the weekly check-in nudge when its toggle is switched off with permissions granted', async () => {
+    jest.useFakeTimers();
+    mockPermissionsGranted = true;
+    mockPreferences = { ...mockPreferences, weeklyCheckInNudgeEnabled: true };
+    const { getByTestId } = render(
+      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+    );
+    act(() => {
+      fireEvent(getByTestId('weekly-checkin-nudge-toggle'), 'onValueChange', false);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(700);
+    });
+    expect(mockCancelWeeklyCheckIn).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('does not schedule or cancel pull-back nudges without notification permissions', async () => {
+    jest.useFakeTimers();
+    mockPermissionsGranted = false;
+    const { getByTestId } = render(
+      <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+    );
+    act(() => {
+      fireEvent(getByTestId('period-closing-nudge-toggle'), 'onValueChange', false);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(700);
+    });
+    expect(mockRearmBudgetNudges).not.toHaveBeenCalled();
+    expect(mockCancelPeriodClosingNudge).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('calls setPreferences when evening log toggle fires', async () => {

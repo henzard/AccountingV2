@@ -9,10 +9,12 @@ import { RolloverWizard } from '../budgets/RolloverWizard';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useBabySteps } from '../../hooks/useBabySteps';
+import { useDebts } from '../../hooks/useDebts';
 import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeSavings';
 import { useSyncEngineStore } from '../../stores/syncEngineStore';
 import { useReloadOnSync } from '../../hooks/useReloadOnSync';
 import { EmptyState } from '../../components/shared/EmptyState';
+import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetRingCard } from './components/BudgetRingCard';
@@ -36,6 +38,7 @@ import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepI
 import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
 import { calculateBudgetBalance } from '../../../domain/budgets/BudgetBalanceCalculator';
 import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
+import { SnowballPayoffProjector } from '../../../domain/debtSnowball/SnowballPayoffProjector';
 import { formatCurrency } from '../../utils/currency';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,6 +52,7 @@ import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 const engine = new BudgetPeriodEngine();
 const scoreCalculator = new HabitScoreCalculator();
+const debtProjector = new SnowballPayoffProjector();
 
 const GRAD_DARK = ['#071A16', '#0C1D2B', '#081420'] as const;
 
@@ -83,6 +87,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const refreshing =
     ('refreshing' in envelopesResult ? envelopesResult.refreshing : undefined) ?? loading;
   const { statuses: babyStepStatuses } = useBabySteps(hid, periodStart);
+  // Compact "Debt-free by …" header line (VAL2-10) — household-level, not
+  // period-scoped, so this is the same live debt list the Snowball tab
+  // shows. Projected with 0 extra payment, matching the plan the dashboard
+  // has no input for.
+  const { debts } = useDebts(hid);
+  const unpaidDebtsCount = useMemo(() => debts.filter((d) => !d.isPaidOff).length, [debts]);
+  const debtFreeDate = useMemo(() => debtProjector.project(debts, 0).debtFreeDate, [debts]);
+  const handleDebtLinePress = useCallback((): void => {
+    navigation.navigate('Snowball');
+  }, [navigation]);
   // Persistent envelopes' (savings/emergency_fund/sinking_fund/baby_step)
   // real saved balance — never `allocatedCents - spentCents`, since
   // `allocatedCents` on those rows is this period's MONTHLY CONTRIBUTION and
@@ -368,6 +382,24 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           <Text style={[styles.daysTag, { color: labelColor }]}>{daysRemaining}d remaining</Text>
         </View>
 
+        {/* Compact debt-free line (VAL2-10) — only while there is at least
+            one unpaid debt; tapping it jumps to the Snowball tab. */}
+        {unpaidDebtsCount > 0 && debtFreeDate && (
+          <TouchableOpacity
+            style={styles.debtLineRow}
+            onPress={handleDebtLinePress}
+            testID="dashboard-debt-line"
+            accessibilityRole="button"
+            accessibilityLabel={`Debt-free by ${format(debtFreeDate, 'MMMM yyyy')}. View debt payoff plan.`}
+          >
+            <MaterialCommunityIcons name="snowflake" size={16} color={accentColor} />
+            <Text style={[styles.debtLineText, { color: labelColor }]}>
+              {`Debt-free by ${format(debtFreeDate, 'MMM yyyy')}`}
+            </Text>
+            <MaterialCommunityIcons name="chevron-right" size={16} color={labelColor} />
+          </TouchableOpacity>
+        )}
+
         {/* Budget ring — only when spend envelopes exist */}
         {spendEnvelopes.length > 0 && (
           <View style={styles.ringSection}>
@@ -563,6 +595,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       labelColor,
       periodLabel,
       babyStepStatuses,
+      unpaidDebtsCount,
+      debtFreeDate,
+      handleDebtLinePress,
     ],
   );
 
@@ -778,6 +813,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     );
   };
 
+  // REG-9: a thin, non-blanking indicator for a background reload (sync
+  // round, focus refetch, …) already in flight over data on screen — the
+  // FlatList below keeps rendering that data throughout.
+  const refreshingBar = <RefreshingBar refreshing={refreshing} />;
+
   // ── Main list ─────────────────────────────────────────────────────────────
   const list = (
     <FlatList<EnvelopeEntity>
@@ -854,6 +894,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   if (isDark) {
     return (
       <LinearGradient colors={GRAD_DARK} locations={[0, 0.55, 1]} style={styles.flex}>
+        {refreshingBar}
         {list}
         {floatingFab}
         {rolloverModal}
@@ -865,6 +906,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
 
   return (
     <View style={[styles.flex, { backgroundColor: P.screenBgLight }]}>
+      {refreshingBar}
       {list}
       {floatingFab}
       {rolloverModal}
@@ -898,6 +940,17 @@ const styles = StyleSheet.create({
   },
   daysTag: {
     fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: fontSize.sm,
+  },
+  debtLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.sm,
+  },
+  debtLineText: {
+    fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: fontSize.sm,
   },
 

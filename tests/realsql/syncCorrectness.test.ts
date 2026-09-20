@@ -101,9 +101,21 @@ class LoopbackTransport implements SyncTransport {
   readonly pushed: WireOp[] = [];
   rowStateResult: Record<string, unknown> | null = null;
 
+  /** Reject codes to answer with, by `row_id` — models a server that already
+   * holds a row under a deterministic id (SEC2-5's `row_exists`). A rejected
+   * op is NOT appended to the server oplog, exactly as `private.apply_one_op`
+   * deletes the oplog row it appended before returning a rejection. */
+  readonly rejectByRowId = new Map<string, string>();
+
   async push(ops: WireOp[]): Promise<PushResult[]> {
     this.pushed.push(...ops);
+    const results: PushResult[] = [];
     for (const op of ops) {
+      const rejectCode = this.rejectByRowId.get(op.row_id);
+      if (rejectCode !== undefined) {
+        results.push({ op_id: op.op_id, status: 'rejected', code: rejectCode });
+        continue;
+      }
       this.serverOplog.push({
         seq: this.serverOplog.length + 1,
         op_id: op.op_id,
@@ -114,8 +126,9 @@ class LoopbackTransport implements SyncTransport {
         payload: op.payload,
         device_id: op.device_id,
       });
+      results.push({ op_id: op.op_id, status: 'applied', code: null });
     }
-    return ops.map((o) => ({ op_id: o.op_id, status: 'applied' as const, code: null }));
+    return results;
   }
 
   async pull(householdId: string, afterSeq: number, limit: number): Promise<ServerOplogRow[]> {
@@ -596,6 +609,133 @@ describe('SYNC-8: discarding a dead-lettered envelopes op', () => {
     expect(raw.prepare('SELECT COUNT(*) AS n FROM oplog WHERE op_id = ?').get('op-env')).toEqual({
       n: 0,
     });
+    raw.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC2-5 — a deterministic-id insert the server already has converges on the
+// SERVER's value instead of stranding this device on its own figure
+// ---------------------------------------------------------------------------
+
+describe('SEC2-5: an insert rejected row_exists is superseded, not retried', () => {
+  /** Writes an `envelope_contributions` row through the REAL synced repo, so
+   * the local row AND its oplog op are exactly what production writes. */
+  function seedContribution(raw: Database.Database, amountCents: number): void {
+    const repo = createSyncedRepo(drizzle(raw) as unknown as PortableDb, {
+      tableName: 'envelope_contributions',
+    });
+    repo.insert(
+      {
+        id: 'contrib-1',
+        household_id: HH,
+        envelope_id: 'env-1',
+        amount_cents: amountCents,
+        period_start: '2026-01-01',
+        source: 'rollover',
+        created_at: NOW,
+        updated_at: NOW,
+      },
+      { deviceId: DEVICE, actorUserId: null, clock: () => NOW, genId: () => 'op-contrib' },
+    );
+  }
+
+  /** The server's authoritative row for `contrib-1` — the other device got
+   * there first with a different amount. */
+  const serverContribution = {
+    id: 'contrib-1',
+    household_id: HH,
+    envelope_id: 'env-1',
+    amount_cents: 500,
+    period_start: '2026-01-01',
+    source: 'rollover',
+    created_at: NOW,
+    updated_at: NOW,
+    deleted_at: null,
+  };
+
+  function readAmount(raw: Database.Database): number {
+    const row = raw
+      .prepare('SELECT amount_cents AS a FROM envelope_contributions WHERE id = ?')
+      .get('contrib-1') as { a: number };
+    return row.a;
+  }
+
+  function readOp(raw: Database.Database): {
+    pushed_at: string | null;
+    dead_lettered_at: string | null;
+    retry_count: number;
+  } {
+    return raw
+      .prepare('SELECT pushed_at, dead_lettered_at, retry_count FROM oplog WHERE op_id = ?')
+      .get('op-contrib') as {
+      pushed_at: string | null;
+      dead_lettered_at: string | null;
+      retry_count: number;
+    };
+  }
+
+  it('overwrites the local row with the server row and resolves the op', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedContribution(raw, 800);
+    expect(readAmount(raw)).toBe(800);
+
+    const transport = new LoopbackTransport();
+    transport.rejectByRowId.set('contrib-1', 'row_exists');
+    transport.rowStateResult = serverContribution;
+
+    const engine = engineFor(raw, transport);
+    const summary = await engine.push();
+
+    // The op is resolved, not failed: pushed, never dead-lettered, never
+    // backed off for a retry.
+    expect(summary).toMatchObject({ applied: 0, superseded: 1, deadLettered: 0, backedOff: 0 });
+    expect(readOp(raw)).toEqual({ pushed_at: NOW, dead_lettered_at: null, retry_count: 0 });
+    expect(engine.listDeadLettered(HH)).toEqual([]);
+
+    // And the divergence is gone: this device now shows the server's figure.
+    expect(readAmount(raw)).toBe(500);
+    raw.close();
+  });
+
+  it('a second push round sends nothing for it', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedContribution(raw, 800);
+
+    const transport = new LoopbackTransport();
+    transport.rejectByRowId.set('contrib-1', 'row_exists');
+    transport.rowStateResult = serverContribution;
+
+    const engine = engineFor(raw, transport);
+    await engine.push();
+    expect(transport.pushed).toHaveLength(1);
+
+    const second = await engine.push();
+    expect(transport.pushed).toHaveLength(1);
+    expect(second).toMatchObject({ batches: 0, superseded: 0, backedOff: 0, deadLettered: 0 });
+    raw.close();
+  });
+
+  it('leaves the local row alone when the row state cannot be fetched', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedContribution(raw, 800);
+
+    const transport = new LoopbackTransport();
+    transport.rejectByRowId.set('contrib-1', 'row_exists');
+    transport.rowState = async (): Promise<Record<string, unknown> | null> => {
+      throw new Error('offline');
+    };
+
+    const engine = engineFor(raw, transport);
+    await expect(engine.push()).resolves.toMatchObject({ superseded: 1 });
+
+    // Best-effort: a failed refresh must not throw, must not dead-letter the
+    // op, and must not destroy the local value either.
+    expect(readAmount(raw)).toBe(800);
+    expect(engine.listDeadLettered(HH)).toEqual([]);
     raw.close();
   });
 });

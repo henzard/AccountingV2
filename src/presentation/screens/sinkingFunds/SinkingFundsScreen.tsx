@@ -11,6 +11,7 @@ import { AdjustSavedAmountDialog } from '../../components/envelopes/AdjustSavedA
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
+import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -29,7 +30,7 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
   const paydayDay = useAppStore((s) => s.paydayDay);
   const periodStart = formatPeriodDateKey(engine.getCurrentPeriod(paydayDay).startDate);
 
-  const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
+  const { envelopes, loading, refreshing, reload } = useEnvelopes(householdId, periodStart);
   const funds = envelopes.filter((e) => e.envelopeType === 'sinking_fund');
   // A sinking fund's progress is the money contributed to it over every
   // period so far, not the monthly allocation on its row — see
@@ -63,6 +64,7 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <ScreenHeader eyebrow="Savings goals" title="Sinking Funds" />
+      <RefreshingBar refreshing={refreshing} />
 
       {loading ? (
         <LoadingSkeletonList count={3} testID="sinking-funds-loading" />

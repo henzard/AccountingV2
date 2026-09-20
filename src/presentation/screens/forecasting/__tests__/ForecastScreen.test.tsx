@@ -57,6 +57,8 @@ jest.mock('react-native-paper', () => {
     }) => React.createElement('Text', { testID, ...p }, children),
     Surface: ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
       React.createElement('View', p, children),
+    ProgressBar: ({ testID, ...p }: { testID?: string; [k: string]: unknown }) =>
+      React.createElement('View', { testID: testID ?? 'progress-bar', ...p }),
   };
 });
 
@@ -185,6 +187,26 @@ describe('ForecastScreen', () => {
     expect(getByTestId('forecast-list')).toBeTruthy();
     expect(getByText('Groceries')).toBeTruthy();
     expect(getByText('Rent')).toBeTruthy();
+  });
+
+  it('shows the RefreshingBar while refreshing, without blanking the list (REG-9)', () => {
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [{ id: 'e1' }, { id: 'e2' }],
+      loading: false,
+      refreshing: true,
+      error: null,
+      reload: mockReload,
+    });
+    mockProject.mockReturnValue(mockForecasts);
+
+    const { getByTestId } = render(<ForecastScreen />);
+    expect(getByTestId('refreshing-bar')).toBeTruthy();
+    expect(getByTestId('forecast-list')).toBeTruthy();
+  });
+
+  it('hides the RefreshingBar when not refreshing', () => {
+    const { queryByTestId } = render(<ForecastScreen />);
+    expect(queryByTestId('refreshing-bar')).toBeNull();
   });
 
   it('renders empty state when forecast list has no data', () => {

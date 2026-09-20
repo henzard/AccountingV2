@@ -116,6 +116,33 @@ describe('RestoreService.restore', () => {
     ]);
   });
 
+  it('ignores a membership the user has left or been removed from', async () => {
+    // Membership removal is a SOFT delete. Today RLS hides the retired row
+    // from this query, so the filter is belt-and-braces -- but without it a
+    // restore would resurrect a household `SyncEngine.evictHousehold` had
+    // just torn off this device the moment that policy is relaxed.
+    const { service, remote } = build({
+      memberships: [
+        { household_id: HH, role: 'owner', deleted_at: null },
+        { household_id: 'hh-left', role: 'member', deleted_at: '2026-02-01T00:00:00Z' },
+      ],
+      households: {
+        [HH]: HH_ROW,
+        'hh-left': { ...HH_ROW, id: 'hh-left', name: 'Left' },
+      },
+      maxSeq: 0,
+    });
+
+    expect(await service.restore(USER)).toEqual([
+      { id: HH, name: 'Test Household', paydayDay: 1, role: 'owner' },
+    ]);
+    expect(remote.recorder.isFilters).toContainEqual({
+      table: 'household_members',
+      column: 'deleted_at',
+      value: null,
+    });
+  });
+
   it('skips a household the server does not return a row for', async () => {
     const { service } = build({
       memberships: [{ household_id: 'hh-missing', role: 'owner' }],

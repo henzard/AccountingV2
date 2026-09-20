@@ -55,10 +55,26 @@ jest.mock('../../infrastructure/logging/Logger', () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
+// -- AsyncStorage -- backs the device-local 24h membership-check schedule
+// (membershipCheckSchedule.ts). An in-memory store, so the "due"/"not due"
+// decision is made by the REAL helper rather than a stub. --
+const mockStorage = new Map<string, string>();
+
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: jest.fn(async (key: string) => mockStorage.get(key) ?? null),
+  setItem: jest.fn(async (key: string, value: string) => {
+    mockStorage.set(key, value);
+  }),
+  removeItem: jest.fn(async (key: string) => {
+    mockStorage.delete(key);
+  }),
+}));
+
 import { SyncScheduler, type SyncRunner, type ReconnectSource } from './SyncScheduler';
 import type { SyncSummary } from './SyncEngine';
 import { onOplogWrite } from '../uow/UnitOfWork';
 import { logger } from '../../infrastructure/logging/Logger';
+import { MEMBERSHIP_CHECK_INTERVAL_MS } from './membershipCheckSchedule';
 
 const HH = 'hh-1';
 
@@ -133,6 +149,7 @@ describe('SyncScheduler', () => {
     mockAppStateStore.currentState = 'active';
     mockAppStateStore.listeners = [];
     capturedWriteListener = null;
+    mockStorage.clear();
   });
 
   afterEach(() => {
@@ -230,6 +247,123 @@ describe('SyncScheduler', () => {
       await flushMicrotasks();
 
       expect(engine.sync).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Periodic membership check: the only eviction path a READ-ONLY device
+  // ever reaches (a removed member's pulls return zero rows, never an
+  // error, so nothing else ever tells them).
+  // -------------------------------------------------------------------
+  describe('periodic membership check on foreground', () => {
+    const NOW_MS = Date.parse('2026-03-01T12:00:00.000Z');
+    const CLOCK = (): string => new Date(NOW_MS).toISOString();
+    const SCHEDULE_KEY = `@membership_checked_at:${HH}`;
+
+    function schedulerWith(verify: jest.Mock | undefined): {
+      scheduler: SyncScheduler;
+      engine: jest.Mocked<SyncRunner>;
+    } {
+      const engine = makeEngine(verify ? { verifyMembershipAndEvict: verify } : {});
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const scheduler = new SyncScheduler({
+        engine,
+
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        clock: CLOCK,
+      });
+      scheduler.start(HH);
+      return { scheduler, engine };
+    }
+
+    /** The check chains several awaits (storage read -> verify -> storage
+     * write); one microtask flush is not enough to drain them. */
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 12; i += 1) await Promise.resolve();
+    }
+
+    it('checks once when it is due, and records the timestamp', async () => {
+      const verify = jest.fn().mockResolvedValue({ answered: true, evicted: false });
+      schedulerWith(verify);
+
+      fireAppStateChange('active');
+      await settle();
+
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(verify).toHaveBeenCalledWith(HH);
+      expect(mockStorage.get(SCHEDULE_KEY)).toBe(String(NOW_MS));
+    });
+
+    it('does not check again inside the 24h window', async () => {
+      const verify = jest.fn().mockResolvedValue({ answered: true, evicted: false });
+      mockStorage.set(SCHEDULE_KEY, String(NOW_MS - 60 * 60 * 1000));
+      schedulerWith(verify);
+
+      fireAppStateChange('active');
+      await settle();
+
+      expect(verify).not.toHaveBeenCalled();
+    });
+
+    it('checks again once the window has elapsed', async () => {
+      const verify = jest.fn().mockResolvedValue({ answered: true, evicted: false });
+      mockStorage.set(SCHEDULE_KEY, String(NOW_MS - MEMBERSHIP_CHECK_INTERVAL_MS - 1));
+      schedulerWith(verify);
+
+      fireAppStateChange('active');
+      await settle();
+
+      expect(verify).toHaveBeenCalledTimes(1);
+    });
+
+    it('an INCONCLUSIVE answer evicts nothing and leaves the timestamp untouched', async () => {
+      // `answered: false` is what a network failure / 5xx / timeout produces:
+      // the engine never evicts on one, and the schedule must not write the
+      // household off for a day on the strength of a round trip that never
+      // reached the server.
+      const verify = jest.fn().mockResolvedValue({ answered: false, evicted: false });
+      schedulerWith(verify);
+
+      fireAppStateChange('active');
+      await settle();
+
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(mockStorage.has(SCHEDULE_KEY)).toBe(false);
+    });
+
+    it('a check that throws leaves the timestamp untouched and does not reject', async () => {
+      const verify = jest.fn().mockRejectedValue(new Error('offline'));
+      schedulerWith(verify);
+
+      fireAppStateChange('active');
+      await settle();
+
+      expect(mockStorage.has(SCHEDULE_KEY)).toBe(false);
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    it('a NEGATIVE answer evicts through the engine routine', async () => {
+      const verify = jest.fn().mockResolvedValue({ answered: true, evicted: true });
+      schedulerWith(verify);
+
+      fireAppStateChange('active');
+      await settle();
+
+      // `verifyMembershipAndEvict` IS the existing checkMembershipAndEvict
+      // path (SyncEngine) — the eviction itself is proven there.
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(mockStorage.get(SCHEDULE_KEY)).toBe(String(NOW_MS));
+    });
+
+    it('an engine that cannot verify membership is left alone', async () => {
+      schedulerWith(undefined);
+
+      fireAppStateChange('active');
+      await settle();
+
+      expect(mockStorage.has(SCHEDULE_KEY)).toBe(false);
     });
   });
 
