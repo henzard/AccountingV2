@@ -194,12 +194,20 @@ describe('Baby Step 1/3 regression across a period rollover (real SQLite)', () =
     expect(afterRollover.data.newlyRegressed).not.toContain(1);
     const step1After = afterRollover.data.statuses.find((s) => s.stepNumber === 1);
     expect(step1After?.isCompleted).toBe(true);
-    // R3,000 saved, not R1,500: the EMF predates the contribution ledger, so
-    // `ensureOpeningBalances` carried its pre-ledger R1,500 in as an
-    // `opening_balance` contribution, and the rollover then funded its
-    // R1,500 monthly allocation for P2 on top. Step 1's headline assertion
-    // (still complete, never regressed) is unaffected.
-    expect(step1After?.progress).toEqual({ current: 300_000, target: 100_000, unit: 'cents' });
+    // R1,500 — exactly what the household had, not a rand more (REG-4). The
+    // EMF predates the contribution ledger, so `ensureOpeningBalances`
+    // carried its pre-ledger R1,500 in as an `opening_balance` contribution
+    // and reset `allocated_cents` to 0, because on a legacy row that number
+    // was the SAVED balance, not a monthly contribution. The rollover
+    // therefore funds nothing on top: it used to add the same R1,500 again
+    // (R3,000 here, R4,500 next period …), completing Baby Step 3 on money
+    // that was never saved. Step 1's headline assertion (still complete,
+    // never regressed) is unaffected either way.
+    expect(step1After?.progress).toEqual({ current: 150_000, target: 100_000, unit: 'cents' });
+    const emfAfter = raw
+      .prepare('SELECT allocated_cents FROM envelopes WHERE id = ?')
+      .get('env-emf') as { allocated_cents: number };
+    expect(emfAfter.allocated_cents).toBe(0);
 
     // The persisted baby_steps row for step 1 was not flipped to incomplete.
     const persistedStep1 = raw

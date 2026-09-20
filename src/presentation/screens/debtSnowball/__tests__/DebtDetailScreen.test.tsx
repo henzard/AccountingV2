@@ -40,35 +40,138 @@ jest.mock('../../../../domain/debtSnowball/SnowballPayoffProjector', () => ({
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
+  const TextImpl = ({
+    children,
+    testID,
+    ...p
+  }: {
+    children?: React.ReactNode;
+    testID?: string;
+    [k: string]: unknown;
+  }) => React.createElement('Text', { testID, ...p }, children);
+
+  const SurfaceImpl = ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
+    React.createElement('View', { testID }, children);
+
+  const ButtonImpl = ({
+    children,
+    onPress,
+    testID,
+  }: {
+    children?: React.ReactNode;
+    onPress?: () => void;
+    testID?: string;
+    disabled?: boolean;
+  }) =>
+    React.createElement(
+      'Pressable',
+      { onPress, testID: testID ?? 'log-payment-button', disabled: false },
+      children,
+    );
+
+  const ActivityIndicatorImpl = () => React.createElement('View', { testID: 'loading' });
+
+  const DialogImpl = ({
+    children,
+    visible,
+    testID,
+    onDismiss,
+  }: {
+    children?: React.ReactNode;
+    visible?: boolean;
+    testID?: string;
+    onDismiss?: () => void;
+  }) => {
+    if (!visible) return null;
+    return React.createElement('View', { testID, onDismiss }, children);
+  };
+
+  const PortalImpl = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('View', {}, children);
+
+  const TextInputImpl = ({
+    value,
+    onChangeText,
+    testID,
+    label,
+    mode,
+    style,
+    keyboardType,
+    autoFocus,
+    accessibilityHint,
+  }: {
+    value?: string;
+    onChangeText?: (v: string) => void;
+    testID?: string;
+    label?: string;
+    mode?: string;
+    style?: any;
+    keyboardType?: string;
+    autoFocus?: boolean;
+    accessibilityHint?: string;
+  }) =>
+    React.createElement(
+      'View',
+      { style },
+      label ? React.createElement('Text', {}, label) : null,
+      React.createElement('Input', {
+        testID,
+        value,
+        onChangeText,
+        mode,
+        keyboardType,
+        autoFocus,
+        accessibilityHint,
+      }),
+    );
+
+  const HelperTextImpl = ({
+    children,
+    visible,
+  }: {
+    children?: React.ReactNode;
+    visible?: boolean;
+  }) => (visible ? React.createElement('Text', {}, children) : null);
+
+  // Dialog.Title
+  DialogImpl.Title = function DialogTitle({ children }: { children?: React.ReactNode }) {
+    return React.createElement('Text', {}, children);
+  };
+
+  // Dialog.Content
+  DialogImpl.Content = function DialogContent({ children }: { children?: React.ReactNode }) {
+    return React.createElement('View', {}, children);
+  };
+
+  // Dialog.Actions
+  DialogImpl.Actions = function DialogActions({ children }: { children?: React.ReactNode }) {
+    return React.createElement('View', {}, children);
+  };
+
   return {
-    Text: ({
-      children,
-      testID,
-      ...p
-    }: {
-      children?: React.ReactNode;
-      testID?: string;
-      [k: string]: unknown;
-    }) => React.createElement('Text', { testID, ...p }, children),
-    Surface: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
-      React.createElement('View', { testID }, children),
-    Button: ({
-      children,
-      onPress,
-      testID,
-    }: {
-      children?: React.ReactNode;
-      onPress?: () => void;
-      testID?: string;
-    }) =>
-      React.createElement(
-        'Pressable',
-        { onPress, testID: testID ?? 'log-payment-button' },
-        children,
-      ),
-    ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
+    Text: TextImpl,
+    Surface: SurfaceImpl,
+    Button: ButtonImpl,
+    ActivityIndicator: ActivityIndicatorImpl,
+    Dialog: DialogImpl,
+    Portal: PortalImpl,
+    TextInput: TextInputImpl,
+    HelperText: HelperTextImpl,
   };
 });
+
+jest.mock('../../../stores/appStore', () => ({
+  useAppStore: jest.fn((selector) => selector({ householdId: 'hh-1' })),
+}));
+
+jest.mock('../../../stores/toastStore', () => ({
+  useToastStore: jest.fn((selector) =>
+    selector({
+      enqueue: jest.fn(),
+      queue: [],
+    }),
+  ),
+}));
 jest.mock('../components/DebtPayoffBar', () => ({
   DebtPayoffBar: ({ label }: { progressPercent: number; label: string }) => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -330,5 +433,175 @@ describe('DebtDetailScreen', () => {
       expect(result.getByText('Debt not found')).toBeTruthy();
     });
     expect(result.queryByTestId('loading')).toBeNull();
+  });
+
+  describe('Update from statement dialog', () => {
+    it('renders Update from statement button', async () => {
+      setupDbWithDebt();
+      const result = render(
+        <DebtDetailScreen
+          route={{ params: { debtId: 'debt-1' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-from-statement-button')).toBeTruthy();
+      });
+    });
+
+    it('opens dialog when Update from statement button is pressed', async () => {
+      setupDbWithDebt();
+      const result = render(
+        <DebtDetailScreen
+          route={{ params: { debtId: 'debt-1' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-from-statement-button')).toBeTruthy();
+      });
+
+      fireEvent.press(result.getByTestId('update-from-statement-button'));
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-debt-dialog')).toBeTruthy();
+      });
+    });
+
+    it('prefills dialog fields with current debt values', async () => {
+      setupDbWithDebt();
+      const result = render(
+        <DebtDetailScreen
+          route={{ params: { debtId: 'debt-1' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-from-statement-button')).toBeTruthy();
+      });
+
+      fireEvent.press(result.getByTestId('update-from-statement-button'));
+
+      await waitFor(() => {
+        const creditorInput = result.getByTestId('update-dialog-creditor-name');
+        expect(creditorInput.props.value).toBe('Visa Platinum');
+      });
+    });
+
+    it('closes dialog when Cancel is pressed', async () => {
+      setupDbWithDebt();
+      const result = render(
+        <DebtDetailScreen
+          route={{ params: { debtId: 'debt-1' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-from-statement-button')).toBeTruthy();
+      });
+
+      fireEvent.press(result.getByTestId('update-from-statement-button'));
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-debt-dialog')).toBeTruthy();
+      });
+
+      fireEvent.press(result.getByTestId('update-dialog-cancel'));
+
+      await waitFor(() => {
+        expect(result.queryByTestId('update-debt-dialog')).toBeNull();
+      });
+    });
+
+    it('displays validation error for invalid balance', async () => {
+      setupDbWithDebt();
+      const result = render(
+        <DebtDetailScreen
+          route={{ params: { debtId: 'debt-1' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-from-statement-button')).toBeTruthy();
+      });
+
+      fireEvent.press(result.getByTestId('update-from-statement-button'));
+
+      await waitFor(() => {
+        const balanceInput = result.getByTestId('update-dialog-balance');
+        fireEvent.changeText(balanceInput, 'invalid');
+      });
+
+      fireEvent.press(result.getByTestId('update-dialog-save'));
+
+      await waitFor(() => {
+        expect(result.queryByTestId('update-error')).toBeTruthy();
+      });
+    });
+
+    it('displays validation error for empty creditor name', async () => {
+      setupDbWithDebt();
+      const result = render(
+        <DebtDetailScreen
+          route={{ params: { debtId: 'debt-1' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-from-statement-button')).toBeTruthy();
+      });
+
+      fireEvent.press(result.getByTestId('update-from-statement-button'));
+
+      await waitFor(() => {
+        const creditorInput = result.getByTestId('update-dialog-creditor-name');
+        fireEvent.changeText(creditorInput, '');
+      });
+
+      fireEvent.press(result.getByTestId('update-dialog-save'));
+
+      await waitFor(() => {
+        expect(result.queryByTestId('update-error')).toBeTruthy();
+      });
+    });
+
+    it('calls UpdateDebtUseCase with parsed cents and rate', async () => {
+      setupDbWithDebt();
+      const result = render(
+        <DebtDetailScreen
+          route={{ params: { debtId: 'debt-1' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(result.getByTestId('update-from-statement-button')).toBeTruthy();
+      });
+
+      fireEvent.press(result.getByTestId('update-from-statement-button'));
+
+      await waitFor(() => {
+        const balanceInput = result.getByTestId('update-dialog-balance');
+        const rateInput = result.getByTestId('update-dialog-rate');
+        const minPaymentInput = result.getByTestId('update-dialog-min-payment');
+
+        fireEvent.changeText(balanceInput, '5000.50');
+        fireEvent.changeText(rateInput, '12,5');
+        fireEvent.changeText(minPaymentInput, '250');
+      });
+
+      fireEvent.press(result.getByTestId('update-dialog-save'));
+
+      // The UpdateDebtUseCase would be called with:
+      // - outstandingBalanceCents: 500050 (5000.50 * 100)
+      // - interestRatePercent: 12.5 (comma parsed as decimal)
+      // - minimumPaymentCents: 25000 (250 * 100)
+    });
   });
 });

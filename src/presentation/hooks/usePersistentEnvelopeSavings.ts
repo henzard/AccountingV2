@@ -8,9 +8,14 @@
  * `getPersistentEnvelopeSavedCents`.
  *
  * Also runs the one-off legacy opening-balance backfill before reading, so a
- * fund that predates the ledger keeps showing the money it already had. The
- * backfill is idempotent (deterministic row ids), so every later call after
- * the first writes nothing.
+ * fund that predates the ledger keeps showing the money it already had — and
+ * only that money: the backfill MOVES the legacy `allocatedCents` into the
+ * ledger and leaves the column at 0, because on those rows it was the saved
+ * balance rather than a monthly contribution (see `ensureOpeningBalances`).
+ *
+ * The backfill is idempotent (deterministic row ids) and coalesced per
+ * household, so the three calls the dashboard makes on first mount share one
+ * write and every later call writes nothing.
  */
 
 import { useCallback, useEffect, useState } from 'react';

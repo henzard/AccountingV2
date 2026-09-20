@@ -133,9 +133,13 @@ describe('UpdateTransactionUseCase', () => {
     queueSelect(db, [{ deletedAt: null }]);
     queueSelect(db, []); // envelope not found
     const repo = makeFakeRepo();
-    const uc = new UpdateTransactionUseCase(db as any, mockAudit as any, current, validInput, {
-      repo,
-    });
+    const uc = new UpdateTransactionUseCase(
+      db as any,
+      mockAudit as any,
+      current,
+      { ...validInput, envelopeId: 'env-2' }, // different from current.envelopeId ('env-1') — a real retarget
+      { repo },
+    );
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('ENVELOPE_NOT_FOUND');
@@ -174,6 +178,31 @@ describe('UpdateTransactionUseCase', () => {
     const result = await uc.execute();
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('ENVELOPE_ARCHIVED');
+  });
+
+  // REG-12: `validateTargetEnvelope` must run only when the envelope is
+  // actually CHANGING. Editing payee/amount/date on a transaction whose
+  // (unchanged) envelope was archived AFTER the transaction was created must
+  // still succeed — the old unconditional check rejected every such edit,
+  // even ones that never touched the envelope.
+  it('allows editing payee/amount when the envelope is unchanged, even if that envelope has since been archived', async () => {
+    const db = makeDb();
+    // Only ONE select queued: the deleted_at re-read. No envelope select is
+    // made at all because input.envelopeId === current.envelopeId.
+    queueSelect(db, [{ deletedAt: null }]);
+    const repo = makeFakeRepo();
+    const uc = new UpdateTransactionUseCase(
+      db as any,
+      mockAudit as any,
+      current, // envelopeId: 'env-1'
+      { ...validInput, envelopeId: 'env-1', payee: 'New Payee' }, // same envelope, unrelated edit
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.payee).toBe('New Payee');
+    expect(db.select).toHaveBeenCalledTimes(1);
+    expect(repo.update).toHaveBeenCalledTimes(1);
   });
 
   it('updates the transaction row via the synced repo on the happy path', async () => {

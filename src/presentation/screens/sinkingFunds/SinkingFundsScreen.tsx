@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
 import { FAB } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
@@ -7,6 +7,7 @@ import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeS
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { SinkingFundCard } from '../../components/envelopes/SinkingFundCard';
+import { AdjustSavedAmountDialog } from '../../components/envelopes/AdjustSavedAmountDialog';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { LoadingSkeletonList } from '../../components/shared/LoadingSkeletonList';
 import { ScreenHeader } from '../../components/shared/ScreenHeader';
@@ -29,11 +30,28 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
   const periodStart = formatPeriodDateKey(engine.getCurrentPeriod(paydayDay).startDate);
 
   const { envelopes, loading, reload } = useEnvelopes(householdId, periodStart);
+  const funds = envelopes.filter((e) => e.envelopeType === 'sinking_fund');
   // A sinking fund's progress is the money contributed to it over every
   // period so far, not the monthly allocation on its row — see
   // `usePersistentEnvelopeSavings`.
   const { savedCentsByEnvelopeId, reload: reloadSavings } =
     usePersistentEnvelopeSavings(householdId);
+
+  // The fund whose saved balance is being corrected by hand, if any. A fund's
+  // balance is derived from the contribution ledger, so money that was
+  // already saved before this app knew about it (or cash taken out without a
+  // transaction) needs an explicit adjustment row — see
+  // `AdjustSavedAmountDialog`.
+  const [adjustingId, setAdjustingId] = useState<string | null>(null);
+  const adjusting = funds.find((f) => f.id === adjustingId) ?? null;
+
+  const handleAdjustDone = useCallback(
+    (adjusted: boolean): void => {
+      setAdjustingId(null);
+      if (adjusted) void reloadSavings();
+    },
+    [reloadSavings],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -41,8 +59,6 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
       void reloadSavings();
     }, [reload, reloadSavings]),
   );
-
-  const funds = envelopes.filter((e) => e.envelopeType === 'sinking_fund');
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
@@ -65,6 +81,7 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
               envelope={item}
               savedCents={savedCentsByEnvelopeId.get(item.id) ?? 0}
               onPress={() => navigation.navigate('AddEditEnvelope', { envelopeId: item.id })}
+              onAdjustSaved={() => setAdjustingId(item.id)}
               testID={`sinking-fund-card-${item.id}`}
             />
           )}
@@ -81,6 +98,18 @@ export function SinkingFundsScreen({ navigation }: SinkingFundsScreenProps): Rea
         onPress={() => navigation.navigate('AddEditEnvelope', { preselectedType: 'sinking_fund' })}
         testID="new-sinking-fund-fab"
       />
+
+      {adjusting !== null && (
+        <AdjustSavedAmountDialog
+          visible
+          householdId={householdId}
+          envelopeId={adjusting.id}
+          envelopeName={adjusting.name}
+          savedCents={savedCentsByEnvelopeId.get(adjusting.id) ?? 0}
+          periodStart={periodStart}
+          onDone={handleAdjustDone}
+        />
+      )}
     </View>
   );
 }

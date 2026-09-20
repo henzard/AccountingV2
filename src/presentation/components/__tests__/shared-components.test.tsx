@@ -31,6 +31,11 @@ jest.mock('react-native-paper', () => {
     }) => React.createElement('Pressable', { onPress, testID }, children),
     Surface: ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
       React.createElement('View', p, children),
+    // UX2-3: ToastHost wraps its Snackbar in Portal so it renders above
+    // whatever screen is on top regardless of where it's mounted — a
+    // pass-through mock is enough since Paper's real Portal.Host behaviour
+    // isn't under test here (mirrors ToastHost.test.tsx's own mock).
+    Portal: ({ children }: { children?: React.ReactNode }) => children,
     Snackbar: ({
       children,
       visible,

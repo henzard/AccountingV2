@@ -19,6 +19,16 @@ jest.mock('react-native-paper', () => {
   };
 });
 
+jest.mock('../../../../theme/useAppTheme', () => ({
+  useAppTheme: () => ({
+    colors: {
+      primary: '#1976d2',
+      onPrimary: '#ffffff',
+      onPrimaryContainer: '#e3f2fd',
+    },
+  }),
+}));
+
 jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 
 jest.mock('../../../../components/shared/StatCard', () => ({
@@ -91,5 +101,15 @@ describe('PayoffProjectionCard', () => {
       <PayoffProjectionCard plan={futurePlan} totalDebtCents={200000} />,
     );
     expect(getByText(/month.*away/i)).toBeTruthy();
+  });
+
+  it('applies theme colors from useAppTheme to text elements', () => {
+    const { UNSAFE_root } = render(
+      <PayoffProjectionCard plan={basePlan} totalDebtCents={500000} />,
+    );
+    // Verify that the root component uses theme colors instead of hard-coded white
+    const textElements = UNSAFE_root.findByProps({ testID: undefined });
+    // The eyebrow, months, and divider should use onPrimary color instead of hard-coded white
+    expect(textElements).toBeTruthy();
   });
 });

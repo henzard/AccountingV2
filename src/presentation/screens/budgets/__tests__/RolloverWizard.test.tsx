@@ -42,6 +42,21 @@ jest.mock('../../../../domain/budgets/StartNewPeriodUseCase', () => {
   };
 });
 
+// ─── PersistentContributions mock (savings section seam) ──────────────────────
+// Only the two functions the wizard calls are faked; everything else (ids,
+// predicates) stays real, so the section cannot drift from the ledger rules.
+const mockLoadPersistentContributionState = jest.fn();
+const mockConfirmMonthlyContribution = jest.fn();
+jest.mock('../../../../domain/budgets/PersistentContributions', () => {
+  const actual = jest.requireActual('../../../../domain/budgets/PersistentContributions');
+  return {
+    ...actual,
+    loadPersistentContributionState: (...args: unknown[]) =>
+      mockLoadPersistentContributionState(...args),
+    confirmMonthlyContribution: (...args: unknown[]) => mockConfirmMonthlyContribution(...args),
+  };
+});
+
 // ─── syncWrite mock (createSyncedRepo write seam) ─────────────────────────────
 const mockUpdate = jest.fn();
 const mockCtx = {
@@ -87,17 +102,38 @@ jest.mock('react-native-safe-area-context', () => ({
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const RN = require('react');
-  const TextInput = ({
-    testID,
-    accessibilityLabel,
-    value,
-    onChangeText,
-  }: {
-    testID?: string;
-    accessibilityLabel?: string;
-    value?: string;
-    onChangeText?: (v: string) => void;
-  }) => RN.createElement('TextInput', { testID, accessibilityLabel, value, onChangeText });
+  // forwardRef because the wizard attaches a ref to every allocation input
+  // for its returnKeyType "next" chain — a plain function component would
+  // make React log a "Function components cannot be given refs" error.
+  const TextInput = RN.forwardRef(
+    (
+      {
+        testID,
+        accessibilityLabel,
+        value,
+        onChangeText,
+        returnKeyType,
+        onSubmitEditing,
+      }: {
+        testID?: string;
+        accessibilityLabel?: string;
+        value?: string;
+        onChangeText?: (v: string) => void;
+        returnKeyType?: string;
+        onSubmitEditing?: () => void;
+      },
+      ref: unknown,
+    ) =>
+      RN.createElement('TextInput', {
+        ref,
+        testID,
+        accessibilityLabel,
+        value,
+        onChangeText,
+        returnKeyType,
+        onSubmitEditing,
+      }),
+  );
   TextInput.Affix = () => null;
   return {
     Text: ({
@@ -231,7 +267,11 @@ describe('RolloverWizard', () => {
         ['env-2', 10000], // on budget
       ]),
     );
-    useAppStore.setState({ userLevel: 1 });
+    // Payday on the 1st, matching the '2026-06-01'/'2026-07-01' period keys
+    // this file uses: the wizard now asks `BudgetPeriodEngine` for the
+    // CLOSING period's own end date (REG-14), so the fixture's payday day and
+    // its period keys have to describe the same calendar.
+    useAppStore.setState({ userLevel: 1, paydayDay: 1 });
     mockResolvePeriodHabitScoreInput.mockResolvedValue({
       loggingDaysCount: 0,
       totalDaysInPeriod: 30,
@@ -243,6 +283,8 @@ describe('RolloverWizard', () => {
     mockRecordExecute.mockResolvedValue({ success: true, data: { id: 'score-1', created: true } });
     mockGetPeriodScoresAscending.mockResolvedValue([]);
     mockCheck.mockImplementation(() => undefined);
+    mockLoadPersistentContributionState.mockResolvedValue([]);
+    mockConfirmMonthlyContribution.mockResolvedValue({ success: true, data: { confirmed: true } });
   });
 
   it('renders step 1 (review) after loading resolves', async () => {
@@ -572,12 +614,42 @@ describe('RolloverWizard', () => {
         expect(mockRecordExecute).toHaveBeenCalledTimes(1);
       });
       const [input] = mockRecordExecute.mock.calls[0];
-      // The CLOSING period is `fromPeriodStart`/one day before `toPeriodStart` —
-      // never the just-started `toPeriodStart` period, which has no data yet.
+      // The CLOSING period is `fromPeriodStart` and its OWN end — never the
+      // just-started `toPeriodStart` period, which has no data yet.
       expect(input.householdId).toBe(HOUSEHOLD);
       expect(input.periodStart).toBe(FROM_PERIOD);
       expect(input.periodEnd).toBe('2026-06-30');
       expect(typeof input.score.score).toBe('number');
+    });
+
+    // REG-14: the closing period's end used to be computed as
+    // `toPeriodStart − 1 day`. A household that last rolled over in June and
+    // opens the wizard in September therefore scored JUNE over a 92-day
+    // window — `resolvePeriodHabitScoreInput` divides logging days by the
+    // period length, so June's habit score collapsed to roughly a third of
+    // what it had earned. June must be scored over June; the two skipped
+    // periods get no score row at all, since no reviewed budget exists for
+    // them.
+    it('scores only the closing period when several periods were skipped', async () => {
+      const { findByTestId, getByTestId } = render(
+        <RolloverWizard {...baseProps} toPeriodStart="2026-09-01" periodLabel="September 2026" />,
+      );
+      await findByTestId('rollover-step-review');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-adjust');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      await findByTestId('rollover-success');
+      await waitFor(() => {
+        expect(mockRecordExecute).toHaveBeenCalledTimes(1);
+      });
+      const [input] = mockRecordExecute.mock.calls[0];
+      expect(input.periodStart).toBe(FROM_PERIOD);
+      expect(input.periodEnd).toBe('2026-06-30');
+      // …and exactly ONE score row: July and August are never scored.
+      expect(mockRecordExecute).toHaveBeenCalledTimes(1);
     });
 
     it('shows a "Level up" line in the success block when the level check advances the level', async () => {
@@ -635,6 +707,143 @@ describe('RolloverWizard', () => {
           expect.objectContaining({ householdId: HOUSEHOLD, periodStart: FROM_PERIOD }),
         );
       });
+    });
+  });
+  // ── Savings contributions section (REG-4 / UX2-9) ─────────────────────────
+  // A LEGACY persistent envelope's old `allocatedCents` was its SAVED
+  // balance, so the ledger backfill moves it out of the column and leaves it
+  // at 0 ("monthly amount not known yet"). The wizard is where the user is
+  // asked what that monthly amount actually is, BEFORE the rollover funds it.
+  describe('savings contributions', () => {
+    const LEGACY_FUND = {
+      id: 'env-emf',
+      name: 'Emergency Fund',
+      envelopeType: 'emergency_fund',
+      monthlyCents: 0,
+      needsMonthlyConfirmation: true,
+    };
+    const KNOWN_FUND = {
+      id: 'env-car',
+      name: 'Car Service',
+      envelopeType: 'sinking_fund',
+      monthlyCents: 50000,
+      needsMonthlyConfirmation: false,
+    };
+
+    async function openAdjust(): Promise<ReturnType<typeof render>> {
+      const view = render(<RolloverWizard {...baseProps} />);
+      await view.findByTestId('rollover-step-review');
+      fireEvent.press(view.getByTestId('rollover-next'));
+      await view.findByTestId('rollover-step-adjust');
+      return view;
+    }
+
+    it('lists persistent envelopes, pre-filling a legacy one empty with the helper text', async () => {
+      mockLoadPersistentContributionState.mockResolvedValue([LEGACY_FUND, KNOWN_FUND]);
+      const { getByTestId, queryByTestId } = await openAdjust();
+
+      getByTestId('rollover-savings-section');
+      expect(getByTestId('rollover-savings-input-env-emf').props.value).toBe('');
+      expect(getByTestId('rollover-savings-helper-env-emf').props.children).toBe(
+        'How much do you put in each month?',
+      );
+      // A fund whose monthly amount is already known is pre-filled and not asked about.
+      expect(getByTestId('rollover-savings-input-env-car').props.value).toBe('500.00');
+      expect(queryByTestId('rollover-savings-helper-env-car')).toBeNull();
+    });
+
+    it('shows the spent-last-month hint beside each period allocation', async () => {
+      const { getByTestId } = await openAdjust();
+      expect(getByTestId('rollover-alloc-spent-env-1').props.children).toBe(
+        'spent R600,00 last month',
+      );
+    });
+
+    it('sums income, allocations and savings into the sticky summary as the user types', async () => {
+      mockLoadPersistentContributionState.mockResolvedValue([KNOWN_FUND]);
+      setupDb(
+        [
+          ...makeRows(),
+          {
+            id: 'env-pay',
+            name: 'Salary',
+            allocatedCents: 100000,
+            envelopeType: 'income',
+            isArchived: false,
+          },
+        ],
+        new Map([
+          ['env-1', 60000],
+          ['env-2', 10000],
+          ['env-pay', 0],
+        ]),
+      );
+      const { getByTestId } = await openAdjust();
+
+      // Income R1 000; allocated R500 + R200 + R500 savings = R1 200; to assign -R200.
+      expect(getByTestId('rollover-adjust-summary').props.children.props.children).toBe(
+        'Income R1 000,00 · Allocated R1 200,00 · To assign -R200,00',
+      );
+
+      // Typing recomputes it immediately — the point of the step.
+      fireEvent.changeText(getByTestId('rollover-savings-input-env-car'), '100');
+      expect(getByTestId('rollover-adjust-summary').props.children.props.children).toBe(
+        'Income R1 000,00 · Allocated R800,00 · To assign R200,00',
+      );
+    });
+
+    it('confirms a typed monthly amount BEFORE the rollover runs, so that period is funded with it', async () => {
+      mockLoadPersistentContributionState.mockResolvedValue([LEGACY_FUND]);
+      const order: string[] = [];
+      mockConfirmMonthlyContribution.mockImplementation(() => {
+        order.push('confirm');
+        return Promise.resolve({ success: true, data: { confirmed: true } });
+      });
+      mockExecute.mockImplementation(() => {
+        order.push('rollover');
+        return Promise.resolve({
+          success: true,
+          data: { count: 2, contributionCount: 1, contributedCents: 75000 },
+        });
+      });
+
+      const { getByTestId, findByTestId } = await openAdjust();
+      fireEvent.changeText(getByTestId('rollover-savings-input-env-emf'), '750');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      await findByTestId('rollover-success');
+      expect(order).toEqual(['confirm', 'rollover']);
+      const [, input] = mockConfirmMonthlyContribution.mock.calls[0];
+      expect(input).toEqual({
+        householdId: HOUSEHOLD,
+        envelopeId: 'env-emf',
+        monthlyCents: 75000,
+        periodStart: TO_PERIOD,
+        currentMonthlyCents: 0,
+      });
+    });
+
+    it('leaves an unanswered legacy fund alone rather than confirming it at zero', async () => {
+      mockLoadPersistentContributionState.mockResolvedValue([LEGACY_FUND]);
+      const { getByTestId, findByTestId } = await openAdjust();
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      await findByTestId('rollover-success');
+      expect(mockConfirmMonthlyContribution).not.toHaveBeenCalled();
+    });
+
+    it('blocks advancing past adjust while a savings amount is unparseable', async () => {
+      mockLoadPersistentContributionState.mockResolvedValue([KNOWN_FUND]);
+      const { getByTestId, findByTestId, queryByTestId } = await openAdjust();
+      fireEvent.changeText(getByTestId('rollover-savings-input-env-car'), 'abc');
+
+      expect(await findByTestId('rollover-savings-error-env-car')).toBeTruthy();
+      fireEvent.press(getByTestId('rollover-next'));
+      expect(queryByTestId('rollover-step-commit')).toBeNull();
     });
   });
 });

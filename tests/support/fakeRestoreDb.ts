@@ -31,6 +31,13 @@ export interface FakeSupabaseConfig {
   maxSeqSequence?: (number | null)[];
   /** Table names whose fetch must fail, mapped to the error message. */
   errors?: Record<string, string>;
+  /**
+   * Called with the table name AFTER each paged table fetch has taken its
+   * rows. Lets a test model a write that lands mid-restore by mutating the
+   * `tables` map it passed in — `rowsFor` re-reads it on every call, so the
+   * next fetch of that table sees the new row.
+   */
+  onTableFetch?: (table: string) => void;
 }
 
 export interface FakeSupabaseRecorder {
@@ -88,7 +95,9 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
               Promise.resolve({ data: error ? null : (rows[0] ?? null), error }),
             range: (from: number, to: number): QueryResult => {
               recorder.ranges.push({ table, from, to });
-              return Promise.resolve({ data: error ? null : rows.slice(from, to + 1), error });
+              const page = error ? null : rows.slice(from, to + 1);
+              config.onTableFetch?.(table);
+              return Promise.resolve({ data: page, error });
             },
             order: (_col: string, _opts?: unknown) => ({
               limit: (n: number): QueryResult => {

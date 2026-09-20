@@ -29,6 +29,9 @@ export interface SyncRuntime {
   /** Resolves once an immediate, non-debounced round for `householdId` has
    * completed; rejects if that round did not reach the server. */
   requestSyncNow(householdId: string): Promise<void>;
+  /** Unwires every sync trigger and resolves once the round already in
+   * flight (if any) has settled — see `stopSyncRuntime`. */
+  stop(): Promise<void>;
 }
 
 let runtime: SyncRuntime | null = null;
@@ -54,6 +57,23 @@ export function registerSyncRuntime(runtime_: SyncRuntime | null): void {
  * registered (not signed in, or boot has not reached the scheduler yet) —
  * never resolves as though a sync happened when none did.
  */
+/**
+ * Stops the registered runtime's triggers, waits out the sync round already
+ * in flight, and clears the registration — then resolves.
+ *
+ * Exists for account deletion (REG-11 / SEC2-6): the local database is wiped
+ * right after the server-side erasure, and a pull that is mid-apply when that
+ * happens either re-creates rows into the emptied schema or throws inside the
+ * wipe's own transaction. Stopping the triggers is not enough on its own —
+ * `SyncScheduler.stop()` returns immediately — so the caller needs the awaited
+ * form. A no-op (resolved) when nothing is registered.
+ */
+export async function stopSyncRuntime(): Promise<void> {
+  const current = runtime;
+  runtime = null;
+  if (current) await current.stop();
+}
+
 export function requestSyncNow(householdId: string): Promise<void> {
   if (!runtime) {
     return Promise.reject(

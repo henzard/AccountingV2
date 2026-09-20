@@ -312,6 +312,91 @@ describe('ConfirmSlipUseCase', () => {
     expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
   });
 
+  // REG-12: this use case used to hand-roll its own envelope check (existence
+  // + income-type only) instead of the shared `transactionValidation` rules
+  // that CreateTransactionUseCase/UpdateTransactionUseCase enforce — an
+  // archived or soft-deleted target envelope, an invalid/too-far-future
+  // date, and a non-safe-integer amount all slipped through uncaught.
+
+  it('rejects an item targeting an ARCHIVED envelope (REG-12)', async () => {
+    const archivedEnvelope = [
+      { id: 'env1', householdId: HOUSEHOLD_ID, envelopeType: 'spending', isArchived: true },
+    ];
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [archivedEnvelope] });
+    const repo = makeRepo(makeSlip());
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('ENVELOPE_ARCHIVED');
+    expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
+  });
+
+  it('rejects an item targeting a SOFT-DELETED envelope (REG-12)', async () => {
+    const deletedEnvelope = [
+      {
+        id: 'env1',
+        householdId: HOUSEHOLD_ID,
+        envelopeType: 'spending',
+        deletedAt: '2026-04-01T00:00:00.000Z',
+      },
+    ];
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [deletedEnvelope] });
+    const repo = makeRepo(makeSlip());
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('ENVELOPE_ARCHIVED');
+    expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
+  });
+
+  it('rejects a transactionDate more than 1 day in the future (REG-12)', async () => {
+    const { db } = makeDb({ existingTxns: [] });
+    const repo = makeRepo(makeSlip());
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2099-01-01',
+      items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('FUTURE_DATE');
+    expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-safe-integer amount (fractional cents) even though it is positive (REG-12)', async () => {
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo = makeRepo(makeSlip());
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'eggs', amountCents: 50.5, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+    expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
+  });
+
   it('happy path: writes all item rows (payee = slip.merchant) + the slip completion inside ONE runInUnitOfWork call', async () => {
     const { db } = makeDb({
       existingTxns: [],

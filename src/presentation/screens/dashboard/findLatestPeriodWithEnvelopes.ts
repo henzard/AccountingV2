@@ -34,3 +34,34 @@ export async function findLatestPeriodWithEnvelopes(
   )) as MaxPeriodRow[];
   return row?.period_start ?? null;
 }
+
+interface AnyPeriodStartRow {
+  period_start: string | null;
+}
+
+/**
+ * True when `householdId` has at least one non-deleted, non-archived
+ * PERIOD-scoped envelope whose `period_start` is strictly AFTER
+ * `afterPeriodStart` — used as a belt-and-braces guard against a stale
+ * payday making the dashboard compute the wrong (empty) "current" period
+ * while envelopes for a genuinely later period already exist (UX2-2). That
+ * is a mis-keyed read, not a real empty new period, so the rollover wizard
+ * must not auto-open on top of it.
+ */
+export async function hasPeriodScopedEnvelopeAfter(
+  db: EnvelopeBalanceDb,
+  householdId: string,
+  afterPeriodStart: string,
+): Promise<boolean> {
+  const [row] = (await db.all(
+    sql`SELECT period_start
+        FROM envelopes
+        WHERE household_id = ${householdId}
+          AND period_start > ${afterPeriodStart}
+          AND deleted_at IS NULL
+          AND is_archived = 0
+          AND envelope_type IN ('spending', 'income', 'utility')
+        LIMIT 1`,
+  )) as AnyPeriodStartRow[];
+  return row !== undefined;
+}

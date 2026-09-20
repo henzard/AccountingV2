@@ -124,4 +124,14 @@ describe('CoachingModal', () => {
     const { getAllByText } = render(<CoachingModal {...defaultProps} />);
     expect(getAllByText(/over budget/i).length).toBeGreaterThan(0);
   });
+
+  // REG-8/VAL2-2: a fund (persistent envelope) is never described as "over
+  // budget" — it doesn't have one.
+  it('never says "over budget" for a persistent-scope (fund) overspend', () => {
+    const { getAllByText, queryAllByText } = render(
+      <CoachingModal {...defaultProps} scope="persistent" />,
+    );
+    expect(queryAllByText(/over budget/i).length).toBe(0);
+    expect(getAllByText(/saved in this fund/i).length).toBeGreaterThan(0);
+  });
 });

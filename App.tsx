@@ -64,6 +64,7 @@ import {
 } from './src/presentation/stores/themeStore';
 import { parseRecoveryDeepLink } from './src/infrastructure/auth/parseRecoveryDeepLink';
 import { addUrlListener, getInitialURL } from './src/infrastructure/device/appLinking';
+import { useHouseholdSettingsSync } from './src/presentation/hooks/useHouseholdSettingsSync';
 
 // Install global crash handler as early as possible (after imports — module
 // evaluation order still puts this before any App code runs).
@@ -195,14 +196,6 @@ function ensureSyncRuntime(): Promise<{ engine: SyncEngine; scheduler: SyncSched
       syncEngineSingleton = engine;
       syncSchedulerSingleton = scheduler;
       useSyncEngineStore.getState().setSyncRuntime(engine, scheduler);
-      // Publish an await-able sync trigger for callers outside this
-      // composition root (pull-to-refresh, the slip flow's push-before-upload)
-      // — see data/sync/syncRuntime.ts.
-      registerSyncRuntime({
-        requestSyncNow: async (targetHouseholdId) => {
-          await scheduler.syncNow(targetHouseholdId);
-        },
-      });
       return { engine, scheduler };
     })().catch((err) => {
       // Reset so a future call can retry instead of being stuck on a
@@ -386,6 +379,12 @@ export default function App(): React.JSX.Element | null {
   // blocks on network" fix). Renamed from the old `sessionRestored` to make
   // that contract explicit at the call site below.
   const [localBootReady, setLocalBootReady] = useState(false);
+
+  // REG-5: keep appStore's payday day (the period key every screen derives)
+  // in step with the local `households` row after every sync round and on
+  // household switch — a partner changing the payday used to leave this
+  // device querying a period key nothing is stored under.
+  useHouseholdSettingsSync(localBootReady ? householdId : null);
 
   // Init celebrationStore checker — reads celebrated_at from local DB.
   // Re-bound after every auth/household change so the checker always uses the
@@ -691,6 +690,21 @@ export default function App(): React.JSX.Element | null {
       if (cancelled) return;
       if (scheduler.isStarted) scheduler.stop();
       scheduler.start(householdId);
+      // REG-3: publish the await-able sync trigger HERE, with the scheduler
+      // lifecycle, not inside `ensureSyncRuntime`. That promise is a one-time
+      // singleton builder, but `resetAllStoresOnSignOut` clears the
+      // registration on EVERY sign-out — so after sign-out → sign-in in the
+      // same process `ensureSyncRuntime` short-circuited on the cached
+      // singletons and nothing ever re-registered. `requestSyncNow` then
+      // rejected forever: slip scanning failed as "offline", leave/remove
+      // never pushed, a foreground push never synced. Re-registering on every
+      // start is idempotent (the registry holds one value).
+      registerSyncRuntime({
+        requestSyncNow: async (targetHouseholdId) => {
+          await scheduler.syncNow(targetHouseholdId);
+        },
+        stop: () => scheduler.stopAndDrain(),
+      });
       scheduler.requestSync(householdId, { immediate: true });
     })().catch((err) => {
       captureBoot('SyncScheduler start (post-mount)', err);

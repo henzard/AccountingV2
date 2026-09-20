@@ -20,6 +20,13 @@ jest.mock('react-native-paper', () => {
       React.createElement('Text', { testID, ...p }, children),
     Surface: ({ children, testID, ...p }: any) =>
       React.createElement('View', { testID, ...p }, children),
+    // Added for section 3's full BudgetScreen render (VAL2-4 period switcher).
+    FAB: (p: any) => React.createElement('View', p),
+    IconButton: ({ onPress, disabled, testID }: any) =>
+      React.createElement('View', { onPress: disabled ? undefined : onPress, testID }),
+    Button: ({ children, onPress, testID }: any) =>
+      React.createElement('View', { onPress, testID }, children),
+    ActivityIndicator: (p: any) => React.createElement('View', p),
   };
 });
 
@@ -30,9 +37,52 @@ jest.mock('../hooks/useBudgetBalance', () => ({
   useBudgetBalance: (...args: unknown[]) => mockUseBudgetBalance(...args),
 }));
 
+// ─── BudgetScreen render support (section 3 only) — nothing else in this
+// file touches these modules, so mocking them globally is safe. `useBudgetBalance`
+// above already covers `BudgetBalanceBanner`, which stays the REAL component
+// (section 1 imports it directly) since BudgetScreen also renders it for real.
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: () => {},
+  useNavigation: () => ({ navigate: jest.fn() }),
+}));
+jest.mock('../../data/local/db', () => ({ db: {} }));
+const mockUseEnvelopes = jest
+  .fn()
+  .mockReturnValue({ envelopes: [], loading: false, error: null, reload: jest.fn() });
+jest.mock('../hooks/useEnvelopes', () => ({
+  useEnvelopes: (...args: unknown[]) => mockUseEnvelopes(...args),
+}));
+jest.mock('../hooks/usePersistentEnvelopeSavings', () => ({
+  usePersistentEnvelopeSavings: () => ({
+    savedCentsByEnvelopeId: new Map(),
+    loading: false,
+    error: null,
+    reload: jest.fn(),
+  }),
+}));
+jest.mock('../stores/appStore', () => ({
+  useAppStore: (sel: (s: { householdId: string; paydayDay: number }) => unknown) =>
+    sel({ householdId: 'hh-1', paydayDay: 25 }),
+}));
+jest.mock('../screens/budgets/RolloverWizard', () => ({ RolloverWizard: () => null }));
+jest.mock('../screens/dashboard/components/EnvelopeDetailSheet', () => ({
+  EnvelopeDetailSheet: () => null,
+}));
+jest.mock('../screens/budgets/components/MonthlyIncomeCard', () => ({
+  MonthlyIncomeCard: () => null,
+}));
+jest.mock('../screens/budgets/components/DuplicateEmfBanner', () => ({
+  DuplicateEmfBanner: () => null,
+}));
+jest.mock('../components/envelopes/EnvelopeCard', () => ({ EnvelopeCard: () => null }));
+jest.mock('../components/shared/EmptyState', () => ({ EmptyState: () => null }));
+jest.mock('../components/shared/SectionHeader', () => ({ SectionHeader: () => null }));
+
 import { BudgetBalanceBanner } from '../screens/budgets/components/BudgetBalanceBanner';
+import { BudgetScreen } from '../screens/budgets/BudgetScreen';
 import { calculateBudgetBalance } from '../../domain/budgets/BudgetBalanceCalculator';
 import { buildEnvelope } from '../../__test-utils__/factories';
+import { BudgetPeriodEngine, formatPeriodDateKey } from '../../domain/shared/BudgetPeriodEngine';
 import { KRUGER_ENVELOPES } from '../../__test-utils__/scenarioSeed';
 
 // ═════════════════════════════════════════════════════════════════════════════════
@@ -198,12 +248,36 @@ describe('Transaction list filtered to current period', () => {
     expect(afterPeriod.transactionDate <= periodEnd).toBe(false);
   });
 
-  it('useEnvelopes hook is called with periodStart parameter', () => {
-    // Verified via BudgetScreen source: useEnvelopes(householdId, periodStart)
-    const src = require.resolve('../screens/budgets/BudgetScreen');
-    const fs = require('fs');
-    const content = fs.readFileSync(src, 'utf8');
-    expect(content).toContain('useEnvelopes(householdId, periodStart)');
+  // VAL2-4: BudgetScreen now has a period switcher, so `useEnvelopes` is
+  // called with whichever period is being VIEWED, not a fixed `periodStart`.
+  // A source-text grep for the literal old call is no longer meaningful —
+  // this renders the real screen (with its own isolated mocks, so it doesn't
+  // disturb the real `BudgetBalanceBanner` import used by section 1 above)
+  // and asserts the actual invariant: on mount, `useEnvelopes` is called with
+  // the household id and the CURRENT period's start (the default view).
+  it('useEnvelopes hook is called with the household id and the current period start by default', () => {
+    // `useBudgetBalance` backs the REAL `BudgetBalanceBanner` that
+    // `BudgetScreen` renders — must return a real shape or it crashes on
+    // destructuring (see BudgetBalanceBanner.tsx).
+    mockUseBudgetBalance.mockReturnValue({
+      incomeTotal: 0,
+      expenseAllocationTotal: 0,
+      toAssign: 0,
+      isBalanced: true,
+    });
+    mockUseEnvelopes.mockClear();
+
+    render(React.createElement(BudgetScreen));
+
+    const currentPeriodStart = formatPeriodDateKey(
+      new BudgetPeriodEngine().getCurrentPeriod(25).startDate,
+    );
+
+    // BudgetScreen also calls `useEnvelopes` a second time for the PREVIOUS
+    // period (the "vs previous month" delta, VAL2-4) — `toHaveBeenCalledWith`
+    // only needs ONE call to match, which is exactly the invariant here: the
+    // viewed-period call defaults to the current period.
+    expect(mockUseEnvelopes).toHaveBeenCalledWith('hh-1', currentPeriodStart);
   });
 });
 

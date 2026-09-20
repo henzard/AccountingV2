@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Share } from 'react-native';
 import { Text, Surface, Button, ActivityIndicator } from 'react-native-paper';
+import { format, parseISO } from 'date-fns';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { CreateInviteUseCase } from '../../../domain/households/CreateInviteUseCase';
 import { useAppStore } from '../../stores/appStore';
@@ -61,7 +62,7 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
     );
   }
 
-  const expiryDate = expiresAt ? new Date(expiresAt).toLocaleDateString('en-ZA') : '';
+  const expiryDate = expiresAt ? format(parseISO(expiresAt), 'd MMM yyyy') : '';
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>

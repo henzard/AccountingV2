@@ -234,3 +234,74 @@ describe('appStore', () => {
     });
   });
 });
+
+describe('appStore \u2014 household attribute patching (REG-5)', () => {
+  beforeEach(() => {
+    useAppStore.getState().reset();
+  });
+
+  it('setPaydayDay also patches the ACTIVE household in availableHouseholds', () => {
+    // Settings and onboarding's PaydayStep write through setPaydayDay; without
+    // this the household picker kept handing back the stale boot-time value.
+    useAppStore.getState().setHouseholdId('hh-1');
+    useAppStore.getState().setAvailableHouseholds([
+      { id: 'hh-1', name: 'Ours', paydayDay: 25, userLevel: 1 },
+      { id: 'hh-2', name: 'Theirs', paydayDay: 1, userLevel: 1 },
+    ]);
+
+    useAppStore.getState().setPaydayDay(15);
+
+    const s = useAppStore.getState();
+    expect(s.paydayDay).toBe(15);
+    expect(s.availableHouseholds).toEqual([
+      { id: 'hh-1', name: 'Ours', paydayDay: 15, userLevel: 1 },
+      { id: 'hh-2', name: 'Theirs', paydayDay: 1, userLevel: 1 },
+    ]);
+  });
+
+  it('applyHouseholdPatch mirrors the ACTIVE household payday into paydayDay', () => {
+    useAppStore.getState().setHouseholdId('hh-1');
+    useAppStore
+      .getState()
+      .setAvailableHouseholds([{ id: 'hh-1', name: 'Ours', paydayDay: 25, userLevel: 1 }]);
+
+    // What a partner's payday change looks like after it syncs down.
+    useAppStore.getState().applyHouseholdPatch('hh-1', { paydayDay: 5, name: 'Ours Renamed' });
+
+    const s = useAppStore.getState();
+    expect(s.paydayDay).toBe(5);
+    expect(s.availableHouseholds[0]).toEqual({
+      id: 'hh-1',
+      name: 'Ours Renamed',
+      paydayDay: 5,
+      userLevel: 1,
+    });
+  });
+
+  it('applyHouseholdPatch for a NON-active household leaves paydayDay alone', () => {
+    useAppStore.getState().setHouseholdId('hh-1');
+    useAppStore.getState().setPaydayDay(25);
+    useAppStore.getState().setAvailableHouseholds([
+      { id: 'hh-1', name: 'Ours', paydayDay: 25, userLevel: 1 },
+      { id: 'hh-2', name: 'Theirs', paydayDay: 1, userLevel: 1 },
+    ]);
+
+    useAppStore.getState().applyHouseholdPatch('hh-2', { paydayDay: 20 });
+
+    const s = useAppStore.getState();
+    expect(s.paydayDay).toBe(25);
+    expect(s.availableHouseholds[1].paydayDay).toBe(20);
+  });
+
+  it('ignores a patch for a household that is not in the list', () => {
+    useAppStore
+      .getState()
+      .setAvailableHouseholds([{ id: 'hh-1', name: 'Ours', paydayDay: 25, userLevel: 1 }]);
+    const before = useAppStore.getState().availableHouseholds;
+
+    useAppStore.getState().applyHouseholdPatch('hh-gone', { paydayDay: 9 });
+
+    // Same array identity: nothing matched, so nothing re-renders.
+    expect(useAppStore.getState().availableHouseholds).toBe(before);
+  });
+});

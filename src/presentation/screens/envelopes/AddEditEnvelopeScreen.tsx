@@ -4,7 +4,10 @@ import { Text, TextInput, Button, SegmentedButtons, Snackbar } from 'react-nativ
 import { eq } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
 import { envelopes as envelopesTable } from '../../../data/local/schema';
-import { getEnvelopeSpentCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
+import {
+  getEnvelopeSpentCents,
+  getPersistentEnvelopeSavedCents,
+} from '../../../data/local/balances/EnvelopeBalanceQuery';
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../domain/envelopes/CreateEnvelopeUseCase';
 import { UpdateEnvelopeUseCase } from '../../../domain/envelopes/UpdateEnvelopeUseCase';
@@ -14,12 +17,14 @@ import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
+import { AdjustSavedAmountDialog } from '../../components/envelopes/AdjustSavedAmountDialog';
 import { DateField } from '../../components/shared/DateField';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddEditEnvelopeScreenProps } from '../../navigation/types';
 import type { EnvelopeEntity, EnvelopeType } from '../../../domain/envelopes/EnvelopeEntity';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
+import { formatCurrency } from '../../utils/currency';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
@@ -57,6 +62,12 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
   const [targetDateStr, setTargetDateStr] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Only meaningful for a PERSISTENT envelope: the money actually in the
+  // fund, derived from the contribution ledger. `allocatedCents` (the field
+  // above) is the MONTHLY contribution, which is exactly why correcting the
+  // balance needs its own path instead of being typed over that field.
+  const [savedCents, setSavedCents] = useState(0);
+  const [adjusting, setAdjusting] = useState(false);
 
   // Apply preselectedType param on mount (only for new envelopes)
   const preselectedType = route.params?.preselectedType;
@@ -86,6 +97,12 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
               ...row,
               spentCents: spentByEnvelope.get(row.id) ?? 0,
             } as EnvelopeEntity);
+            if (
+              getEnvelopeScope({ envelopeType: row.envelopeType as EnvelopeType }) === 'persistent'
+            ) {
+              const saved = await getPersistentEnvelopeSavedCents(db, row.householdId);
+              setSavedCents(saved.get(row.id) ?? 0);
+            }
             setName(row.name);
             setAmountStr(toRandString(row.allocatedCents));
             setEnvelopeType(row.envelopeType as EnvelopeType);
@@ -201,6 +218,22 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     }
   }, [existing, navigation, enqueue]);
 
+  const reloadSavedCents = useCallback(async (): Promise<void> => {
+    if (!existing) return;
+    const saved = await getPersistentEnvelopeSavedCents(db, existing.householdId);
+    setSavedCents(saved.get(existing.id) ?? 0);
+  }, [existing]);
+
+  const handleAdjustDone = useCallback(
+    (adjusted: boolean): void => {
+      setAdjusting(false);
+      if (adjusted) void reloadSavedCents();
+    },
+    [reloadSavedCents],
+  );
+
+  const isPersistent = getEnvelopeScope({ envelopeType }) === 'persistent';
+
   const amountLabel =
     getEnvelopeScope({ envelopeType }) === 'persistent'
       ? 'Monthly contribution (R)'
@@ -304,6 +337,19 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           {existing ? 'Save Changes' : 'Add Envelope'}
         </Button>
 
+        {existing && isPersistent && (
+          <Button
+            mode="outlined"
+            icon="cash-plus"
+            onPress={() => setAdjusting(true)}
+            style={styles.adjustButton}
+            contentStyle={styles.buttonContent}
+            testID="adjust-saved-amount-button"
+          >
+            {`Adjust saved amount (${formatCurrency(savedCents)})`}
+          </Button>
+        )}
+
         {existing && (
           <Button
             mode="outlined"
@@ -318,6 +364,18 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
           </Button>
         )}
       </ScrollView>
+
+      {existing && isPersistent && (
+        <AdjustSavedAmountDialog
+          visible={adjusting}
+          householdId={existing.householdId}
+          envelopeId={existing.id}
+          envelopeName={existing.name}
+          savedCents={savedCents}
+          periodStart={existing.periodStart}
+          onDone={handleAdjustDone}
+        />
+      )}
 
       <Snackbar
         visible={error !== null}
@@ -340,6 +398,7 @@ const styles = StyleSheet.create({
   typeReadOnly: { marginTop: spacing.xs },
   segmented: { marginTop: spacing.xs },
   button: { marginTop: spacing.lg },
+  adjustButton: { marginTop: spacing.sm },
   archiveButton: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
 });

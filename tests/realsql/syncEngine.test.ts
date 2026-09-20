@@ -224,7 +224,16 @@ describe('SyncEngine puller cursor-in-same-transaction guarantee', () => {
           updated_at: NOW,
         },
       }),
-      row(8, 'p2', { row_id: 'd2', op_type: 'insert', payload: { not_a_column: 1 } }),
+      // A non-finite money delta: the integer-cents guard in `applyOne`
+      // throws rather than write NaN into the column. Deliberately NOT an
+      // unknown column any more — pull-apply now tolerates those so a
+      // household mate on a newer build cannot pull-block this device
+      // (REG-1), which makes an unknown column useless as a poison shape.
+      row(8, 'p2', {
+        row_id: 'd2',
+        op_type: 'increment',
+        payload: { field: 'total_paid_cents', delta: 'not-a-number', clamp: 'none' },
+      }),
     ];
 
     // A local-apply failure must not throw out of pull() (§7.2) -- it would
@@ -425,7 +434,10 @@ describe('SyncEngine DLQ inbox (Task 5)', () => {
     const raw = openMigratedDb();
     seedHousehold(raw);
     const t = new FakeTransport();
-    // Same poison batch every call -- forces a pull-apply-failure block.
+    // Same poison batch every call -- forces a pull-apply-failure block. A
+    // non-finite money delta is a genuine code-fix condition (the guard must
+    // never write NaN into an integer-cents column); an unknown column is
+    // not, since pull-apply now skips those rather than blocking (REG-1).
     t.pull = async () => [
       {
         seq: 1,
@@ -433,8 +445,8 @@ describe('SyncEngine DLQ inbox (Task 5)', () => {
         household_id: HH,
         table_name: 'debts',
         row_id: 'd1',
-        op_type: 'insert',
-        payload: { not_a_real_column: 1 },
+        op_type: 'increment',
+        payload: { field: 'total_paid_cents', delta: 'not-a-number', clamp: 'none' },
         device_id: 'peer',
       },
     ];

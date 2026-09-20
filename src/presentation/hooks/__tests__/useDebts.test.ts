@@ -167,3 +167,44 @@ describe('useDebts', () => {
     expect(result.current.loading).toBe(false);
   });
 });
+
+describe('useDebts \u2014 loading vs refreshing (REG-9)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue({ where: mockWhere });
+    mockWhere.mockReturnValue({ orderBy: mockOrderBy });
+  });
+
+  it('keeps `loading` false (and flips `refreshing`) on a reload after the first', async () => {
+    const debt = makeDebt();
+    mockOrderBy.mockResolvedValue([debt]);
+    const { result } = renderHook(() => useDebts(HOUSEHOLD));
+
+    await act(async () => {
+      await result.current.reload();
+    });
+    expect(result.current.debts).toEqual([debt]);
+
+    let release: ((rows: unknown[]) => void) | null = null;
+    mockOrderBy.mockReturnValue(
+      new Promise((r) => {
+        release = r;
+      }),
+    );
+    let pending: Promise<void>;
+    act(() => {
+      pending = result.current.reload();
+    });
+
+    // A sync round must not blank the debt list.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(true);
+    expect(result.current.debts).toEqual([debt]);
+
+    await act(async () => {
+      release!([debt]);
+      await pending!;
+    });
+    expect(result.current.refreshing).toBe(false);
+  });
+});

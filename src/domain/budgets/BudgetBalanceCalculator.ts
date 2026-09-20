@@ -36,7 +36,20 @@ export interface BudgetBalance {
   toAssign: number;
 }
 
-export function calculateBudgetBalance(envelopes: EnvelopeEntity[]): BudgetBalance {
+/**
+ * The only three fields this calculation reads. Typed structurally rather
+ * than as a whole `EnvelopeEntity` so a caller working with an in-progress,
+ * not-yet-persisted allocation set — the rollover wizard's adjust step, whose
+ * "To assign" figure must reflect what the user has TYPED, not what is in the
+ * database — can pass those numbers straight in instead of fabricating full
+ * entities. Every existing `EnvelopeEntity[]` caller still satisfies this.
+ */
+export type BudgetBalanceInput = Pick<
+  EnvelopeEntity,
+  'allocatedCents' | 'envelopeType' | 'isArchived'
+>;
+
+export function calculateBudgetBalance(envelopes: readonly BudgetBalanceInput[]): BudgetBalance {
   let incomeTotal = 0;
   let totalAllocated = 0;
 

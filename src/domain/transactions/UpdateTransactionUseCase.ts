@@ -87,21 +87,29 @@ export class UpdateTransactionUseCase {
       });
     }
 
-    // Reject transactions targeting income envelopes; also scope to household to
-    // prevent cross-household envelope access (same rule as CreateTransactionUseCase).
-    const [targetEnvelope] = await this.db
-      .select()
-      .from(envelopes)
-      .where(
-        and(
-          eq(envelopes.id, this.input.envelopeId),
-          eq(envelopes.householdId, this.current.householdId),
-        ),
-      )
-      .limit(1);
+    // REG-12: only re-validate the target envelope when it's actually
+    // CHANGING. `validateTargetEnvelope` rejects an archived/deleted
+    // envelope — correct when the user is moving the transaction TO one, but
+    // wrong when they're just editing payee/amount/date on a transaction
+    // that already belongs to an envelope archived AFTER it was created:
+    // that edit has nothing to do with the (unchanged) envelope and must not
+    // be blocked by it. Scope to household to prevent cross-household
+    // envelope access (same rule as CreateTransactionUseCase).
+    if (this.input.envelopeId !== this.current.envelopeId) {
+      const [targetEnvelope] = await this.db
+        .select()
+        .from(envelopes)
+        .where(
+          and(
+            eq(envelopes.id, this.input.envelopeId),
+            eq(envelopes.householdId, this.current.householdId),
+          ),
+        )
+        .limit(1);
 
-    const envelopeResult = validateTargetEnvelope(targetEnvelope);
-    if (!envelopeResult.success) return envelopeResult;
+      const envelopeResult = validateTargetEnvelope(targetEnvelope);
+      if (!envelopeResult.success) return envelopeResult;
+    }
 
     const now = new Date().toISOString();
     const updated: TransactionEntity = {

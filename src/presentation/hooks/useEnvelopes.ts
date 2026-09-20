@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { envelopes as envelopesTable } from '../../data/local/schema';
@@ -11,7 +11,16 @@ import { useReloadOnSync } from './useReloadOnSync';
 
 export interface UseEnvelopesResult {
   envelopes: EnvelopeEntity[];
+  /** True only while the FIRST load of this hook instance is in flight —
+   * i.e. "there is nothing to show yet". Screens render their skeleton on
+   * this. See `refreshing` for every reload after that (REG-9). */
   loading: boolean;
+  /** True while a RELOAD is in flight over data that is already on screen
+   * (a sync round via `useReloadOnSync`, a pull-to-refresh, a period
+   * switch). Screens must keep rendering the current list and show at most a
+   * subtle indicator — flipping `loading` here replaced the whole list with
+   * skeletons ~1s after every save, losing scroll position. */
+  refreshing: boolean;
   error: string | null;
   reload: () => Promise<void>;
 }
@@ -19,10 +28,16 @@ export interface UseEnvelopesResult {
 export function useEnvelopes(householdId: string, periodStart: string): UseEnvelopesResult {
   const [envelopes, setEnvelopes] = useState<EnvelopeEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Whether a load has ever completed (success OR failure) for this hook
+  // instance — the one thing that separates "nothing to show yet" from
+  // "refreshing what is already shown".
+  const loadedOnceRef = useRef(false);
 
   const reload = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnceRef.current) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
       // Scope must match DrizzleEnvelopeRepository.listByHousehold /
@@ -54,7 +69,9 @@ export function useEnvelopes(householdId: string, periodStart: string): UseEnvel
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load envelopes');
     } finally {
+      loadedOnceRef.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
   }, [householdId, periodStart]);
 
@@ -66,5 +83,5 @@ export function useEnvelopes(householdId: string, periodStart: string): UseEnvel
   // without this the screen showed it only after navigating away and back.
   useReloadOnSync(reload);
 
-  return { envelopes, loading, error, reload };
+  return { envelopes, loading, refreshing, error, reload };
 }

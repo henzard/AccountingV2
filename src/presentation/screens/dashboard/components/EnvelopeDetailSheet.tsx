@@ -4,21 +4,23 @@
  * the everyday need is "what did we spend here / add a transaction here",
  * not editing the envelope's allocation.
  *
- * No new navigation route — this is a Portal-rendered overlay owned by
- * DashboardScreen, not a screen. The backdrop is a SIBLING `Pressable`
- * behind the sheet (not a wrapper), so it can be dismissed by tapping
- * anywhere outside the sheet content without swallowing the sheet's own
- * touches.
+ * A real modal sheet (UX2-7): RN `Modal` (transparent, slide-up) with a
+ * scrim backdrop, a drag handle, `accessibilityViewIsModal`, and
+ * `onRequestClose` so the Android hardware back button closes the sheet
+ * instead of exiting the screen underneath it — same pattern as
+ * `slipScanning/components/EnvelopePickerSheet`.
  */
-import React, { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
-import { Portal, Text, Button, ActivityIndicator } from 'react-native-paper';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FlatList, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Text, Button, ActivityIndicator } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { format, parseISO } from 'date-fns';
 import { db } from '../../../../data/local/db';
 import { getEnvelopeScope } from '../../../../domain/envelopes/EnvelopeEntity';
 import type { EnvelopeEntity } from '../../../../domain/envelopes/EnvelopeEntity';
 import type { TransactionEntity } from '../../../../domain/transactions/TransactionEntity';
 import { resolveEnvelopeTransactions } from '../resolveEnvelopeTransactions';
+import { AdjustSavedAmountDialog } from '../../../components/envelopes/AdjustSavedAmountDialog';
 import { formatCurrency } from '../../../utils/currency';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import { spacing, radius, fontSize } from '../../../theme/tokens';
@@ -29,9 +31,20 @@ interface Props {
   householdId: string;
   /** Persistent envelopes' real saved balance (see usePersistentEnvelopeSavings). */
   savedCentsByEnvelopeId: ReadonlyMap<string, number>;
+  /**
+   * The household's CURRENT budget period start (YYYY-MM-DD) — required only
+   * for the "Adjust saved amount" action on a persistent envelope, which
+   * records the correction against the period it happens in, not whichever
+   * period the fund itself was created in or is being viewed from.
+   */
+  currentPeriodStart: string;
   onDismiss: () => void;
   onAddTransaction: (envelopeId: string) => void;
+  /** Row tapped — opens that transaction for editing, then closes the sheet. */
+  onOpenTransaction: (transactionId: string) => void;
   onEditEnvelope: (envelopeId: string) => void;
+  /** A saved-balance correction was committed — parent should reload it. */
+  onSavedAmountAdjusted?: () => void;
 }
 
 const PERSISTENT_TRANSACTION_LIMIT = 20;
@@ -41,24 +54,32 @@ export function EnvelopeDetailSheet({
   envelope,
   householdId,
   savedCentsByEnvelopeId,
+  currentPeriodStart,
   onDismiss,
   onAddTransaction,
+  onOpenTransaction,
   onEditEnvelope,
+  onSavedAmountAdjusted,
 }: Props): React.JSX.Element | null {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [transactions, setTransactions] = useState<TransactionEntity[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showAdjustDialog, setShowAdjustDialog] = useState(false);
 
   const envelopeId = envelope?.id ?? null;
   const isPersistent = envelope ? getEnvelopeScope(envelope) === 'persistent' : false;
 
-  useEffect(() => {
+  const loadTransactions = useCallback((): (() => void) => {
     if (!visible || !envelopeId) {
       setTransactions([]);
-      return;
+      setError(null);
+      return () => {};
     }
     let cancelled = false;
     setLoading(true);
+    setError(null);
     resolveEnvelopeTransactions(
       db,
       householdId,
@@ -68,6 +89,12 @@ export function EnvelopeDetailSheet({
       .then((rows) => {
         if (!cancelled) setTransactions(rows);
       })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setTransactions([]);
+          setError(e instanceof Error ? e.message : 'Failed to load transactions');
+        }
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -76,14 +103,23 @@ export function EnvelopeDetailSheet({
     };
   }, [visible, envelopeId, householdId, isPersistent]);
 
+  useEffect(() => loadTransactions(), [loadTransactions]);
+
   if (!visible || !envelope) return null;
 
   const remaining = envelope.allocatedCents - envelope.spentCents;
   const savedCents = savedCentsByEnvelopeId.get(envelope.id) ?? 0;
 
   return (
-    <Portal>
-      <View style={StyleSheet.absoluteFill} testID="envelope-detail-sheet-overlay">
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onDismiss}
+      accessibilityViewIsModal
+      testID="envelope-detail-sheet-overlay"
+    >
+      <View style={StyleSheet.absoluteFill}>
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onDismiss}
@@ -92,9 +128,17 @@ export function EnvelopeDetailSheet({
           testID="envelope-detail-backdrop"
         />
         <View
-          style={[styles.sheet, { backgroundColor: colors.surface }]}
+          style={[
+            styles.sheet,
+            { backgroundColor: colors.surface, paddingBottom: spacing.base + insets.bottom },
+          ]}
           testID="envelope-detail-sheet"
         >
+          <View
+            style={[styles.handle, { backgroundColor: colors.outline }]}
+            testID="envelope-detail-handle"
+          />
+
           <View style={styles.header}>
             <Text
               variant="titleLarge"
@@ -158,6 +202,25 @@ export function EnvelopeDetailSheet({
             <View style={styles.loadingRow} testID="envelope-detail-loading">
               <ActivityIndicator color={colors.primary} />
             </View>
+          ) : error ? (
+            <View style={styles.emptyRow}>
+              <Text
+                style={{ color: colors.error }}
+                testID="envelope-detail-error"
+                accessibilityRole="text"
+              >
+                {error}
+              </Text>
+              <Button
+                mode="text"
+                onPress={loadTransactions}
+                testID="envelope-detail-retry"
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading transactions"
+              >
+                Retry
+              </Button>
+            </View>
           ) : transactions.length === 0 ? (
             <View style={styles.emptyRow}>
               <Text
@@ -175,7 +238,13 @@ export function EnvelopeDetailSheet({
               keyExtractor={(item) => item.id}
               style={styles.list}
               renderItem={({ item }) => (
-                <View style={styles.txRow} testID={`envelope-detail-tx-${item.id}`}>
+                <Pressable
+                  style={styles.txRow}
+                  onPress={() => onOpenTransaction(item.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.payee || item.description || 'Transaction'}, ${formatCurrency(item.amountCents)}`}
+                  testID={`envelope-detail-tx-${item.id}`}
+                >
                   <View style={styles.txInfo}>
                     <Text style={[styles.txPayee, { color: colors.onSurface }]} numberOfLines={1}>
                       {item.payee || item.description || 'Transaction'}
@@ -187,7 +256,7 @@ export function EnvelopeDetailSheet({
                   <Text style={[styles.txAmount, { color: colors.onSurface }]}>
                     {formatCurrency(item.amountCents)}
                   </Text>
-                </View>
+                </Pressable>
               )}
               ItemSeparatorComponent={() => (
                 <View style={[styles.separator, { backgroundColor: colors.outlineVariant }]} />
@@ -217,9 +286,36 @@ export function EnvelopeDetailSheet({
               Add transaction
             </Button>
           </View>
+
+          {isPersistent && (
+            <Button
+              mode="text"
+              onPress={() => setShowAdjustDialog(true)}
+              testID="envelope-detail-adjust-saved"
+              accessibilityRole="button"
+              accessibilityLabel="Adjust saved amount"
+            >
+              Adjust saved amount
+            </Button>
+          )}
         </View>
       </View>
-    </Portal>
+
+      {isPersistent && (
+        <AdjustSavedAmountDialog
+          visible={showAdjustDialog}
+          householdId={householdId}
+          envelopeId={envelope.id}
+          envelopeName={envelope.name}
+          savedCents={savedCents}
+          periodStart={currentPeriodStart}
+          onDone={(adjusted) => {
+            setShowAdjustDialog(false);
+            if (adjusted) onSavedAmountAdjusted?.();
+          }}
+        />
+      )}
+    </Modal>
   );
 }
 
@@ -233,6 +329,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     padding: spacing.base,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: spacing.sm,
   },
   header: {
     marginBottom: spacing.base,
@@ -258,6 +361,7 @@ const styles = StyleSheet.create({
   emptyRow: {
     alignItems: 'center',
     paddingVertical: spacing.xl,
+    gap: spacing.sm,
   },
   list: {
     maxHeight: 320,

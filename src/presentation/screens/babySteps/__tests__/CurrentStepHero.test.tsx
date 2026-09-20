@@ -1,5 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
+import { formatCurrency } from '../../../utils/currency';
 
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -77,6 +78,22 @@ describe('CurrentStepHero', () => {
     const { getByTestId, getByText } = render(<CurrentStepHero {...baseProps} status={status} />);
     expect(getByTestId('current-step-hero')).toBeTruthy();
     expect(getByText(/R500.*R1/)).toBeTruthy();
+  });
+
+  it('formats currency values using formatCurrency including cents', () => {
+    const current = 1234567;
+    const target = 5000000;
+    const status: BabyStepStatus = {
+      stepNumber: 1,
+      isCompleted: false,
+      isManual: false,
+      progress: { current, target, unit: 'cents' },
+      completedAt: null,
+      celebratedAt: null,
+    };
+    const { getByText } = render(<CurrentStepHero {...baseProps} status={status} />);
+    const expectedLabel = `${formatCurrency(current)} of ${formatCurrency(target)}`;
+    expect(getByText(expectedLabel)).toBeTruthy();
   });
 
   it('renders auto step with count progress (debts)', () => {

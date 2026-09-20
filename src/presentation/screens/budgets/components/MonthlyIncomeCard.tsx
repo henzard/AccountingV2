@@ -12,6 +12,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Surface, Button } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { formatCurrency } from '../../../utils/currency';
 import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 
@@ -19,16 +20,15 @@ export interface MonthlyIncomeCardProps {
   incomeCents: number;
   hasIncome: boolean;
   onSetIncome: () => void;
-}
-
-function formatRand(cents: number): string {
-  return `R${Math.abs(Math.round(cents / 100)).toLocaleString('en-ZA')}`;
+  /** VAL2-4: hides the Set/Update action for a past, read-only period. */
+  readOnly?: boolean;
 }
 
 export const MonthlyIncomeCard: React.FC<MonthlyIncomeCardProps> = ({
   incomeCents,
   hasIncome,
   onSetIncome,
+  readOnly = false,
 }) => {
   const { colors } = useAppTheme();
 
@@ -49,17 +49,19 @@ export const MonthlyIncomeCard: React.FC<MonthlyIncomeCardProps> = ({
             style={[styles.amount, { color: colors.onSurface }]}
             testID="monthly-income-amount"
           >
-            {hasIncome ? formatRand(incomeCents) : 'Not set'}
+            {hasIncome ? formatCurrency(incomeCents) : 'Not set'}
           </Text>
         </View>
-        <Button
-          mode={hasIncome ? 'text' : 'contained'}
-          onPress={onSetIncome}
-          compact
-          testID="monthly-income-action"
-        >
-          {hasIncome ? 'Update' : 'Set income'}
-        </Button>
+        {!readOnly && (
+          <Button
+            mode={hasIncome ? 'text' : 'contained'}
+            onPress={onSetIncome}
+            compact
+            testID="monthly-income-action"
+          >
+            {hasIncome ? 'Update' : 'Set income'}
+          </Button>
+        )}
       </View>
       <Text variant="bodySmall" style={[styles.hint, { color: colors.onSurfaceVariant }]}>
         Enter what you actually earned this month — you can change it every month.

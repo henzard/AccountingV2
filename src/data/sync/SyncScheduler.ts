@@ -447,4 +447,19 @@ export class SyncScheduler {
     this.rerunHouseholdId = null;
     this.inFlight = null;
   }
+
+  /**
+   * `stop()`, then resolve once the round that was already in flight has
+   * settled. Callers that are about to destroy the local database (account
+   * deletion) must not leave the engine mid-apply against it — `stop()` alone
+   * only unwires the triggers and returns immediately.
+   *
+   * `runSyncRound` reports failures instead of throwing, but the handle is
+   * awaited defensively either way: this must never reject.
+   */
+  async stopAndDrain(): Promise<void> {
+    const round = this.inFlight;
+    this.stop();
+    if (round) await round.catch(() => undefined);
+  }
 }

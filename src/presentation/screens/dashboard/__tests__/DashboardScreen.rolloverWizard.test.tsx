@@ -24,6 +24,15 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
+jest.mock('react-native-safe-area-context', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const RN = require('react');
+  return {
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+    SafeAreaView: ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
+      RN.createElement('View', p, children),
+  };
+});
 
 jest.mock('../../../hooks/useEnvelopes', () => ({
   useEnvelopes: jest.fn().mockReturnValue({ envelopes: [], loading: false, reload: jest.fn() }),
@@ -53,6 +62,7 @@ jest.mock('../resolveMeterReadingsLogged', () => ({
 // open, per the new "zero this period, some earlier period" rule.
 jest.mock('../findLatestPeriodWithEnvelopes', () => ({
   findLatestPeriodWithEnvelopes: jest.fn().mockResolvedValue('2026-06-01'),
+  hasPeriodScopedEnvelopeAfter: jest.fn().mockResolvedValue(false),
 }));
 
 // New period detected, and not yet acknowledged (getItem resolves null).
@@ -124,6 +134,8 @@ jest.mock('react-native-paper', () => {
       React.createElement('Text', null, children),
     Button: ({ onPress, children }: { onPress?: () => void; children?: React.ReactNode }) =>
       React.createElement('Pressable', { onPress }, children),
+    FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
+      React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),

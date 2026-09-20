@@ -12,6 +12,11 @@ import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import { AuditLogger } from '../../data/audit/AuditLogger';
 import { logger } from '../../infrastructure/logging/Logger';
+import {
+  validateTransactionAmountCents,
+  validateTransactionDate,
+  validateTargetEnvelope,
+} from '../transactions/transactionValidation';
 
 export type ConfirmSlipItem = {
   description: string;
@@ -174,27 +179,29 @@ export class ConfirmSlipUseCase {
       });
     }
 
+    // REG-12: this was the third transaction-create path (alongside
+    // CreateTransactionUseCase and UpdateTransactionUseCase) with its own
+    // hand-rolled envelope check that skipped the shared rules — it never
+    // rejected an archived or soft-deleted target envelope, and never
+    // validated the date or re-checked the amount with the shared safe-integer
+    // rule. Every item now goes through the exact same
+    // `transactionValidation` helpers the other two use, so all three paths
+    // enforce identical rules and return the same error codes.
+    const dateResult = validateTransactionDate(input.transactionDate);
+    if (!dateResult.success) return dateResult;
+
     for (const item of positiveItems) {
+      const amountResult = validateTransactionAmountCents(item.amountCents);
+      if (!amountResult.success) return amountResult;
+
       const [targetEnvelope] = await this.db
         .select()
         .from(envelopes)
         .where(and(eq(envelopes.id, item.envelopeId), eq(envelopes.householdId, input.householdId)))
         .limit(1);
 
-      if (!targetEnvelope) {
-        return createFailure({
-          code: 'ENVELOPE_NOT_FOUND',
-          message: 'Envelope does not exist',
-          context: { envelopeId: item.envelopeId },
-        });
-      }
-      if (targetEnvelope.envelopeType === 'income') {
-        return createFailure({
-          code: 'INVALID_ENVELOPE_TYPE',
-          message: 'Cannot create a transaction against an income envelope',
-          context: { envelopeId: item.envelopeId },
-        });
-      }
+      const envelopeResult = validateTargetEnvelope(targetEnvelope);
+      if (!envelopeResult.success) return envelopeResult;
     }
 
     // DOM-12: compare ALL confirmed items (including dropped non-positive

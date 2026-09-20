@@ -7,6 +7,22 @@
 
 import React from 'react';
 import { render } from '@testing-library/react-native';
+import { AppState } from 'react-native';
+
+// ─── AppState.addEventListener (VAL2-1: re-arm on 'active') — the RN jest
+// preset already mocks `AppState.addEventListener` as a jest.fn, so this
+// just spies on it (no need to mock the whole 'react-native' module, which
+// would also strip out everything else this file/react-navigation needs).
+type AppStateChangeListener = (state: string) => void;
+let mockAppStateListener: AppStateChangeListener | null = null;
+const mockAppStateRemove = jest.fn();
+jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+  event: string,
+  listener: AppStateChangeListener,
+) => {
+  if (event === 'change') mockAppStateListener = listener;
+  return { remove: mockAppStateRemove };
+}) as typeof AppState.addEventListener);
 
 // ─── Mock child navigators so the test is pure ────────────────────────────────
 // Note: jest.mock factories cannot reference out-of-scope variables (except those
@@ -112,10 +128,11 @@ jest.mock('../SlipScanningScreen', () => {
   };
 });
 
-// ─── Mock ConfirmDialogHost — UX-6/wave-3: RootNavigator mounts one at the
-// root (alongside/outside the stack) so it overlays every screen, including
-// the pre-Main household-creation gate where MainTabNavigator's own copy
-// isn't mounted yet ─────────────────────────────────────────────────────────
+// ─── Mock ConfirmDialogHost/ToastHost — UX2-3: RootNavigator mounts both,
+// unconditionally, ONCE at the root (alongside/outside the stack) so they
+// overlay every screen, including the pre-Main household-creation gate and
+// screens outside the five main tabs — MainTabNavigator no longer mounts
+// its own copy of either (see MainTabNavigator.test.tsx) ───────────────────
 jest.mock('../../components/shared/ConfirmDialogHost', () => {
   const RN = jest.requireActual('react');
   const { View } = jest.requireActual('react-native');
@@ -124,9 +141,19 @@ jest.mock('../../components/shared/ConfirmDialogHost', () => {
     confirm: jest.fn(),
   };
 });
+jest.mock('../../components/shared/ToastHost', () => {
+  const RN = jest.requireActual('react');
+  const { View } = jest.requireActual('react-native');
+  return {
+    ToastHost: () => RN.createElement(View, { testID: 'root-toast-host' }),
+  };
+});
 
 // ─── Mock expo-notifications (used in RootNavigator) ─────────────────────────
 const mockAddNotificationResponseReceivedListener = jest.fn(() => ({ remove: jest.fn() }));
+// REG-10: resolves `null` by default (no cold-start launch notification) —
+// individual tests override this to simulate a cold-start tap.
+const mockGetLastNotificationResponseAsync = jest.fn().mockResolvedValue(null);
 jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
   requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
@@ -135,6 +162,7 @@ jest.mock('expo-notifications', () => ({
   addNotificationResponseReceivedListener: (
     ...args: Parameters<typeof mockAddNotificationResponseReceivedListener>
   ) => mockAddNotificationResponseReceivedListener(...args),
+  getLastNotificationResponseAsync: () => mockGetLastNotificationResponseAsync(),
 }));
 
 // ─── Mock db/schema (used by RootNavigator's hasLoggedTransactionToday check) ─
@@ -192,12 +220,32 @@ jest.mock('../../../infrastructure/storage/onboardingFlag', () => ({
 }));
 
 // ─── Mock notificationStore ───────────────────────────────────────────────────
-jest.mock('../../stores/notificationStore', () => ({
-  useNotificationStore: jest.fn(() => ({
+// VAL2-1: `rearmEveningLogPrompt` reads `useNotificationStore.getState()`
+// directly (it runs outside any component's render) — `mockNotificationState`
+// is what that resolves to; tests mutate it to control
+// permissionsGranted/preferences.eveningLogPromptEnabled.
+const mockNotificationState = {
+  preferences: {
+    eveningLogPromptEnabled: true,
+    eveningLogPromptHour: 19,
+    eveningLogPromptMinute: 0,
+    meterReadingReminderEnabled: false,
+    meterReadingReminderDay: 1,
+    monthStartPreflightEnabled: false,
+    envelopeWarningEnabled: true,
+    householdActivityEnabled: true,
+  },
+  permissionsGranted: true,
+};
+jest.mock('../../stores/notificationStore', () => {
+  const hook = jest.fn(() => ({
     setPreferences: jest.fn(),
     setPermissionsGranted: jest.fn(),
-  })),
-}));
+  }));
+  (hook as unknown as { getState: () => typeof mockNotificationState }).getState = () =>
+    mockNotificationState;
+  return { useNotificationStore: hook };
+});
 
 // No appStore mock — use the real zustand store and set state per test.
 
@@ -291,54 +339,54 @@ describe('RootNavigator routing', () => {
   });
 });
 
-// ─── ConfirmDialogHost mounting (wave-3 item 1) ──────────────────────────────
-// MainTabNavigator mounts its own `ConfirmDialogHost` (see MainTabNavigator.tsx
-// — read-only, not owned here). Before Main ever renders (e.g. the
-// household-creation gate, CreateHouseholdScreen's "Sign out" confirm), that
-// copy doesn't exist, so RootNavigator must mount its own — but never both at
-// once.
-describe('RootNavigator — root-level ConfirmDialogHost mount', () => {
+// ─── ConfirmDialogHost + ToastHost mounting (UX2-3) ──────────────────────────
+// Both now mount exactly ONCE, unconditionally, at the root — regardless of
+// which branch is showing (Auth, CreateHouseholdFlow, LoadingSplash,
+// Onboarding, ResetPassword, or Main). MainTabNavigator no longer mounts its
+// own copy of either (MainTabNavigator.test.tsx covers that side), so there
+// is never a double-mount, and a toast enqueued from a screen outside the
+// five main tabs (JoinHousehold, CreateHousehold, HouseholdMembers,
+// SlipCapture, onboarding) now has somewhere to render too.
+describe('RootNavigator — root-level ConfirmDialogHost + ToastHost mount (UX2-3)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     useAppStore.getState().reset();
   });
 
-  it('mounts the root ConfirmDialogHost at the household-creation gate (no household yet)', () => {
+  it('mounts both hosts at the household-creation gate (no household yet)', () => {
     setStore({ user: { id: 'user-1' } }, null);
     mockIsOnboardingComplete.mockResolvedValue(false);
 
     const { getByTestId } = render(<RootNavigator />);
     expect(getByTestId('root-confirm-dialog-host')).toBeTruthy();
+    expect(getByTestId('root-toast-host')).toBeTruthy();
   });
 
-  it('mounts the root ConfirmDialogHost while signed out', () => {
+  it('mounts both hosts while signed out', () => {
     setStore(null, null);
     const { getByTestId } = render(<RootNavigator />);
     expect(getByTestId('root-confirm-dialog-host')).toBeTruthy();
+    expect(getByTestId('root-toast-host')).toBeTruthy();
   });
 
-  it('does NOT mount a second root-level host once Main is active (avoids a double-mounted confirm dialog)', async () => {
+  it('keeps mounting both hosts once Main is active — there is only ever one of each now', async () => {
     setStore({ user: { id: 'user-1' } }, 'h1');
     mockIsOnboardingComplete.mockResolvedValue(true);
 
-    const { findByTestId, queryByTestId } = render(<RootNavigator />);
+    const { findByTestId } = render(<RootNavigator />);
     expect(await findByTestId('main-tab-nav')).toBeTruthy();
-    // MainTabNavigator is mocked to a plain View here (it has its own real
-    // ConfirmDialogHost in production, verified by MainTabNavigator.test.tsx)
-    // — the root-level one must be absent so there is only ever one.
-    expect(queryByTestId('root-confirm-dialog-host')).toBeNull();
+    expect(await findByTestId('root-confirm-dialog-host')).toBeTruthy();
+    expect(await findByTestId('root-toast-host')).toBeTruthy();
   });
 
-  it('does NOT mount the root host while ResetPasswordScreen is showing over a full session+household (still not Main)', () => {
+  it('mounts both hosts while ResetPasswordScreen is showing over a full session+household', () => {
     setStore({ user: { id: 'user-1' } }, 'h1');
     mockIsOnboardingComplete.mockResolvedValue(true);
     useAppStore.setState({ passwordRecoveryPending: true });
 
-    // ResetPassword isn't Main either, so the root host SHOULD still mount —
-    // this pins that "not Main" (not just "not password-recovery") is the
-    // actual condition covering every non-Main branch.
     const { getByTestId } = render(<RootNavigator />);
     expect(getByTestId('root-confirm-dialog-host')).toBeTruthy();
+    expect(getByTestId('root-toast-host')).toBeTruthy();
   });
 });
 
@@ -382,10 +430,15 @@ describe('RootNavigator — deferred notification permission request (UX-20)', (
 
 // ─── VAL-12: notification-tap routing ────────────────────────────────────────
 describe('resolveNotificationTarget (VAL-12)', () => {
-  it('maps "add_transaction" to the Transactions stack\'s AddTransaction screen', () => {
+  it('maps "add_transaction" to the Transactions stack\'s AddTransaction screen, with initial: false (REG-10)', () => {
+    // REG-10: `initial: false` is required so navigating into a Transactions
+    // stack that was never visited this session still mounts its normal
+    // initial route underneath AddTransaction, instead of AddTransaction
+    // becoming the tab's ONLY route (a blank Add form the user is stuck on
+    // after Save, with no way back to the transaction list).
     expect(resolveNotificationTarget('add_transaction')).toEqual({
       screen: 'Main',
-      params: { screen: 'Transactions', params: { screen: 'AddTransaction' } },
+      params: { screen: 'Transactions', params: { screen: 'AddTransaction' }, initial: false },
     });
   });
 
@@ -429,6 +482,106 @@ describe('RootNavigator — notification-tap listener wiring (VAL-12)', () => {
 
     unmount();
     expect(removeMock.remove).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── REG-10: a notification tap that COLD-STARTS the app fires no
+// `addNotificationResponseReceivedListener` event — `getLastNotificationResponseAsync`
+// is the only way to see it. ──────────────────────────────────────────────────
+describe('RootNavigator — cold-start notification tap (REG-10)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useAppStore.getState().reset();
+    mockRequestPermissionsAsync.mockResolvedValue({ status: 'granted' });
+    mockGetLastNotificationResponseAsync.mockResolvedValue(null);
+  });
+
+  it('checks getLastNotificationResponseAsync on mount', async () => {
+    setStore(null, null);
+    render(<RootNavigator />);
+    await Promise.resolve();
+    expect(mockGetLastNotificationResponseAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throw and navigates once ready when the app was cold-started by a recognised notification', async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { content: { data: { target: 'meters' } } } },
+    });
+    setStore(null, null);
+
+    expect(() => render(<RootNavigator />)).not.toThrow();
+    // Let the getLastNotificationResponseAsync promise (and any queued
+    // navigation once the container becomes ready) settle without error.
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it('does nothing for a cold-start response with an unrecognised target', async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { content: { data: { target: 'not-a-real-target' } } } },
+    });
+    setStore(null, null);
+
+    expect(() => render(<RootNavigator />)).not.toThrow();
+    await Promise.resolve();
+  });
+});
+
+// ─── VAL2-1: re-arm the evening-log rolling window on AppState 'active' ──────
+describe('RootNavigator — re-arms evening-log prompt on AppState active (VAL2-1)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useAppStore.getState().reset();
+    mockRequestPermissionsAsync.mockResolvedValue({ status: 'granted' });
+    mockAppStateListener = null;
+    mockAppStateRemove.mockClear();
+    mockNotificationState.permissionsGranted = true;
+    mockNotificationState.preferences.eveningLogPromptEnabled = true;
+  });
+
+  it('subscribes an AppState "change" listener on mount and unsubscribes on unmount', () => {
+    setStore(null, null);
+    const { unmount } = render(<RootNavigator />);
+
+    expect(mockAppStateListener).toEqual(expect.any(Function));
+    unmount();
+    expect(mockAppStateRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throw when the app becomes active with no household set', () => {
+    setStore(null, null);
+    render(<RootNavigator />);
+
+    expect(() => mockAppStateListener?.('active')).not.toThrow();
+  });
+
+  it('re-arms the scheduler (constructs LocalNotificationScheduler again) when the app becomes active with a household and the evening prompt enabled', async () => {
+    setStore({ user: { id: 'user-1' } }, 'h1');
+    mockIsOnboardingComplete.mockResolvedValue(true);
+
+    const { findByTestId } = render(<RootNavigator />);
+    await findByTestId('main-tab-nav');
+    mockLocalNotificationScheduler.mockClear();
+
+    await mockAppStateListener?.('active');
+
+    expect(mockLocalNotificationScheduler).toHaveBeenCalledWith(
+      expect.objectContaining({ hasLoggedTransactionToday: expect.any(Function) }),
+    );
+  });
+
+  it('does not construct a scheduler on AppState active when permissions were never granted', async () => {
+    setStore({ user: { id: 'user-1' } }, 'h1');
+    mockIsOnboardingComplete.mockResolvedValue(true);
+
+    const { findByTestId } = render(<RootNavigator />);
+    await findByTestId('main-tab-nav');
+    mockLocalNotificationScheduler.mockClear();
+    mockNotificationState.permissionsGranted = false;
+
+    await mockAppStateListener?.('active');
+
+    expect(mockLocalNotificationScheduler).not.toHaveBeenCalled();
   });
 });
 

@@ -1,13 +1,16 @@
 /**
  * Consolidated tests for dashboard components.
- * Covers: BabyStepsBar, BudgetRingCard, EnvelopeTile, HeroSummaryCard,
- * RamseyScoreBadge, BabyStepsCard.
+ * Covers: BabyStepsBar, BudgetRingCard, BabyStepsCard.
+ *
+ * EnvelopeTile, HeroSummaryCard and RamseyScoreBadge were deleted — they were
+ * no longer rendered anywhere (DashboardScreen only ever imported the `P`
+ * palette from HeroSummaryCard, which now lives in
+ * `screens/dashboard/palette.ts`).
  */
 
 import React from 'react';
 import { render } from '@testing-library/react-native';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
-import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 // ─── react-native-paper mock ────────────────────────────────────────────────
 jest.mock('react-native-paper', () => {
@@ -72,46 +75,12 @@ jest.mock('../../screens/babySteps/components/SevenDotPath', () => {
   };
 });
 
-// ─── Shared component mocks ─────────────────────────────────────────────────
-jest.mock('../../components/shared/EnvelopeFillBar', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require('react');
-  return {
-    EnvelopeFillBar: (p: { [k: string]: unknown }) =>
-      React.createElement('View', { testID: 'fill-bar', ...p }),
-  };
-});
-
-jest.mock('../../components/shared/CurrencyText', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require('react');
-  return {
-    CurrencyText: ({ amountCents, ...p }: { amountCents: number; [k: string]: unknown }) =>
-      React.createElement('Text', p, `R${(amountCents / 100).toFixed(2)}`),
-  };
-});
-
-// Domain helpers mock (for EnvelopeCard/EnvelopeTile)
-jest.mock('../../../domain/envelopes/EnvelopeEntity', () => ({
-  getRemainingCents: (e: { allocatedCents: number; spentCents: number }) =>
-    e.allocatedCents - e.spentCents,
-  getPercentRemaining: (e: { allocatedCents: number; spentCents: number }) => {
-    if (e.allocatedCents === 0) return 100;
-    return Math.max(0, Math.round(((e.allocatedCents - e.spentCents) / e.allocatedCents) * 100));
-  },
-  isOverBudget: (e: { allocatedCents: number; spentCents: number }) =>
-    e.spentCents > e.allocatedCents,
-}));
-
 jest.mock('../../utils/currency', () => ({
   formatCurrency: (cents: number) => `R${(cents / 100).toFixed(2)}`,
 }));
 
 import { BabyStepsBar } from '../../screens/dashboard/components/BabyStepsBar';
 import { BudgetRingCard } from '../../screens/dashboard/components/BudgetRingCard';
-import { EnvelopeTile } from '../../screens/dashboard/components/EnvelopeTile';
-import { HeroSummaryCard } from '../../screens/dashboard/components/HeroSummaryCard';
-import { RamseyScoreBadge } from '../../screens/dashboard/components/RamseyScoreBadge';
 import { BabyStepsCard } from '../../screens/dashboard/BabyStepsCard';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -124,25 +93,6 @@ function makeStatuses(completedSteps: number[]): BabyStepStatus[] {
     completedAt: completedSteps.includes(i + 1) ? '2026-01-01' : null,
     celebratedAt: null,
   }));
-}
-
-function makeEnvelope(overrides: Partial<EnvelopeEntity> = {}): EnvelopeEntity {
-  return {
-    id: 'env-1',
-    householdId: 'hh-1',
-    name: 'Groceries',
-    allocatedCents: 500000,
-    spentCents: 200000,
-    envelopeType: 'spending',
-    isSavingsLocked: false,
-    isArchived: false,
-    periodStart: '2026-06-01',
-    targetAmountCents: null,
-    targetDate: null,
-    createdAt: '2026-06-01T00:00:00.000Z',
-    updatedAt: '2026-06-01T00:00:00.000Z',
-    ...overrides,
-  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -206,114 +156,6 @@ describe('BudgetRingCard', () => {
       />,
     );
     expect(getByTestId('budget-ring-card')).toBeTruthy();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// EnvelopeTile
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('EnvelopeTile', () => {
-  it('renders envelope name', () => {
-    const { getByText } = render(<EnvelopeTile envelope={makeEnvelope()} />);
-    expect(getByText('Groceries')).toBeTruthy();
-  });
-
-  it('shows "Over budget" status when over budget', () => {
-    const overEnv = makeEnvelope({ allocatedCents: 100000, spentCents: 150000 });
-    const { getByText } = render(<EnvelopeTile envelope={overEnv} />);
-    expect(getByText(/Over budget/)).toBeTruthy();
-  });
-
-  it('shows "Empty" when 0% remaining', () => {
-    const emptyEnv = makeEnvelope({ allocatedCents: 100000, spentCents: 100000 });
-    const { getByText } = render(<EnvelopeTile envelope={emptyEnv} />);
-    expect(getByText('Empty')).toBeTruthy();
-  });
-
-  it('shows warning when <=18% left', () => {
-    const lowEnv = makeEnvelope({ allocatedCents: 100000, spentCents: 85000 });
-    const { getByText } = render(<EnvelopeTile envelope={lowEnv} />);
-    expect(getByText(/⚠/)).toBeTruthy();
-  });
-
-  it('shows "Funded" when >=99% remaining', () => {
-    const fullEnv = makeEnvelope({ allocatedCents: 100000, spentCents: 0 });
-    const { getByText } = render(<EnvelopeTile envelope={fullEnv} />);
-    expect(getByText(/Funded/)).toBeTruthy();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// HeroSummaryCard
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('HeroSummaryCard', () => {
-  it('renders without crash for positive remaining', () => {
-    const { toJSON } = render(
-      <HeroSummaryCard
-        totalAllocatedCents={500000}
-        totalSpentCents={200000}
-        totalRemainingCents={300000}
-        daysRemaining={15}
-        score={70}
-      />,
-    );
-    expect(toJSON()).not.toBeNull();
-  });
-
-  it('renders with negative remaining (uses red color)', () => {
-    const { toJSON } = render(
-      <HeroSummaryCard
-        totalAllocatedCents={500000}
-        totalSpentCents={600000}
-        totalRemainingCents={-100000}
-        daysRemaining={5}
-        score={30}
-      />,
-    );
-    expect(toJSON()).not.toBeNull();
-  });
-
-  it('renders last day message when daysRemaining=0', () => {
-    const { getByText } = render(
-      <HeroSummaryCard
-        totalAllocatedCents={500000}
-        totalSpentCents={200000}
-        totalRemainingCents={300000}
-        daysRemaining={0}
-        score={80}
-      />,
-    );
-    expect(getByText('Last day of period')).toBeTruthy();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// RamseyScoreBadge
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('RamseyScoreBadge', () => {
-  it('renders score text', () => {
-    const { getByText } = render(<RamseyScoreBadge score={85} />);
-    expect(getByText('85')).toBeTruthy();
-  });
-
-  it('shows Excellent for score >= 80', () => {
-    const { getByText } = render(<RamseyScoreBadge score={80} />);
-    expect(getByText('Excellent')).toBeTruthy();
-  });
-
-  it('shows Good for score >= 60', () => {
-    const { getByText } = render(<RamseyScoreBadge score={65} />);
-    expect(getByText('Good')).toBeTruthy();
-  });
-
-  it('shows Fair for score >= 40', () => {
-    const { getByText } = render(<RamseyScoreBadge score={45} />);
-    expect(getByText('Fair')).toBeTruthy();
-  });
-
-  it('shows Keep going for score < 40', () => {
-    const { getByText } = render(<RamseyScoreBadge score={20} />);
-    expect(getByText('Keep going')).toBeTruthy();
   });
 });
 

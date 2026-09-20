@@ -10,6 +10,7 @@ import {
   Dialog,
   TextInput,
   HelperText,
+  Text,
 } from 'react-native-paper';
 import { useThemeStore } from '../../stores/themeStore';
 import { useNavigation } from '@react-navigation/native';
@@ -101,8 +102,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const handleSavePaydayDay = async (): Promise<void> => {
     setPaydayError(null);
     const day = Number.parseInt(paydayDayInput, 10);
-    if (!Number.isInteger(day) || String(day) !== paydayDayInput.trim() || day < 1 || day > 31) {
-      setPaydayError('Enter a day between 1 and 31');
+    if (!Number.isInteger(day) || String(day) !== paydayDayInput.trim() || day < 1 || day > 28) {
+      setPaydayError('Enter a day between 1 and 28');
       return;
     }
     if (!householdId) return;
@@ -120,7 +121,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
       const { collidedEnvelopeCount } = result.data;
       enqueue(
         collidedEnvelopeCount > 0
-          ? `Payday updated. ${collidedEnvelopeCount} envelope${collidedEnvelopeCount === 1 ? '' : 's'} stayed in the previous period.`
+          ? `Payday updated. ${collidedEnvelopeCount} envelope${collidedEnvelopeCount === 1 ? '' : 's'} already existed in the new month and were left as they were.`
           : 'Payday updated',
         'success',
       );
@@ -191,7 +192,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           />
           <Divider />
           <List.Item
-            title="Payday day"
+            title="Payday"
             description={`Day ${paydayDay} of the month`}
             left={(props) => <List.Icon {...props} icon="calendar-month-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
@@ -228,7 +229,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
         />
         <Divider />
         <List.Item
-          title="Sync Health"
+          title="Sync status"
           description="Sync status, pending changes, and items needing attention"
           left={(props) => <List.Icon {...props} icon="sync" />}
           right={(props) => <List.Icon {...props} icon="chevron-right" />}
@@ -350,8 +351,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
         >
           <Dialog.Title>Change payday</Dialog.Title>
           <Dialog.Content>
+            <Text
+              variant="bodyMedium"
+              style={{ marginBottom: spacing.base, color: colors.onSurfaceVariant }}
+            >
+              Your current budget month will restart from this day.
+            </Text>
             <TextInput
-              label="Day of month (1–31)"
+              label="Day of month (1–28)"
               value={paydayDayInput}
               onChangeText={setPaydayDayInput}
               keyboardType="numeric"
@@ -362,6 +369,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             {paydayError !== null && (
               <HelperText type="error" visible testID="payday-error">
                 {paydayError}
+              </HelperText>
+            )}
+            {paydayError === null && (
+              <HelperText type="info" visible testID="payday-helper">
+                Paid on the 29th–31st or at month-end? Use 28.
               </HelperText>
             )}
           </Dialog.Content>

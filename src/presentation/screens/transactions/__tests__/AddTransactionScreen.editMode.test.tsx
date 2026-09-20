@@ -14,6 +14,9 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 // ─── Navigation mock ──────────────────────────────────────────────────────────
 const mockGoBack = jest.fn();
+jest.mock('../../../boot/eveningLogPrompt', () => ({
+  rearmEveningLogPrompt: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ goBack: mockGoBack }),
@@ -101,6 +104,7 @@ jest.mock('drizzle-orm', () => ({
   and: jest.fn((...args: unknown[]) => args),
   eq: jest.fn((col: unknown, val: unknown) => ({ col, val })),
   ne: jest.fn((col: unknown, val: unknown) => ({ col, val })),
+  isNull: jest.fn((col: unknown) => ({ isNull: col })),
 }));
 
 // ─── Schema mock ──────────────────────────────────────────────────────────────
@@ -125,6 +129,7 @@ jest.mock('../../../../data/local/schema', () => ({
     description: 'description',
     transactionDate: 'transactionDate',
     isBusinessExpense: 'isBusinessExpense',
+    deletedAt: 'deletedAt',
   },
 }));
 
@@ -135,6 +140,25 @@ jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
     Promise.resolve(new Map(Object.entries(mockSpentByEnvelope))),
   ),
   envelopeScopeCondition: jest.fn(() => 'scope-condition'),
+}));
+
+let mockSavedByEnvelope: Record<string, number> = {};
+jest.mock('../../../hooks/usePersistentEnvelopeSavings', () => ({
+  usePersistentEnvelopeSavings: jest.fn(() => ({
+    savedCentsByEnvelopeId: new Map(Object.entries(mockSavedByEnvelope)),
+    loading: false,
+    error: null,
+    reload: jest.fn(),
+  })),
+}));
+
+jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
+  confirm: jest.fn(() => Promise.resolve(true)),
+}));
+
+const mockDeleteExecute = jest.fn().mockResolvedValue({ success: true });
+jest.mock('../../../../domain/transactions/DeleteTransactionUseCase', () => ({
+  DeleteTransactionUseCase: jest.fn().mockImplementation(() => ({ execute: mockDeleteExecute })),
 }));
 
 // ─── AuditLogger mock ─────────────────────────────────────────────────────────
@@ -237,6 +261,17 @@ function setupDb(): void {
 }
 
 import { AddTransactionScreen } from '../AddTransactionScreen';
+import { formatCurrency } from '../../../utils/currency';
+
+// `coach = new SpendingCoach()` in AddTransactionScreen.tsx is a MODULE-LEVEL
+// singleton constructed once, on import, above — captured here (before any
+// `jest.clearAllMocks()` in a `beforeEach` wipes the constructor mock's
+// recorded calls/results) so later tests can still inspect the one
+// `evaluate` mock every render of the screen actually shares.
+const { SpendingCoach: MockSpendingCoach } = jest.requireMock(
+  '../../../../domain/coaching/SpendingCoach',
+) as { SpendingCoach: jest.Mock };
+const sharedCoachInstance = MockSpendingCoach.mock.results[0]!.value as { evaluate: jest.Mock };
 
 const makeNavProps = (params?: { transactionId?: string; envelopeId?: string }) => ({
   navigation: {
@@ -335,6 +370,10 @@ describe('AddTransactionScreen — edit mode (UX-9)', () => {
     expect(mockHouseholdNotifier.notifyHousehold).not.toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'transaction_created' }),
     );
+    const { rearmEveningLogPrompt } = jest.requireMock('../../../boot/eveningLogPrompt') as {
+      rearmEveningLogPrompt: jest.Mock;
+    };
+    expect(rearmEveningLogPrompt).not.toHaveBeenCalled();
   });
 
   it('shows an error and does not navigate back when the update fails', async () => {
@@ -349,6 +388,107 @@ describe('AddTransactionScreen — edit mode (UX-9)', () => {
     fireEvent.press(getByText('Save Changes'));
 
     await waitFor(() => expect(getByTestId('snackbar-error')).toBeTruthy());
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddTransactionScreen — UX2-10 missing/deleted transaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreateExecute.mockResolvedValue({ success: true });
+    envelopesById = {};
+    transactionsById = {}; // no row for 'tx-missing' — as if deleted/never existed
+    mockSpentByEnvelope = {};
+    setupDb();
+  });
+
+  it('toasts and navigates back instead of silently becoming a CREATE', async () => {
+    render(<AddTransactionScreen {...makeNavProps({ transactionId: 'tx-missing' })} />);
+
+    await waitFor(() => {
+      expect(mockEnqueue).toHaveBeenCalledWith('That transaction no longer exists', 'error');
+      expect(mockGoBack).toHaveBeenCalled();
+    });
+    // Must never have gone anywhere near a create.
+    expect(mockCreateExecute).not.toHaveBeenCalled();
+  });
+
+  it('shows a loading view instead of an empty "Edit transaction" form while resolving', () => {
+    const { getByTestId, queryByTestId } = render(
+      <AddTransactionScreen {...makeNavProps({ transactionId: 'tx-missing' })} />,
+    );
+    // Before the (microtask-async) lookup resolves, the form must not be
+    // visible — only the loading splash.
+    expect(getByTestId('loading-splash')).toBeTruthy();
+    expect(queryByTestId('amount-input')).toBeNull();
+  });
+});
+
+describe('AddTransactionScreen — UX2-10 delete action in edit mode', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDeleteExecute.mockResolvedValue({ success: true });
+    envelopesById = {
+      'env-1': {
+        id: 'env-1',
+        name: 'Groceries',
+        allocatedCents: 100000,
+        envelopeType: 'spending',
+      },
+    };
+    transactionsById = {
+      'tx-1': {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'env-1',
+        amountCents: 5000,
+        payee: 'Pick n Pay',
+        description: 'Snacks',
+        transactionDate: '2026-04-10',
+        isBusinessExpense: false,
+        slipId: null,
+        createdAt: '2026-04-10T00:00:00.000Z',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+      },
+    };
+    mockSpentByEnvelope = { 'env-1': 20000 };
+    setupDb();
+  });
+
+  it('does not show a delete action in create mode', async () => {
+    const { queryByTestId } = render(<AddTransactionScreen {...makeNavProps()} />);
+    expect(queryByTestId('delete-transaction-button')).toBeNull();
+  });
+
+  it('confirms, deletes, toasts, and navigates back when confirmed', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { confirm } = require('../../../components/shared/ConfirmDialogHost');
+    (confirm as jest.Mock).mockResolvedValue(true);
+
+    const { getByText, findByTestId } = render(
+      <AddTransactionScreen {...makeNavProps({ transactionId: 'tx-1' })} />,
+    );
+    await findByTestId('amount-input');
+    fireEvent.press(getByText('Delete transaction'));
+
+    await waitFor(() => expect(mockDeleteExecute).toHaveBeenCalled());
+    expect(mockEnqueue).toHaveBeenCalledWith('Transaction deleted', 'success');
+    expect(mockGoBack).toHaveBeenCalled();
+  });
+
+  it('does not delete when the confirmation is dismissed', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { confirm } = require('../../../components/shared/ConfirmDialogHost');
+    (confirm as jest.Mock).mockResolvedValue(false);
+
+    const { getByText, findByTestId } = render(
+      <AddTransactionScreen {...makeNavProps({ transactionId: 'tx-1' })} />,
+    );
+    await findByTestId('amount-input');
+    fireEvent.press(getByText('Delete transaction'));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(mockDeleteExecute).not.toHaveBeenCalled();
     expect(mockGoBack).not.toHaveBeenCalled();
   });
 });
@@ -510,5 +650,62 @@ describe('AddTransactionScreen — VAL-13 envelope usage threshold toast', () =>
         'error',
       );
     });
+  });
+});
+
+// REG-8/VAL2-2: a persistent envelope's picker trailing text and coaching
+// input must come from the saved-balance ledger, never
+// allocatedCents - spentCents (which reads a monthly contribution against
+// all-time spend and is meaningless).
+describe('AddTransactionScreen — REG-8/VAL2-2 persistent envelope balance', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreateExecute.mockResolvedValue({ success: true });
+    envelopesById = {
+      'env-fund': {
+        id: 'env-fund',
+        name: 'Holiday fund',
+        allocatedCents: 50000, // R500/month contribution — NOT a balance
+        envelopeType: 'savings',
+      },
+    };
+    transactionsById = {};
+    // All-time spend against the fund far exceeds its monthly contribution —
+    // the buggy allocatedCents - spentCents formula would read deeply
+    // negative here.
+    mockSpentByEnvelope = { 'env-fund': 200000 };
+    mockSavedByEnvelope = { 'env-fund': 600000 }; // R6 000 actually saved
+    setupDb();
+  });
+
+  afterEach(() => {
+    mockSavedByEnvelope = {};
+  });
+
+  it('shows the saved balance, not the buggy allocated-minus-spent figure', async () => {
+    const { getByText, queryByText } = render(
+      <AddTransactionScreen {...makeNavProps({ envelopeId: 'env-fund' })} />,
+    );
+    await waitFor(() => {
+      expect(getByText(`${formatCurrency(600000)} saved`)).toBeTruthy();
+    });
+    // allocatedCents(50000) - spentCents(200000) = -150000 -> would read "... left"
+    expect(queryByText(`${formatCurrency(-150000)} left`)).toBeNull();
+  });
+
+  it('evaluates the coach against the saved balance (600000), not allocated-minus-spent, and with scope "persistent"', async () => {
+    const { getByTestId, getByText } = render(
+      <AddTransactionScreen {...makeNavProps({ envelopeId: 'env-fund' })} />,
+    );
+    await waitFor(() => expect(getByText(`${formatCurrency(600000)} saved`)).toBeTruthy());
+
+    fireEvent.changeText(getByTestId('amount-input'), '2000');
+    fireEvent.press(getByText('Record Transaction'));
+
+    await waitFor(() => expect(mockCreateExecute).toHaveBeenCalled());
+
+    expect(sharedCoachInstance.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 200000, availableCents: 600000, scope: 'persistent' }),
+    );
   });
 });

@@ -24,18 +24,38 @@ function makeMockDb() {
     }),
   });
 
+  const ran: unknown[] = [];
+
   const db = {
     insert: mockInsert,
     update: mockUpdate,
     delete: mockDelete,
     select: mockSelect,
+    ran,
+    // `runInUnitOfWork` hands its callback a transaction handle and expects to
+    // write raw `sql` through `tx.run(...)`. Without this the callback died on
+    // "uow.db.run is not a function" the moment CreateEnvelopeUseCase started
+    // writing the envelope + its creation-period contribution in one unit of
+    // work. `{ changes: 1 }` is required, not cosmetic: `extractChanges`
+    // throws on a result with no numeric `changes`, so a `run()` returning
+    // undefined turns every guarded write into an error.
+    run: jest.fn((query: unknown) => {
+      ran.push(query);
+      return { changes: 1 };
+    }),
   } as any;
-  db.transaction = jest.fn(async (cb: any) => cb(db));
+  // SYNCHRONOUS, like the real sync-mode PortableDb: `db.transaction` invokes
+  // its callback and returns its value directly. Modelling it as `async` made
+  // any throw inside the callback an UNHANDLED PROMISE REJECTION — the use
+  // case's own try/catch is synchronous and never sees it — which killed the
+  // jest worker ("4 child process exceptions") instead of failing one test.
+  db.transaction = jest.fn((cb: any) => cb(db));
 
   return {
     db,
     insertValues,
     mockInsert,
+    ran,
   };
 }
 
@@ -244,20 +264,17 @@ describe('Audit Trail Integrity', () => {
     it('produces an audit event on successful creation', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const repo = makeMockSyncedRepo();
 
-      const uc = new CreateEnvelopeUseCase(
-        db,
-        mockAudit,
-        {
-          householdId: 'h1',
-          name: 'Transport',
-          allocatedCents: 200000,
-          envelopeType: 'spending',
-          periodStart: '2026-06-01',
-        },
-        { repo },
-      );
+      // No `repo` seam: the envelope and (for a persistent type) its
+      // creation-period contribution share ONE `runInUnitOfWork`, so the
+      // write goes through `db.transaction`, not an injectable SyncedRepo.
+      const uc = new CreateEnvelopeUseCase(db, mockAudit, {
+        householdId: 'h1',
+        name: 'Transport',
+        allocatedCents: 200000,
+        envelopeType: 'spending',
+        periodStart: '2026-06-01',
+      });
 
       const result = await uc.execute();
       expect(result.success).toBe(true);
@@ -275,20 +292,14 @@ describe('Audit Trail Integrity', () => {
     it('audit newValue contains envelope fields', async () => {
       const { db } = makeMockDb();
       const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
-      const repo = makeMockSyncedRepo();
 
-      const uc = new CreateEnvelopeUseCase(
-        db,
-        mockAudit,
-        {
-          householdId: 'h1',
-          name: 'Savings',
-          allocatedCents: 1000000,
-          envelopeType: 'savings',
-          periodStart: '2026-06-01',
-        },
-        { repo },
-      );
+      const uc = new CreateEnvelopeUseCase(db, mockAudit, {
+        householdId: 'h1',
+        name: 'Savings',
+        allocatedCents: 1000000,
+        envelopeType: 'savings',
+        periodStart: '2026-06-01',
+      });
 
       await uc.execute();
       const auditInput = mockAudit.log.mock.calls[0][0];

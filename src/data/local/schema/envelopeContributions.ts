@@ -32,7 +32,10 @@ export const envelopeContributions = sqliteTable(
     amountCents: integer('amount_cents').notNull(),
     /** ISO date (YYYY-MM-DD) of the budget period this contribution funded. */
     periodStart: text('period_start').notNull(),
-    /** 'opening_balance' | 'rollover' — see `ContributionSource`. */
+    /**
+     * 'opening_balance' | 'rollover' | 'initial' | 'monthly_confirmed' |
+     * 'adjustment' — see `ContributionSource`.
+     */
     source: text('source').notNull(),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),

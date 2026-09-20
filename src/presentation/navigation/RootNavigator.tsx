@@ -1,9 +1,9 @@
-import React, { useEffect } from 'react';
-import { and, eq, isNull } from 'drizzle-orm';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
-import { format } from 'date-fns';
 import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
 import { CreateHouseholdNavigator } from './CreateHouseholdNavigator';
@@ -16,43 +16,21 @@ import { JoinHouseholdScreen } from '../screens/household/JoinHouseholdScreen';
 import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
 import { LoadingSplash } from '../components/shared/LoadingSplash';
 import { ConfirmDialogHost } from '../components/shared/ConfirmDialogHost';
+import { ToastHost } from '../components/shared/ToastHost';
 import { useAppStore } from '../stores/appStore';
 import { useNotificationStore } from '../stores/notificationStore';
 import { NotificationPreferencesRepository } from '../../infrastructure/notifications/NotificationPreferencesRepository';
 import { LocalNotificationScheduler } from '../../infrastructure/notifications/LocalNotificationScheduler';
 import { isOnboardingComplete } from '../../infrastructure/storage/onboardingFlag';
-import { db } from '../../data/local/db';
-import { transactions } from '../../data/local/schema';
 import type { RootStackParamList } from './types';
 import { SlipScanningScreen } from './SlipScanningScreen';
 import { useAppTheme } from '../theme/useAppTheme';
+import { hasLoggedTransactionToday, rearmEveningLogPrompt } from '../boot/eveningLogPrompt';
+
+export { rearmEveningLogPrompt };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const prefsRepo = new NotificationPreferencesRepository();
-
-/**
- * VAL-12: cheap "did this household already log a transaction today?" check,
- * injected into the scheduler so `scheduleEveningLogPrompt` can skip/cancel
- * today's reminder instead of nagging a user who already logged. See the
- * caveat on `LocalNotificationScheduler`'s constructor doc — this only
- * re-evaluates whenever `RootNavigator`'s notification effect (re)runs, not
- * continuously through the day.
- */
-async function hasLoggedTransactionToday(householdId: string): Promise<boolean> {
-  const today = format(new Date(), 'yyyy-MM-dd');
-  const [row] = await db
-    .select({ id: transactions.id })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.householdId, householdId),
-        eq(transactions.transactionDate, today),
-        isNull(transactions.deletedAt),
-      ),
-    )
-    .limit(1);
-  return row != null;
-}
 
 /** Navigate-without-a-navigation-prop handle for the notification-tap
  * listener (VAL-12), which fires outside any screen's render tree. */
@@ -70,7 +48,14 @@ export function resolveNotificationTarget(
     case 'add_transaction':
       return {
         screen: 'Main',
-        params: { screen: 'Transactions', params: { screen: 'AddTransaction' } },
+        // REG-10: without `initial: false`, navigating into the Transactions
+        // tab's stack navigator for the FIRST time (it was never visited
+        // this session) makes AddTransaction its only route — there is no
+        // TransactionList underneath to land on after Save, so the tab is
+        // stuck on a blank Add form. `initial: false` tells react-navigation
+        // to still mount the stack's normal initial route first and push
+        // AddTransaction on top of it.
+        params: { screen: 'Transactions', params: { screen: 'AddTransaction' }, initial: false },
       };
     case 'meters':
       return { screen: 'Main', params: { screen: 'Meters' } };
@@ -192,27 +177,73 @@ export function RootNavigator(): React.JSX.Element {
     setPermissionsGranted,
   ]);
 
-  // VAL-12: route a tap on a delivered notification to the relevant screen,
-  // via `navigationRef` since this fires outside any screen's render tree.
+  // REG-10: a tap that COLD-STARTS the app fires no
+  // `addNotificationResponseReceivedListener` event at all — the OS already
+  // "delivered" the response to the app before this component (or the
+  // listener below) ever existed — and even a warm-start tap can arrive
+  // before `NavigationContainer` is ready. Both cases used to just drop the
+  // tap silently. A pending target is queued here and flushed either
+  // immediately (if the container is already ready) or from
+  // `NavigationContainer`'s `onReady` below.
+  const pendingNotificationTargetRef = useRef<{ screen: 'Main'; params: object } | null>(null);
+
+  const navigateToTarget = useCallback((route: { screen: 'Main'; params: object }): void => {
+    // `RootStackParamList.Main` is declared as `undefined` (types.ts, not
+    // owned here) — it doesn't carry the `NavigatorScreenParams<...>` shape
+    // react-navigation needs to type-check navigating into a NESTED screen
+    // (tab -> stack -> screen), so `.navigate` rejects this call as `never`
+    // at the type level even though it's the documented react-navigation
+    // pattern for it (the same escape hatch SlipProcessingScreen's
+    // `getParent()?.navigate('Main', {...})` already uses). Cast through
+    // `unknown`, never `any`.
+    const navigate = navigationRef.navigate as unknown as (screen: string, params?: object) => void;
+    navigate(route.screen, route.params);
+  }, []);
+
+  const handleNotificationTarget = useCallback(
+    (target: unknown): void => {
+      const route = resolveNotificationTarget(target);
+      if (!route) return;
+      if (navigationRef.isReady()) {
+        navigateToTarget(route);
+      } else {
+        // Container isn't mounted/ready yet — flushed from `onReady` below.
+        pendingNotificationTargetRef.current = route;
+      }
+    },
+    [navigateToTarget],
+  );
+
+  // VAL-12/REG-10: route a tap on a delivered notification to the relevant
+  // screen, via `navigationRef` since this fires outside any screen's render
+  // tree. Covers a WARM-start tap (app already running/backgrounded).
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const target = response.notification.request.content.data?.target;
-      const route = resolveNotificationTarget(target);
-      if (route && navigationRef.isReady()) {
-        // `RootStackParamList.Main` is declared as `undefined` (types.ts,
-        // not owned here) — it doesn't carry the `NavigatorScreenParams<...>`
-        // shape react-navigation needs to type-check navigating into a
-        // NESTED screen (tab -> stack -> screen), so `.navigate` rejects
-        // this call as `never` at the type level even though it's the
-        // documented react-navigation pattern for it (the same escape hatch
-        // SlipProcessingScreen's `getParent()?.navigate('Main', {...})`
-        // already uses). Cast through `unknown`, never `any`.
-        const navigate = navigationRef.navigate as unknown as (
-          screen: string,
-          params?: object,
-        ) => void;
-        navigate(route.screen, route.params);
-      }
+      handleNotificationTarget(response.notification.request.content.data?.target);
+    });
+    return () => sub.remove();
+  }, [handleNotificationTarget]);
+
+  // REG-10: covers a COLD-start tap — the notification that actually
+  // launched the app. `getLastNotificationResponseAsync` is the only way to
+  // observe this; the listener above never fires for it because nothing was
+  // subscribed yet when the OS delivered the response.
+  useEffect(() => {
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) handleNotificationTarget(response.notification.request.content.data?.target);
+      })
+      .catch(() => {});
+  }, [handleNotificationTarget]);
+
+  // VAL2-1: re-arm the evening-log rolling window whenever the app comes to
+  // the foreground — closes the gap where a transaction logged while
+  // backgrounded (or on another device, synced in) would otherwise only be
+  // picked up the next time this navigator's own init effect happens to
+  // re-run.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') void rearmEveningLogPrompt();
     });
     return () => sub.remove();
   }, []);
@@ -249,23 +280,31 @@ export function RootNavigator(): React.JSX.Element {
     return <Stack.Screen name="Main" component={MainTabNavigator} />;
   };
 
-  // Mirrors the exact condition under which `renderNavigator` returns the
-  // "Main" branch above — `MainTabNavigator` mounts its OWN `ConfirmDialogHost`
-  // (alongside its tab bar), so mounting a second one here whenever Main is
-  // showing would double up the confirm dialog. Every other branch (Auth,
-  // CreateHouseholdFlow — the household-creation gate this was added for —,
-  // the loading splash, Onboarding, ResetPassword) never mounts
-  // MainTabNavigator, so this root-level host is the only one present then.
-  const mainIsActive =
-    !passwordRecoveryPending &&
-    !passwordRecoveryError &&
-    isAuthenticated &&
-    hasHousehold &&
-    onboardingCompleted === true;
-
   return (
-    <NavigationContainer ref={navigationRef}>
-      {!mainIsActive && <ConfirmDialogHost />}
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={() => {
+        // REG-10: flush a notification target that arrived (cold start, or a
+        // warm-start tap that beat the container) before this was ready.
+        const pending = pendingNotificationTargetRef.current;
+        if (pending) {
+          pendingNotificationTargetRef.current = null;
+          navigateToTarget(pending);
+        }
+      }}
+    >
+      {/*
+        UX2-3: ConfirmDialogHost and ToastHost each mount exactly ONCE, here
+        at the root — unconditionally, regardless of which branch
+        `renderNavigator` returns. They used to also be mounted inside
+        MainTabNavigator (guarded by a `!mainIsActive` check here to avoid
+        double-mounting while Main was showing), but that left every toast
+        enqueued from OUTSIDE the five main tabs — JoinHousehold's wrong
+        invite code, CreateHousehold/HouseholdMembers errors, SlipCapture,
+        onboarding notices — with nowhere to render.
+      */}
+      <ConfirmDialogHost />
+      <ToastHost />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {renderNavigator()}
         <Stack.Screen

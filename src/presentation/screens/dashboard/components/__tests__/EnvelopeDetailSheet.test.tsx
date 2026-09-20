@@ -14,7 +14,6 @@ jest.mock('../../resolveEnvelopeTransactions', () => ({
 jest.mock('react-native-paper', () => {
   const React = jest.requireActual('react');
   return {
-    Portal: ({ children }: { children?: React.ReactNode }) => children,
     Text: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
       React.createElement('Text', { testID }, children),
     Button: ({
@@ -31,6 +30,17 @@ jest.mock('react-native-paper', () => {
     ActivityIndicator: ({ testID }: { testID?: string }) => React.createElement('View', { testID }),
   };
 });
+
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
+
+jest.mock('../../../../components/envelopes/AdjustSavedAmountDialog', () => ({
+  AdjustSavedAmountDialog: ({ visible }: { visible: boolean }) => {
+    const React = jest.requireActual('react');
+    return visible ? React.createElement('View', { testID: 'adjust-saved-dialog-stub' }) : null;
+  },
+}));
 
 import { EnvelopeDetailSheet } from '../EnvelopeDetailSheet';
 import type { EnvelopeEntity } from '../../../../../domain/envelopes/EnvelopeEntity';
@@ -63,6 +73,7 @@ const PERSISTENT_ENVELOPE: EnvelopeEntity = {
 describe('EnvelopeDetailSheet', () => {
   const onDismiss = jest.fn();
   const onAddTransaction = jest.fn();
+  const onOpenTransaction = jest.fn();
   const onEditEnvelope = jest.fn();
 
   beforeEach(() => {
@@ -78,7 +89,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -93,7 +106,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -108,7 +123,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -127,7 +144,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={savedCentsByEnvelopeId}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -145,7 +164,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -162,7 +183,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -179,7 +202,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -222,7 +247,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -244,7 +271,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -260,7 +289,9 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
@@ -276,11 +307,158 @@ describe('EnvelopeDetailSheet', () => {
         householdId="hh-1"
         savedCentsByEnvelopeId={new Map()}
         onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
         onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
         onEditEnvelope={onEditEnvelope}
       />,
     );
     fireEvent.press(await findByTestId('envelope-detail-edit'));
     expect(onEditEnvelope).toHaveBeenCalledWith('env-1');
+  });
+
+  it('is a real modal: accessibilityViewIsModal and onRequestClose call onDismiss (Android back)', async () => {
+    const { findByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={SPEND_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    const modal = await findByTestId('envelope-detail-sheet-overlay');
+    expect(modal.props.accessibilityViewIsModal).toBe(true);
+    modal.props.onRequestClose();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a drag handle', async () => {
+    const { findByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={SPEND_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    expect(await findByTestId('envelope-detail-handle')).toBeTruthy();
+  });
+
+  it('tapping a transaction row calls onOpenTransaction with that transaction id', async () => {
+    mockResolveEnvelopeTransactions.mockResolvedValue([
+      {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'env-1',
+        amountCents: 8000,
+        payee: 'Corner shop',
+        description: null,
+        transactionDate: '2026-09-05',
+        isBusinessExpense: false,
+        spendingTriggerNote: null,
+        createdAt: '2026-09-05',
+        updatedAt: '2026-09-05',
+      },
+    ]);
+    const { findByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={SPEND_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    fireEvent.press(await findByTestId('envelope-detail-tx-tx-1'));
+    expect(onOpenTransaction).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('shows an error state with Retry when loading transactions fails, instead of reading as empty', async () => {
+    mockResolveEnvelopeTransactions.mockRejectedValueOnce(new Error('DB read failed'));
+    const { findByTestId, queryByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={SPEND_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    expect(await findByTestId('envelope-detail-error')).toBeTruthy();
+    expect(queryByTestId('envelope-detail-empty')).toBeNull();
+
+    mockResolveEnvelopeTransactions.mockResolvedValueOnce([]);
+    fireEvent.press(await findByTestId('envelope-detail-retry'));
+    expect(await findByTestId('envelope-detail-empty')).toBeTruthy();
+  });
+
+  it('shows "Adjust saved amount" for a persistent envelope but not for a period-scoped one', async () => {
+    const { findByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={PERSISTENT_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        currentPeriodStart="2026-09-01"
+        onDismiss={onDismiss}
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    expect(await findByTestId('envelope-detail-adjust-saved')).toBeTruthy();
+
+    const { queryByTestId: queryByTestIdSpend } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={SPEND_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        currentPeriodStart="2026-09-01"
+        onDismiss={onDismiss}
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    expect(queryByTestIdSpend('envelope-detail-adjust-saved')).toBeNull();
+  });
+
+  it('pressing "Adjust saved amount" opens the dialog, and a completed adjustment notifies the parent', async () => {
+    const onSavedAmountAdjusted = jest.fn();
+    const { findByTestId, getByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={PERSISTENT_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        currentPeriodStart="2026-09-01"
+        onDismiss={onDismiss}
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+        onSavedAmountAdjusted={onSavedAmountAdjusted}
+      />,
+    );
+    fireEvent.press(await findByTestId('envelope-detail-adjust-saved'));
+    expect(getByTestId('adjust-saved-dialog-stub')).toBeTruthy();
   });
 });

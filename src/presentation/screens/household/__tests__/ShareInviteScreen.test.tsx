@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
+import { format, parseISO } from 'date-fns';
 
 // ─── react-native-paper mocks ─────────────────────────────────────────────────
 jest.mock('react-native-paper', () => {
@@ -148,6 +149,20 @@ describe('ShareInviteScreen', () => {
     render(<ShareInviteScreen {...makeProps()} />);
     await waitFor(() => {
       expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  it('formats expiry date using date-fns format with d MMM yyyy', async () => {
+    const isoDate = '2026-09-20T14:30:00.000Z';
+    mockExecute.mockResolvedValue({
+      success: true,
+      data: { code: 'ABC123', expiresAt: isoDate },
+    });
+
+    const expectedDateStr = format(parseISO(isoDate), 'd MMM yyyy');
+    const { getByText } = render(<ShareInviteScreen {...makeProps()} />);
+    await waitFor(() => {
+      expect(getByText(`Expires ${expectedDateStr} · Single use`)).toBeTruthy();
     });
   });
 });

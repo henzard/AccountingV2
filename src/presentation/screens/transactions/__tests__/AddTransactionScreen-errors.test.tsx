@@ -11,6 +11,9 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 // ─── Navigation mock ──────────────────────────────────────────────────────────
 const mockGoBack = jest.fn();
+jest.mock('../../../boot/eveningLogPrompt', () => ({
+  rearmEveningLogPrompt: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ goBack: mockGoBack }),
@@ -138,6 +141,15 @@ jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
   envelopeScopeCondition: jest.fn(() => 'scope-condition'),
 }));
 
+jest.mock('../../../hooks/usePersistentEnvelopeSavings', () => ({
+  usePersistentEnvelopeSavings: jest.fn(() => ({
+    savedCentsByEnvelopeId: new Map(),
+    loading: false,
+    error: null,
+    reload: jest.fn(),
+  })),
+}));
+
 // ─── AuditLogger mock ─────────────────────────────────────────────────────────
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
@@ -180,6 +192,7 @@ jest.mock('drizzle-orm', () => ({
   and: jest.fn((...a: unknown[]) => a),
   eq: jest.fn((c: unknown, v: unknown) => ({ c, v })),
   ne: jest.fn((c: unknown, v: unknown) => ({ c, v })),
+  isNull: jest.fn((c: unknown) => ({ isNull: c })),
 }));
 
 // ─── Schema mock ──────────────────────────────────────────────────────────────

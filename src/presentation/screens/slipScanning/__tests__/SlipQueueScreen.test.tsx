@@ -1,11 +1,21 @@
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, act } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn() }),
+}));
+
+jest.mock('../../../../data/local/db', () => ({ db: {} }));
+
+// REG-2: `getConfirmedSlipIds` is the batched query SlipQueueScreen uses to
+// tell an extracted-but-unconfirmed 'completed' slip apart from a genuinely
+// saved one. Mocked per-test via `mockGetConfirmedSlipIds`.
+const mockGetConfirmedSlipIds = jest.fn().mockResolvedValue(new Set<string>());
+jest.mock('../../../../domain/slipScanning/SlipTransactionStatusQuery', () => ({
+  getConfirmedSlipIds: (...args: unknown[]) => mockGetConfirmedSlipIds(...args),
 }));
 
 jest.mock('react-native-paper', () => {
@@ -158,6 +168,7 @@ describe('SlipQueueScreen', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockSlipData = [completedItem, failedItem];
+    mockGetConfirmedSlipIds.mockReset().mockResolvedValue(new Set<string>());
   });
 
   it('renders slip items', () => {
@@ -197,8 +208,12 @@ describe('SlipQueueScreen', () => {
     expect(getAllByText('R150,00').length).toBeGreaterThan(0);
   });
 
-  it('navigates to SlipConfirm READ-ONLY with a hydrated extraction when a completed item is pressed (H5 + read-only reopen)', () => {
+  it('navigates to SlipConfirm READ-ONLY with a hydrated extraction when a CONFIRMED completed item is pressed (H5 + read-only reopen)', async () => {
+    // REG-2: readOnly must reflect a real transaction existing for this slip,
+    // not just `status === 'completed'` — simulate the confirmed case.
+    mockGetConfirmedSlipIds.mockResolvedValue(new Set(['sq-1']));
     const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    await act(async () => {});
     fireEvent.press(getByTestId('slip-item-sq-1'));
     expect(mockNavigate).toHaveBeenCalledWith('SlipConfirm', {
       slipId: 'sq-1',
@@ -220,6 +235,43 @@ describe('SlipQueueScreen', () => {
     const [, params] = mockNavigate.mock.calls[0];
     expect(params.extraction.items[0].amountCents).toBe(5000);
     expect(params.extraction.items[0]).not.toHaveProperty('amount_cents');
+  });
+
+  it('navigates to SlipConfirm EDITABLE when a completed item was extracted but never confirmed (REG-2)', async () => {
+    // getConfirmedSlipIds resolves empty by default (beforeEach) — sq-1 has
+    // no live transaction, so it must reopen editable, not read-only, or the
+    // user can never save it (Save button gone, OpenAI cost already spent).
+    const { getByTestId } = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    await act(async () => {});
+    fireEvent.press(getByTestId('slip-item-sq-1'));
+    expect(mockNavigate).toHaveBeenCalledWith(
+      'SlipConfirm',
+      expect.objectContaining({ slipId: 'sq-1', readOnly: false }),
+    );
+  });
+
+  it('shows a "Needs review" badge for an extracted-but-unconfirmed completed slip, and "Saved" once confirmed (REG-2)', async () => {
+    mockGetConfirmedSlipIds.mockResolvedValue(new Set<string>());
+    const unconfirmed = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    await act(async () => {});
+    expect(unconfirmed.getAllByText('Needs review').length).toBeGreaterThan(0);
+    unconfirmed.unmount();
+
+    mockGetConfirmedSlipIds.mockResolvedValue(new Set(['sq-1']));
+    const confirmed = render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    await act(async () => {});
+    expect(confirmed.getAllByText('Saved').length).toBeGreaterThan(0);
+  });
+
+  it('batches the confirmed-slip lookup into one call for all visible completed slips', async () => {
+    mockSlipData = [completedItem, { ...completedItem, id: 'sq-6' }, failedItem];
+    render(<SlipQueueScreen repo={mockRepo} householdId="hh-1" />);
+    await act(async () => {});
+    expect(mockGetConfirmedSlipIds).toHaveBeenCalledTimes(1);
+    expect(mockGetConfirmedSlipIds).toHaveBeenCalledWith(expect.anything(), 'hh-1', [
+      'sq-1',
+      'sq-6',
+    ]);
   });
 
   it('navigates to SlipCapture when failed item (no extraction) is pressed', () => {

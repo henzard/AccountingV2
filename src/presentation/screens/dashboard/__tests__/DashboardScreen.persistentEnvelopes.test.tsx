@@ -20,6 +20,15 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
+jest.mock('react-native-safe-area-context', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const RN = require('react');
+  return {
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+    SafeAreaView: ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
+      RN.createElement('View', p, children),
+  };
+});
 
 jest.mock('../resolveEnvelopeTransactions', () => ({
   resolveEnvelopeTransactions: jest.fn().mockResolvedValue([]),
@@ -91,6 +100,7 @@ jest.mock('../resolveMeterReadingsLogged', () => ({
 
 jest.mock('../findLatestPeriodWithEnvelopes', () => ({
   findLatestPeriodWithEnvelopes: jest.fn().mockResolvedValue(null),
+  hasPeriodScopedEnvelopeAfter: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -127,6 +137,8 @@ jest.mock('react-native-paper', () => {
       React.createElement('Text', null, children),
     Button: ({ onPress, children }: { onPress?: () => void; children?: React.ReactNode }) =>
       React.createElement('Pressable', { onPress }, children),
+    FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
+      React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
       React.createElement('View', null, children),
@@ -181,14 +193,17 @@ describe('DashboardScreen — persistent envelopes', () => {
   });
 
   it('counts the persistent envelope’s monthly allocation into "Budget" but excludes its all-time spend from "Spent"', () => {
-    const { getByText } = render(
+    // Scoped by testID (not `getByText`) — the safe-to-spend caption also
+    // formats a currency figure that can coincidentally match the same
+    // rendered string depending on today's date vs. the period end.
+    const { getByTestId } = render(
       <DashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
     );
     // Budget = 200000 (Groceries) + 100000 (Emergency Fund monthly contribution) = R3,000.00
-    expect(getByText(/^R3.000,00$/)).toBeTruthy();
+    expect(getByTestId('dashboard-stat-budget-value').props.children).toMatch(/^R3.000,00$/);
     // Spent = 50000 (Groceries only) = R500.00 — the fund's R9,000.00
     // all-time spend must NOT be added in.
-    expect(getByText('R500,00')).toBeTruthy();
+    expect(getByTestId('dashboard-stat-spent-value').props.children).toBe('R500,00');
   });
 
   it('does not show the main envelope list section header for the persistent-only fund', () => {

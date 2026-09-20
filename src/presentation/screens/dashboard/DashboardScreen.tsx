@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Text } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import { FAB } from 'react-native-paper';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { RolloverWizard } from '../budgets/RolloverWizard';
 import { useAppStore } from '../../stores/appStore';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
@@ -16,12 +18,17 @@ import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetRingCard } from './components/BudgetRingCard';
 import { BabyStepsBar } from './components/BabyStepsBar';
 import { ScoreBreakdownDialog } from './components/ScoreBreakdownDialog';
-import { P } from './components/HeroSummaryCard';
+import { P } from './palette';
 import { selectSpendEnvelopes } from './selectSpendEnvelopes';
-import { findLatestPeriodWithEnvelopes } from './findLatestPeriodWithEnvelopes';
+import {
+  findLatestPeriodWithEnvelopes,
+  hasPeriodScopedEnvelopeAfter,
+} from './findLatestPeriodWithEnvelopes';
 import { resolveMeterReadingsLogged } from './resolveMeterReadingsLogged';
 import { calculateSafeToSpendToday } from './calculateSafeToSpendToday';
+import { sortEnvelopesByUsageDescending } from './sortEnvelopesByUsageDescending';
 import { EnvelopeDetailSheet } from './components/EnvelopeDetailSheet';
+import { getPreviousPeriod } from '../transactions/periodNavigation';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { HabitScoreCalculator } from '../../../domain/scoring/RamseyScoreCalculator';
 import { buildHabitScoreInput } from '../../../domain/scoring/buildHabitScoreInput';
@@ -31,6 +38,7 @@ import { calculateBudgetBalance } from '../../../domain/budgets/BudgetBalanceCal
 import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import { formatCurrency } from '../../utils/currency';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spacing, radius, fontSize } from '../../theme/tokens';
 import { format, differenceInDays } from 'date-fns';
 import { db } from '../../../data/local/db';
@@ -48,7 +56,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   // Uses the app's in-app Light/Dark preference (`useAppTheme`), not the raw
   // OS scheme — otherwise the home screen ignores a user override of the
   // system setting (UX-11).
-  const { dark: isDark } = useAppTheme();
+  const { dark: isDark, colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
 
@@ -66,7 +75,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const periodLabel = format(period.startDate, 'MMMM yyyy');
 
   const hid = householdId ?? '';
-  const { envelopes, loading, reload } = useEnvelopes(hid, periodStart);
+  const envelopesResult = useEnvelopes(hid, periodStart);
+  const { envelopes, loading, error, reload } = envelopesResult;
+  // `refreshing` (reload-in-flight over data already on screen, vs `loading`
+  // = first-load-only) is a newer field on `useEnvelopes` — read it
+  // optionally so this keeps working against an older shape of the hook too.
+  const refreshing =
+    ('refreshing' in envelopesResult ? envelopesResult.refreshing : undefined) ?? loading;
   const { statuses: babyStepStatuses } = useBabySteps(hid, periodStart);
   // Persistent envelopes' (savings/emergency_fund/sinking_fund/baby_step)
   // real saved balance — never `allocatedCents - spentCents`, since
@@ -107,6 +122,21 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   // instead of navigating straight to the edit form (VAL-9): the everyday
   // need is "what did we spend here / add a transaction here".
   const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeEntity | null>(null);
+  // Whether an EARLIER period actually has envelopes to roll forward — drives
+  // the empty state's copy/CTA (UX2-8) independently of whether the wizard
+  // auto-opened (it may not have, e.g. this period was already dismissed
+  // this session). Recomputed whenever the current period has no spend
+  // envelopes of its own.
+  const [earlierPeriodHasEnvelopes, setEarlierPeriodHasEnvelopes] = useState(false);
+  // Session-level "don't reopen the rollover wizard for this period" snooze
+  // (UX2-2). Deliberately a ref, NOT AsyncStorage: it must come back on the
+  // next app launch, when a fresh look at an unacknowledged period is right
+  // again. `RolloverWizard`'s `onDone` fires identically whether the user
+  // actually committed a rollover or just dismissed without doing anything —
+  // if a rollover WAS committed, the `periodScopedCount > 0` check below
+  // already keeps the wizard closed on its own; this is what stops it
+  // reopening on the very next reload/focus/sync round when it wasn't.
+  const dismissedRolloverPeriodsRef = useRef<Set<string>>(new Set());
 
   useFocusEffect(
     useCallback((): (() => void) => {
@@ -140,30 +170,62 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   useEffect(() => {
     if (!hid || loading) return;
     const periodScopedCount = envelopes.filter((e) => getEnvelopeScope(e) === 'period').length;
-    if (periodScopedCount > 0) return;
+    if (periodScopedCount > 0) {
+      setEarlierPeriodHasEnvelopes(false);
+      return;
+    }
 
     let cancelled = false;
+
+    // Independent of the ack/snooze/stale-payday gates below: the empty
+    // state (UX2-8) needs to know whether an earlier period has envelopes at
+    // all, regardless of whether the wizard is ALLOWED to auto-open right
+    // now.
+    findLatestPeriodWithEnvelopes(db, hid, periodStart).then((fromPeriod) => {
+      if (!cancelled) setEarlierPeriodHasEnvelopes(fromPeriod !== null);
+    });
+
+    if (dismissedRolloverPeriodsRef.current.has(periodStart)) return;
+
     const rolloverKey = `period_ack_${periodStart}`;
     AsyncStorage.getItem(rolloverKey).then((ack) => {
-      if (cancelled || ack !== null) return;
-      findLatestPeriodWithEnvelopes(db, hid, periodStart).then((fromPeriod) => {
-        if (cancelled || !fromPeriod) return;
-        setRolloverFromPeriodStart(fromPeriod);
-        setShowRollover(true);
+      if (cancelled || ack !== null || dismissedRolloverPeriodsRef.current.has(periodStart)) {
+        return;
+      }
+      // Belt: a stale payday can leave `periodStart` pointing at the wrong,
+      // empty period even though the household already has period-scoped
+      // envelopes for something LATER than the period right before it —
+      // that's a mis-keyed read, not a genuine new empty period, so don't
+      // auto-open on top of it (the source is being fixed elsewhere).
+      const currentPeriod = engine.getCurrentPeriod(paydayDay);
+      const previousPeriodStart = formatPeriodDateKey(
+        getPreviousPeriod(paydayDay, currentPeriod).startDate,
+      );
+      hasPeriodScopedEnvelopeAfter(db, hid, previousPeriodStart).then((staleGuardTripped) => {
+        if (cancelled || staleGuardTripped) return;
+        findLatestPeriodWithEnvelopes(db, hid, periodStart).then((fromPeriod) => {
+          if (cancelled || !fromPeriod) return;
+          setRolloverFromPeriodStart(fromPeriod);
+          setShowRollover(true);
+        });
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [hid, loading, envelopes, periodStart]);
+  }, [hid, loading, envelopes, periodStart, paydayDay]);
 
-  // The wizard itself writes the `period_ack_${toPeriodStart}` key on commit (see
-  // RolloverWizard) — this only needs to close the wizard and refresh the envelope
-  // list so any newly-copied-forward envelopes show up immediately.
+  // The wizard itself writes the `period_ack_${toPeriodStart}` key on commit
+  // (see RolloverWizard) — this closes the wizard, refreshes the envelope
+  // list so any newly-copied-forward envelopes show up immediately, and
+  // snoozes re-opening for this period for the rest of the session (UX2-2).
+  // Runs on a plain dismiss too — `RolloverWizard` calls the same `onDone`
+  // either way — which is exactly what the snooze is for.
   const handleRolloverDone = useCallback((): void => {
+    dismissedRolloverPeriodsRef.current.add(periodStart);
     setShowRollover(false);
     void reload();
-  }, [reload]);
+  }, [reload, periodStart]);
 
   // Manually opens the rollover wizard from the empty-state "Start this
   // month's budget" button, looking up the correct fromPeriodStart on demand
@@ -210,6 +272,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     [navigation],
   );
 
+  // A transaction row tapped inside the detail sheet (UX2-7) — opens it for
+  // editing, then closes the sheet.
+  const handleOpenTransaction = useCallback(
+    (transactionId: string): void => {
+      setSelectedEnvelope(null);
+      navigation.navigate('AddTransaction', { transactionId });
+    },
+    [navigation],
+  );
+
   // Envelopes already reload on sync inside `useEnvelopes`; the savings ledger
   // does not, so a partner's rollover contribution would otherwise stay stale.
   useReloadOnSync(reloadSavings);
@@ -234,6 +306,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const persistentEnvelopes = useMemo(
     () => spendEnvelopes.filter((e) => getEnvelopeScope(e) === 'persistent'),
     [spendEnvelopes],
+  );
+  // UX2-17: overspent-first ordering for the visible list, kept separate
+  // from `budgetSpendEnvelopes` (which still feeds totals/score input, where
+  // order doesn't matter) so this is a pure display concern.
+  const sortedBudgetSpendEnvelopes = useMemo(
+    () => sortEnvelopesByUsageDescending(budgetSpendEnvelopes),
+    [budgetSpendEnvelopes],
   );
   const budgetBalance = useMemo(() => calculateBudgetBalance(envelopes), [envelopes]);
   const hasIncome = envelopes.some((e) => e.envelopeType === 'income');
@@ -268,7 +347,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   // ── Theme-derived colors ──────────────────────────────────────────────────
   const cardBg = isDark ? P.tileBgDark : '#FFFFFF';
   const cardBorder = isDark ? P.tileBorderDark : P.tileBorderLight;
-  const labelColor = isDark ? P.statLabel : '#5A7A6E';
+  // UX2-6: secondary labels ("Spent"/"Budget"/"X left"/"%"/the safe-to-spend
+  // caption) used to hard-code `P.statLabel` in dark mode — rgba(160,210,190,
+  // 0.40) on #071A16 is ~2.7:1, well under the ~4.5:1 body-text contrast
+  // floor. `colors.onSurfaceVariant` is the theme's own secondary-text token
+  // and is tuned for contrast in both modes.
+  const labelColor = colors.onSurfaceVariant;
   const valueColor = isDark ? 'rgba(220,245,235,0.90)' : '#1A2E28';
   const accentColor = isDark ? P.accent : '#00695C';
   const fabBg = isDark ? '#00895A' : '#00695C';
@@ -299,14 +383,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
             <View style={styles.statRow}>
               <View style={styles.stat}>
                 <Text style={[styles.statLabel, { color: labelColor }]}>Spent</Text>
-                <Text style={[styles.statValue, { color: valueColor }]}>
+                <Text
+                  style={[styles.statValue, { color: valueColor }]}
+                  testID="dashboard-stat-spent-value"
+                >
                   {formatCurrency(totalSpent)}
                 </Text>
               </View>
               <View style={[styles.statDivider, { backgroundColor: cardBorder }]} />
               <View style={styles.stat}>
                 <Text style={[styles.statLabel, { color: labelColor }]}>Budget</Text>
-                <Text style={[styles.statValue, { color: valueColor }]}>
+                <Text
+                  style={[styles.statValue, { color: valueColor }]}
+                  testID="dashboard-stat-budget-value"
+                >
                   {formatCurrency(totalAllocated)}
                 </Text>
               </View>
@@ -326,13 +416,23 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
             {/* "Safe to spend today" — the period-scoped spend envelopes'
                 remaining budget spread over the days left, so the household
                 sees one daily number instead of doing the division
-                themselves against "Remaining" and days-left. */}
-            <Text
-              style={[styles.safeToSpend, { color: labelColor }]}
+                themselves against "Remaining" and days-left. Its own small
+                card directly under the ring (UX2-6), not a caption-sized
+                line lost among the stat row above it. */}
+            <View
+              style={[styles.safeToSpendCard, { backgroundColor: cardBg, borderColor: cardBorder }]}
               testID="dashboard-safe-to-spend"
             >
-              {`Safe to spend today: ${formatCurrency(safeToSpendTodayCents)}`}
-            </Text>
+              <Text style={[styles.safeToSpendLabel, { color: labelColor }]}>
+                Safe to spend today
+              </Text>
+              <Text style={[styles.safeToSpendValue, { color: colors.primary }]}>
+                {formatCurrency(safeToSpendTodayCents)}
+              </Text>
+              <Text style={[styles.safeToSpendCaption, { color: labelColor }]}>
+                {`${formatCurrency(periodSpendRemainingCents)} left across ${budgetSpendEnvelopes.length} envelope${budgetSpendEnvelopes.length === 1 ? '' : 's'} · ${daysRemaining}d to payday`}
+              </Text>
+            </View>
 
             {/* Income / To assign — shown separately from the spend totals
                 above (DOM-5/UX-4/VAL-1): income funds the budget, it isn't
@@ -351,7 +451,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
                   <Text
                     style={[
                       styles.statValue,
-                      { color: budgetBalance.toAssign < 0 ? '#EF4444' : valueColor },
+                      { color: budgetBalance.toAssign < 0 ? colors.error : valueColor },
                     ]}
                   >
                     {formatCurrency(budgetBalance.toAssign)}
@@ -361,6 +461,50 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
             )}
           </View>
         )}
+
+        {/* Shortcut row — directly under the ring + safe-to-spend card
+            (UX2-17), not buried below the full envelope list. */}
+        <View style={styles.secondaryRow}>
+          {[
+            {
+              icon: 'chart-line',
+              label: 'Forecast',
+              onPress: () => navigation.navigate('Forecast'),
+              testID: 'forecast-entry',
+            },
+            {
+              icon: 'piggy-bank-outline',
+              label: 'Savings goals',
+              onPress: () => navigation.navigate('SinkingFunds'),
+              testID: 'sinking-funds-entry',
+            },
+            {
+              icon: 'shoe-print',
+              label: 'Baby steps',
+              onPress: () => navigation.navigate('BabySteps'),
+              testID: 'baby-steps-entry',
+            },
+            {
+              icon: 'chart-donut',
+              label: 'Budget',
+              onPress: () => navigation.navigate('Budget'),
+              testID: 'budget-entry',
+            },
+          ].map((btn) => (
+            <TouchableOpacity
+              key={btn.label}
+              style={[styles.secondaryBtn, { backgroundColor: cardBg, borderColor: cardBorder }]}
+              onPress={btn.onPress}
+              activeOpacity={0.7}
+              testID={btn.testID}
+              accessibilityRole="button"
+              accessibilityLabel={btn.label}
+            >
+              <MaterialCommunityIcons name={btn.icon} size={20} color={accentColor} />
+              <Text style={[styles.secondaryLbl, { color: labelColor }]}>{btn.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         {/* Baby steps bar */}
         {babyStepStatuses.length > 0 && (
@@ -408,9 +552,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       totalAllocated,
       totalSpent,
       safeToSpendTodayCents,
+      periodSpendRemainingCents,
       daysRemaining,
       scoreResult.score,
       isDark,
+      colors,
+      accentColor,
+      cardBg,
+      cardBorder,
+      labelColor,
       periodLabel,
       babyStepStatuses,
     ],
@@ -455,39 +605,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           </View>
         )}
 
-        {/* Secondary actions */}
-        <View style={styles.secondaryRow}>
-          {[
-            {
-              icon: '💰',
-              label: 'Sinking',
-              onPress: () => navigation.navigate('SinkingFunds'),
-              testID: 'sinking-funds-entry',
-            },
-            {
-              icon: '📈',
-              label: 'Forecast',
-              onPress: () => navigation.navigate('Forecast'),
-              testID: 'forecast-entry',
-            },
-            { icon: '🎯', label: 'Steps', onPress: () => navigation.navigate('BabySteps') },
-            { icon: '📊', label: 'Budget', onPress: () => navigation.navigate('Budget') },
-          ].map((btn) => (
-            <TouchableOpacity
-              key={btn.label}
-              style={[styles.secondaryBtn, { backgroundColor: cardBg, borderColor: cardBorder }]}
-              onPress={btn.onPress}
-              activeOpacity={0.7}
-              testID={btn.testID}
-              accessibilityRole="button"
-              accessibilityLabel={btn.label}
-            >
-              <Text style={styles.secondaryIcon}>{btn.icon}</Text>
-              <Text style={[styles.secondaryLbl, { color: labelColor }]}>{btn.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
         <View style={styles.bottomPad} />
       </View>
     ),
@@ -499,20 +616,45 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       valueColor,
       labelColor,
       sectionTitleColor,
-      navigation,
     ],
   );
 
   // ── Empty / loading ───────────────────────────────────────────────────────
-  const EmptyContent = useMemo(
-    () =>
-      loading ? (
-        <LoadingSkeletonList count={4} testID="dashboard-loading" />
-      ) : (
+  const EmptyContent = useMemo(() => {
+    if (loading) {
+      return <LoadingSkeletonList count={4} testID="dashboard-loading" />;
+    }
+
+    // UX2-8: a load failure must read as a load failure, not "no envelopes" —
+    // dropping `error` here used to make the two indistinguishable.
+    if (error) {
+      return (
         <View>
           <EmptyState
-            title="No envelopes yet"
-            body="Add your first envelope to get started"
+            title="Couldn't load your envelopes"
+            body={error}
+            testID="dashboard-error-state"
+          />
+          <TouchableOpacity
+            style={[styles.newEnvBtn, { borderColor: cardBorder }]}
+            onPress={() => void reload()}
+            testID="dashboard-retry-button"
+            accessibilityRole="button"
+          >
+            <Text style={[styles.newEnvBtnText, { color: accentColor }]}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // Savings/income exist this period but no spend envelopes — this is NOT
+    // the "brand-new household" empty state, so it must not say "No
+    // envelopes yet / Add your first envelope".
+    if (envelopes.length > 0) {
+      return (
+        <View>
+          <EmptyState
+            title="You haven't set up this month's spending yet"
             testID="dashboard-empty-state"
           />
           <TouchableOpacity
@@ -523,6 +665,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           >
             <Text style={[styles.newEnvBtnText, { color: accentColor }]}>+ New envelope</Text>
           </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (earlierPeriodHasEnvelopes) {
+      // A SINGLE contained CTA ("Start this month's budget"); "+ New
+      // envelope" is demoted to a plain text button underneath it.
+      return (
+        <View>
+          <EmptyState
+            title="No envelopes yet"
+            body="Copy last period's envelopes forward to get started."
+            testID="dashboard-empty-state"
+          />
           <TouchableOpacity
             style={[styles.newEnvBtn, { borderColor: cardBorder }]}
             onPress={handleStartNewPeriod}
@@ -533,11 +689,49 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
               Start this month&apos;s budget
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('AddEditEnvelope', {})}
+            testID="new-envelope-button"
+            accessibilityRole="button"
+          >
+            <Text style={[styles.newEnvBtnTextDemoted, { color: accentColor }]}>
+              + New envelope
+            </Text>
+          </TouchableOpacity>
         </View>
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loading, isDark, handleStartNewPeriod],
-  );
+      );
+    }
+
+    // Brand-new household — nothing to roll forward, so "+ New envelope" is
+    // the single contained CTA.
+    return (
+      <View>
+        <EmptyState
+          title="No envelopes yet"
+          body="Add your first envelope to get started"
+          testID="dashboard-empty-state"
+        />
+        <TouchableOpacity
+          style={[styles.newEnvBtn, { borderColor: cardBorder }]}
+          onPress={() => navigation.navigate('AddEditEnvelope', {})}
+          testID="new-envelope-button"
+          accessibilityRole="button"
+        >
+          <Text style={[styles.newEnvBtnText, { color: accentColor }]}>+ New envelope</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }, [
+    loading,
+    error,
+    reload,
+    envelopes.length,
+    earlierPeriodHasEnvelopes,
+    handleStartNewPeriod,
+    navigation,
+    cardBorder,
+    accentColor,
+  ]);
 
   // ── Early return: no household ────────────────────────────────────────────
   if (!householdId) return <LoadingSplash />;
@@ -561,7 +755,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           <Text style={[styles.envelopeName, { color: valueColor }]} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={[styles.envelopeAmt, { color: isOver ? '#EF4444' : labelColor }]}>
+          <Text style={[styles.envelopeAmt, { color: isOver ? colors.error : labelColor }]}>
             {isOver ? `−${formatCurrency(Math.abs(remaining))}` : formatCurrency(remaining)} left
           </Text>
         </View>
@@ -573,7 +767,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
                 styles.progressFill,
                 {
                   width: `${Math.min(100, pct)}%` as `${number}%`,
-                  backgroundColor: isOver ? '#EF4444' : accentColor,
+                  backgroundColor: isOver ? colors.error : accentColor,
                 },
               ]}
             />
@@ -589,7 +783,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     <FlatList<EnvelopeEntity>
       testID="dashboard-root"
       style={styles.list}
-      data={loading ? [] : budgetSpendEnvelopes}
+      data={loading ? [] : sortedBudgetSpendEnvelopes}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -599,7 +793,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       ListEmptyComponent={EmptyContent}
       refreshControl={
         <RefreshControl
-          refreshing={loading}
+          refreshing={refreshing}
           onRefresh={handleRefresh}
           tintColor={P.accent}
           colors={[P.accent]}
@@ -612,16 +806,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   // it stays fixed above the tab bar instead of scrolling away with the list
   // content (UX-16).
   const floatingFab = (
-    <TouchableOpacity
-      style={[styles.floatingFab, { backgroundColor: fabBg }]}
+    <FAB
+      icon="plus"
+      label="Add"
+      style={[styles.floatingFab, { backgroundColor: fabBg, bottom: spacing.xl + insets.bottom }]}
+      color="#FFFFFF"
       onPress={() => navigation.navigate('AddTransaction')}
-      activeOpacity={0.85}
-      accessibilityRole="button"
       accessibilityLabel="Add transaction"
       testID="add-transaction-fab"
-    >
-      <Text style={styles.floatingFabText}>＋</Text>
-    </TouchableOpacity>
+    />
   );
 
   const rolloverModal = (
@@ -649,9 +842,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       envelope={selectedEnvelope}
       householdId={hid}
       savedCentsByEnvelopeId={savedCentsByEnvelopeId}
+      currentPeriodStart={periodStart}
       onDismiss={handleCloseEnvelopeDetail}
       onAddTransaction={handleAddTransactionForEnvelope}
+      onOpenTransaction={handleOpenTransaction}
       onEditEnvelope={handleEditEnvelope}
+      onSavedAmountAdjusted={reloadSavings}
     />
   );
 
@@ -734,11 +930,29 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
   },
-  safeToSpend: {
-    fontFamily: 'PlusJakartaSans_500Medium',
-    fontSize: fontSize.sm,
-    textAlign: 'center',
+  safeToSpendCard: {
+    alignItems: 'center',
     marginTop: spacing.base,
+    marginHorizontal: spacing.lg,
+    paddingVertical: spacing.base,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  safeToSpendLabel: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: fontSize.xs,
+  },
+  safeToSpendValue: {
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontSize: 20,
+    marginTop: 2,
+  },
+  safeToSpendCaption: {
+    fontFamily: 'PlusJakartaSans_400Regular',
+    fontSize: fontSize.xs,
+    textAlign: 'center',
+    marginTop: 4,
   },
 
   // Section header
@@ -817,22 +1031,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: spacing.base,
     bottom: spacing.xl,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  floatingFabText: {
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    fontSize: 28,
-    lineHeight: 30,
-    color: '#FFFFFF',
   },
 
   // Secondary actions
@@ -850,7 +1048,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  secondaryIcon: { fontSize: 18, lineHeight: 20 },
   secondaryLbl: {
     fontFamily: 'PlusJakartaSans_500Medium',
     fontSize: fontSize.xs,
@@ -869,5 +1066,13 @@ const styles = StyleSheet.create({
   newEnvBtnText: {
     fontFamily: 'PlusJakartaSans_600SemiBold',
     fontSize: fontSize.base,
+  },
+  // Demoted "+ New envelope" text button (UX2-8) — used when "Start this
+  // month's budget" is the single CONTAINED empty-state CTA.
+  newEnvBtnTextDemoted: {
+    fontFamily: 'PlusJakartaSans_500Medium',
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+    marginTop: spacing.base,
   },
 });

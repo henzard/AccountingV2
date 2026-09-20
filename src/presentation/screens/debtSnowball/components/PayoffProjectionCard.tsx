@@ -28,23 +28,25 @@ export function PayoffProjectionCard({
 
   return (
     <View style={[styles.card, { backgroundColor: colors.primary }]}>
-      <Text style={styles.eyebrow}>DEBT-FREE DATE</Text>
+      <Text style={[styles.eyebrow, { color: colors.onPrimary }]}>DEBT-FREE DATE</Text>
       {plan.debtFreeDate ? (
         <>
           <Text style={[styles.date, { color: colors.onPrimary }]}>
             {format(plan.debtFreeDate, 'MMM yyyy')}
           </Text>
           {monthsRemaining !== null && monthsRemaining > 0 && (
-            <Text style={styles.months}>
+            <Text style={[styles.months, { color: colors.onPrimary }]}>
               {monthsRemaining} month{monthsRemaining !== 1 ? 's' : ''} away
             </Text>
           )}
         </>
       ) : (
-        <Text style={styles.unknown}>Increase payments to project a date</Text>
+        <Text style={[styles.unknown, { color: colors.onPrimary }]}>
+          Increase payments to project a date
+        </Text>
       )}
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.onPrimary }]} />
 
       <View style={styles.row}>
         <StatCard
@@ -73,7 +75,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   eyebrow: {
-    color: 'rgba(255,255,255,0.65)',
     fontSize: 11,
     fontFamily: 'PlusJakartaSans_600SemiBold',
     letterSpacing: 1.4,
@@ -85,19 +86,16 @@ const styles = StyleSheet.create({
     lineHeight: 42,
   },
   months: {
-    color: 'rgba(255,255,255,0.75)',
     fontSize: 13,
     fontFamily: 'PlusJakartaSans_600SemiBold',
     marginTop: spacing.xs / 2,
   },
   unknown: {
-    color: 'rgba(255,255,255,0.65)',
     fontSize: 14,
     marginTop: spacing.xs,
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.2)',
     marginVertical: spacing.base,
   },
   row: { flexDirection: 'row', gap: spacing.sm },

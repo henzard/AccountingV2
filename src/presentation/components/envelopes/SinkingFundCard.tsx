@@ -20,6 +20,12 @@ interface SinkingFundCardProps {
    */
   savedCents: number;
   onPress?: () => void;
+  /**
+   * Opens the manual saved-balance correction. Optional because only screens
+   * that own a household id and a period (and can therefore write the
+   * adjustment) offer it — the card itself never writes.
+   */
+  onAdjustSaved?: () => void;
   testID?: string;
 }
 
@@ -29,6 +35,7 @@ export function SinkingFundCard({
   envelope,
   savedCents,
   onPress,
+  onAdjustSaved,
   testID,
 }: SinkingFundCardProps): React.JSX.Element {
   const { colors } = useAppTheme();
@@ -107,6 +114,19 @@ export function SinkingFundCard({
             </View>
           </>
         )}
+
+        {onAdjustSaved && (
+          <TouchableOpacity
+            onPress={onAdjustSaved}
+            accessibilityRole="button"
+            accessibilityLabel={`Adjust saved amount for ${envelope.name}`}
+            testID={`sinking-fund-adjust-${envelope.id}`}
+            style={styles.adjustRow}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[styles.meta, { color: colors.primary }]}>Adjust saved amount</Text>
+          </TouchableOpacity>
+        )}
       </Surface>
     </TouchableOpacity>
   );
@@ -138,6 +158,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   fill: { height: 6, borderRadius: radius.full },
+  adjustRow: { marginTop: spacing.sm, minHeight: 32, justifyContent: 'center' },
   footer: { flexDirection: 'row', justifyContent: 'space-between' },
   meta: { fontSize: fontSize.sm },
 });

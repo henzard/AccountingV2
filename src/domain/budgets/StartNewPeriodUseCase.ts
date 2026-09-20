@@ -10,10 +10,12 @@ import { insertRowWithinUow } from '../../data/uow/createSyncedRepo';
 import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
-import { createSuccess } from '../shared/types';
+import { createSuccess, createFailure } from '../shared/types';
 import { uuidv5, APP_NAMESPACE } from '../../infrastructure/crypto/uuidv5';
+import { requestSyncNow } from '../../data/sync/syncRuntime';
 import {
   buildContributionRow,
+  ensureOpeningBalances,
   findExistingContributionIds,
   findFundedEnvelopeIdsForPeriod,
   isContributingEnvelope,
@@ -112,6 +114,31 @@ export class StartNewPeriodUseCase {
 
   async execute(input: StartNewPeriodInput): Promise<Result<StartNewPeriodOutput>> {
     const { householdId, fromPeriodStart, toPeriodStart } = input;
+
+    // SEC2-5: every row this use case writes carries a DETERMINISTIC id, and
+    // both `apply_one_op` (ON CONFLICT DO NOTHING) and the puller (INSERT OR
+    // IGNORE) treat a duplicate id as already-applied. That makes the AMOUNT
+    // permanently owned by whichever device wrote first, so a device that
+    // rolls over before its first pull has landed would bake a stale
+    // `allocatedCents` into the ledger with no way to correct it. Push/pull
+    // first so the envelope rows these amounts are read from are current.
+    // Rejection is expected offline / signed out and must not block the
+    // rollover — a user on a plane still gets their new period.
+    try {
+      await requestSyncNow(householdId);
+    } catch {
+      // Offline, signed out, or booted before the scheduler exists.
+    }
+
+    // REG-4: a LEGACY persistent envelope's `allocatedCents` is a SAVED
+    // balance, not a monthly contribution — funding it here is what turned a
+    // R10,000 emergency fund into R20,000 on the first rollover. This moves
+    // any such number into the ledger as an opening balance and leaves the
+    // column at 0 until the user confirms a real monthly amount, so the
+    // funding pass below simply never sees it. Idempotent and coalesced, so
+    // calling it on every rollover costs one query on a normalised household.
+    const opening = await ensureOpeningBalances(this.db, householdId, this.deps);
+    if (!opening.success) return createFailure(opening.error);
 
     // `envelopeScopeCondition` also matches persistent-type rows
     // unconditionally (by design — see its doc comment), so the

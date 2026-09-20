@@ -57,6 +57,16 @@ interface TableSnapshot {
   rows: Record<string, unknown>[];
 }
 
+/** Everything one household restore writes locally, as fetched from the
+ * server in one pass. Re-fetched WHOLE by `stabiliseCursor` when the server
+ * oplog moved during a pass — see that method for why nothing narrower is
+ * sound. */
+interface HouseholdSnapshot {
+  memberRows: Record<string, unknown>[];
+  tables: TableSnapshot[];
+  consentRows: Record<string, unknown>[];
+}
+
 /**
  * True for the error PostgREST returns when the table itself is absent —
  * either the schema-cache miss (`PGRST205`) or Postgres's own
@@ -163,43 +173,13 @@ export class RestoreService {
     // Cursor FIRST (see the doc comment above), then the snapshot itself.
     const firstSeq = await this.readServerMaxSeq(householdId);
 
-    const memberRows = await this.fetchAll('household_members', 'household_id', householdId);
-    const snapshots: TableSnapshot[] = [
-      {
-        localTable: envelopes,
-        rows: await this.fetchAll('envelopes', 'household_id', householdId),
-      },
-      {
-        // AFTER envelopes: a savings fund's balance is the sum of its
-        // contributions, so a device that joins by restore shows every fund
-        // at R0 without them. Tolerates an older server that has not yet run
-        // migration 0008 (see `fetchAll`'s `optional` flag).
-        localTable: envelopeContributions,
-        rows: await this.fetchAll('envelope_contributions', 'household_id', householdId, {
-          optional: true,
-        }),
-      },
-      {
-        localTable: transactions,
-        rows: await this.fetchAll('transactions', 'household_id', householdId),
-      },
-      { localTable: debts, rows: await this.fetchAll('debts', 'household_id', householdId) },
-      {
-        localTable: meterReadings,
-        rows: await this.fetchAll('meter_readings', 'household_id', householdId),
-      },
-      {
-        localTable: babySteps,
-        rows: await this.fetchAll('baby_steps', 'household_id', householdId),
-      },
-      {
-        localTable: slipQueue,
-        rows: await this.fetchAll('slip_queue', 'household_id', householdId),
-      },
-    ];
-    const consentRows = await this.fetchAll('user_consent', 'user_id', userId);
-
-    const cursorSeq = await this.stabiliseCursor(householdId, firstSeq, snapshots);
+    let snapshot = await this.fetchSnapshot(householdId, userId);
+    const stabilised = await this.stabiliseCursor(householdId, firstSeq, () =>
+      this.fetchSnapshot(householdId, userId),
+    );
+    const cursorSeq = stabilised.cursorSeq;
+    if (stabilised.snapshot) snapshot = stabilised.snapshot;
+    const { memberRows, tables: snapshots, consentRows } = snapshot;
 
     // Rows this device still owes the server. An unconditional overwrite here
     // would silently discard a local edit that has not been pushed yet — the
@@ -269,6 +249,48 @@ export class RestoreService {
     return summary;
   }
 
+  /** One complete server-side read of everything a household restore writes
+   * locally. Every fetch happens before the local transaction opens, so a
+   * failure throws with nothing written (see `restoreHousehold`). */
+  private async fetchSnapshot(householdId: string, userId: string): Promise<HouseholdSnapshot> {
+    const memberRows = await this.fetchAll('household_members', 'household_id', householdId);
+    const tables: TableSnapshot[] = [
+      {
+        localTable: envelopes,
+        rows: await this.fetchAll('envelopes', 'household_id', householdId),
+      },
+      {
+        // AFTER envelopes: a savings fund's balance is the sum of its
+        // contributions, so a device that joins by restore shows every fund
+        // at R0 without them. Tolerates an older server that has not yet run
+        // migration 0008 (see `fetchAll`'s `optional` flag).
+        localTable: envelopeContributions,
+        rows: await this.fetchAll('envelope_contributions', 'household_id', householdId, {
+          optional: true,
+        }),
+      },
+      {
+        localTable: transactions,
+        rows: await this.fetchAll('transactions', 'household_id', householdId),
+      },
+      { localTable: debts, rows: await this.fetchAll('debts', 'household_id', householdId) },
+      {
+        localTable: meterReadings,
+        rows: await this.fetchAll('meter_readings', 'household_id', householdId),
+      },
+      {
+        localTable: babySteps,
+        rows: await this.fetchAll('baby_steps', 'household_id', householdId),
+      },
+      {
+        localTable: slipQueue,
+        rows: await this.fetchAll('slip_queue', 'household_id', householdId),
+      },
+    ];
+    const consentRows = await this.fetchAll('user_consent', 'user_id', userId);
+    return { memberRows, tables, consentRows };
+  }
+
   /**
    * Narrows the one window the cursor-before-fetch ordering leaves open.
    *
@@ -277,35 +299,54 @@ export class RestoreService {
    * re-delivered by the first pull. For an absolute-value op that is a
    * converging no-op; for an `increment` it double-counts.
    *
-   * Without a server-side snapshot-at-seq RPC this cannot be closed, but it
-   * can be shrunk to the width of one extra round trip: re-read the max seq
-   * after the fetches, and while it has moved, re-fetch the tables that can
-   * carry increments and adopt the newer seq — accepting it only once a
-   * FOLLOWING read shows no further movement, so the snapshot and the cursor
-   * are known to describe the same point.
+   * So: re-read the max seq after a pass. If it did not move, NO op committed
+   * between the seq read that opened the pass and this one, so that pass's
+   * snapshot contains exactly the ops up to `candidate` and adopting it as
+   * the cursor is exact — nothing missed, nothing double-applied. If it DID
+   * move, the pass is re-run WHOLE and the newer seq becomes the candidate
+   * for the next round of the same argument.
+   *
+   * SEC2-3: the previous version adopted the newer seq after re-fetching only
+   * `debts`. That is unsound in the "missed op forever" direction, which is
+   * strictly worse than the double-apply it was shrinking: an op committed
+   * after the transactions fetch but before the second seq read is in neither
+   * the snapshot (the transactions page was already taken) nor the pull range
+   * (the cursor now sits past it), so that transaction never appears on this
+   * device again.
+   *
+   * A narrower fix was considered and rejected as NOT provably sound:
+   * pre-inserting the `increment` ops in `(firstSeq, latest]` into
+   * `oplog_applied` when the re-fetched `debts` snapshot already contains
+   * their effect. The point in the seq order at which a Supabase table fetch
+   * observed the database is not observable to this client, so an increment
+   * committed after the debts re-fetch but before the seq read cannot be
+   * distinguished from one committed before it — and marking such an op
+   * applied loses a real debt payment. Sandwiching the fetch between two seq
+   * reads only shrinks that ambiguous window without closing it, and it does
+   * nothing for the non-debts tables. Re-fetching everything closes the
+   * window outright whenever the household settles, which is the common case.
    *
    * Bounded: a household busy enough to move on every attempt falls back to
-   * `firstSeq`, i.e. exactly the conservative never-miss-an-op behaviour.
+   * `firstSeq` — the conservative never-miss-an-op behaviour, at the cost of
+   * the narrow increment double-apply window this exists to shrink.
    *
-   * `debts` is the only increment-carrying table — `LogDebtPaymentUseCase` is
-   * the sole producer of `increment` ops (`createSyncedRepo.increment` has no
-   * other production call site). A new increment writer MUST be added here.
+   * Returns the cursor to write, plus the re-fetched snapshot when a later
+   * pass replaced the caller's (the cursor and the data it describes must
+   * always come from the SAME pass).
    */
   private async stabiliseCursor(
     householdId: string,
     firstSeq: number,
-    snapshots: TableSnapshot[],
-  ): Promise<number> {
+    refetch: () => Promise<HouseholdSnapshot>,
+  ): Promise<{ cursorSeq: number; snapshot: HouseholdSnapshot | null }> {
     let candidate = firstSeq;
+    let snapshot: HouseholdSnapshot | null = null;
 
     for (let attempt = 0; attempt < CURSOR_STABILISE_ATTEMPTS; attempt += 1) {
       const latest = await this.readServerMaxSeq(householdId);
-      if (latest === candidate) return candidate;
+      if (latest === candidate) return { cursorSeq: candidate, snapshot };
 
-      const debtsSnapshot = snapshots.find((s) => s.localTable === debts);
-      if (debtsSnapshot) {
-        debtsSnapshot.rows = await this.fetchAll('debts', 'household_id', householdId);
-      }
+      snapshot = await refetch();
       candidate = latest;
     }
 
@@ -313,7 +354,11 @@ export class RestoreService {
       'RestoreService: server oplog kept advancing during restore, using the pre-fetch cursor',
       { householdId, firstSeq, candidate },
     );
-    return firstSeq;
+    // firstSeq describes the FIRST pass, but every later pass is a superset of
+    // it (ops only accumulate) and the pull will replay (firstSeq, ...] on top
+    // of whichever one committed — so the freshest snapshot is still correct
+    // and strictly closer to server truth.
+    return { cursorSeq: firstSeq, snapshot };
   }
 
   /** True once this household has been sync-bootstrapped (by a restore or by

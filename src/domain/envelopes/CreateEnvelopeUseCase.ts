@@ -5,9 +5,15 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
-import { isUniqueConstraintError } from '../../data/uow/createSyncedRepo';
+import { insertRowWithinUow, isUniqueConstraintError } from '../../data/uow/createSyncedRepo';
+import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
+import {
+  buildContributionRow,
+  isContributingEnvelope,
+  periodContributionId,
+} from '../budgets/PersistentContributions';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
 import { bestEffortAudit } from '../shared/bestEffortAudit';
@@ -143,9 +149,36 @@ export class CreateEnvelopeUseCase {
       updated_at: envelope.updatedAt,
     };
 
-    const repo = resolveSyncedRepo(this.db, 'envelopes', this.deps);
+    // REG-7: a persistent envelope created MID-period never sees a rollover
+    // into the period it was born in — `StartNewPeriodUseCase` only funds the
+    // period it rolls INTO — so a fund created on the 3rd showed R0 saved
+    // until the NEXT payday, however much the user had budgeted for it. Its
+    // creation period is funded here instead, in the SAME unit of work as the
+    // envelope so a fund can never exist without its first contribution.
+    //
+    // The id is `periodContributionId(...)` — the exact id a later rollover
+    // into this period would compute — so that rollover's existing
+    // deterministic-id check skips it instead of funding the period twice.
+    const ctx = resolveSyncedRepoCtx(this.deps);
+    const contributionRow = isContributingEnvelope(envelope)
+      ? buildContributionRow({
+          id: periodContributionId(envelope.householdId, envelope.id, envelope.periodStart),
+          householdId: envelope.householdId,
+          envelopeId: envelope.id,
+          amountCents: envelope.allocatedCents,
+          periodStart: envelope.periodStart,
+          source: 'initial',
+          now,
+        })
+      : null;
+
     try {
-      repo.insert(row, resolveSyncedRepoCtx(this.deps));
+      runInUnitOfWork(this.db, (uow) => {
+        insertRowWithinUow(uow, 'envelopes', row, ctx);
+        if (contributionRow) {
+          insertRowWithinUow(uow, 'envelope_contributions', contributionRow, ctx);
+        }
+      });
     } catch (err) {
       // A same-device race that slipped past the pre-check above (two
       // overlapping `execute()` calls both read "no existing active EMF")

@@ -32,7 +32,7 @@ export function BudgetRingCard({
   const dashOffset = CIRCUMFERENCE * (1 - pct);
   const remainingCents = Math.max(0, totalAllocatedCents - totalSpentCents);
   const isOver = totalSpentCents > totalAllocatedCents;
-  const ringColor = isOver ? colors.error : score >= 70 ? colors.primary : '#F5A623';
+  const ringColor = isOver ? colors.error : score >= 70 ? colors.primary : colors.warning;
 
   return (
     <View style={styles.container} testID={testID}>

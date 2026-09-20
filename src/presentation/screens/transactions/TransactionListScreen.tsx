@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, SectionList, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, SectionList, TouchableOpacity, RefreshControl } from 'react-native';
 import {
   FAB,
   ActivityIndicator,
@@ -27,6 +27,7 @@ import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
+import { requestSyncNow } from '../../../data/sync/syncRuntime';
 import { formatCurrency } from '../../utils/currency';
 import { fontSize, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -127,11 +128,28 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
     }, [reload]),
   );
 
+  // UX2-12: pull-to-refresh — asks the sync scheduler for an immediate round
+  // (best-effort; a rejection just means offline or no runtime registered,
+  // which the local reload below still serves fine) before reloading from
+  // local storage.
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      await requestSyncNow(hid);
+    } catch {
+      // Offline, or no sync runtime registered yet — the local reload below
+      // still shows whatever this device already has.
+    }
+    await reload();
+    setRefreshing(false);
+  }, [hid, reload]);
+
   const handleDelete = useCallback(
     async (tx: TransactionEntity): Promise<void> => {
       const confirmed = await confirm({
         title: 'Delete transaction?',
-        message: `${tx.payee ?? 'Unknown'} — ${(tx.amountCents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' })}`,
+        message: `${tx.payee ?? 'Unknown'} — ${formatCurrency(tx.amountCents)}`,
         confirmLabel: 'Delete',
         destructive: true,
       });
@@ -162,12 +180,18 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
 
   const sections = groupByDate(filteredTransactions);
   const trimmedQuery = debouncedQuery.trim();
+  const isPastPeriod = !isCurrentOrFuturePeriod(paydayDay, viewedPeriod);
+  // UX2-12: while searching, the total needs to say what it's a total OF
+  // (the visible matches), not just repeat the unlabelled period figure.
+  const totalLabel = trimmedQuery
+    ? `${filteredTransactions.length} ${filteredTransactions.length === 1 ? 'match' : 'matches'} · ${formatCurrency(periodTotalCents)}`
+    : `Spent this period: ${formatCurrency(periodTotalCents)}`;
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <Surface style={[styles.header, { backgroundColor: colors.surface }]} elevation={0}>
         <View style={styles.headerRow}>
-          <ScreenHeader eyebrow="Transactions" title="Transactions" />
+          <ScreenHeader title="Transactions" />
           <TouchableOpacity
             onPress={() => navigation.navigate('BusinessExpenseReport')}
             style={styles.bizButton}
@@ -214,7 +238,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           style={[styles.periodTotal, { color: colors.onSurfaceVariant }]}
           testID="period-total"
         >
-          {formatCurrency(periodTotalCents)}
+          {totalLabel}
         </Text>
       </Surface>
 
@@ -231,7 +255,7 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
       ) : transactions.length === 0 ? (
         <EmptyState
           title="No transactions this period"
-          body="Tap + to record spending"
+          body={isPastPeriod ? 'Nothing was recorded in this period.' : 'Tap + to record spending'}
           testID="transaction-list-empty-state"
         />
       ) : filteredTransactions.length === 0 ? (
@@ -280,15 +304,27 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
           ItemSeparatorComponent={renderSeparator}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled
+          refreshControl={
+            <RefreshControl
+              testID="transaction-list-refresh-control"
+              refreshing={refreshing}
+              onRefresh={() => void handleRefresh()}
+              colors={[colors.primary]}
+            />
+          }
         />
       )}
 
+      {/* Back-dating into a past period is legitimate, so the FAB stays —
+          but a past period's + is easy to mistake for "add today's spend",
+          so it carries a label there instead of being a bare icon. */}
       <FAB
         icon="plus"
+        label={isPastPeriod ? 'Back-date entry' : undefined}
         style={[styles.fab, { backgroundColor: colors.primary }]}
         onPress={() => navigation.navigate('AddTransaction')}
         color={colors.onPrimary}
-        accessibilityLabel="Add transaction"
+        accessibilityLabel={isPastPeriod ? 'Back-date a transaction' : 'Add transaction'}
       />
     </View>
   );

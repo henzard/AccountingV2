@@ -12,6 +12,9 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 // ─── Navigation mock ──────────────────────────────────────────────────────────
 const mockGoBack = jest.fn();
+jest.mock('../../../boot/eveningLogPrompt', () => ({
+  rearmEveningLogPrompt: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ goBack: mockGoBack }),
@@ -130,6 +133,19 @@ jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
   envelopeScopeCondition: jest.fn(() => 'scope-condition'),
 }));
 
+// ─── usePersistentEnvelopeSavings mock ────────────────────────────────────────
+// REG-8/VAL2-2: a persistent envelope's balance comes from this hook, not
+// allocatedCents/spentCents — none of this file's fixtures are persistent
+// envelopes, so an empty map is enough here.
+jest.mock('../../../hooks/usePersistentEnvelopeSavings', () => ({
+  usePersistentEnvelopeSavings: jest.fn(() => ({
+    savedCentsByEnvelopeId: new Map(),
+    loading: false,
+    error: null,
+    reload: jest.fn(),
+  })),
+}));
+
 // ─── AuditLogger mock ─────────────────────────────────────────────────────────
 jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
@@ -165,6 +181,7 @@ jest.mock('drizzle-orm', () => ({
   and: jest.fn((...args: unknown[]) => args),
   eq: jest.fn((col: unknown, val: unknown) => ({ col, val })),
   ne: jest.fn((col: unknown, val: unknown) => ({ col, val })),
+  isNull: jest.fn((col: unknown) => ({ isNull: col })),
 }));
 
 // ─── Schema mock ──────────────────────────────────────────────────────────────
@@ -425,6 +442,11 @@ describe('AddTransactionScreen', () => {
           }),
         );
       });
+      // Logged today, so the evening "log your spending" window is re-armed.
+      const { rearmEveningLogPrompt } = jest.requireMock('../../../boot/eveningLogPrompt') as {
+        rearmEveningLogPrompt: jest.Mock;
+      };
+      expect(rearmEveningLogPrompt).toHaveBeenCalled();
     });
   });
 });

@@ -37,7 +37,7 @@
 import { sql } from 'drizzle-orm';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { notifyOplogWrite, type PortableDb } from '../uow/UnitOfWork';
-import { UNASSIGNED_DEVICE_ID, getSyncWriteDefaults } from '../../domain/shared/syncWrite';
+import { getSyncWriteDefaults } from '../../domain/shared/syncWrite';
 import { isActiveEmergencyFund, resolveIncomingEmergencyFund } from './emergencyFundConflict';
 import { publishHouseholdEviction } from './householdEviction';
 import { logger } from '../../infrastructure/logging/Logger';
@@ -398,6 +398,11 @@ function nextAttemptAt(retryCount: number, baseMs: number, maxMs: number, nowIso
 // SyncEngine.
 // ---------------------------------------------------------------------------
 
+/** How long an acknowledged local oplog row is kept before `prunePushedOps`
+ * drops it. Long enough to stay a useful local audit trail and to outlive any
+ * realistic re-delivery window, short enough to bound the table. */
+const OPLOG_RETENTION_DAYS = 30;
+
 export class SyncEngine {
   private readonly db: PortableDb;
   private readonly transport: SyncTransport;
@@ -441,6 +446,12 @@ export class SyncEngine {
     string,
     { opIds: string[]; error: string; blockedAt: string }
   >();
+
+  /** Tables a pulled op named that this app version's schema does not have,
+   * and `table.column` pairs likewise — one warning each per session (see
+   * `applyOne`'s forward-compatibility note). */
+  private readonly loggedUnknownTables = new Set<string>();
+  private readonly loggedUnknownColumns = new Set<string>();
 
   constructor(deps: SyncEngineDeps) {
     this.db = deps.db;
@@ -497,7 +508,50 @@ export class SyncEngine {
       };
       return result;
     });
+    if (summary && !summary.transportFailed && !summary.pullBlocked && !summary.skipped) {
+      this.prunePushedOps();
+    }
     return summary ?? { transportFailed: false, pullBlocked: false, skipped: true };
+  }
+
+  /**
+   * SEC2-14. Drops local oplog rows the server acknowledged more than
+   * `OPLOG_RETENTION_DAYS` ago. The outbox is append-only otherwise, so on a
+   * long-lived install it grows without bound — every transaction, every
+   * balance increment, payload and all, kept on the device forever.
+   *
+   * Strictly limited to rows with a `pushed_at` older than the cutoff:
+   *  - an UNPUSHED row is still owed to the server (deleting it loses the
+   *    write outright);
+   *  - a DEAD-LETTERED row is the DLQ's only record of a rejected write and
+   *    is what `retryDeadLettered`/`discardDeadLettered` act on;
+   *  - `oplog_applied` is deliberately untouched — it is the receiver-side
+   *    idempotency ledger (R5) and pruning it would let a re-delivered
+   *    `increment` double-count.
+   *
+   * The 30-day floor keeps `isOwnIncrement`'s "was this op written here?"
+   * lookup correct for anything the server could still be re-delivering: the
+   * puller's cursor only moves forward, so a pruned op can reappear only via
+   * a full restore, which resets the cursor and rebuilds from a snapshot.
+   *
+   * Best-effort — never throws out of a successful round.
+   */
+  private prunePushedOps(): void {
+    const cutoff = new Date(
+      Date.parse(this.clock()) - OPLOG_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    try {
+      this.db.run(sql`
+        DELETE FROM oplog
+        WHERE pushed_at IS NOT NULL
+          AND dead_lettered_at IS NULL
+          AND pushed_at < ${cutoff}
+      `);
+    } catch (err) {
+      logger.warn('SyncEngine: pruning pushed oplog rows failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /** Sync Health surface (Task 5): is this household's puller stalled on a
@@ -1199,8 +1253,7 @@ export class SyncEngine {
         const seen = tx.get(sql`SELECT 1 AS x FROM oplog_applied WHERE op_id = ${row.op_id}`);
         if (seen) continue; // R5: already applied -> no-op
         tx.run(sql`INSERT OR IGNORE INTO oplog_applied (op_id) VALUES (${row.op_id})`);
-        this.applyOne(tx, row, fallbackNow, effects);
-        applied += 1;
+        if (this.applyOne(tx, row, fallbackNow, effects)) applied += 1;
       }
       // Cursor advance — SAME transaction as the applied ops. MAX() keeps it
       // monotonic so it can never regress on a re-pull.
@@ -1226,13 +1279,16 @@ export class SyncEngine {
    * therefore already folded into local state — re-applying it would
    * double-count the delta (money corruption, SYNC-1).
    *
-   * Normally that is a device-id match. The extra clause covers ops written
-   * by SHIPPED builds before `setSyncWriteDefaults` existed: those carry the
-   * placeholder `UNASSIGNED_DEVICE_ID`, not this install's real id, so after
-   * the upgrade a device-id comparison alone would treat its OWN historical
-   * increments as remote and re-apply every one of them on the next pull. A
-   * placeholder-attributed op whose `op_id` is in THIS device's local oplog
-   * can only have been written here.
+   * The ONLY evidence accepted is that the op's `op_id` is in THIS device's
+   * local oplog — an op can only get there by being written here. `device_id`
+   * is deliberately NOT consulted (SEC2-11): it is attacker-controlled wire
+   * data, so a household member who stamps a partner's device id on their own
+   * increment would make that partner's device skip a REAL remote increment
+   * and silently lose the money. The op_id rule also covers the case the
+   * device-id comparison used to exist for — ops written by SHIPPED builds
+   * before `setSyncWriteDefaults` existed carry the `UNASSIGNED_DEVICE_ID`
+   * placeholder rather than this install's real id, and they are in the local
+   * oplog just the same.
    *
    * (Ops written from now on are additionally recorded in `oplog_applied` at
    * write time — see `runInUnitOfWork` — so the `seen` check below catches
@@ -1240,8 +1296,6 @@ export class SyncEngine {
    * backstop and the migration path for already-pushed history.)
    */
   private isOwnIncrement(tx: PortableDb, row: ServerOplogRow): boolean {
-    if (row.device_id === this.deviceId) return true;
-    if (row.device_id !== UNASSIGNED_DEVICE_ID) return false;
     return tx.get(sql`SELECT 1 AS x FROM oplog WHERE op_id = ${row.op_id}`) != null;
   }
 
@@ -1296,21 +1350,50 @@ export class SyncEngine {
     return row ? Number(row.c) : 0;
   }
 
-  /** Applies one inbound op to the local entity table. Writes ONLY real local
-   * columns — the payload never carries derived/local-only columns (e.g. the
-   * dropped `envelopes.spent_cents`) because the server allowlist rejects any
-   * column outside the entity's real schema. */
+  /**
+   * Applies one inbound op to the local entity table, and returns whether it
+   * actually wrote anything (`false` = deliberately skipped, see below).
+   *
+   * FORWARD COMPATIBILITY (REG-1 / VAL2-0). The payload and `table_name` come
+   * from whatever build the authoring household mate is on, which can be
+   * NEWER than this one: a 1.1.130 device writing `envelope_contributions`
+   * makes a 1.1.122 device build `INSERT INTO envelope_contributions ...`,
+   * SQLite throws "no such table", the whole batch rolls back (R6), and after
+   * `maxPullApplyRetries` the household is pull-blocked on this device
+   * permanently — no partner data of ANY kind arrives again until the user
+   * updates. The same happens for one unknown COLUMN on a known table.
+   *
+   * So an op this schema cannot represent is skipped rather than thrown:
+   *  - unknown table  — nothing local to write, skip the whole op;
+   *  - known table    — write the intersection of the payload keys with the
+   *                     real local columns (same rule `discardDeadLettered`
+   *                     already applies via `localColumns`).
+   * The caller still records the op in `oplog_applied` and still advances the
+   * cursor, so the household keeps syncing everything it CAN represent. The
+   * skipped rows are not lost: they arrive for real once this client ships
+   * the migration and the household is re-restored/re-pulled from 0.
+   *
+   * Each distinct unknown table/column is logged once per session — a newer
+   * mate produces these on every single pull otherwise. Never the payload
+   * itself (§7.4).
+   */
   private applyOne(
     tx: PortableDb,
     row: ServerOplogRow,
     fallbackNow: string,
     effects: ApplyEffects,
-  ): void {
+  ): boolean {
     const table = assertIdent(row.table_name);
+    const columns = this.localColumns(tx, table);
+    if (columns.size === 0) {
+      // `PRAGMA table_info` returns no rows for a table that does not exist.
+      this.logSkipOnce(this.loggedUnknownTables, table, 'table', { table });
+      return false;
+    }
     const payload = this.resolveEmergencyFundType(tx, table, row, fallbackNow, effects);
 
     if (row.op_type === 'insert') {
-      const keys = Object.keys(payload).map(assertIdent);
+      const keys = this.localPayloadKeys(table, payload, columns);
       const cols = ['id', 'household_id', ...keys];
       const colList = sql.raw(cols.join(', '));
       const values = sql.join(
@@ -1324,7 +1407,7 @@ export class SyncEngine {
       // ON CONFLICT DO NOTHING mirrors the server's insert idempotency.
       tx.run(sql`INSERT OR IGNORE INTO ${sql.raw(table)} (${colList}) VALUES (${values})`);
     } else if (row.op_type === 'update') {
-      const keys = Object.keys(payload).map(assertIdent);
+      const keys = this.localPayloadKeys(table, payload, columns);
       if (keys.length > 0) {
         const setClause = sql.join(
           keys.map((k) => sql`${sql.raw(k)} = ${coerceValue(payload[k])}`),
@@ -1355,12 +1438,26 @@ export class SyncEngine {
       // the server. delete-wins stays terminal: nothing in the domain clears
       // deleted_at, and a re-create is INSERT OR IGNORE (a no-op on the
       // tombstoned row).
+      if (!columns.has('deleted_at')) {
+        this.logSkipOnce(this.loggedUnknownColumns, `${table}.deleted_at`, 'column', {
+          table,
+          column: 'deleted_at',
+        });
+        return false;
+      }
       const deletedAt = typeof payload.deleted_at === 'string' ? payload.deleted_at : fallbackNow;
       tx.run(
         sql`UPDATE ${sql.raw(table)} SET deleted_at = ${deletedAt} WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
       );
     } else if (row.op_type === 'increment') {
       const field = assertIdent(String(payload.field));
+      if (!columns.has(field)) {
+        this.logSkipOnce(this.loggedUnknownColumns, `${table}.${field}`, 'column', {
+          table,
+          column: field,
+        });
+        return false;
+      }
       const delta = Number(payload.delta);
       if (!Number.isFinite(delta)) {
         // Money-column guard: `field` here is always an integer-cents money
@@ -1395,6 +1492,46 @@ export class SyncEngine {
     } else {
       throw new Error(`SyncEngine: unsupported pulled op_type "${row.op_type}"`);
     }
+    return true;
+  }
+
+  /** The payload keys this local schema actually has a column for, in payload
+   * order. Anything else is a column a newer build added (see `applyOne`) and
+   * is dropped with a one-per-session breadcrumb rather than being named in an
+   * INSERT/UPDATE that would throw and poison the batch. */
+  private localPayloadKeys(
+    table: string,
+    payload: Record<string, unknown>,
+    columns: ReadonlySet<string>,
+  ): string[] {
+    const keys: string[] = [];
+    for (const key of Object.keys(payload).map(assertIdent)) {
+      if (columns.has(key)) {
+        keys.push(key);
+      } else {
+        this.logSkipOnce(this.loggedUnknownColumns, `${table}.${key}`, 'column', {
+          table,
+          column: key,
+        });
+      }
+    }
+    return keys;
+  }
+
+  /** One warning per distinct unknown table/column per session — a household
+   * mate on a newer build produces the same skip on every pull otherwise. */
+  private logSkipOnce(
+    seen: Set<string>,
+    key: string,
+    kind: 'table' | 'column',
+    meta: Record<string, string>,
+  ): void {
+    if (seen.has(key)) return;
+    seen.add(key);
+    logger.warn(
+      `SyncEngine: pulled op names a ${kind} this app version does not have — skipped, sync continues`,
+      meta,
+    );
   }
 
   // ----- single-flight + timeout -------------------------------------------

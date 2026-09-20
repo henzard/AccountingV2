@@ -135,6 +135,48 @@ describe('JoinHouseholdScreen', () => {
     });
   });
 
+  it('accepts a 10-character invite code (SEC2-2(d): new codes are 10 chars)', async () => {
+    const { getByTestId } = render(
+      <JoinHouseholdScreen
+        route={{} as never}
+        navigation={
+          {
+            navigate: mockNavigate,
+            canGoBack: mockCanGoBack,
+            reset: mockReset,
+          } as never
+        }
+      />,
+    );
+    fireEvent.changeText(getByTestId('Invite code'), 'ABCDEFGHJK');
+    fireEvent.press(getByTestId('join-household-btn'));
+
+    await waitFor(() => {
+      expect(mockAcceptInviteExecute).toHaveBeenCalled();
+    });
+  });
+
+  it('still accepts an existing 6-character invite code', async () => {
+    const { getByTestId } = render(
+      <JoinHouseholdScreen
+        route={{} as never}
+        navigation={
+          {
+            navigate: mockNavigate,
+            canGoBack: mockCanGoBack,
+            reset: mockReset,
+          } as never
+        }
+      />,
+    );
+    fireEvent.changeText(getByTestId('Invite code'), 'ABC123');
+    fireEvent.press(getByTestId('join-household-btn'));
+
+    await waitFor(() => {
+      expect(mockAcceptInviteExecute).toHaveBeenCalled();
+    });
+  });
+
   it('marks onboarding complete after successful join', async () => {
     const { getByTestId } = render(
       <JoinHouseholdScreen

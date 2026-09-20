@@ -5,6 +5,11 @@ jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return {
+    // UX2-3: ToastHost wraps its Snackbar in Portal so it renders above
+    // whatever screen is on top regardless of where ToastHost is mounted —
+    // a pass-through mock is enough since PaperProvider's real Portal.Host
+    // behaviour isn't under test here.
+    Portal: ({ children }: { children?: React.ReactNode }) => children,
     Snackbar: ({
       children,
       visible,
