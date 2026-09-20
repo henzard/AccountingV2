@@ -9,7 +9,8 @@ import { db } from '../../../../data/local/db';
 import { envelopes } from '../../../../data/local/schema';
 import { AuditLogger } from '../../../../data/audit/AuditLogger';
 import { CreateEnvelopeUseCase } from '../../../../domain/envelopes/CreateEnvelopeUseCase';
-import type { EnvelopeType } from '../../../../domain/envelopes/EnvelopeEntity';
+import { UpdateEnvelopeUseCase } from '../../../../domain/envelopes/UpdateEnvelopeUseCase';
+import type { EnvelopeType, EnvelopeEntity } from '../../../../domain/envelopes/EnvelopeEntity';
 import {
   BudgetPeriodEngine,
   formatPeriodDateKey,
@@ -24,6 +25,7 @@ import { ONBOARDING_TOTAL_STEPS, onboardingStepNumber } from './onboardingSteps'
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 import { parseMoneyInput } from '../../../utils/parseMoneyInput';
 import type { ParseMoneyResult } from '../../../utils/parseMoneyInput';
+import { sortCategoriesByPriority } from './helpers/envelopeCategoryOrdering';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'AllocateEnvelopes'>;
 type Route = RouteProp<OnboardingStackParamList, 'AllocateEnvelopes'>;
@@ -49,17 +51,30 @@ function envelopeIdentity(name: string, envelopeType: string): string {
   return JSON.stringify([name, envelopeType]);
 }
 
+interface ExistingEnvelope {
+  id: string;
+  name: string;
+  envelopeType: string;
+  allocatedCents: number;
+}
+
 /**
- * Names already taken by a non-deleted envelope of the same type in
- * `periodStart`. This is what makes pressing Next twice — or going Back and
- * Next again — create each envelope ONCE: `CreateEnvelopeUseCase` generates a
- * random id per call and has no natural key, so without this check a second
- * pass silently produced a duplicate "Groceries" and a duplicate
- * "Monthly Income", doubling the household's recorded income.
+ * Envelopes already existing for the period, keyed by identity (name + type).
+ * This enables both deduplication (REG-13: second Next creates nothing) and
+ * updating when the user changes an amount (REG-13: second Next with changed
+ * allocatedCents updates, not inserts).
  */
-async function findExistingNames(householdId: string, periodStart: string): Promise<Set<string>> {
+async function findExistingEnvelopes(
+  householdId: string,
+  periodStart: string,
+): Promise<Map<string, ExistingEnvelope>> {
   const rows = await db
-    .select({ name: envelopes.name, envelopeType: envelopes.envelopeType })
+    .select({
+      id: envelopes.id,
+      name: envelopes.name,
+      envelopeType: envelopes.envelopeType,
+      allocatedCents: envelopes.allocatedCents,
+    })
     .from(envelopes)
     .where(
       and(
@@ -68,14 +83,19 @@ async function findExistingNames(householdId: string, periodStart: string): Prom
         isNull(envelopes.deletedAt),
       ),
     );
-  return new Set(rows.map((row) => envelopeIdentity(row.name, row.envelopeType)));
+  const map = new Map<string, ExistingEnvelope>();
+  for (const row of rows) {
+    map.set(envelopeIdentity(row.name, row.envelopeType), row);
+  }
+  return map;
 }
 
 export function AllocateEnvelopesStep(): React.JSX.Element {
   const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const categories = route.params.categories;
+  const rawCategories = route.params.categories;
+  const categories = useMemo(() => sortCategoriesByPriority(rawCategories), [rawCategories]);
 
   const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
@@ -164,7 +184,7 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
         });
       }
 
-      const existingNames = await findExistingNames(householdId, periodStart);
+      const existingEnvelopes = await findExistingEnvelopes(householdId, periodStart);
 
       // `CreateEnvelopeUseCase` REJECTS an allocation of zero or less
       // (INVALID_AMOUNT). Those categories used to be pushed at it anyway and
@@ -179,7 +199,41 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
           skippedZero.push(envelope.name);
           continue;
         }
-        if (existingNames.has(envelopeIdentity(envelope.name, envelope.envelopeType))) {
+        const identity = envelopeIdentity(envelope.name, envelope.envelopeType);
+        const existing = existingEnvelopes.get(identity);
+        if (existing) {
+          // Envelope already exists for this period. Update it only if the
+          // allocatedCents differs (REG-13: user went Back, changed amount,
+          // then Next again). If unchanged, skip silently.
+          if (existing.allocatedCents !== envelope.allocatedCents) {
+            // For onboarding, construct a minimal current entity. In onboarding,
+            // envelopes are newly created so spentCents=0 and most other fields
+            // have defaults. UpdateEnvelopeUseCase validates the update against
+            // the current state (e.g., no scope changes, no income-with-spending).
+            const currentEnvelope: EnvelopeEntity = {
+              id: existing.id,
+              householdId,
+              name: existing.name,
+              allocatedCents: existing.allocatedCents,
+              spentCents: 0, // Always 0 in onboarding (just created)
+              envelopeType: existing.envelopeType as EnvelopeType,
+              isSavingsLocked: false, // Default for new envelopes
+              isArchived: false,
+              periodStart,
+              targetAmountCents: null,
+              targetDate: null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            const updateResult = await new UpdateEnvelopeUseCase(db, audit, currentEnvelope, {
+              name: envelope.name,
+              allocatedCents: envelope.allocatedCents,
+              envelopeType: envelope.envelopeType,
+            }).execute();
+            if (!updateResult.success) {
+              failed.push(envelope.name);
+            }
+          }
           continue;
         }
         const result = await new CreateEnvelopeUseCase(db, audit, {
@@ -235,7 +289,13 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
       ctaDisabled={loading}
       onBack={() => navigation.goBack()}
     >
-      <View style={[styles.toAssign, { backgroundColor: toAssignBackground }]}>
+      <View
+        style={[styles.toAssign, { backgroundColor: toAssignBackground }]}
+        accessible
+        accessibilityRole="summary"
+        accessibilityLabel={`${formatCurrency(toAssignCents)} left to assign${toAssignCents > 0 ? ' — you can finish this later' : ''}`}
+        testID="to-assign-container"
+      >
         <Text variant="labelMedium" style={{ color: colors.onSurface }}>
           TO ASSIGN
         </Text>
@@ -267,6 +327,7 @@ export function AllocateEnvelopesStep(): React.JSX.Element {
               keyboardType="decimal-pad"
               left={<TextInput.Affix text="R" />}
               testID={`alloc-input-${c}`}
+              accessibilityLabel={`Amount for ${c}`}
             />
             {!result.ok && (
               <HelperText type="error" visible testID={`alloc-error-${c}`}>

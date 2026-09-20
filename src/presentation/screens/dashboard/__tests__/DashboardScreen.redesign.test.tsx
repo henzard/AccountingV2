@@ -6,6 +6,15 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
+jest.mock('react-native-safe-area-context', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const RN = require('react');
+  return {
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+    SafeAreaView: ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
+      RN.createElement('View', p, children),
+  };
+});
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((sel: (s: object) => unknown) =>
     sel({ householdId: 'hh-1', paydayDay: 25 }),
@@ -36,6 +45,7 @@ jest.mock('../resolveMeterReadingsLogged', () => ({
 }));
 jest.mock('../findLatestPeriodWithEnvelopes', () => ({
   findLatestPeriodWithEnvelopes: jest.fn().mockResolvedValue(null),
+  hasPeriodScopedEnvelopeAfter: jest.fn().mockResolvedValue(false),
 }));
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: (cb: () => void) => cb(),
@@ -69,10 +79,14 @@ jest.mock('react-native-paper', () => {
       RN.createElement('Text', null, children),
     Button: ({ onPress, children }: { onPress?: () => void; children?: React.ReactNode }) =>
       RN.createElement('Pressable', { onPress }, children),
+    FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
+      RN.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
     Portal: ({ children }: { children?: React.ReactNode }) => children,
     Dialog,
   };
 });
+
+jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn().mockResolvedValue('true'),

@@ -24,7 +24,7 @@ export function DateField({
   disabled = false,
   testID = 'date-field',
 }: DateFieldProps): React.JSX.Element {
-  const { colors } = useAppTheme();
+  const { colors, dark: isDark } = useAppTheme();
 
   return (
     <div style={{ marginBottom: spacing.sm }}>
@@ -51,16 +51,19 @@ export function DateField({
         onChange={(e) => {
           if (e.target.value) onChange(e.target.value);
         }}
-        style={{
-          width: '100%',
-          boxSizing: 'border-box',
-          padding: spacing.md,
-          fontSize: fontSize.md,
-          color: colors.onSurface,
-          backgroundColor: colors.surface,
-          border: `1px solid ${colors.outline}`,
-          borderRadius: radius.sm,
-        }}
+        style={
+          {
+            width: '100%',
+            boxSizing: 'border-box',
+            padding: spacing.md,
+            fontSize: fontSize.md,
+            color: colors.onSurface,
+            backgroundColor: colors.surface,
+            border: `1px solid ${colors.outline}`,
+            borderRadius: radius.sm,
+            colorScheme: isDark ? 'dark' : 'light',
+          } as React.CSSProperties
+        }
       />
     </div>
   );

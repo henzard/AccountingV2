@@ -4,6 +4,7 @@ import { Text, Button, Surface } from 'react-native-paper';
 import { formatCurrency } from '../../utils/currency';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import type { EnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 
 interface CoachingModalProps {
   visible: boolean;
@@ -11,6 +12,13 @@ interface CoachingModalProps {
   overspendCents: number;
   onProceed: () => void;
   onCancel: () => void;
+  /**
+   * REG-8/VAL2-2: a persistent envelope (fund) has no "budget" to go over —
+   * `overspendCents` there is the amount short of its saved balance, so the
+   * detail sentence must read differently. Defaults to 'period' (the
+   * original, budget-scoped wording) so existing callers are unaffected.
+   */
+  scope?: EnvelopeScope;
 }
 
 export function CoachingModal({
@@ -19,6 +27,7 @@ export function CoachingModal({
   overspendCents,
   onProceed,
   onCancel,
+  scope = 'period',
 }: CoachingModalProps): React.JSX.Element {
   const { colors } = useAppTheme();
 
@@ -41,7 +50,9 @@ export function CoachingModal({
             style={[styles.overspend, { color: colors.error }]}
             testID="coaching-overspend-amount"
           >
-            This transaction puts you {formatCurrency(overspendCents)} over budget.
+            {scope === 'persistent'
+              ? `This transaction is ${formatCurrency(overspendCents)} more than what's saved in this fund.`
+              : `This transaction puts you ${formatCurrency(overspendCents)} over budget.`}
           </Text>
 
           <View style={styles.buttons}>

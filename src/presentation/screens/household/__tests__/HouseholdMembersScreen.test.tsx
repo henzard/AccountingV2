@@ -152,17 +152,15 @@ describe('HouseholdMembersScreen', () => {
     expect(getByTestId('members-loading')).toBeTruthy();
   });
 
-  it('lists each member with email, role, en-ZA join date and a You marker', async () => {
+  it('lists each member with email, role, formatted join date and a You marker', async () => {
     const { getByTestId } = renderScreen();
 
     await waitFor(() => expect(getByTestId('member-row-u-member')).toBeTruthy());
     expect(getByTestId('member-row-u-owner')).toHaveTextContent(/owner@test\.local \(You\)/);
     expect(getByTestId('member-row-u-owner')).toHaveTextContent(/Owner/);
     expect(getByTestId('member-row-u-member')).toHaveTextContent(/member@test\.local/);
-    // en-ZA renders 2026-03-04 as 2026/03/04.
-    expect(getByTestId('member-row-u-member')).toHaveTextContent(
-      new RegExp(`Joined ${new Date(MEMBER.joinedAt).toLocaleDateString('en-ZA')}`),
-    );
+    // date-fns format 'd MMM yyyy' renders 2026-03-04 as '4 Mar 2026'
+    expect(getByTestId('member-row-u-member')).toHaveTextContent(/Joined 4 Mar 2026/);
   });
 
   it('shows an error state with a retry that re-runs the load', async () => {
@@ -253,7 +251,7 @@ describe('HouseholdMembersScreen', () => {
     await waitFor(() => expect(getByTestId('leave-household-btn')).toBeTruthy());
     expect(getByTestId('leave-household-btn').props.disabled).toBe(true);
     expect(getByTestId('leave-blocked-reason')).toHaveTextContent(
-      /Another member has to become an owner before you can leave\./,
+      /You're the only owner\. To leave, remove the other members first, or delete your account/,
     );
   });
 
@@ -316,5 +314,34 @@ describe('HouseholdMembersScreen', () => {
     );
     expect(mockSetAvailableHouseholds).not.toHaveBeenCalled();
     expect(mockClearHousehold).not.toHaveBeenCalled();
+  });
+
+  // UX2-20 — date formatting with date-fns
+  describe('UX2-20 — date formatting', () => {
+    it('renders invalid date as dash', async () => {
+      mockListExecute.mockResolvedValue({
+        success: true,
+        data: [
+          OWNER,
+          {
+            userId: 'u-invalid-date',
+            email: 'invalid@test.local',
+            role: 'member' as const,
+            joinedAt: 'not-a-date',
+          },
+        ],
+      });
+      const { getByTestId } = renderScreen();
+
+      await waitFor(() => expect(getByTestId('member-row-u-invalid-date')).toBeTruthy());
+      expect(getByTestId('member-row-u-invalid-date')).toHaveTextContent(/Joined —/);
+    });
+
+    it('renders valid date in d MMM yyyy format', async () => {
+      const { getByTestId } = renderScreen();
+
+      await waitFor(() => expect(getByTestId('member-row-u-owner')).toBeTruthy());
+      expect(getByTestId('member-row-u-owner')).toHaveTextContent(/Joined 1 Jan 2026/);
+    });
   });
 });

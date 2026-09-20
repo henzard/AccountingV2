@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, View, Switch } from 'react-native';
+import {
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  View,
+  Switch,
+  TextInput as RNTextInput,
+} from 'react-native';
 import { Text, TextInput, Button, Snackbar } from 'react-native-paper';
-import { and, eq, ne } from 'drizzle-orm';
-import { format } from 'date-fns';
+import { and, eq, isNull, ne } from 'drizzle-orm';
+import { format, differenceInCalendarDays } from 'date-fns';
 import { db } from '../../../data/local/db';
 import {
   envelopes as envelopesTable,
@@ -15,11 +23,13 @@ import {
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { CreateTransactionUseCase } from '../../../domain/transactions/CreateTransactionUseCase';
 import { UpdateTransactionUseCase } from '../../../domain/transactions/UpdateTransactionUseCase';
+import { DeleteTransactionUseCase } from '../../../domain/transactions/DeleteTransactionUseCase';
 import type { TransactionEntity } from '../../../domain/transactions/TransactionEntity';
 import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { useToastStore } from '../../stores/toastStore';
 import { useAppStore } from '../../stores/appStore';
+import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeSavings';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { AddTransactionScreenProps } from '../../navigation/types';
@@ -27,20 +37,40 @@ import { EnvelopePickerSheet } from '../../screens/slipScanning/components/Envel
 import type { EnvelopeOption } from '../../screens/slipScanning/components/EnvelopePickerSheet';
 import { PickerField } from '../../components/shared/PickerField';
 import { DateField } from '../../components/shared/DateField';
+import { LoadingSplash } from '../../components/shared/LoadingSplash';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { formatCurrency } from '../../utils/currency';
 import { SpendingCoach } from '../../../domain/coaching/SpendingCoach';
 import { CoachingModal } from '../../components/shared/CoachingModal';
 import type { CoachingResult } from '../../../domain/coaching/SpendingCoach';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
 import { detectThresholdCrossing, buildThresholdToastMessage } from './envelopeUsageThreshold';
+import { computeAfterThisPreview } from './afterThisPreview';
 import { householdNotifier } from '../../../infrastructure/notifications/HouseholdNotifier';
+import { rearmEveningLogPrompt } from '../../boot/eveningLogPrompt';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
 const coach = new SpendingCoach();
 
-function formatBalance(env: EnvelopeOption): string {
-  return formatCurrency(env.allocatedCents - env.spentCents);
+/**
+ * REG-8/VAL2-2: `allocatedCents - spentCents` is only a real balance for a
+ * PERIOD-scoped envelope. For a PERSISTENT one (savings / emergency_fund /
+ * sinking_fund / baby_step), `allocatedCents` is the monthly contribution
+ * and `spentCents` is its all-time spend — the difference is meaningless
+ * (a Holiday fund with R6 000 saved and a R500/month contribution would
+ * read "R500 left"). The real balance for a persistent envelope is its
+ * saved-so-far total from the contribution ledger
+ * (`getPersistentEnvelopeSavedCents`, read via `savedCentsByEnvelopeId`).
+ */
+function envelopeTrailingText(
+  env: EnvelopeOption,
+  savedCentsByEnvelopeId: ReadonlyMap<string, number>,
+): string {
+  if (getEnvelopeScope({ envelopeType: env.envelopeType }) === 'persistent') {
+    return `${formatCurrency(savedCentsByEnvelopeId.get(env.id) ?? 0)} saved`;
+  }
+  return `${formatCurrency(env.allocatedCents - env.spentCents)} left`;
 }
 
 /** Cents -> a plain "12.34" string for prefilling the amount input, mirroring AddEditEnvelopeScreen's toRandString. */
@@ -61,6 +91,15 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const period = engine.getCurrentPeriod(paydayDay);
   const periodStart = formatPeriodDateKey(period.startDate);
 
+  // Whole days left in the period, including today — clamped to at least 1
+  // so the live "after this" preview's per-day rate never divides by zero
+  // or a negative count on the period's last day.
+  const daysRemaining = Math.max(1, differenceInCalendarDays(period.endDate, new Date()) + 1);
+
+  // REG-8/VAL2-2: a persistent envelope's real balance, read from the
+  // contribution ledger rather than derived from allocatedCents/spentCents.
+  const { savedCentsByEnvelopeId } = usePersistentEnvelopeSavings(householdId);
+
   // UX-9: editing an existing transaction (route param) vs. VAL-9: preselecting
   // an envelope when creating a new one. transactionId, when present, always
   // wins — envelopeId is only consulted in create mode.
@@ -75,6 +114,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // UX2-10: while a transactionId's row is being resolved, the form must not
+  // render — otherwise a transactionId that no longer exists briefly (or
+  // permanently, before this fix) looked exactly like an empty CREATE form
+  // while still titled "Edit transaction".
+  const [loadingExisting, setLoadingExisting] = useState(!!transactionId);
 
   const [isBusinessExpense, setIsBusinessExpense] = useState(false);
   const [spendingTriggerNote, setSpendingTriggerNote] = useState('');
@@ -93,6 +138,17 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const pendingAmountCents = useRef<number>(0);
   const isSaving = useRef(false);
 
+  // UX2-5: keyboard flow refs — Amount -> Payee -> Description chained via
+  // returnKeyType/onSubmitEditing, plus the two "walk up to the amount
+  // field for me" cases (a preselected/only envelope, or the picker sheet
+  // closing) below.
+  const amountInputRef = useRef<RNTextInput>(null);
+  const payeeInputRef = useRef<RNTextInput>(null);
+  const descriptionInputRef = useRef<RNTextInput>(null);
+  const focusAmount = useCallback((): void => {
+    amountInputRef.current?.focus();
+  }, []);
+
   // This envelope's spend BEFORE this save — see the matching comment in
   // doSave (VAL-13) for why an edit of a transaction already on this
   // envelope must subtract its own old amount back out first.
@@ -104,6 +160,19 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         : 0;
     return selectedEnvelope.spentCents - oldAmountOnThisEnvelope;
   }, [selectedEnvelope, existingTransaction]);
+
+  // REG-8/VAL2-2: the persistent-envelope equivalent of the above — the
+  // fund's saved balance BEFORE this save, net of this transaction's own
+  // old amount when editing one already logged against this fund.
+  const previousSavedCentsForSelectedEnvelope = useMemo(() => {
+    if (!selectedEnvelope) return 0;
+    const saved = savedCentsByEnvelopeId.get(selectedEnvelope.id) ?? 0;
+    const oldAmountOnThisEnvelope =
+      existingTransaction && existingTransaction.envelopeId === selectedEnvelope.id
+        ? existingTransaction.amountCents
+        : 0;
+    return saved + oldAmountOnThisEnvelope;
+  }, [selectedEnvelope, existingTransaction, savedCentsByEnvelopeId]);
 
   useEffect(() => {
     navigation.setOptions({ title: transactionId ? 'Edit transaction' : 'Add Transaction' });
@@ -131,21 +200,31 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
     [householdId, periodStart],
   );
 
-  // Edit mode: load the transaction row and prefill every field.
+  // Edit mode: load the transaction row and prefill every field. UX2-10: a
+  // transactionId that no longer exists (deleted, or never existed) must
+  // not silently fall through to an empty CREATE form — it toasts and
+  // leaves the screen instead.
   useEffect(() => {
     if (!transactionId || !householdId) return;
     let cancelled = false;
+    setLoadingExisting(true);
     db.select()
       .from(transactionsTable)
       .where(
         and(
           eq(transactionsTable.id, transactionId),
           eq(transactionsTable.householdId, householdId),
+          isNull(transactionsTable.deletedAt),
         ),
       )
       .limit(1)
       .then(async ([row]) => {
-        if (cancelled || !row) return;
+        if (cancelled) return;
+        if (!row) {
+          enqueue('That transaction no longer exists', 'error');
+          navigation.goBack();
+          return;
+        }
         const tx = row as TransactionEntity;
         setExistingTransaction(tx);
         setAmountStr(centsToInputString(tx.amountCents));
@@ -154,27 +233,37 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         setTransactionDate(tx.transactionDate);
         setIsBusinessExpense(tx.isBusinessExpense);
         const envOption = await loadEnvelopeOption(tx.envelopeId);
-        if (!cancelled && envOption) setSelectedEnvelope(envOption);
+        if (cancelled) return;
+        if (envOption) setSelectedEnvelope(envOption);
+        setLoadingExisting(false);
       })
       .catch(() => {
-        if (!cancelled) enqueue('Failed to load transaction', 'error');
+        if (!cancelled) {
+          enqueue('Failed to load transaction', 'error');
+          setLoadingExisting(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [transactionId, householdId, loadEnvelopeOption, enqueue]);
+  }, [transactionId, householdId, loadEnvelopeOption, enqueue, navigation]);
 
   // VAL-9: create mode only — preselect the envelope passed via route params.
+  // UX2-5: a preselected envelope means the user is straight into an amount,
+  // so autofocus it — this is the whole reason the create-mode form exists.
   useEffect(() => {
     if (transactionId || !presetEnvelopeId || !householdId) return;
     let cancelled = false;
     loadEnvelopeOption(presetEnvelopeId).then((envOption) => {
-      if (!cancelled && envOption) setSelectedEnvelope(envOption);
+      if (!cancelled && envOption) {
+        setSelectedEnvelope(envOption);
+        focusAmount();
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [transactionId, presetEnvelopeId, householdId, loadEnvelopeOption]);
+  }, [transactionId, presetEnvelopeId, householdId, loadEnvelopeOption, focusAmount]);
 
   useEffect(() => {
     db.select({
@@ -207,12 +296,17 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           spentCents: spentByEnvelope.get(row.id) ?? 0,
         })) as EnvelopeOption[];
         setEnvelopes(withSpent);
-        if (withSpent.length === 1) setSelectedEnvelope(withSpent[0]);
+        // UX2-5: the only envelope there is — no picker decision to make,
+        // so land straight in the amount field.
+        if (withSpent.length === 1) {
+          setSelectedEnvelope(withSpent[0]);
+          focusAmount();
+        }
       })
       .catch(() => {
         enqueue('Failed to load envelopes', 'error');
       });
-  }, [householdId, periodStart, enqueue]);
+  }, [householdId, periodStart, enqueue, focusAmount]);
 
   const doSave = useCallback(
     async (amountCents: number): Promise<void> => {
@@ -250,6 +344,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           // VAL-6/DB-7: only a genuine CREATE wakes the partner's device —
           // an edit is not a new spend and must not re-notify.
           if (!existingTransaction) {
+            // Logged today, so tonight's "log your spending" reminder is moot.
+            void rearmEveningLogPrompt().catch(() => undefined);
             householdNotifier.notifyHousehold({
               kind: 'transaction_created',
               householdId,
@@ -345,11 +441,17 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
       return;
     }
 
-    const coaching = coach.evaluate({
-      amountCents,
-      allocatedCents: selectedEnvelope.allocatedCents,
-      spentCents: previousSpentCentsForSelectedEnvelope,
-    });
+    // REG-8/VAL2-2: a persistent envelope's coaching check compares against
+    // its SAVED balance, never allocatedCents (the monthly contribution) —
+    // otherwise the coach blocks a legitimate withdrawal from a fully-funded
+    // fund as "overspending".
+    const scope = getEnvelopeScope({ envelopeType: selectedEnvelope.envelopeType });
+    const availableCents =
+      scope === 'persistent'
+        ? previousSavedCentsForSelectedEnvelope
+        : selectedEnvelope.allocatedCents - previousSpentCentsForSelectedEnvelope;
+
+    const coaching = coach.evaluate({ amountCents, availableCents, scope });
 
     if (coaching) {
       pendingAmountCents.current = amountCents;
@@ -358,7 +460,13 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
     }
 
     void doSave(amountCents);
-  }, [selectedEnvelope, amountStr, previousSpentCentsForSelectedEnvelope, doSave]);
+  }, [
+    selectedEnvelope,
+    amountStr,
+    previousSpentCentsForSelectedEnvelope,
+    previousSavedCentsForSelectedEnvelope,
+    doSave,
+  ]);
 
   const handleCoachingProceed = useCallback((): void => {
     setCoachingResult(null);
@@ -369,10 +477,67 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
     setCoachingResult(null);
   }, []);
 
+  // UX2-10: an explicit way out of a transaction, from inside edit mode.
+  const handleDelete = useCallback(async (): Promise<void> => {
+    if (!existingTransaction) return;
+    const confirmed = await confirm({
+      title: 'Delete transaction?',
+      message: `${existingTransaction.payee ?? 'Unknown'} — ${formatCurrency(existingTransaction.amountCents)}`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await new DeleteTransactionUseCase(db, audit, existingTransaction).execute();
+      if (!result.success) {
+        enqueue('Failed to delete transaction', 'error');
+        return;
+      }
+      enqueue('Transaction deleted', 'success');
+      navigation.goBack();
+    } catch {
+      enqueue('Failed to delete transaction', 'error');
+    }
+  }, [existingTransaction, enqueue, navigation]);
+
   const balanceColor = (env: EnvelopeOption): string => {
-    const balance = env.allocatedCents - env.spentCents;
+    const balance =
+      getEnvelopeScope({ envelopeType: env.envelopeType }) === 'persistent'
+        ? (savedCentsByEnvelopeId.get(env.id) ?? 0)
+        : env.allocatedCents - env.spentCents;
     return balance < 0 ? colors.error : colors.onSurfaceVariant;
   };
+
+  // New live line under the Amount field: what this envelope/fund will look
+  // like immediately after the amount currently being typed, computed
+  // before Save is even pressed.
+  const previewAmountCents = useMemo(() => {
+    const parsed = parseMoneyInput(amountStr);
+    return parsed.ok ? parsed.cents : 0;
+  }, [amountStr]);
+
+  const afterThisPreview = useMemo(() => {
+    if (!selectedEnvelope) return null;
+    return computeAfterThisPreview({
+      scope: getEnvelopeScope({ envelopeType: selectedEnvelope.envelopeType }),
+      envelopeName: selectedEnvelope.name,
+      amountCents: previewAmountCents,
+      remainingBeforeCents: selectedEnvelope.allocatedCents - previousSpentCentsForSelectedEnvelope,
+      savedBeforeCents: previousSavedCentsForSelectedEnvelope,
+      daysRemaining,
+    });
+  }, [
+    selectedEnvelope,
+    previewAmountCents,
+    previousSpentCentsForSelectedEnvelope,
+    previousSavedCentsForSelectedEnvelope,
+    daysRemaining,
+  ]);
+
+  if (loadingExisting) {
+    return <LoadingSplash />;
+  }
 
   return (
     <KeyboardAvoidingView
@@ -386,7 +551,11 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         <PickerField
           placeholder="Select envelope…"
           value={selectedEnvelope?.name}
-          trailing={selectedEnvelope ? `${formatBalance(selectedEnvelope)} left` : undefined}
+          trailing={
+            selectedEnvelope
+              ? envelopeTrailingText(selectedEnvelope, savedCentsByEnvelopeId)
+              : undefined
+          }
           trailingColor={selectedEnvelope ? balanceColor(selectedEnvelope) : undefined}
           showChevron
           onPress={() => setShowPicker(true)}
@@ -394,6 +563,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         />
 
         <TextInput
+          ref={amountInputRef}
           label="Amount (R)"
           value={amountStr}
           onChangeText={setAmountStr}
@@ -404,9 +574,35 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           disabled={loading}
           placeholder="0.00"
           left={<TextInput.Affix text="R" />}
+          returnKeyType="next"
+          onSubmitEditing={() => payeeInputRef.current?.focus()}
+        />
+
+        {afterThisPreview && (
+          <Text
+            variant="bodySmall"
+            style={[
+              styles.afterThis,
+              { color: afterThisPreview.isNegative ? colors.error : colors.onSurfaceVariant },
+            ]}
+            testID="after-this-preview"
+          >
+            {afterThisPreview.text}
+          </Text>
+        )}
+
+        {/* UX2-5: Date moved above Payee/Description so the keyboard-return
+            chain below (Amount -> Payee -> Description) is uninterrupted by
+            a field that isn't part of it. */}
+        <DateField
+          label="Date"
+          value={transactionDate}
+          onChange={setTransactionDate}
+          testID="date-picker-trigger"
         />
 
         <TextInput
+          ref={payeeInputRef}
           label="Payee (optional)"
           value={payee}
           onChangeText={setPayee}
@@ -415,9 +611,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Checkers"
+          returnKeyType="next"
+          onSubmitEditing={() => descriptionInputRef.current?.focus()}
         />
 
         <TextInput
+          ref={descriptionInputRef}
           label="Description (optional)"
           value={description}
           onChangeText={setDescription}
@@ -426,6 +625,8 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
           placeholder="e.g. Weekly groceries"
+          returnKeyType="done"
+          onSubmitEditing={handleSave}
         />
 
         {/* Business expense toggle */}
@@ -451,7 +652,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
             discard whatever the user typed. */}
         {isBusinessExpense && !existingTransaction && (
           <TextInput
-            label="Trigger note (optional)"
+            label="What was it for? (optional)"
             value={spendingTriggerNote}
             onChangeText={setSpendingTriggerNote}
             mode="outlined"
@@ -461,26 +662,6 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
             disabled={loading}
           />
         )}
-
-        {/* Date picker row */}
-        <DateField
-          label="Date"
-          value={transactionDate}
-          onChange={setTransactionDate}
-          testID="date-picker-trigger"
-        />
-
-        <Button
-          mode="contained"
-          onPress={handleSave}
-          loading={loading}
-          disabled={loading}
-          style={styles.button}
-          contentStyle={styles.buttonContent}
-          testID="record-transaction-submit"
-        >
-          {existingTransaction ? 'Save Changes' : 'Record Transaction'}
-        </Button>
 
         {!existingTransaction && (
           <Button
@@ -493,7 +674,40 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
             Scan slip
           </Button>
         )}
+
+        {/* UX2-10: an explicit way to remove a transaction from edit mode,
+            instead of only being reachable from the list screen. */}
+        {existingTransaction && (
+          <Button
+            mode="outlined"
+            onPress={() => void handleDelete()}
+            textColor={colors.error}
+            style={styles.button}
+            contentStyle={styles.buttonContent}
+            testID="delete-transaction-button"
+          >
+            Delete transaction
+          </Button>
+        )}
       </ScrollView>
+
+      {/* UX2-5: Save is a sticky footer outside the ScrollView, sitting above
+          the keyboard via the KeyboardAvoidingView that already wraps this
+          screen, instead of scrolling out of reach with the rest of the
+          form. */}
+      <View style={[styles.footer, { backgroundColor: colors.surface }]}>
+        <Button
+          mode="contained"
+          onPress={handleSave}
+          loading={loading}
+          disabled={loading}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+          testID="record-transaction-submit"
+        >
+          {existingTransaction ? 'Save Changes' : 'Record Transaction'}
+        </Button>
+      </View>
 
       {/* Envelope picker — extracted to shared component */}
       <EnvelopePickerSheet
@@ -501,7 +715,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         envelopes={envelopes}
         selectedId={selectedEnvelope?.id}
         onSelect={(env) => setSelectedEnvelope(env)}
-        onClose={() => setShowPicker(false)}
+        onClose={() => {
+          setShowPicker(false);
+          // UX2-5: land back in the amount field once an envelope has been
+          // picked, instead of leaving the user to tap into it themselves.
+          focusAmount();
+        }}
       />
 
       <Snackbar
@@ -519,6 +738,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           visible={true}
           message={coachingResult.message}
           overspendCents={coachingResult.overspendCents}
+          scope={coachingResult.scope}
           onProceed={handleCoachingProceed}
           onCancel={handleCoachingCancel}
         />
@@ -532,6 +752,7 @@ const styles = StyleSheet.create({
   container: { padding: spacing.base, gap: spacing.sm },
   label: { marginTop: spacing.xs },
   input: {},
+  afterThis: { marginTop: -spacing.xs },
   button: { marginTop: spacing.lg },
   buttonContent: { paddingVertical: spacing.xs },
   center: { padding: spacing.base },
@@ -540,5 +761,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: spacing.sm,
+  },
+  footer: {
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.base,
   },
 });

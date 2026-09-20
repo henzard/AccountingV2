@@ -381,7 +381,9 @@ describe('SyncEngine.pull — cursor + apply', () => {
     const raw = openMigratedDb();
     seedHousehold(raw);
     const t = new FakeTransport();
-    // op1 valid; op2 targets a non-existent column -> SQL throws -> whole tx rolls back.
+    // op1 valid; op2 carries a non-finite delta -> the money guard throws ->
+    // whole tx rolls back. (An unknown COLUMN is deliberately no longer a
+    // failure — see the forward-compatibility suite below.)
     // Same payload every call (mimics the server: the cursor never advances,
     // so re-pulling returns the SAME batch), letting us drive repeated
     // apply-failure attempts deterministically.
@@ -391,8 +393,8 @@ describe('SyncEngine.pull — cursor + apply', () => {
         seq: 6,
         op_id: 'p2',
         row_id: 'd2',
-        op_type: 'insert',
-        payload: debtRowPayload({ bogus_col: 1 }),
+        op_type: 'increment',
+        payload: { field: 'total_paid_cents', delta: 'not-a-number', clamp: 'none' },
       }),
     ];
     const engine = makeEngine(raw, t);
@@ -455,12 +457,15 @@ describe('SyncEngine.pull — cursor + apply', () => {
     seedHousehold(raw);
     const t = new FakeTransport();
     // Same op_id/cursor position every call — a batch that can never apply.
+    // A non-finite money delta is a genuine code-fix condition (the guard
+    // must never write NaN into an integer-cents column), unlike a merely
+    // unknown table/column, which pull-apply now tolerates.
     t.pullImpl = async () => [
       serverRow({
         seq: 5,
         op_id: 'poison-1',
-        op_type: 'insert',
-        payload: debtRowPayload({ bogus_col: 1 }),
+        op_type: 'increment',
+        payload: { field: 'total_paid_cents', delta: 'not-a-number', clamp: 'none' },
       }),
     ];
     const engine = makeEngine(raw, t, { options: { maxPullApplyRetries: 3 } });
@@ -498,12 +503,8 @@ describe('SyncEngine.pull — cursor + apply', () => {
     raw.close();
   });
 
-  it('skips OWN-device increment ops (already folded in locally) but advances the cursor', async () => {
-    // Own increments must NOT be re-applied on pull — they were already folded
-    // into local state at creation time and increment is non-idempotent, so a
-    // replay would double-count (money corruption). The cursor still advances.
-    const raw = openMigratedDb();
-    seedHousehold(raw);
+  /** A debt row with `total_paid_cents` already at 300 (one payment folded in). */
+  function seedPaidDebt(raw: Database.Database): void {
     raw
       .prepare(
         `INSERT INTO debts (id, household_id, creditor_name, debt_type, outstanding_balance_cents,
@@ -511,6 +512,21 @@ describe('SyncEngine.pull — cursor + apply', () => {
          VALUES ('d1', ?, 'Visa', 'credit_card', 100000, 19.9, 5000, 300, ?, ?)`,
       )
       .run(HH, NOW, NOW);
+  }
+
+  it('skips an increment whose op_id is in the LOCAL oplog (already folded in) but advances the cursor', async () => {
+    // Own increments must NOT be re-applied on pull — they were already folded
+    // into local state at creation time and increment is non-idempotent, so a
+    // replay would double-count (money corruption). The cursor still advances.
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedPaidDebt(raw);
+    insertOplog(raw, {
+      op_id: 'mine-inc',
+      row_id: 'd1',
+      op_type: 'increment',
+      payload: { field: 'total_paid_cents', delta: 300, clamp: 'none' },
+    });
     const t = new FakeTransport();
     t.pullBatches = [
       [
@@ -536,6 +552,74 @@ describe('SyncEngine.pull — cursor + apply', () => {
       .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
       .get(HH) as { s: number };
     expect(cursor.s).toBe(9);
+    raw.close();
+  });
+
+  it('APPLIES a remote increment stamped with THIS device id when the op is not in the local oplog (SEC2-11)', async () => {
+    // `device_id` is attacker-controlled wire data. A household member who
+    // stamps a partner's device id on their own increment used to make that
+    // partner's device skip it silently — a real debt payment lost on one
+    // replica, with no self-heal (increments are never re-delivered once the
+    // cursor has passed them).
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedPaidDebt(raw);
+    const t = new FakeTransport();
+    t.pullBatches = [
+      [
+        serverRow({
+          seq: 9,
+          op_id: 'spoofed-inc',
+          device_id: 'devA',
+          op_type: 'increment',
+          payload: { field: 'total_paid_cents', delta: 300, clamp: 'none' },
+        }),
+      ],
+      [],
+    ];
+    const engine = makeEngine(raw, t, { deviceId: 'devA' });
+    const summary = await engine.pull(HH);
+    expect(summary).toMatchObject({ applied: 1 });
+    const debt = raw.prepare('SELECT total_paid_cents AS s FROM debts WHERE id = ?').get('d1') as
+      | { s: number }
+      | undefined;
+    expect(debt?.s).toBe(600);
+    raw.close();
+  });
+
+  it('still skips a legacy unassigned-device increment that is in the local oplog', async () => {
+    // Ops written by builds that shipped before `setSyncWriteDefaults` existed
+    // carry the placeholder device id; the op_id rule covers them unchanged.
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedPaidDebt(raw);
+    insertOplog(raw, {
+      op_id: 'legacy-inc',
+      row_id: 'd1',
+      op_type: 'increment',
+      device_id: 'unassigned-device',
+      payload: { field: 'total_paid_cents', delta: 300, clamp: 'none' },
+    });
+    const t = new FakeTransport();
+    t.pullBatches = [
+      [
+        serverRow({
+          seq: 9,
+          op_id: 'legacy-inc',
+          device_id: 'unassigned-device',
+          op_type: 'increment',
+          payload: { field: 'total_paid_cents', delta: 300, clamp: 'none' },
+        }),
+      ],
+      [],
+    ];
+    const engine = makeEngine(raw, t, { deviceId: 'devA' });
+    const summary = await engine.pull(HH);
+    expect(summary).toMatchObject({ applied: 0 });
+    const debt = raw.prepare('SELECT total_paid_cents AS s FROM debts WHERE id = ?').get('d1') as
+      | { s: number }
+      | undefined;
+    expect(debt?.s).toBe(300);
     raw.close();
   });
 
@@ -1318,5 +1402,70 @@ describe('createSupabaseSyncTransport — membershipCheck', () => {
       }),
     );
     await expect(check('hh-1')).rejects.toThrow(/fallback failed/);
+  });
+});
+
+describe('SyncEngine.sync — pruning acknowledged local oplog rows (SEC2-14)', () => {
+  /** Stamps an existing oplog row as pushed/dead-lettered at a given time. */
+  function markOp(
+    raw: Database.Database,
+    opId: string,
+    fields: { pushed_at?: string | null; dead_lettered_at?: string | null },
+  ): void {
+    raw
+      .prepare('UPDATE oplog SET pushed_at = ?, dead_lettered_at = ? WHERE op_id = ?')
+      .run(fields.pushed_at ?? null, fields.dead_lettered_at ?? null, opId);
+  }
+
+  function opIds(raw: Database.Database): string[] {
+    return (raw.prepare('SELECT op_id FROM oplog ORDER BY op_id').all() as { op_id: string }[]).map(
+      (r) => r.op_id,
+    );
+  }
+
+  it('drops rows pushed more than 30 days ago, and NOTHING else', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const old = insertOplog(raw, { op_id: 'a-old-pushed' });
+    const recent = insertOplog(raw, { op_id: 'b-recent-pushed' });
+    const deadOld = insertOplog(raw, { op_id: 'c-old-dead' });
+    insertOplog(raw, { op_id: 'd-unpushed' });
+    // NOW is 2026-01-01; 40 days back is outside the retention window, 5 is not.
+    markOp(raw, old, { pushed_at: '2025-11-22T00:00:00.000Z' });
+    markOp(raw, recent, { pushed_at: '2025-12-27T00:00:00.000Z' });
+    markOp(raw, deadOld, {
+      pushed_at: '2025-11-22T00:00:00.000Z',
+      dead_lettered_at: '2025-11-22T00:00:00.000Z',
+    });
+    raw.prepare('INSERT INTO oplog_applied (op_id) VALUES (?)').run('a-old-pushed');
+
+    const t = new FakeTransport();
+    t.pullImpl = async () => [];
+    const engine = makeEngine(raw, t);
+    await engine.sync(HH);
+
+    expect(opIds(raw)).toEqual(['b-recent-pushed', 'c-old-dead', 'd-unpushed']);
+    // The receiver-side idempotency ledger is deliberately untouched (R5).
+    const applied = raw.prepare('SELECT COUNT(*) AS c FROM oplog_applied').get() as { c: number };
+    expect(applied.c).toBe(1);
+    raw.close();
+  });
+
+  it('prunes nothing on a round that never reached the server', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const old = insertOplog(raw, { op_id: 'a-old-pushed' });
+    markOp(raw, old, { pushed_at: '2025-11-22T00:00:00.000Z' });
+
+    const t = new FakeTransport();
+    t.pullImpl = async () => {
+      throw new Error('network down');
+    };
+    const engine = makeEngine(raw, t);
+    const summary = await engine.sync(HH);
+
+    expect(summary.transportFailed).toBe(true);
+    expect(opIds(raw)).toContain('a-old-pushed');
+    raw.close();
   });
 });

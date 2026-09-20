@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { asc, eq } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { debts as debtsTable } from '../../data/local/schema';
@@ -7,7 +7,11 @@ import { useReloadOnSync } from './useReloadOnSync';
 
 export interface UseDebtsResult {
   debts: DebtEntity[];
+  /** True only while the FIRST load of this hook instance is in flight (see
+   * `useEnvelopes` for the full REG-9 note). */
   loading: boolean;
+  /** True while a reload is in flight over data already on screen. */
+  refreshing: boolean;
   error: Error | null;
   reload: () => Promise<void>;
 }
@@ -15,10 +19,13 @@ export interface UseDebtsResult {
 export function useDebts(householdId: string): UseDebtsResult {
   const [debts, setDebts] = useState<DebtEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const loadedOnceRef = useRef(false);
 
   const reload = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnceRef.current) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
       const rows = await db
@@ -30,7 +37,9 @@ export function useDebts(householdId: string): UseDebtsResult {
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));
     } finally {
+      loadedOnceRef.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
   }, [householdId]);
 
@@ -38,5 +47,5 @@ export function useDebts(householdId: string): UseDebtsResult {
   // without this the screen showed it only after navigating away and back.
   useReloadOnSync(reload);
 
-  return { debts, loading, error, reload };
+  return { debts, loading, refreshing, error, reload };
 }

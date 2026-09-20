@@ -9,6 +9,7 @@
  * delete op), so they are two different use cases here, not one with a flag.
  */
 import React, { useCallback, useEffect, useState } from 'react';
+import { format } from 'date-fns';
 import { View, FlatList, StyleSheet } from 'react-native';
 import { Text, Surface, Button, ActivityIndicator, IconButton } from 'react-native-paper';
 import { supabase } from '../../../data/remote/supabaseClient';
@@ -51,8 +52,8 @@ function sortMembers(members: HouseholdMember[]): HouseholdMember[] {
 
 function formatJoined(joinedAt: string): string {
   const parsed = new Date(joinedAt);
-  if (Number.isNaN(parsed.getTime())) return 'Unknown';
-  return parsed.toLocaleDateString('en-ZA');
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return format(parsed, 'd MMM yyyy');
 }
 
 /** What to call a member in the UI: their email, or a short form of their
@@ -108,7 +109,7 @@ export const HouseholdMembersScreen: React.FC<HouseholdMembersScreenProps> = ({
   const leaveBlockedReason = !soleOwner
     ? null
     : othersRemain
-      ? 'You are the only owner. Another member has to become an owner before you can leave.'
+      ? "You're the only owner. To leave, remove the other members first, or delete your account — ownership then passes to the longest-standing member."
       : 'You are the only person in this household, so there is nobody to hand it over to.';
 
   const handleRemove = useCallback(

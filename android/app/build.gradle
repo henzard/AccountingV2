@@ -102,6 +102,16 @@ android {
         testInstrumentationRunnerArguments clearPackageData: 'true'
         missingDimensionStrategy 'detox', 'full'
     }
+    // Which build type `:app:assembleAndroidTest` compiles the test APK against.
+    // Defaults to 'debug' (AGP's own default) so `./gradlew assembleAndroidTest`
+    // with no property keeps working exactly as before. CI's e2e-gate now
+    // passes `-DtestBuildType=e2e` so the instrumentation APK is built to
+    // exercise the e2e build type (see the `e2e` block under buildTypes below)
+    // instead of debug — required because a debug APK has no embedded JS
+    // bundle here (see debuggableVariants = [] above) and opens the
+    // expo-dev-client launcher instead of the app, so Detox never gets a
+    // connection to a running app.
+    testBuildType System.getProperty('testBuildType', 'debug')
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -133,6 +143,29 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
+        }
+        // Dedicated Detox build type for CI's e2e-gate (deep-review OPS-1
+        // follow-up). The gate was building+testing the `debug` variant, but a
+        // debug APK of this Expo app has no embedded JS bundle (Metro isn't
+        // running in CI) and expo-dev-client makes it open the dev-launcher UI
+        // instead of the app — so Detox connects to nothing. `e2e` is a
+        // release-shaped, non-debuggable, minified-with-R8 build (same as
+        // `release`, via initWith) so it behaves like production and embeds
+        // the JS bundle, but is kept as its own build type — never touching
+        // `release` itself — so nothing here can affect the shipped
+        // production APK.
+        e2e {
+            initWith release
+            // release/debug are the only build types most published AARs
+            // (and the local :detox project) ship variants for; without this
+            // Gradle can't resolve dependencies for the new `e2e` variant.
+            matchingFallbacks = ['release']
+            debuggable false
+            // Detox's own Android instrumentation needs its proguard keep
+            // rules whenever the tested build is minified, or R8 strips
+            // classes Detox's UI-Automator bridge reflects into, and the
+            // instrumented run crashes/hangs instead of connecting.
+            proguardFile "${rootProject.projectDir}/../node_modules/detox/android/detox/proguard-rules-app.pro"
         }
     }
     packagingOptions {

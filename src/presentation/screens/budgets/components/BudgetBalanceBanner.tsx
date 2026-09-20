@@ -17,15 +17,12 @@ import { Text, Surface } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { EnvelopeEntity } from '../../../../domain/envelopes/EnvelopeEntity';
 import { useBudgetBalance } from '../../../hooks/useBudgetBalance';
+import { formatCurrency } from '../../../utils/currency';
 import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 
 export interface BudgetBalanceBannerProps {
   envelopes: EnvelopeEntity[];
-}
-
-function formatRand(cents: number): string {
-  return `R${Math.abs(Math.round(cents / 100)).toLocaleString('en-ZA')}`;
 }
 
 export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelopes }) => {
@@ -47,8 +44,8 @@ export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelo
   const mainLabel = isBalanced
     ? 'Every rand assigned \u2713'
     : isOver
-      ? `-${formatRand(Math.abs(toAssign))} overcommitted`
-      : `${formatRand(toAssign)} left to assign`;
+      ? `${formatCurrency(-Math.abs(toAssign))} overcommitted`
+      : `${formatCurrency(toAssign)} left to assign`;
 
   return (
     <Surface
@@ -72,7 +69,7 @@ export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelo
       <View style={styles.breakdownRow}>
         <BreakdownItem
           label="INCOME"
-          value={formatRand(incomeTotal)}
+          value={formatCurrency(incomeTotal)}
           colour={colors.onSurfaceVariant}
           labelColour={colors.onSurfaceVariant}
           testID="banner-income"
@@ -80,7 +77,7 @@ export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelo
         <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
         <BreakdownItem
           label="EXPENSES"
-          value={formatRand(expenseAllocationTotal)}
+          value={formatCurrency(expenseAllocationTotal)}
           colour={colors.onSurfaceVariant}
           labelColour={colors.onSurfaceVariant}
           testID="banner-expenses"
@@ -89,7 +86,7 @@ export const BudgetBalanceBanner: React.FC<BudgetBalanceBannerProps> = ({ envelo
         <BreakdownItem
           label="TO ASSIGN"
           labelColour={colors.onSurfaceVariant}
-          value={toAssign < 0 ? `-${formatRand(Math.abs(toAssign))}` : formatRand(toAssign)}
+          value={formatCurrency(toAssign)}
           colour={bannerFg}
           testID="banner-to-assign"
         />

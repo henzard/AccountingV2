@@ -7,6 +7,8 @@ import { useSlipHistory } from '../../hooks/useSlipHistory';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { formatCurrency } from '../../utils/currency';
+import { db } from '../../../data/local/db';
+import { getConfirmedSlipIds } from '../../../domain/slipScanning/SlipTransactionStatusQuery';
 import type {
   SlipQueueRow,
   ISlipQueueRepository,
@@ -80,12 +82,19 @@ export type SlipQueueScreenProps = {
   hasConsented?: boolean;
 };
 
-function statusLabel(status: SlipStatus): string {
+/**
+ * REG-2: `status` alone can't distinguish "extracted, not yet confirmed"
+ * from "confirmed and saved" — both are `slip_queue.status = 'completed'`
+ * (see ExtractSlipUseCase). `isConfirmed` (whether this slip has a live
+ * transaction — see `getConfirmedSlipIds`) is what tells them apart, so a
+ * 'completed' row's label depends on it instead of being a fixed string.
+ */
+function statusLabel(status: SlipStatus, isConfirmed: boolean): string {
   switch (status) {
     case 'processing':
       return 'Processing';
     case 'completed':
-      return 'Completed';
+      return isConfirmed ? 'Saved' : 'Needs review';
     case 'failed':
       return 'Failed';
     case 'cancelled':
@@ -103,10 +112,13 @@ function formatSlipDate(createdAt: string): string {
 
 type ThemeColors = ReturnType<typeof useAppTheme>['colors'];
 
-function statusColor(status: SlipStatus, colors: ThemeColors): string {
+function statusColor(status: SlipStatus, isConfirmed: boolean, colors: ThemeColors): string {
   switch (status) {
     case 'completed':
-      return colors.primary;
+      // Not-yet-confirmed reads as a warning (it still needs the user's
+      // attention — the OpenAI cost is already spent and nothing is saved
+      // yet), confirmed as the normal "done" primary colour.
+      return isConfirmed ? colors.primary : colors.warning;
     case 'failed':
       return colors.error;
     case 'processing':
@@ -118,10 +130,13 @@ function statusColor(status: SlipStatus, colors: ThemeColors): string {
 
 function SlipQueueItem({
   item,
+  isConfirmed,
   onPress,
   colors,
 }: {
   item: SlipQueueRow;
+  /** Only meaningful when `item.status === 'completed'` — see `statusLabel`. */
+  isConfirmed: boolean;
   onPress: (item: SlipQueueRow) => void;
   colors: ThemeColors;
 }): React.JSX.Element {
@@ -142,12 +157,15 @@ function SlipQueueItem({
         <Chip
           style={[
             styles.chip,
-            { backgroundColor: statusColor(item.status as SlipStatus, colors) + '22' },
+            { backgroundColor: statusColor(item.status as SlipStatus, isConfirmed, colors) + '22' },
           ]}
-          textStyle={{ color: statusColor(item.status as SlipStatus, colors), fontSize: 11 }}
+          textStyle={{
+            color: statusColor(item.status as SlipStatus, isConfirmed, colors),
+            fontSize: 11,
+          }}
           testID={`slip-status-${item.id}`}
         >
-          {statusLabel(item.status as SlipStatus)}
+          {statusLabel(item.status as SlipStatus, isConfirmed)}
         </Chip>
       </View>
       {item.totalCents !== null && item.totalCents !== undefined && (
@@ -175,6 +193,11 @@ export function SlipQueueScreen({
   const [page, setPage] = useState(0);
   const pageRows = useSlipHistory(repo, householdId, page, PAGE_SIZE);
   const [slips, setSlips] = useState<SlipQueueRow[]>([]);
+  // REG-2: slip ids among the currently-loaded 'completed' rows that have at
+  // least one live transaction — i.e. were actually confirmed, not merely
+  // extracted (see getConfirmedSlipIds). Recomputed in one batched query
+  // whenever the visible completed slips change.
+  const [confirmedSlipIds, setConfirmedSlipIds] = useState<Set<string>>(new Set());
   // Track which pages we have already merged to prevent double-appending
   const mergedPagesRef = useRef<Map<number, string>>(new Map());
 
@@ -194,6 +217,32 @@ export function SlipQueueScreen({
       });
     }
   }, [page, pageRows]);
+
+  useEffect(() => {
+    const completedIds = slips
+      .filter((s) => (s.status as SlipStatus) === 'completed')
+      .map((s) => s.id);
+    if (completedIds.length === 0) {
+      setConfirmedSlipIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    getConfirmedSlipIds(db, householdId, completedIds)
+      .then((ids) => {
+        if (!cancelled) setConfirmedSlipIds(ids);
+      })
+      .catch(() => {
+        // On a query error, fall back to treating every completed slip as
+        // unconfirmed rather than caching a stale set: worst case an
+        // already-saved slip reopens editable instead of read-only, and
+        // ConfirmSlipUseCase's idempotency guard still stops a re-save from
+        // duplicating its transactions.
+        if (!cancelled) setConfirmedSlipIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slips, householdId]);
 
   const loadMore = useCallback((): void => {
     setPage((p) => {
@@ -240,15 +289,20 @@ export function SlipQueueScreen({
           // response; if it is somehow missing/corrupt, fall back to a re-scan
           // rather than white-screening the confirm screen.
           //
-          // `readOnly: true`: a 'completed' slip already has its transactions
-          // written (or, if not yet confirmed by the user, the confirm screen
-          // handles that case itself) — reopening it here is for REVIEW, not
-          // a second Save. SlipConfirmScreen previously reopened it as a
-          // fully editable form whose Save silently wrote nothing (see
-          // ConfirmSlipUseCase's idempotency guard).
+          // REG-2: `slip_queue.status = 'completed'` only means extraction
+          // succeeded (see ExtractSlipUseCase) — it does NOT mean the user
+          // ever confirmed/saved it. `readOnly` must reflect whether this
+          // slip actually has a live transaction (`confirmedSlipIds`, from
+          // `getConfirmedSlipIds`), not the status alone: opening an
+          // unconfirmed slip read-only would strand it forever with no Save
+          // button after the OpenAI cost was already spent.
           const extraction = hydrateExtraction(item);
           if (extraction) {
-            navigation.navigate('SlipConfirm', { slipId: item.id, extraction, readOnly: true });
+            navigation.navigate('SlipConfirm', {
+              slipId: item.id,
+              extraction,
+              readOnly: confirmedSlipIds.has(item.id),
+            });
           } else {
             navigation.navigate('SlipCapture', { householdId, slipId: item.id });
           }
@@ -258,7 +312,7 @@ export function SlipQueueScreen({
           break;
       }
     },
-    [navigation, householdId],
+    [navigation, householdId, confirmedSlipIds],
   );
 
   // Slip scanning's START — unreachable before this fix (the empty state
@@ -278,7 +332,12 @@ export function SlipQueueScreen({
         data={slips}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <SlipQueueItem item={item} onPress={handlePress} colors={colors} />
+          <SlipQueueItem
+            item={item}
+            isConfirmed={confirmedSlipIds.has(item.id)}
+            onPress={handlePress}
+            colors={colors}
+          />
         )}
         onEndReached={loadMore}
         onEndReachedThreshold={0.3}

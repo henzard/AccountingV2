@@ -3,6 +3,7 @@ import { View, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { Text, Button, Chip, Snackbar } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { randomUUID } from 'expo-crypto';
 import { format, isValid, parseISO } from 'date-fns';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -25,7 +26,18 @@ export type SlipConfirmScreenProps = {
     }>;
     merchant: string | null;
     totalCents: number | null;
-  }) => Promise<{ success: boolean; totalMismatch?: boolean }>;
+  }) => Promise<{
+    success: boolean;
+    totalMismatch?: boolean;
+    /**
+     * REG-12: the underlying `ConfirmSlipUseCase` now runs every item through
+     * the shared `transactionValidation` rules and can fail for a specific,
+     * actionable reason (an archived/deleted target envelope, an
+     * out-of-range date, an invalid amount) — surfaced here so the screen
+     * can show `error.message` instead of a generic "try again" string.
+     */
+    error?: { code: string; message: string };
+  }>;
 };
 
 // `slipDate` is OCR/LLM-derived (edge function `extract-slip`), so it can be
@@ -38,6 +50,16 @@ function parseSlipDate(slipDate: string | null | undefined): Date {
   const parsed = parseISO(slipDate);
   return isValid(parsed) ? parsed : new Date();
 }
+
+/**
+ * UX2-1: `lineId` is assigned ONCE when the extraction is loaded into state
+ * and never recomputed — editing `description`/`amountCents` must not change
+ * it. The list's `keyExtractor` keys on this instead of
+ * `${description}-${amountCents}-${idx}`, which changed on every keystroke
+ * (description/amount are exactly what's being typed) and remounted the row,
+ * dropping the keyboard and resetting a half-typed amount.
+ */
+type EditableLineItem = SlipExtractionItem & { lineId: string };
 
 export function SlipConfirmScreen({
   envelopes,
@@ -57,18 +79,22 @@ export function SlipConfirmScreen({
   // `extraction`, but if it is ever missing/malformed (e.g. a stale deep link
   // or a future call site regressing), render a recoverable empty state
   // instead of throwing a TypeError on `extraction.items` and white-screening.
-  const initialItems: SlipExtractionItem[] = useMemo(
-    () => (Array.isArray(extraction?.items) ? extraction.items : []),
+  const initialItems: EditableLineItem[] = useMemo(
+    () =>
+      (Array.isArray(extraction?.items) ? extraction.items : []).map((item) => ({
+        ...item,
+        lineId: randomUUID(),
+      })),
     [extraction],
   );
 
-  const listRef = useRef<FlatList<SlipExtractionItem>>(null);
+  const listRef = useRef<FlatList<EditableLineItem>>(null);
 
   // UX-14: description/amount are editable and a line can be removed, so the
   // confirmable list is local editable state — not the raw extraction items.
   // Read-only (an already-confirmed slip reopened from the queue) never
   // mutates this; it is only ever seeded from `initialItems`.
-  const [lineItems, setLineItems] = useState<SlipExtractionItem[]>(initialItems);
+  const [lineItems, setLineItems] = useState<EditableLineItem[]>(initialItems);
   const [assignedEnvelopes, setAssignedEnvelopes] = useState<(EnvelopeOption | null)[]>(
     initialItems.map((item) => {
       if (item.suggestedEnvelopeId) {
@@ -177,7 +203,10 @@ export function SlipConfirmScreen({
         }
         navigation.navigate('SlipQueue');
       } else {
-        setError('Could not save these transactions. Please try again.');
+        // REG-12: show the use case's actual reason (e.g. "Envelope has been
+        // archived") when the caller supplies one, instead of a generic
+        // message that hides why the save actually failed.
+        setError(result.error?.message ?? 'Could not save these transactions. Please try again.');
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred';
@@ -281,7 +310,7 @@ export function SlipConfirmScreen({
       <FlatList
         ref={listRef}
         data={lineItems}
-        keyExtractor={(item, idx) => `${item.description}-${item.amountCents}-${idx}`}
+        keyExtractor={(item) => item.lineId}
         renderItem={({ item, index }) => (
           <LineItemRow
             item={item}

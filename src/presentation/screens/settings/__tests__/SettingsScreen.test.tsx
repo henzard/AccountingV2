@@ -371,13 +371,14 @@ describe('SettingsScreen', () => {
       expect(getByTestId('payday-day-input').props.value).toBe('25');
     });
 
-    it('rejects a day outside 1-31', async () => {
+    it('rejects a day outside 1-28', async () => {
       const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
       fireEvent.press(getByTestId('payday-day-item'));
-      fireEvent.changeText(getByTestId('payday-day-input'), '32');
+      fireEvent.changeText(getByTestId('payday-day-input'), '29');
       fireEvent.press(getByTestId('payday-save'));
 
       await waitFor(() => expect(getByTestId('payday-error')).toBeTruthy());
+      expect(getByTestId('payday-error').props.children).toBe('Enter a day between 1 and 28');
       expect(mockPaydayExecute).not.toHaveBeenCalled();
     });
 
@@ -420,7 +421,7 @@ describe('SettingsScreen', () => {
 
       await waitFor(() => {
         expect(mockEnqueue).toHaveBeenCalledWith(
-          'Payday updated. 2 envelopes stayed in the previous period.',
+          'Payday updated. 2 envelopes already existed in the new month and were left as they were.',
           'success',
         );
       });
@@ -448,6 +449,16 @@ describe('SettingsScreen', () => {
       fireEvent.press(getByTestId('payday-cancel'));
       expect(queryByTestId('payday-dialog')).toBeNull();
       expect(mockPaydayExecute).not.toHaveBeenCalled();
+    });
+
+    it('accepts day 28 and calls the use case', async () => {
+      const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+      fireEvent.press(getByTestId('payday-day-item'));
+      fireEvent.changeText(getByTestId('payday-day-input'), '28');
+      fireEvent.press(getByTestId('payday-save'));
+
+      await waitFor(() => expect(mockPaydayExecute).toHaveBeenCalled());
+      expect(mockSetPaydayDay).toHaveBeenCalledWith(28);
     });
   });
 });

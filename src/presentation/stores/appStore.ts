@@ -44,7 +44,28 @@ interface AppActions {
   setUserLevel: (level: 1 | 2 | 3) => void;
   setCurrentPeriod: (period: BudgetPeriod) => void;
   setHouseholdId: (id: string) => void;
+  /** Sets the ACTIVE household's payday day, and keeps its entry in
+   * `availableHouseholds` in step — see `applyHouseholdPatch`. */
   setPaydayDay: (day: number) => void;
+  /**
+   * Single entry point for "this household's server-side attributes changed"
+   * (REG-5). Patches the household's `availableHouseholds` entry, and when it
+   * is the ACTIVE household also mirrors `paydayDay` into the top-level
+   * `paydayDay` the period key is derived from.
+   *
+   * It exists because `paydayDay` was only ever written at boot, in Settings,
+   * in onboarding and by the household picker — all from a boot-time
+   * snapshot. When a PARTNER changed the payday (which re-keys the period on
+   * the server), this device kept the old value, queried a period key nothing
+   * is stored under, showed an empty dashboard, and auto-opened the rollover
+   * wizard — which would then DUPLICATE the live period's envelopes. The sync
+   * hook now re-reads the local `households` row after every round and feeds
+   * it through here.
+   *
+   * A patch for an unknown household id is ignored (a household the user has
+   * since left).
+   */
+  applyHouseholdPatch: (id: string, patch: { paydayDay?: number; name?: string }) => void;
   clearHousehold: () => void;
   setAvailableHouseholds: (households: HouseholdSummary[]) => void;
   setOnboardingCompleted: (done: boolean | null) => void;
@@ -53,6 +74,17 @@ interface AppActions {
   setPasswordRecoveryError: (error: string | null) => void;
   /** Reset auth-derived state on sign-out. Does NOT call supabase.auth.signOut(). */
   reset: () => void;
+}
+
+/** Applies a household patch to one `availableHouseholds` list, returning the
+ * SAME array when nothing matched so zustand skips the re-render. */
+function patchHouseholds(
+  households: HouseholdSummary[],
+  id: string,
+  patch: { paydayDay?: number; name?: string },
+): HouseholdSummary[] {
+  if (!households.some((h) => h.id === id)) return households;
+  return households.map((h) => (h.id === id ? { ...h, ...patch } : h));
 }
 
 export const useAppStore = create<AppState & AppActions>((set) => ({
@@ -70,7 +102,24 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   setUserLevel: (userLevel): void => set({ userLevel }),
   setCurrentPeriod: (currentPeriod): void => set({ currentPeriod }),
   setHouseholdId: (householdId): void => set({ householdId }),
-  setPaydayDay: (paydayDay): void => set({ paydayDay }),
+  // Settings and onboarding's PaydayStep both write through here, so the
+  // active household's `availableHouseholds` entry can never drift from the
+  // top-level value the period key is derived from (REG-5).
+  setPaydayDay: (paydayDay): void =>
+    set((state) => ({
+      paydayDay,
+      availableHouseholds: state.householdId
+        ? patchHouseholds(state.availableHouseholds, state.householdId, { paydayDay })
+        : state.availableHouseholds,
+    })),
+  applyHouseholdPatch: (id, patch): void =>
+    set((state) => ({
+      paydayDay:
+        state.householdId === id && patch.paydayDay !== undefined
+          ? patch.paydayDay
+          : state.paydayDay,
+      availableHouseholds: patchHouseholds(state.availableHouseholds, id, patch),
+    })),
   clearHousehold: (): void => set({ householdId: null, paydayDay: DEFAULT_PAYDAY_DAY }),
   setAvailableHouseholds: (availableHouseholds): void => set({ availableHouseholds }),
   setOnboardingCompleted: (onboardingCompleted): void => set({ onboardingCompleted }),

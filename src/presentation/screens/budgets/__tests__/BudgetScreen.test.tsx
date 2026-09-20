@@ -43,8 +43,8 @@ jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   return {
-    Text: ({ children }: { children?: React.ReactNode }) =>
-      React.createElement('Text', null, children),
+    Text: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
+      React.createElement('Text', { testID }, children),
     Divider: () => React.createElement('View', null),
     ActivityIndicator: () => React.createElement('View', { testID: 'loading' }),
     Surface: ({ children }: { children?: React.ReactNode }) =>
@@ -53,8 +53,50 @@ jest.mock('react-native-paper', () => {
       React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
     Button: ({ onPress, children }: { onPress?: () => void; children?: React.ReactNode }) =>
       React.createElement('Pressable', { onPress }, children),
+    IconButton: ({
+      onPress,
+      disabled,
+      testID,
+    }: {
+      onPress?: () => void;
+      disabled?: boolean;
+      testID?: string;
+    }) =>
+      React.createElement('Pressable', {
+        onPress: disabled ? undefined : onPress,
+        disabled,
+        testID,
+      }),
+    TouchableRipple: ({
+      children,
+      onPress,
+      testID,
+    }: {
+      children?: React.ReactNode;
+      onPress?: () => void;
+      testID?: string;
+    }) => React.createElement('Pressable', { onPress, testID }, children),
   };
 });
+
+jest.mock('react-native-vector-icons/MaterialCommunityIcons', () => 'Icon');
+
+jest.mock('../../../hooks/usePersistentEnvelopeSavings', () => ({
+  usePersistentEnvelopeSavings: () => ({
+    savedCentsByEnvelopeId: new Map(),
+    loading: false,
+    error: null,
+    reload: jest.fn(),
+  }),
+}));
+
+jest.mock('../../dashboard/components/EnvelopeDetailSheet', () => ({
+  EnvelopeDetailSheet: ({ visible }: { visible: boolean }) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const React = require('react');
+    return visible ? React.createElement('View', { testID: 'envelope-detail-sheet-stub' }) : null;
+  },
+}));
 
 jest.mock('../components/BudgetBalanceBanner', () => ({
   BudgetBalanceBanner: () => null,
@@ -189,17 +231,20 @@ describe('BudgetScreen', () => {
     expect(card.props['data-income']).toBe(100000);
   });
 
-  // Hook error is not surfaced — useEnvelopes returns envelopes: [] on error
-  // which renders the empty state. No explicit error UI exists.
-  it('renders empty state when hook has error (no explicit error UI)', () => {
+  // UX2-8: a load failure must read as a load failure, not "no envelopes" —
+  // it gets its own Retry CTA instead of silently reusing the empty copy.
+  it('shows a Retry CTA (not the plain empty-state copy) when the hook has an error', () => {
+    const reload = jest.fn();
     mockUseEnvelopes.mockReturnValue({
       envelopes: [],
       loading: false,
-      reload: jest.fn(),
-      error: new Error('DB failure'),
+      reload,
+      error: 'DB failure',
     });
     const { getByTestId } = render(<BudgetScreen />);
     expect(getByTestId('budget-empty-state')).toBeTruthy();
+    fireEvent.press(getByTestId('empty-state-cta'));
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   // UX-2: normal envelopes were only addable from the empty state's
@@ -223,7 +268,10 @@ describe('BudgetScreen', () => {
 
   // UX-2: Expenses rows previously had no onPress at all (only Income rows
   // did) — tapping an expense envelope now navigates to AddEditEnvelope too.
-  it('pressing an expense envelope card navigates to AddEditEnvelope with its id', () => {
+  // UX2-18: tapping an expense row now opens the same EnvelopeDetailSheet
+  // used on the dashboard (with Edit inside it), instead of jumping straight
+  // to the edit form.
+  it('pressing an expense envelope card opens the EnvelopeDetailSheet, not AddEditEnvelope directly', () => {
     mockUseEnvelopes.mockReturnValue({
       envelopes: [makeEnvelope('e2', 'Groceries', 'spending')],
       loading: false,
@@ -231,7 +279,8 @@ describe('BudgetScreen', () => {
     });
     const { getByTestId } = render(<BudgetScreen />);
     fireEvent.press(getByTestId('envelope-card-Groceries'));
-    expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', { envelopeId: 'e2' });
+    expect(getByTestId('envelope-detail-sheet-stub')).toBeTruthy();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // UX-1/DOM-2/VAL-2: "Start this month's budget" opens the rollover wizard
@@ -250,5 +299,52 @@ describe('BudgetScreen', () => {
     const { getByTestId } = render(<BudgetScreen />);
     fireEvent.press(getByTestId('empty-state-cta'));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', {}));
+  });
+
+  // VAL2-4: the screen used to be pinned to the current period even though
+  // `useEnvelopes` already accepts any period.
+  describe('period switcher', () => {
+    it('"Next" is disabled on the current period', () => {
+      const { getByTestId } = render(<BudgetScreen />);
+      expect(getByTestId('budget-period-next').props.disabled).toBe(true);
+    });
+
+    it('going back a period shows the "Viewing <range>" read-only banner, hides the FAB, and re-enables Next', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [makeEnvelope('e1', 'Groceries', 'spending')],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId, queryByTestId } = render(<BudgetScreen />);
+      fireEvent.press(getByTestId('budget-period-prev'));
+      expect(getByTestId('budget-past-period-banner')).toBeTruthy();
+      expect(queryByTestId('add-envelope-fab')).toBeNull();
+      expect(getByTestId('budget-period-next').props.disabled).toBeFalsy();
+    });
+
+    it('a past period’s expense row is not tappable (read-only)', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [makeEnvelope('e1', 'Groceries', 'spending')],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId, queryByTestId } = render(<BudgetScreen />);
+      fireEvent.press(getByTestId('budget-period-prev'));
+      fireEvent.press(getByTestId('envelope-card-Groceries'));
+      expect(queryByTestId('envelope-detail-sheet-stub')).toBeNull();
+    });
+
+    it('going forward from a past period returns to the current period (no banner, FAB back)', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [makeEnvelope('e1', 'Groceries', 'spending')],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId, queryByTestId } = render(<BudgetScreen />);
+      fireEvent.press(getByTestId('budget-period-prev'));
+      fireEvent.press(getByTestId('budget-period-next'));
+      expect(queryByTestId('budget-past-period-banner')).toBeNull();
+      expect(getByTestId('add-envelope-fab')).toBeTruthy();
+    });
   });
 });

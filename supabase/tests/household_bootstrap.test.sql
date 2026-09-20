@@ -92,8 +92,8 @@ select is(private.is_household_member('hh-boot'), true,
   'P6: is_household_member now true for the new owner');
 
 select ok(
-  (public.create_invitation('hh-boot') ->> 'code') ~ '^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$',
-  'P7: owner can now mint an invitation (returns a 6-char code)');
+  (public.create_invitation('hh-boot') ->> 'code') ~ '^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$',
+  'P7: owner can now mint an invitation (returns a 10-char code since 0015)');
 
 -- ===========================================================================
 -- Anti-hijack: a DIFFERENT user tries to self-insert as owner of the now

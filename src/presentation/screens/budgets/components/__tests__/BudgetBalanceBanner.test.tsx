@@ -1,5 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
+import { formatCurrency } from '../../../../utils/currency';
 
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -102,5 +103,18 @@ describe('BudgetBalanceBanner', () => {
     expect(getByTestId('banner-income')).toBeTruthy();
     expect(getByTestId('banner-expenses')).toBeTruthy();
     expect(getByTestId('banner-to-assign')).toBeTruthy();
+  });
+
+  it('formats currency values including cents using formatCurrency', () => {
+    mockUseBudgetBalance.mockReturnValue({
+      incomeTotal: 1234567,
+      expenseAllocationTotal: 765432,
+      toAssign: 469135,
+      isBalanced: false,
+    });
+    const { getByText } = render(<BudgetBalanceBanner envelopes={[envelope]} />);
+    expect(getByText(formatCurrency(1234567))).toBeTruthy();
+    expect(getByText(formatCurrency(765432))).toBeTruthy();
+    expect(getByText(formatCurrency(469135))).toBeTruthy();
   });
 });

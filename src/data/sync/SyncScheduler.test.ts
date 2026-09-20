@@ -1028,3 +1028,70 @@ describe('SyncScheduler', () => {
     });
   });
 });
+
+describe('SyncScheduler.stopAndDrain (REG-11)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAppStateStore.currentState = 'active';
+    mockAppStateStore.listeners = [];
+    capturedWriteListener = null;
+  });
+
+  it('unwires the triggers and resolves only once the in-flight round has settled', async () => {
+    // Account deletion wipes the local database right after this resolves —
+    // an engine still mid-apply would write into the emptied schema.
+    let finishRound: ((summary: SyncSummary) => void) | null = null;
+    const engine = makeEngine({
+      sync: jest.fn(
+        () =>
+          new Promise<SyncSummary>((resolve) => {
+            finishRound = resolve;
+          }),
+      ),
+    });
+    const channel = new FakeChannel();
+    const supabase = makeSupabase(channel);
+    const scheduler = new SyncScheduler({
+      engine,
+      supabase: supabase as never,
+      networkObserver: makeReconnectSource(),
+      debounceMs: 400,
+    });
+    scheduler.start(HH);
+
+    const round = scheduler.syncNow(HH);
+    await flushMicrotasks();
+    expect(engine.sync).toHaveBeenCalledWith(HH);
+
+    let drained = false;
+    const drain = scheduler.stopAndDrain().then(() => {
+      drained = true;
+    });
+
+    // Triggers are already gone, but the round has not finished.
+    expect(scheduler.isStarted).toBe(false);
+    await flushMicrotasks();
+    expect(drained).toBe(false);
+
+    finishRound!(OK_SUMMARY);
+    await drain;
+    expect(drained).toBe(true);
+    await round;
+  });
+
+  it('resolves immediately when no round is in flight', async () => {
+    const engine = makeEngine();
+    const channel = new FakeChannel();
+    const supabase = makeSupabase(channel);
+    const scheduler = new SyncScheduler({
+      engine,
+      supabase: supabase as never,
+      networkObserver: makeReconnectSource(),
+      debounceMs: 400,
+    });
+    scheduler.start(HH);
+
+    await expect(scheduler.stopAndDrain()).resolves.toBeUndefined();
+    expect(scheduler.isStarted).toBe(false);
+  });
+});

@@ -9,7 +9,16 @@
  * the native class. Native builds keep using LocalNotificationScheduler.ts.
  */
 export class LocalNotificationScheduler {
+  // VAL2-1: constructor shape kept in step with the native scheduler (deps
+  // unused here — there is nothing to schedule on web) so call sites don't
+  // need a platform branch just to construct this class.
+  constructor(
+    _deps: { hasLoggedTransactionToday?: () => Promise<boolean>; now?: () => Date } = {},
+  ) {}
+
   async scheduleEveningLogPrompt(_hour: number, _minute: number): Promise<void> {}
+
+  async cancelEveningLogPrompt(): Promise<void> {}
 
   async scheduleMeterReadingReminder(_dayOfMonth: number): Promise<void> {}
 

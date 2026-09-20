@@ -8,7 +8,7 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { BABY_STEP_RULES } from '../../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../../domain/babySteps/types';
-import { P } from './HeroSummaryCard';
+import { P } from '../palette';
 import { radius, spacing, fontSize } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 

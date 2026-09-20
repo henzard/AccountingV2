@@ -38,7 +38,11 @@ jest.mock('./src/infrastructure/monitoring/earlyCrashLog', () => ({
 }));
 
 jest.mock('./src/data/local/db', () => ({
-  db: {},
+  // `select()` is reached by useHouseholdSettingsSync's households read; the
+  // boot tests never assert on its result, so it resolves to no row.
+  db: {
+    select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+  },
   useDatabaseMigrations: jest.fn(() => ({ success: true })),
 }));
 
@@ -198,11 +202,19 @@ jest.mock('./src/infrastructure/network/NetworkObserver', () => ({
   networkObserver: { start: jest.fn(), stop: jest.fn(), onConnected: jest.fn() },
 }));
 
-jest.mock('./src/presentation/stores/syncStore', () => ({
-  useSyncStore: { getState: () => ({ reset: jest.fn() }) },
-  subscribeNetworkChanges: jest.fn(() => jest.fn()),
-  syncStoreStatusSink: {},
-}));
+jest.mock('./src/presentation/stores/syncStore', () => {
+  // Callable as a selector hook (useReloadOnSync, via useHouseholdSettingsSync)
+  // AND as a store handle (resetAllStoresOnSignOut).
+  const state = { lastSyncAt: null, reset: jest.fn() };
+  const useSyncStore = (selector?: (s: typeof state) => unknown): unknown =>
+    selector ? selector(state) : state;
+  useSyncStore.getState = (): typeof state => state;
+  return {
+    useSyncStore,
+    subscribeNetworkChanges: jest.fn(() => jest.fn()),
+    syncStoreStatusSink: {},
+  };
+});
 
 jest.mock('./src/infrastructure/device/deviceId', () => ({
   getDeviceId: jest.fn().mockResolvedValue('device-1'),
@@ -216,7 +228,9 @@ jest.mock('./src/data/sync/SyncScheduler', () => {
   const instance = {
     start: jest.fn(),
     stop: jest.fn(),
+    stopAndDrain: jest.fn().mockResolvedValue(undefined),
     requestSync: jest.fn(),
+    syncNow: jest.fn().mockResolvedValue({}),
     isStarted: false,
   };
   return {
@@ -242,6 +256,7 @@ jest.mock('./src/domain/slipScanning/CleanupExpiredSlipsUseCase', () => ({
 
 import App from './App';
 import { useAppStore } from './src/presentation/stores/appStore';
+import { requestSyncNow } from './src/data/sync/syncRuntime';
 
 // Handles into the jest.fn()s created inside the factories above.
 const SplashScreen = jest.requireMock('expo-splash-screen') as {
@@ -275,7 +290,9 @@ const { __mockSchedulerInstance: mockSchedulerInstance } = jest.requireMock(
   __mockSchedulerInstance: {
     start: jest.Mock;
     stop: jest.Mock;
+    stopAndDrain: jest.Mock;
     requestSync: jest.Mock;
+    syncNow: jest.Mock;
     isStarted: boolean;
   };
 };
@@ -459,6 +476,43 @@ describe('App boot (Task 5)', () => {
     await waitFor(() => expect(mockSchedulerInstance.start).toHaveBeenCalledWith('hh-2'));
     expect(mockSchedulerInstance.stop).toHaveBeenCalled();
     expect(mockSchedulerInstance.requestSync).toHaveBeenCalledWith('hh-2', { immediate: true });
+  });
+
+  it('re-registers the await-able sync runtime after sign-out and sign-in (REG-3)', async () => {
+    // `registerSyncRuntime` used to live inside the one-time `ensureSyncRuntime`
+    // promise while sign-out cleared the registration, so after sign-out ->
+    // sign-in in the SAME process nothing ever re-registered: `requestSyncNow`
+    // rejected forever (slip scanning reported "offline", leave/remove never
+    // pushed, a foreground push never synced).
+    mockRestore.mockResolvedValue([]);
+    mockEnsureExecute.mockResolvedValue(successResult('hh-reg3'));
+    setSession({ user: { id: 'user-reg3' } });
+
+    const { findByTestId } = render(<App />);
+    await findByTestId('root-navigator');
+    await waitFor(() => expect(mockSchedulerInstance.start).toHaveBeenCalledWith('hh-reg3'));
+
+    await expect(requestSyncNow('hh-reg3')).resolves.toBeUndefined();
+    expect(mockSchedulerInstance.syncNow).toHaveBeenCalledWith('hh-reg3');
+
+    const authCallback = getAuthCallback();
+    await act(async () => {
+      await authCallback('SIGNED_OUT', null);
+    });
+    // Sign-out clears it — a screen must not be able to sync the previous
+    // user's household.
+    await expect(requestSyncNow('hh-reg3')).rejects.toThrow(/no sync runtime registered/);
+
+    // Sign in again in the same process: the scheduler singletons are cached,
+    // so only the lifecycle effect can restore the registration.
+    mockSchedulerInstance.syncNow.mockClear();
+    await act(async () => {
+      useAppStore.getState().setHouseholdId('hh-reg3');
+    });
+    await waitFor(async () => {
+      await expect(requestSyncNow('hh-reg3')).resolves.toBeUndefined();
+    });
+    expect(mockSchedulerInstance.syncNow).toHaveBeenCalledWith('hh-reg3');
   });
 
   it('degrades gracefully instead of hanging on splash forever when local init throws (EnsureHouseholdUseCase rejects)', async () => {

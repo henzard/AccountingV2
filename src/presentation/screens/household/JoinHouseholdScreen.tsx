@@ -22,6 +22,12 @@ import type { JoinHouseholdScreenProps } from '../../navigation/types';
 
 const restoreService = new RestoreService(db, supabase);
 
+// SEC2-2(d): existing invitations minted before 0015_security_followups.sql
+// are 6 characters; new ones are 10. Both must be accepted — never assume a
+// fixed length.
+const MIN_INVITE_CODE_LENGTH = 6;
+const MAX_INVITE_CODE_LENGTH = 10;
+
 export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
   const session = useAppStore((s) => s.session);
@@ -38,8 +44,18 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
   const handleJoin = async (): Promise<void> => {
     if (!session) return;
     const trimmedCode = code.trim().toUpperCase();
-    if (trimmedCode.length !== 6) {
-      enqueue('Please enter a 6-character invite code', 'error');
+    // SEC2-2(d): invite codes lengthened from 6 to 10 characters
+    // (create_invitation, 0015_security_followups.sql). Existing 6-char
+    // codes must keep working, so this checks a range rather than an exact
+    // length — never assume a fixed code length.
+    if (
+      trimmedCode.length < MIN_INVITE_CODE_LENGTH ||
+      trimmedCode.length > MAX_INVITE_CODE_LENGTH
+    ) {
+      enqueue(
+        `Please enter a ${MIN_INVITE_CODE_LENGTH}- to ${MAX_INVITE_CODE_LENGTH}-character invite code`,
+        'error',
+      );
       return;
     }
 
@@ -91,7 +107,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text variant="bodyMedium" style={[styles.description, { color: colors.onSurfaceVariant }]}>
-          Enter the 6-character code shared by your household member.
+          Enter the invite code shared by your household member.
         </Text>
 
         <TextInput
@@ -100,7 +116,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
           onChangeText={(t) => setCode(t.toUpperCase())}
           autoCapitalize="characters"
           autoCorrect={false}
-          maxLength={6}
+          maxLength={MAX_INVITE_CODE_LENGTH}
           mode="outlined"
           style={[styles.input, { backgroundColor: colors.surface }]}
           disabled={loading}
@@ -110,7 +126,11 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
           mode="contained"
           onPress={handleJoin}
           loading={loading}
-          disabled={loading || code.trim().length !== 6}
+          disabled={
+            loading ||
+            code.trim().length < MIN_INVITE_CODE_LENGTH ||
+            code.trim().length > MAX_INVITE_CODE_LENGTH
+          }
           style={styles.button}
           contentStyle={styles.buttonContent}
           testID="join-household-btn"

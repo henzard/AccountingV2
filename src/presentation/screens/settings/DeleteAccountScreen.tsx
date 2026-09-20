@@ -35,6 +35,16 @@ import { useAppTheme } from '../../theme/useAppTheme';
 /** The word the user must type, exactly, to arm the button. */
 const CONFIRM_WORD = 'DELETE';
 
+/**
+ * Failure codes that stopped the flow BEFORE the server was asked to erase
+ * anything — the outbox still owed a shared household partner-visible writes
+ * (UNSYNCED_CHANGES, REG-11), or the device was offline. Saying so outright
+ * matters: the user has just typed DELETE and confirmed, and needs to know
+ * their account is still intact. PARTIAL_DELETE is deliberately NOT here —
+ * its own message says what did and did not happen.
+ */
+const NOTHING_DELETED_CODES: readonly string[] = ['UNSYNCED_CHANGES', 'NETWORK_REQUIRED'];
+
 export interface DeleteAccountScreenProps {
   navigation?: { goBack: () => void };
 }
@@ -54,12 +64,17 @@ export const DeleteAccountScreen: React.FC<DeleteAccountScreenProps> = ({ naviga
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Kept alongside the message so the screen can say whether trying again is
+  // the right next step (an unflushed outbox, or a partial server delete) or
+  // whether the account is already gone and only this device is left dirty.
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   const wordMatches = typed.trim().toUpperCase() === CONFIRM_WORD;
   const canDelete = wordMatches && isOnline && !busy;
 
   const handleDelete = async (): Promise<void> => {
     setError(null);
+    setErrorCode(null);
 
     const confirmed = await confirm({
       title: 'Delete your account?',
@@ -77,7 +92,13 @@ export const DeleteAccountScreen: React.FC<DeleteAccountScreenProps> = ({ naviga
       });
       const result = await useCase.execute();
       if (!result.success) {
+        // Every branch of the use case carries its own user-facing sentence —
+        // the unsynced-changes refusal (REG-11), the data-deleted-but-account-
+        // remains partial outcome, and the local-wipe failure that happens
+        // AFTER the sign-out has already gone through. Showing the message
+        // verbatim is what tells those three apart on screen.
         setError(result.error.message);
+        setErrorCode(result.error.code);
         return;
       }
       // On success the sign-out inside the use case makes App.tsx's
@@ -159,9 +180,16 @@ export const DeleteAccountScreen: React.FC<DeleteAccountScreenProps> = ({ naviga
       />
 
       {error !== null && (
-        <HelperText type="error" visible testID="delete-account-error">
-          {error}
-        </HelperText>
+        <>
+          <HelperText type="error" visible testID="delete-account-error">
+            {error}
+          </HelperText>
+          {errorCode !== null && NOTHING_DELETED_CODES.includes(errorCode) && (
+            <HelperText type="info" visible testID="delete-account-retry-hint">
+              Nothing has been deleted yet — you can try again.
+            </HelperText>
+          )}
+        </>
       )}
 
       {busy && (

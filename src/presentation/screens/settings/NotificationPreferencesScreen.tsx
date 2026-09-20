@@ -1,6 +1,6 @@
-import React, { useCallback, useRef } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { List, Switch, Text, TextInput, Surface } from 'react-native-paper';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, StyleSheet, ScrollView, Linking, Platform } from 'react-native';
+import { List, Switch, Text, TextInput, Surface, Button, HelperText } from 'react-native-paper';
 import { NotificationPreferencesRepository } from '../../../infrastructure/notifications/NotificationPreferencesRepository';
 import { LocalNotificationScheduler } from '../../../infrastructure/notifications/LocalNotificationScheduler';
 import * as Notifications from 'expo-notifications';
@@ -25,6 +25,12 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   const debounceTimers = useRef<
     Partial<Record<keyof NotificationPreferences, ReturnType<typeof setTimeout>>>
   >({});
+
+  // UX2-15c: locally-controlled time inputs — allow empty, validate on blur
+  const [hourInput, setHourInput] = useState(String(preferences.eveningLogPromptHour));
+  const [minuteInput, setMinuteInput] = useState(String(preferences.eveningLogPromptMinute));
+  const [hourError, setHourError] = useState<string | null>(null);
+  const [minuteError, setMinuteError] = useState<string | null>(null);
 
   const updatePref = async (update: Partial<NotificationPreferences>): Promise<void> => {
     // L10 fix: merge against the FRESHEST store state (read via getState()),
@@ -90,6 +96,18 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
           <Text variant="bodySmall" style={[styles.permWarningText, { color: colors.warning }]}>
             Notification permissions not granted. Enable in device Settings to receive reminders.
           </Text>
+          {Platform.OS !== 'web' && (
+            <Button
+              mode="outlined"
+              textColor={colors.warning}
+              onPress={() => Linking.openSettings()}
+              accessibilityLabel="Open notification settings"
+              testID="open-notification-settings"
+              style={styles.permWarningButton}
+            >
+              Open settings
+            </Button>
+          )}
         </Surface>
       )}
 
@@ -110,31 +128,80 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
             )}
           />
           {preferences.eveningLogPromptEnabled && (
-            <View style={styles.timeRow}>
-              <TextInput
-                label="Hour (0-23)"
-                value={String(preferences.eveningLogPromptHour)}
-                onChangeText={(v) => {
-                  const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 0 && n <= 23)
-                    debouncedUpdatePref({ eveningLogPromptHour: n });
-                }}
-                keyboardType="numeric"
-                mode="outlined"
-                style={[styles.timeInput, { backgroundColor: colors.surface }]}
-              />
-              <TextInput
-                label="Minute (0-59)"
-                value={String(preferences.eveningLogPromptMinute)}
-                onChangeText={(v) => {
-                  const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 0 && n <= 59)
-                    debouncedUpdatePref({ eveningLogPromptMinute: n });
-                }}
-                keyboardType="numeric"
-                mode="outlined"
-                style={[styles.timeInput, { backgroundColor: colors.surface }]}
-              />
+            <View>
+              <View style={styles.timeRow}>
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    label="Hour (0-23)"
+                    value={hourInput}
+                    onChangeText={setHourInput}
+                    onBlur={() => {
+                      if (hourInput === '') {
+                        setHourError(null);
+                        return;
+                      }
+                      const n = parseInt(hourInput, 10);
+                      if (isNaN(n) || n < 0 || n > 23) {
+                        setHourError('Enter an hour from 0 to 23');
+                      } else {
+                        setHourError(null);
+                        debouncedUpdatePref({ eveningLogPromptHour: n });
+                      }
+                    }}
+                    keyboardType="numeric"
+                    mode="outlined"
+                    style={{ backgroundColor: colors.surface }}
+                    testID="evening-hour-input"
+                  />
+                  {hourError && (
+                    <HelperText type="error" visible testID="hour-error">
+                      {hourError}
+                    </HelperText>
+                  )}
+                </View>
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <TextInput
+                    label="Minute (0-59)"
+                    value={minuteInput}
+                    onChangeText={setMinuteInput}
+                    onBlur={() => {
+                      if (minuteInput === '') {
+                        setMinuteError(null);
+                        return;
+                      }
+                      const n = parseInt(minuteInput, 10);
+                      if (isNaN(n) || n < 0 || n > 59) {
+                        setMinuteError('Enter minutes from 0 to 59');
+                      } else {
+                        setMinuteError(null);
+                        debouncedUpdatePref({ eveningLogPromptMinute: n });
+                      }
+                    }}
+                    keyboardType="numeric"
+                    mode="outlined"
+                    style={{ backgroundColor: colors.surface }}
+                    testID="evening-minute-input"
+                  />
+                  {minuteError && (
+                    <HelperText type="error" visible testID="minute-error">
+                      {minuteError}
+                    </HelperText>
+                  )}
+                </View>
+              </View>
+              {hourInput !== '' && minuteInput !== '' && !hourError && !minuteError && (
+                <Text
+                  variant="bodySmall"
+                  style={[
+                    styles.timePreview,
+                    { color: colors.onSurfaceVariant, marginTop: spacing.sm },
+                  ]}
+                  testID="time-preview"
+                >
+                  Reminder at {String(parseInt(hourInput, 10)).padStart(2, '0')}:
+                  {String(parseInt(minuteInput, 10)).padStart(2, '0')}
+                </Text>
+              )}
             </View>
           )}
         </Surface>
@@ -181,8 +248,8 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
         </List.Subheader>
         <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
           <List.Item
-            title="Month-start pre-flight"
-            description={`Reminder on payday (day ${paydayDay}) to fill envelopes`}
+            title="Payday reminder"
+            description="A nudge on payday to set up the month's budget."
             right={() => (
               <Switch
                 value={preferences.monthStartPreflightEnabled}
@@ -225,6 +292,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.base,
   },
   permWarningText: {},
+  permWarningButton: { marginTop: spacing.sm },
   subheader: { letterSpacing: 1 },
   section: { borderRadius: radius.md, marginBottom: spacing.sm },
   timeRow: {
@@ -233,7 +301,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingBottom: spacing.sm,
   },
-  timeInput: { flex: 1 },
+  timePreview: {},
   dayRow: { paddingHorizontal: spacing.base, paddingBottom: spacing.sm },
   dayInput: {},
 });

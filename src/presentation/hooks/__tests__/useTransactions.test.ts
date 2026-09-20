@@ -10,10 +10,6 @@ jest.mock('../../../data/local/db', () => ({
   },
 }));
 
-jest.mock('../../../data/local/balances/EnvelopeBalanceQuery', () => ({
-  envelopeScopeCondition: jest.fn(() => 'ENVELOPE_SCOPE_CONDITION'),
-}));
-
 jest.mock('drizzle-orm', () => ({
   ...jest.requireActual('drizzle-orm'),
   isNull: jest.fn((col) => ({ isNull: col })),
@@ -23,8 +19,26 @@ mockFrom.mockReturnValue({ where: mockWhere });
 mockWhere.mockReturnValue({ orderBy: mockOrderBy });
 
 import { useTransactions } from '../useTransactions';
-import { envelopeScopeCondition } from '../../../data/local/balances/EnvelopeBalanceQuery';
 import type { TransactionEntity } from '../../../domain/transactions/TransactionEntity';
+
+/** Flattens a drizzle `sql` tree (literals, columns and bound params) into one
+ * searchable string, so a test can assert WHICH predicate the hook built. */
+function sqlText(node: unknown): string {
+  if (node == null) return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(sqlText).join(' ');
+  const obj = node as Record<string, unknown>;
+  if (Array.isArray(obj.queryChunks)) return obj.queryChunks.map(sqlText).join(' ');
+  if (obj.value !== undefined) return sqlText(obj.value);
+  if (typeof obj.name === 'string') return obj.name;
+  return '';
+}
+
+/** The WHERE predicate the last query was built with, as text. */
+function lastWhereText(): string {
+  const calls = mockWhere.mock.calls;
+  return sqlText(calls[calls.length - 1][0]);
+}
 
 const HOUSEHOLD = 'hh-1';
 const PERIOD = '2026-06-01';
@@ -95,7 +109,11 @@ describe('useTransactions', () => {
     expect(mockWhere).toHaveBeenCalled();
   });
 
-  it('applies the envelope-scope condition for the period even without a periodEnd', async () => {
+  it('unions in PERIOD-SCOPED envelopes for the period, and only those (REG-6)', async () => {
+    // The OR-clause used to be built from `envelopeScopeCondition`, which
+    // matches every PERSISTENT type unconditionally — so every transaction
+    // ever booked to a sinking fund appeared in (and was totalled into) EVERY
+    // period. Persistent-envelope rows rely on the date window alone.
     mockOrderBy.mockResolvedValue([]);
     const { result } = renderHook(() => useTransactions(HOUSEHOLD, PERIOD));
 
@@ -103,7 +121,15 @@ describe('useTransactions', () => {
       await result.current.reload();
     });
 
-    expect(envelopeScopeCondition).toHaveBeenCalledWith(PERIOD);
+    const where = lastWhereText();
+    expect(where).toContain('spending');
+    expect(where).toContain('income');
+    expect(where).toContain('utility');
+    expect(where).toContain('period_start');
+    expect(where).not.toContain('sinking_fund');
+    expect(where).not.toContain('emergency_fund');
+    expect(where).not.toContain('savings');
+    expect(where).not.toContain('baby_step');
   });
 
   it('includes a row whose date is outside the window but whose envelope is scoped to this period', async () => {
@@ -244,6 +270,75 @@ describe('useTransactions', () => {
     });
 
     expect(mockFrom).toHaveBeenCalledTimes(2);
-    expect(envelopeScopeCondition).toHaveBeenLastCalledWith('2026-07-01');
+    expect(lastWhereText()).toContain('2026-07-01');
+  });
+});
+
+describe('useTransactions \u2014 loading vs refreshing (REG-9)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue({ where: mockWhere });
+    mockWhere.mockReturnValue({ orderBy: mockOrderBy });
+  });
+
+  it('flips `loading` on the first load and `refreshing` on every later one', async () => {
+    const first = makeTx({ id: 'tx-first' });
+    mockOrderBy.mockResolvedValue([first]);
+    const { result } = renderHook(() => useTransactions(HOUSEHOLD, PERIOD));
+
+    await act(async () => {
+      await result.current.reload();
+    });
+    expect(result.current.transactions).toEqual([first]);
+
+    // A sync-driven reload must NOT blank the list: `loading` stays false so
+    // the screen keeps rendering rows instead of dropping to skeletons.
+    let release: ((rows: unknown[]) => void) | null = null;
+    mockOrderBy.mockReturnValue(
+      new Promise((r) => {
+        release = r;
+      }),
+    );
+    let pending: Promise<void>;
+    act(() => {
+      pending = result.current.reload();
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(true);
+    expect(result.current.transactions).toEqual([first]);
+
+    await act(async () => {
+      release!([first]);
+      await pending!;
+    });
+    expect(result.current.refreshing).toBe(false);
+  });
+
+  it('a first load that FAILS still counts as loaded, so the retry refreshes', async () => {
+    mockOrderBy.mockRejectedValueOnce(new Error('fail'));
+    const { result } = renderHook(() => useTransactions(HOUSEHOLD, PERIOD));
+
+    await act(async () => {
+      await result.current.reload();
+    });
+    expect(result.current.loading).toBe(false);
+
+    let release: ((rows: unknown[]) => void) | null = null;
+    mockOrderBy.mockReturnValue(
+      new Promise((r) => {
+        release = r;
+      }),
+    );
+    let pending: Promise<void>;
+    act(() => {
+      pending = result.current.reload();
+    });
+    expect(result.current.refreshing).toBe(true);
+
+    await act(async () => {
+      release!([]);
+      await pending!;
+    });
   });
 });

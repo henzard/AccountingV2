@@ -183,7 +183,7 @@ describe('household bootstrap through real sync_push (no seedHousehold)', () => 
       [householdId],
     );
     expect(typeof inv.rows[0].r.code).toBe('string');
-    expect((inv.rows[0].r.code as string).length).toBe(6);
+    expect((inv.rows[0].r.code as string).length).toBe(10); // 10 since migration 0015 (was 6)
   });
 
   it('rejects a DIFFERENT user self-inserting as owner of an existing household (no hijack)', async () => {

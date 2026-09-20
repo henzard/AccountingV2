@@ -183,3 +183,42 @@ describe('useEnvelopes', () => {
     });
   });
 });
+
+describe('useEnvelopes — loading vs refreshing (REG-9)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue({ where: mockWhere });
+  });
+
+  it('flips `loading` on the first load and `refreshing` on every later one', async () => {
+    const rows = [makeEnvelope()];
+    mockWhere.mockResolvedValue(rows);
+    const { result } = renderHook(() => useEnvelopes(HOUSEHOLD, PERIOD));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.envelopes).toHaveLength(1);
+
+    // useReloadOnSync drives exactly this path ~1s after every save — it must
+    // not drop the dashboard to skeletons and reset the scroll position.
+    let release: ((r: unknown[]) => void) | null = null;
+    mockWhere.mockReturnValue(
+      new Promise((r) => {
+        release = r;
+      }),
+    );
+    let pending: Promise<void>;
+    act(() => {
+      pending = result.current.reload();
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(true);
+    expect(result.current.envelopes).toHaveLength(1);
+
+    await act(async () => {
+      release!(rows);
+      await pending!;
+    });
+    expect(result.current.refreshing).toBe(false);
+  });
+});

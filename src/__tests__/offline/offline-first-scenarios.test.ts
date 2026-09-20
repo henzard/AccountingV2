@@ -8,6 +8,8 @@ import { LogDebtPaymentUseCase } from '../../domain/debtSnowball/LogDebtPaymentU
 import { buildEnvelope, buildDebt, resetFactoryCounter } from '../../__test-utils__/factories';
 import { HOUSEHOLDS } from '../../__test-utils__/scenarioSeed';
 import type { SyncedRepo } from '../../data/uow/createSyncedRepo';
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
+import type { SQL } from 'drizzle-orm';
 
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'mock-uuid-' + Math.random().toString(36).slice(2, 10),
@@ -93,6 +95,55 @@ function createMockDb(envelopeRows: unknown[] = []) {
   };
 
   return db;
+}
+
+/**
+ * `runInUnitOfWork` writes raw `sql` through `tx.run(...)`, and `createMockDb`
+ * records every one of those in `db.ran`. These decode that log back into
+ * something assertable, so a test can still say "exactly one oplog op for the
+ * envelopes table" now that the write goes through the unit of work instead of
+ * an injectable `SyncedRepo`.
+ */
+const dialect = new SQLiteSyncDialect();
+
+interface RanInsert {
+  table: string;
+  columns: string[];
+  params: unknown[];
+}
+
+function ranInserts(db: { ran: unknown[] }): RanInsert[] {
+  return db.ran
+    .map((query) => dialect.sqlToQuery(query as SQL))
+    .map(({ sql, params }) => {
+      const match = /^\s*INSERT INTO (\w+) \(([^)]*)\) VALUES/.exec(sql);
+      if (!match) return null;
+      return {
+        table: match[1],
+        columns: match[2].split(',').map((c) => c.trim()),
+        params,
+      };
+    })
+    .filter((entry): entry is RanInsert => entry !== null);
+}
+
+/** The single entity row inserted into `table`, as a column map. */
+function insertedRow(db: { ran: unknown[] }, table: string): Record<string, unknown> {
+  const inserts = ranInserts(db).filter((entry) => entry.table === table);
+  expect(inserts).toHaveLength(1);
+  const row: Record<string, unknown> = {};
+  inserts[0].columns.forEach((column, index) => {
+    row[column] = inserts[0].params[index];
+  });
+  return row;
+}
+
+/** How many oplog ops were appended for `table`. */
+function oplogOpCount(db: { ran: unknown[] }, table: string): number {
+  return ranInserts(db).filter(
+    (entry) =>
+      entry.table === 'oplog' && entry.params[entry.columns.indexOf('table_name')] === table,
+  ).length;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -197,23 +248,17 @@ describe('Offline-First Scenarios (airplane mode)', () => {
   });
 
   describe('CreateEnvelopeUseCase offline', () => {
-    it('saves envelope locally via the synced repo (no isSynced or spent_cents column)', async () => {
+    it('saves envelope locally through the unit of work (no isSynced or spent_cents column)', async () => {
       const db = createMockDb();
       const audit = createMockAudit();
-      const repo = createMockSyncedRepo();
 
-      const uc = new CreateEnvelopeUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          name: 'Groceries',
-          allocatedCents: 800000,
-          envelopeType: 'spending',
-          periodStart: '2026-01-01',
-        },
-        { repo },
-      );
+      const uc = new CreateEnvelopeUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        name: 'Groceries',
+        allocatedCents: 800000,
+        envelopeType: 'spending',
+        periodStart: '2026-01-01',
+      });
 
       const result = await uc.execute();
 
@@ -222,54 +267,85 @@ describe('Offline-First Scenarios (airplane mode)', () => {
         expect(result.data.spentCents).toBe(0);
         expect(result.data.householdId).toBe(KRUGER_ID);
       }
-      expect(repo.insert).toHaveBeenCalledTimes(1);
-      const [row] = repo.insert.mock.calls[0];
+      // The envelope and (for a persistent type) its creation-period
+      // contribution now share ONE transaction, so the write goes through
+      // `runInUnitOfWork` rather than an injectable `SyncedRepo` — still
+      // purely local, which is what this suite is about.
+      expect(db.transaction).toHaveBeenCalledTimes(1);
+      const row = insertedRow(db, 'envelopes');
+      expect(row.household_id).toBe(KRUGER_ID);
       expect(row).not.toHaveProperty('is_synced');
       expect(row).not.toHaveProperty('spent_cents');
     });
 
-    it('appends exactly one oplog op via repo.insert for the envelopes table', async () => {
+    it('appends exactly ONE oplog op for a period-scoped envelope', async () => {
       const db = createMockDb();
       const audit = createMockAudit();
-      const repo = createMockSyncedRepo();
 
-      const uc = new CreateEnvelopeUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          name: 'Fuel',
-          allocatedCents: 400000,
-          envelopeType: 'spending',
-          periodStart: '2026-01-01',
-        },
-        { repo },
-      );
+      const uc = new CreateEnvelopeUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        name: 'Fuel',
+        allocatedCents: 400000,
+        envelopeType: 'spending',
+        periodStart: '2026-01-01',
+      });
 
       await uc.execute();
 
-      expect(repo.insert).toHaveBeenCalledTimes(1);
-      const [row] = repo.insert.mock.calls[0];
-      expect(row.household_id).toBe(KRUGER_ID);
+      expect(oplogOpCount(db, 'envelopes')).toBe(1);
+      // A period-scoped envelope holds no balance, so there is nothing to
+      // contribute to it.
+      expect(oplogOpCount(db, 'envelope_contributions')).toBe(0);
+      expect(insertedRow(db, 'envelopes').household_id).toBe(KRUGER_ID);
+    });
+
+    it('appends TWO oplog ops for a persistent envelope — the fund and its creation-period contribution', async () => {
+      const db = createMockDb();
+      const audit = createMockAudit();
+
+      const uc = new CreateEnvelopeUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        name: 'Car Service',
+        allocatedCents: 50000,
+        envelopeType: 'sinking_fund',
+        periodStart: '2026-01-01',
+      });
+
+      const result = await uc.execute();
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error('unreachable');
+
+      // REG-7: a fund created mid-period never sees a rollover INTO the
+      // period it was born in, so it funds that period itself — offline, in
+      // the SAME transaction as the fund, which is why a plane-mode create
+      // still shows the right saved balance.
+      expect(db.transaction).toHaveBeenCalledTimes(1);
+      expect(oplogOpCount(db, 'envelopes')).toBe(1);
+      expect(oplogOpCount(db, 'envelope_contributions')).toBe(1);
+
+      const contribution = insertedRow(db, 'envelope_contributions');
+      expect(contribution).toEqual(
+        expect.objectContaining({
+          household_id: KRUGER_ID,
+          envelope_id: result.data.id,
+          amount_cents: 50000,
+          period_start: '2026-01-01',
+          source: 'initial',
+        }),
+      );
     });
 
     it('sets isSavingsLocked true for savings-type envelopes', async () => {
       const db = createMockDb();
       const audit = createMockAudit();
-      const repo = createMockSyncedRepo();
 
-      const uc = new CreateEnvelopeUseCase(
-        db,
-        audit as any,
-        {
-          householdId: KRUGER_ID,
-          name: 'Emergency Fund',
-          allocatedCents: 500000,
-          envelopeType: 'savings',
-          periodStart: '2026-01-01',
-        },
-        { repo },
-      );
+      const uc = new CreateEnvelopeUseCase(db, audit as any, {
+        householdId: KRUGER_ID,
+        name: 'Emergency Fund',
+        allocatedCents: 500000,
+        envelopeType: 'savings',
+        periodStart: '2026-01-01',
+      });
 
       const result = await uc.execute();
 

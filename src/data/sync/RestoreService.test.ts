@@ -387,9 +387,44 @@ describe('RestoreService.restoreHousehold — cursor stabilisation (SYNC-2 resid
 
     expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 9 }]);
     expect(remote.recorder.maxSeqReads).toBe(3);
-    // Only the increment-carrying table is re-fetched, not the whole snapshot.
+    // SEC2-3: the WHOLE snapshot is re-fetched, not just the increment-carrying
+    // table — adopting the newer seq over a partially-refreshed snapshot skips
+    // every op in between that touched one of the stale tables.
     expect(remote.recorder.ranges.filter((r) => r.table === 'debts')).toHaveLength(2);
-    expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toHaveLength(1);
+    expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toHaveLength(2);
+    expect(remote.recorder.ranges.filter((r) => r.table === 'envelopes')).toHaveLength(2);
+  });
+
+  it('restores a transaction that landed after the first transactions fetch (SEC2-3)', async () => {
+    // The op the old "re-fetch debts only" rule lost forever: it committed
+    // after the transactions page was taken but before the second seq read,
+    // so it was in neither the snapshot nor the (cursor, ...] pull range.
+    const late = {
+      id: 'tx-late',
+      household_id: HH,
+      envelope_id: 'env-1',
+      amount_cents: 12_345,
+      transaction_date: '2026-03-02',
+      created_at: '2026-03-02T00:00:00Z',
+    };
+    const config: FakeSupabaseConfig = {
+      households: { [HH]: HH_ROW },
+      tables: { transactions: [] },
+      maxSeqSequence: [5, 9, 9],
+      onTableFetch: (table): void => {
+        if (table !== 'transactions') return;
+        // Commits once, right after the first transactions page is taken.
+        config.tables = { transactions: [late] };
+      },
+    };
+    const { service, local } = build(config);
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 9 }]);
+    const restored = local.written.filter((w) => w.table === 'transactions');
+    expect(restored).toHaveLength(1);
+    expect(restored[0].row).toMatchObject({ id: 'tx-late', amountCents: 12_345 });
   });
 
   it('uses the pre-fetch seq unchanged when nothing moved', async () => {

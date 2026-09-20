@@ -52,23 +52,6 @@ jest.mock('../../screens/settings/SettingsStackNavigator', () => {
 });
 
 // ─── Mock shared components ───────────────────────────────────────────────────
-jest.mock('../../components/shared/ToastHost', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { View } = require('react-native');
-  return { ToastHost: () => React.createElement(View, { testID: 'toast-host' }) };
-});
-jest.mock('../../components/shared/ConfirmDialogHost', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { View } = require('react-native');
-  return {
-    ConfirmDialogHost: () => React.createElement(View, { testID: 'confirm-dialog-host' }),
-    confirm: jest.fn(),
-  };
-});
 jest.mock('../../components/shared/OfflineBanner', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
@@ -103,15 +86,17 @@ describe('MainTabNavigator', () => {
     expect(getByText('Settings')).toBeTruthy();
   });
 
-  // UX-6: ConfirmDialogHost must be mounted once at the navigator root
-  // (mirroring ToastHost) so confirm() works from any screen.
-  it('mounts ConfirmDialogHost alongside ToastHost', () => {
-    const { getByTestId } = render(
+  // UX2-3: ToastHost and ConfirmDialogHost now mount exactly once, at the
+  // app root (RootNavigator.test.tsx covers that they mount there
+  // unconditionally) — mounting them here too would double them up while
+  // Main is active.
+  it('does NOT mount its own ToastHost or ConfirmDialogHost (both live at the root now)', () => {
+    const { queryByTestId } = render(
       <NavigationContainer>
         <MainTabNavigator />
       </NavigationContainer>,
     );
-    expect(getByTestId('toast-host')).toBeTruthy();
-    expect(getByTestId('confirm-dialog-host')).toBeTruthy();
+    expect(queryByTestId('toast-host')).toBeNull();
+    expect(queryByTestId('confirm-dialog-host')).toBeNull();
   });
 });

@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      e2e-only overlay merged over src/main/AndroidManifest.xml for the `e2e`
+      build type (android/app/build.gradle). Scopes cleartext traffic to the
+      local Supabase stack's emulator-loopback address only (see
+      network_security_config_e2e.xml) instead of the debug build's blanket
+      usesCleartextTraffic="true" — this file, and the config it points to,
+      are never part of a release build.
+    -->
+    <application
+        android:networkSecurityConfig="@xml/network_security_config_e2e"
+        tools:targetApi="28"
+        tools:ignore="GoogleAppIndexingWarning" />
+</manifest>

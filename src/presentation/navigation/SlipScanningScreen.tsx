@@ -166,7 +166,11 @@ export function SlipScanningScreen(): React.JSX.Element {
         }>;
         merchant: string | null;
         totalCents: number | null;
-      }): Promise<{ success: boolean; totalMismatch?: boolean }> => {
+      }): Promise<{
+        success: boolean;
+        totalMismatch?: boolean;
+        error?: { code: string; message: string };
+      }> => {
         const result = await confirmSlipUseCase.execute({
           slipId: input.slipId,
           householdId,
@@ -194,6 +198,7 @@ export function SlipScanningScreen(): React.JSX.Element {
         return {
           success: result.success,
           totalMismatch: result.success ? result.data.totalMismatch : undefined,
+          error: result.success ? undefined : result.error,
         };
       },
     [confirmSlipUseCase, householdId, createdBy],

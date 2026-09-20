@@ -152,6 +152,12 @@ jest.mock('../components/EnvelopePickerSheet', () => {
   };
 });
 
+// UX2-1: how many times a LineItemRow with a given `lineId` has actually
+// mounted (a fresh `useEffect(() => {...}, [])` firing means React tore down
+// the previous instance and created a new one — exactly what an unstable
+// `keyExtractor` causes on every keystroke). Reset per-test.
+const mockLineItemMountCounts = new Map<string, number>();
+
 jest.mock('../components/LineItemRow', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
@@ -161,16 +167,39 @@ jest.mock('../components/LineItemRow', () => {
       index,
       selectedEnvelope,
       onSelectEnvelope,
+      onDescriptionChange,
+      onAmountChange,
     }: {
-      item: { description: string };
+      item: { description: string; amountCents: number; lineId?: string };
       index: number;
       selectedEnvelope: { name: string } | null;
       onSelectEnvelope: (idx: number) => void;
-    }) =>
-      React.createElement(
+      onDescriptionChange?: (idx: number, description: string) => void;
+      onAmountChange?: (idx: number, amountCents: number) => void;
+    }) => {
+      // Runs exactly once per component INSTANCE (not per render) — a
+      // lazily-initialised ref instead of `useEffect(fn, [])` so this mock
+      // doesn't need `item.lineId`/`index` in a dependency array (which
+      // would defeat the point: re-running on every prop change instead of
+      // only on mount).
+      const mountedRef = React.useRef(false);
+      if (!mountedRef.current) {
+        mountedRef.current = true;
+        const key = item.lineId ?? `no-lineId-${index}`;
+        mockLineItemMountCounts.set(key, (mockLineItemMountCounts.get(key) ?? 0) + 1);
+      }
+      return React.createElement(
         'View',
         { testID: `line-item-${index}` },
         React.createElement('Text', {}, item.description),
+        React.createElement('TouchableOpacity', {
+          testID: `line-item-edit-description-${index}`,
+          onPress: () => onDescriptionChange?.(index, `${item.description}!`),
+        }),
+        React.createElement('TouchableOpacity', {
+          testID: `line-item-edit-amount-${index}`,
+          onPress: () => onAmountChange?.(index, item.amountCents + 1),
+        }),
         React.createElement(
           'TouchableOpacity',
           { testID: `line-item-envelope-picker-${index}`, onPress: () => onSelectEnvelope(index) },
@@ -180,7 +209,8 @@ jest.mock('../components/LineItemRow', () => {
             selectedEnvelope ? selectedEnvelope.name : 'Assign envelope…',
           ),
         ),
-      ),
+      );
+    },
   };
 });
 
@@ -208,6 +238,25 @@ describe('SlipConfirmScreen', () => {
     mockNavigate.mockReset();
     mockGoBack.mockReset();
     mockRouteParams = { slipId: 's1', extraction: mockExtraction };
+    mockLineItemMountCounts.clear();
+  });
+
+  it('keys line items by a stable lineId, not description/amountCents/index, so editing never remounts the row (UX2-1)', () => {
+    const { getByTestId } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={jest.fn()} />,
+    );
+    // Mount count is 1 per row right after the initial render.
+    expect([...mockLineItemMountCounts.values()]).toEqual([1, 1]);
+
+    // Editing description AND amount mutates exactly the fields the old key
+    // (`${description}-${amountCents}-${idx}`) was built from — this is what
+    // used to remount the row (keyboard drop / half-typed amount reset).
+    fireEvent.press(getByTestId('line-item-edit-description-0'));
+    fireEvent.press(getByTestId('line-item-edit-amount-0'));
+    fireEvent.press(getByTestId('line-item-edit-description-0'));
+
+    // Still exactly one mount per row — no remount occurred.
+    expect([...mockLineItemMountCounts.values()]).toEqual([1, 1]);
   });
 
   it('does not crash when the extraction param is missing (H5 defensive guard)', () => {
@@ -329,6 +378,32 @@ describe('SlipConfirmScreen', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith('SlipQueue');
     // Save didn't get stuck disabled/loading.
     expect(getByTestId('save-button').props.disabled).toBeFalsy();
+  });
+
+  // REG-12: ConfirmSlipUseCase now fails with a specific, actionable reason
+  // (e.g. the target envelope was archived) — the screen must show that
+  // message, not the generic fallback.
+  it('shows the specific error.message from confirmSlip instead of a generic string (REG-12)', async () => {
+    const confirmSlip = jest.fn().mockResolvedValue({
+      success: false,
+      error: { code: 'ENVELOPE_ARCHIVED', message: 'Envelope has been archived' },
+    });
+    const { getByTestId } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={confirmSlip} />,
+    );
+
+    fireEvent.press(getByTestId('line-item-envelope-picker-0'));
+    await waitFor(() => getByTestId('envelope-picker-sheet'));
+    fireEvent.press(getByTestId('envelope-option-e1'));
+
+    await waitFor(() => expect(getByTestId('save-button').props.disabled).toBeFalsy());
+    fireEvent.press(getByTestId('save-button'));
+
+    await waitFor(() => {
+      expect(getByTestId('slip-confirm-error-snackbar').props.children).toBe(
+        'Envelope has been archived',
+      );
+    });
   });
 
   it('shows a visible error and stops the spinner when confirmSlip throws', async () => {

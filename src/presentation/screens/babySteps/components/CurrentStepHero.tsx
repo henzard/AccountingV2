@@ -24,6 +24,7 @@ import { ManualStepPanel } from './ManualStepPanel';
 import { StepSealMark } from './StepSealMark';
 import { BABY_STEP_RULES } from '../../../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus } from '../../../../domain/babySteps/types';
+import { formatCurrency } from '../../../utils/currency';
 import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 
@@ -111,13 +112,13 @@ function formatProgress(
   }
 
   // Cents — format as rands
-  const currentR = Math.round(current / 100).toLocaleString('en-ZA');
-  const targetR = Math.round(target / 100).toLocaleString('en-ZA');
-  const label = `R${currentR} of R${targetR}`;
+  const currentR = formatCurrency(current);
+  const targetR = formatCurrency(target);
+  const label = `${currentR} of ${targetR}`;
   return {
     label,
     percent,
-    a11y: `Step ${stepNumber}: ${rule.shortTitle}, ${percent}% complete, R${currentR} of R${targetR}`,
+    a11y: `Step ${stepNumber}: ${rule.shortTitle}, ${percent}% complete, ${currentR} of ${targetR}`,
   };
 }
 

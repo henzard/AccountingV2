@@ -36,9 +36,26 @@ const mockExecute = jest.fn();
 jest.mock('../../../../domain/debtSnowball/LogDebtPaymentUseCase', () => ({
   LogDebtPaymentUseCase: jest.fn().mockImplementation(() => ({ execute: mockExecute })),
 }));
+
+// VAL2-7: optional envelope-side transaction created before the debt
+// payment, and rolled back with this if the debt payment fails after.
+const mockCreateTxExecute = jest.fn();
+jest.mock('../../../../domain/transactions/CreateTransactionUseCase', () => ({
+  CreateTransactionUseCase: jest.fn().mockImplementation((...args: unknown[]) => ({
+    execute: mockCreateTxExecute,
+    __input: args[2],
+  })),
+}));
+const mockDeleteTxExecute = jest.fn().mockResolvedValue({ success: true });
+jest.mock('../../../../domain/transactions/DeleteTransactionUseCase', () => ({
+  DeleteTransactionUseCase: jest.fn().mockImplementation((...args: unknown[]) => ({
+    execute: mockDeleteTxExecute,
+    __tx: args[2],
+  })),
+}));
 jest.mock('../../../stores/appStore', () => ({
-  useAppStore: jest.fn((sel: (s: { householdId: string }) => unknown) =>
-    sel({ householdId: 'hh-1' }),
+  useAppStore: jest.fn((sel: (s: { householdId: string; paydayDay: number }) => unknown) =>
+    sel({ householdId: 'hh-1', paydayDay: 25 }),
   ),
 }));
 const mockEnqueue = jest.fn();
@@ -47,7 +64,58 @@ jest.mock('../../../stores/toastStore', () => ({
     sel({ enqueue: mockEnqueue }),
   ),
 }));
-jest.mock('drizzle-orm', () => ({ eq: jest.fn() }));
+jest.mock('drizzle-orm', () => ({
+  eq: jest.fn(),
+  and: jest.fn(),
+  ne: jest.fn(),
+}));
+
+// VAL2-7: LogPaymentScreen now also loads the envelope list (for the
+// optional "Also take it from an envelope" picker) — mocked exactly like
+// AddTransactionScreen's equivalent tests so it never touches the real
+// `sql` tagged template (drizzle-orm is fully mocked above) or a real db.
+jest.mock('../../../../data/local/balances/EnvelopeBalanceQuery', () => ({
+  getEnvelopeSpentCents: jest.fn().mockResolvedValue(new Map()),
+  envelopeScopeCondition: jest.fn(() => 'scope-condition'),
+}));
+
+jest.mock('../../slipScanning/components/EnvelopePickerSheet', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  return {
+    EnvelopePickerSheet: ({
+      visible,
+      envelopes,
+      onSelect,
+      onClose,
+    }: {
+      visible?: boolean;
+      envelopes: Array<{ id: string; name: string }>;
+      onSelect: (env: { id: string; name: string }) => void;
+      onClose: () => void;
+    }) =>
+      visible
+        ? React.createElement(
+            'View',
+            { testID: 'envelope-picker-sheet' },
+            envelopes.map((env) =>
+              React.createElement(
+                'Pressable',
+                {
+                  key: env.id,
+                  testID: `envelope-option-${env.id}`,
+                  onPress: () => {
+                    onSelect(env);
+                    onClose();
+                  },
+                },
+                env.name,
+              ),
+            ),
+          )
+        : null,
+  };
+});
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
@@ -90,6 +158,17 @@ jest.mock('react-native-paper', () => {
       ),
     HelperText: ({ children, visible }: { children?: React.ReactNode; visible?: boolean }) =>
       visible ? React.createElement('Text', { testID: 'helper-error' }, children) : null,
+    TouchableRipple: ({
+      children,
+      onPress,
+      testID,
+      ...p
+    }: {
+      children?: React.ReactNode;
+      onPress?: () => void;
+      testID?: string;
+      [k: string]: unknown;
+    }) => React.createElement('Pressable', { onPress, testID, ...p }, children),
   };
 });
 
@@ -104,14 +183,29 @@ const { LogDebtPaymentUseCase: MockLogDebtPaymentUseCase } = jest.requireMock(
   '../../../../domain/debtSnowball/LogDebtPaymentUseCase',
 ) as { LogDebtPaymentUseCase: jest.Mock };
 
-async function renderWithDebt(row: object = DEBT_ROW): Promise<ReturnType<typeof render>> {
+const ENVELOPE_ROW = {
+  id: 'env-1',
+  name: 'Groceries',
+  allocatedCents: 100000,
+  envelopeType: 'spending',
+};
+
+async function renderWithDebt(
+  row: object = DEBT_ROW,
+  envelopeRows: object[] = [],
+): Promise<ReturnType<typeof render>> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { db } = require('../../../../data/local/db');
-  db.select.mockReturnValue({
-    from: jest.fn(() => ({
-      where: jest.fn(() => Promise.resolve([row])),
-    })),
-  });
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { debts: debtsTable } = require('../../../../data/local/schema');
+  // Differentiates the debt-row query from the envelope-list query by which
+  // table `.from(...)` was called with (both real, unmocked schema column
+  // objects — the same module instance the screen itself imports).
+  db.select.mockImplementation(() => ({
+    from: (table: unknown) => ({
+      where: () => Promise.resolve(table === debtsTable ? [row] : envelopeRows),
+    }),
+  }));
   const view = render(
     <LogPaymentScreen
       route={{ params: { debtId: 'debt-1' } } as never}
@@ -130,7 +224,12 @@ async function renderWithDebt(row: object = DEBT_ROW): Promise<ReturnType<typeof
 describe('LogPaymentScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockExecute.mockResolvedValue({ success: true });
+    mockExecute.mockResolvedValue({ success: true, data: { isPaidOff: false } });
+    mockCreateTxExecute.mockResolvedValue({
+      success: true,
+      data: { id: 'tx-1', householdId: 'hh-1', envelopeId: 'env-1', amountCents: 0 },
+    });
+    mockDeleteTxExecute.mockResolvedValue({ success: true });
   });
 
   it('renders without crashing', () => {
@@ -231,5 +330,125 @@ describe('LogPaymentScreen', () => {
       expect(view.queryByTestId('helper-error')).toBeTruthy();
     });
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  // ── VAL2-7: optional "Also take it from an envelope" ──────────────────
+  describe('optional envelope transaction', () => {
+    it('does not show the envelope picker until the toggle is turned on', async () => {
+      const view = await renderWithDebt(DEBT_ROW, [ENVELOPE_ROW]);
+      expect(view.queryByTestId('log-payment-envelope-picker-trigger')).toBeNull();
+
+      fireEvent(view.getByTestId('take-from-envelope-toggle'), 'valueChange', true);
+      await waitFor(() => {
+        expect(view.getByTestId('log-payment-envelope-picker-trigger')).toBeTruthy();
+      });
+    });
+
+    it('logs only the debt payment when the toggle is left off', async () => {
+      const view = await renderWithDebt(DEBT_ROW, [ENVELOPE_ROW]);
+      await act(async () => {
+        fireEvent.press(view.getByTestId('save-button'));
+      });
+      await waitFor(() => expect(mockExecute).toHaveBeenCalled());
+      expect(mockCreateTxExecute).not.toHaveBeenCalled();
+      expect(mockEnqueue).toHaveBeenCalledWith('Payment logged', 'success');
+    });
+
+    it('creates the envelope transaction FIRST, then the debt payment, when an envelope is chosen', async () => {
+      const { CreateTransactionUseCase: MockCreateTransactionUseCase } = jest.requireMock(
+        '../../../../domain/transactions/CreateTransactionUseCase',
+      ) as { CreateTransactionUseCase: jest.Mock };
+
+      const view = await renderWithDebt(DEBT_ROW, [ENVELOPE_ROW]);
+      fireEvent(view.getByTestId('take-from-envelope-toggle'), 'valueChange', true);
+      await waitFor(() => view.getByTestId('log-payment-envelope-picker-trigger'));
+      fireEvent.press(view.getByTestId('log-payment-envelope-picker-trigger'));
+      fireEvent.press(await view.findByTestId('envelope-option-env-1'));
+
+      const callOrder: string[] = [];
+      mockCreateTxExecute.mockImplementation(async () => {
+        callOrder.push('create-transaction');
+        return { success: true, data: { id: 'tx-1', householdId: 'hh-1', envelopeId: 'env-1' } };
+      });
+      mockExecute.mockImplementation(async () => {
+        callOrder.push('log-debt-payment');
+        return { success: true, data: { isPaidOff: false } };
+      });
+
+      await act(async () => {
+        fireEvent.press(view.getByTestId('save-button'));
+      });
+
+      await waitFor(() => expect(mockExecute).toHaveBeenCalled());
+      expect(callOrder).toEqual(['create-transaction', 'log-debt-payment']);
+      expect(MockCreateTransactionUseCase).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          envelopeId: 'env-1',
+          payee: DEBT_ROW.creditorName,
+          description: 'Debt payment',
+        }),
+      );
+      expect(mockDeleteTxExecute).not.toHaveBeenCalled();
+    });
+
+    it('does not log a debt payment when the envelope transaction fails', async () => {
+      mockCreateTxExecute.mockResolvedValue({
+        success: false,
+        error: { code: 'ENVELOPE_ARCHIVED', message: 'That envelope is archived' },
+      });
+      const view = await renderWithDebt(DEBT_ROW, [ENVELOPE_ROW]);
+      fireEvent(view.getByTestId('take-from-envelope-toggle'), 'valueChange', true);
+      await waitFor(() => view.getByTestId('log-payment-envelope-picker-trigger'));
+      fireEvent.press(view.getByTestId('log-payment-envelope-picker-trigger'));
+      fireEvent.press(await view.findByTestId('envelope-option-env-1'));
+
+      await act(async () => {
+        fireEvent.press(view.getByTestId('save-button'));
+      });
+
+      await waitFor(() => {
+        expect(view.queryByTestId('helper-error')).toBeTruthy();
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it('deletes the envelope transaction and shows the error when the debt payment fails afterwards', async () => {
+      mockExecute.mockResolvedValue({
+        success: false,
+        error: { code: 'DEBT_NOT_FOUND', message: 'Debt no longer exists' },
+      });
+      const view = await renderWithDebt(DEBT_ROW, [ENVELOPE_ROW]);
+      fireEvent(view.getByTestId('take-from-envelope-toggle'), 'valueChange', true);
+      await waitFor(() => view.getByTestId('log-payment-envelope-picker-trigger'));
+      fireEvent.press(view.getByTestId('log-payment-envelope-picker-trigger'));
+      fireEvent.press(await view.findByTestId('envelope-option-env-1'));
+
+      await act(async () => {
+        fireEvent.press(view.getByTestId('save-button'));
+      });
+
+      await waitFor(() => {
+        expect(mockDeleteTxExecute).toHaveBeenCalled();
+      });
+      expect(view.getByTestId('helper-error')).toBeTruthy();
+    });
+
+    it('shows a celebration toast instead of the generic one when the debt is paid off', async () => {
+      mockExecute.mockResolvedValue({ success: true, data: { isPaidOff: true } });
+      const view = await renderWithDebt(DEBT_ROW, [ENVELOPE_ROW]);
+
+      await act(async () => {
+        fireEvent.press(view.getByTestId('save-button'));
+      });
+
+      await waitFor(() => {
+        expect(mockEnqueue).toHaveBeenCalledWith(
+          `${DEBT_ROW.creditorName} is paid off! 🎉`,
+          'success',
+        );
+      });
+    });
   });
 });

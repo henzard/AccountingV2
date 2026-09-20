@@ -172,9 +172,13 @@ select is(
   (select count(*)::int from public.user_preferences where user_id = '00000000-0000-0000-0000-0000000000a1'::uuid),
   0, 'P2: the deleted user''s preferences row is gone');
 
+-- SEC2-2(a) (0015_security_followups.sql): delete_my_account_data no longer
+-- deletes invite_attempts. This used to assert the opposite (count = 0);
+-- see security_followups.test.sql for the throttle-not-resettable proof
+-- this change exists for.
 select is(
   (select count(*)::int from public.invite_attempts where user_id = '00000000-0000-0000-0000-0000000000a1'),
-  0, 'P2: the deleted user''s invite attempts are gone');
+  1, 'P2: the deleted user''s invite attempts are NOT touched (SEC2-2(a): erasing them let the throttle be reset)');
 
 select is(
   (select count(*)::int from public.slip_extraction_attempts where user_id = '00000000-0000-0000-0000-0000000000a1'),

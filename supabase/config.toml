@@ -385,6 +385,14 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# SEC2-9: cleanup-slip-images has no caller JWT at all — it is invoked by
+# GitHub Actions (.github/workflows/slip-retention.yml) with a plain POST and
+# no Supabase session, authorizing itself instead via the `x-cleanup-secret`
+# header checked against CLEANUP_SECRET inside the function. Requiring a JWT
+# here would just make every legitimate call 401 before that check ever runs.
+[functions.cleanup-slip-images]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

@@ -7,8 +7,6 @@ import { TransactionsStackNavigator } from './TransactionsStackNavigator';
 import { MetersStackNavigator } from './MetersStackNavigator';
 import { SnowballStackNavigator } from './SnowballStackNavigator';
 import { SettingsStackNavigator } from '../screens/settings/SettingsStackNavigator';
-import { ToastHost } from '../components/shared/ToastHost';
-import { ConfirmDialogHost } from '../components/shared/ConfirmDialogHost';
 import { OfflineBanner } from '../components/shared/OfflineBanner';
 import { useAppTheme } from '../theme/useAppTheme';
 import type { MainTabParamList } from './types';
@@ -89,8 +87,14 @@ export function MainTabNavigator(): React.JSX.Element {
           }}
         />
       </Tab.Navigator>
-      <ToastHost />
-      <ConfirmDialogHost />
+      {/*
+        UX2-3: ToastHost and ConfirmDialogHost now mount exactly ONCE, at the
+        app root (RootNavigator) — mounting them here too would either double
+        them up while Main is active, or (for toasts enqueued from outside
+        the five tabs, e.g. JoinHousehold/CreateHousehold/HouseholdMembers/
+        SlipCapture/onboarding) leave them invisible until the user happened
+        to be on a tab.
+      */}
     </View>
   );
 }

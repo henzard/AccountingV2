@@ -4,7 +4,10 @@ import { Text, TouchableRipple, Surface } from 'react-native-paper';
 import { spacing, radius } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import { formatCurrency } from '../../../utils/currency';
+import { getEnvelopeScope } from '../../../../domain/envelopes/EnvelopeEntity';
 import type { EnvelopeType } from '../../../../domain/envelopes/EnvelopeEntity';
+import { useAppStore } from '../../../stores/appStore';
+import { usePersistentEnvelopeSavings } from '../../../hooks/usePersistentEnvelopeSavings';
 
 export interface EnvelopeOption {
   id: string;
@@ -14,9 +17,35 @@ export interface EnvelopeOption {
   envelopeType: EnvelopeType;
 }
 
-function formatBalance(env: EnvelopeOption): string {
+/**
+ * REG-8/VAL2-2: `allocatedCents - spentCents` is only a real balance for a
+ * PERIOD-scoped envelope. For a PERSISTENT one (savings / emergency_fund /
+ * sinking_fund / baby_step), `allocatedCents` is the monthly contribution,
+ * not a balance, and `spentCents` is its all-time spend — the difference is
+ * meaningless (a Holiday fund with R6 000 saved and a R500/month
+ * contribution read "R500 left"). The real balance is the saved-so-far
+ * total from the contribution ledger (`getPersistentEnvelopeSavedCents`,
+ * read here via `usePersistentEnvelopeSavings`), keyed by envelope id.
+ */
+function formatBalance(
+  env: EnvelopeOption,
+  savedCentsByEnvelopeId: ReadonlyMap<string, number>,
+): string {
+  if (getEnvelopeScope({ envelopeType: env.envelopeType }) === 'persistent') {
+    const saved = savedCentsByEnvelopeId.get(env.id) ?? 0;
+    return `${formatCurrency(saved)} saved`;
+  }
   const balance = env.allocatedCents - env.spentCents;
   return `${formatCurrency(balance)} left`;
+}
+
+function balanceCents(
+  env: EnvelopeOption,
+  savedCentsByEnvelopeId: ReadonlyMap<string, number>,
+): number {
+  return getEnvelopeScope({ envelopeType: env.envelopeType }) === 'persistent'
+    ? (savedCentsByEnvelopeId.get(env.id) ?? 0)
+    : env.allocatedCents - env.spentCents;
 }
 
 export type EnvelopePickerSheetProps = {
@@ -35,6 +64,12 @@ export function EnvelopePickerSheet({
   onClose,
 }: EnvelopePickerSheetProps): React.JSX.Element {
   const { colors } = useAppTheme();
+  const householdId = useAppStore((s) => s.householdId) ?? '';
+  // Read-only: derives the saved balance for persistent envelopes from the
+  // contribution ledger. Fetched here (rather than threaded through as a
+  // prop) so every caller of this shared sheet gets the fix regardless of
+  // whether it has been updated to pass one.
+  const { savedCentsByEnvelopeId } = usePersistentEnvelopeSavings(householdId);
   return (
     <Modal
       visible={visible}
@@ -61,7 +96,7 @@ export function EnvelopePickerSheet({
             data={envelopes}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => {
-              const balance = item.allocatedCents - item.spentCents;
+              const balance = balanceCents(item, savedCentsByEnvelopeId);
               const isSelected = item.id === selectedId;
               return (
                 <TouchableRipple
@@ -92,7 +127,7 @@ export function EnvelopePickerSheet({
                       }}
                       testID={`envelope-balance-${item.id}`}
                     >
-                      {formatBalance(item)}
+                      {formatBalance(item, savedCentsByEnvelopeId)}
                     </Text>
                   </View>
                 </TouchableRipple>

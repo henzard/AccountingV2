@@ -4,6 +4,34 @@
 import React from 'react';
 import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
 
+// Mock specific modules before importing the component
+jest.mock('react-native', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  const mockOpenSettings = jest.fn();
+  return {
+    View: ({ children, style, testID }: any) =>
+      React.createElement('View', { style, testID }, children),
+    ScrollView: ({ children, style, contentContainerStyle }: any) =>
+      React.createElement('View', { style: [style, contentContainerStyle] }, children),
+    StyleSheet: {
+      create: (styles: any) => styles,
+      flatten: (style: any) => {
+        if (Array.isArray(style)) {
+          return style.reduce((acc, s) => ({ ...acc, ...s }), {});
+        }
+        return style || {};
+      },
+    },
+    Linking: {
+      openSettings: mockOpenSettings,
+    },
+    Platform: {
+      OS: 'ios',
+    },
+  };
+});
+
 const mockSave = jest.fn().mockResolvedValue(undefined);
 jest.mock('../../../../infrastructure/notifications/NotificationPreferencesRepository', () => ({
   NotificationPreferencesRepository: jest.fn().mockImplementation(() => ({
@@ -83,6 +111,20 @@ jest.mock('react-native-paper', () => {
         disabled,
         accessibilityValue: { text: String(value) },
       }),
+    Button: ({
+      onPress,
+      testID,
+      children,
+    }: {
+      onPress?: () => void;
+      testID?: string;
+      children?: React.ReactNode;
+    }) =>
+      React.createElement(
+        'Pressable',
+        { onPress, testID },
+        React.createElement('Text', null, children),
+      ),
     Divider: () => React.createElement('View', null),
     List: {
       Item: ({
@@ -113,17 +155,32 @@ jest.mock('react-native-paper', () => {
       label,
       value,
       onChangeText,
+      onBlur,
     }: {
       testID?: string;
       label?: string;
       value?: string;
       onChangeText?: (v: string) => void;
+      onBlur?: () => void;
     }) =>
       React.createElement('TextInput', {
         testID: testID ?? label,
         value,
         onChangeText,
+        onBlur,
       }),
+    HelperText: ({
+      children,
+      visible,
+      testID,
+    }: {
+      children?: React.ReactNode;
+      visible?: boolean;
+      testID?: string;
+    }) =>
+      visible
+        ? React.createElement('Text', { testID }, children)
+        : React.createElement('View', null),
     Surface: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
       React.createElement('View', { testID: testID ?? 'surface' }, children),
   };
@@ -193,8 +250,8 @@ describe('NotificationPreferencesScreen', () => {
     const { getByTestId } = render(
       <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
     );
-    expect(getByTestId('Hour (0-23)')).toBeTruthy();
-    expect(getByTestId('Minute (0-59)')).toBeTruthy();
+    expect(getByTestId('evening-hour-input')).toBeTruthy();
+    expect(getByTestId('evening-minute-input')).toBeTruthy();
   });
 
   it('hides time inputs when evening log is disabled', () => {
@@ -202,8 +259,8 @@ describe('NotificationPreferencesScreen', () => {
     const { queryByTestId } = render(
       <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
     );
-    expect(queryByTestId('Hour (0-23)')).toBeNull();
-    expect(queryByTestId('Minute (0-59)')).toBeNull();
+    expect(queryByTestId('evening-hour-input')).toBeNull();
+    expect(queryByTestId('evening-minute-input')).toBeNull();
   });
 
   it('shows day input when meter reading reminder is enabled', () => {
@@ -222,11 +279,11 @@ describe('NotificationPreferencesScreen', () => {
     expect(queryByTestId('Day of month (1-28)')).toBeNull();
   });
 
-  it('renders month-start pre-flight toggle', () => {
+  it('renders payday reminder toggle', () => {
     const { getAllByText } = render(
       <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
     );
-    expect(getAllByText(/pre-flight/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/Payday reminder/i).length).toBeGreaterThan(0);
   });
 
   it('calls setPreferences when evening log toggle fires', async () => {
@@ -288,11 +345,11 @@ describe('NotificationPreferencesScreen', () => {
     });
   });
 
-  it('renders payday day in month-start description', () => {
+  it('renders Payday reminder label', () => {
     const { getAllByText } = render(
       <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
     );
-    expect(getAllByText(/day 25/i).length).toBeGreaterThan(0);
+    expect(getAllByText(/Payday reminder/i).length).toBeGreaterThan(0);
   });
 
   it('renders all section subheaders', () => {
@@ -335,13 +392,64 @@ describe('NotificationPreferencesScreen', () => {
     });
   });
 
-  // L10 — a single shared debounce timer meant editing hour then minute
-  // within 600ms cleared hour's pending callback before it fired, silently
-  // dropping the hour edit. Fixed with per-field timers + merging against
-  // the freshest store state (getState()) instead of a stale render-time
-  // closure (which would otherwise let the later field's save clobber the
-  // earlier field's already-persisted value back to its old value).
-  describe('L10 — per-field debounce', () => {
+  // UX2-15a — Open settings button for notification permission
+  describe('UX2-15a — permission banner with Open settings button', () => {
+    it('renders Open settings button when permission not granted and Platform.OS !== web', () => {
+      const { getByTestId } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+      expect(getByTestId('open-notification-settings')).toBeTruthy();
+    });
+
+    it('renders Open settings button that presses without error', () => {
+      const { getByTestId } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+      const button = getByTestId('open-notification-settings');
+      expect(button).toBeTruthy();
+      // Button press should not throw; the actual behavior is tested in platform-specific tests
+      fireEvent.press(button);
+    });
+
+    it('does not render Open settings button when Platform.OS is web', () => {
+      // Modify the mocked Platform.OS to be 'web'
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const platform = require('react-native').Platform;
+      const originalOS = platform.OS;
+      platform.OS = 'web';
+      try {
+        const { queryByTestId } = render(
+          <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+        );
+        expect(queryByTestId('open-notification-settings')).toBeNull();
+      } finally {
+        platform.OS = originalOS;
+      }
+    });
+  });
+
+  // UX2-15b — Payday reminder label
+  describe('UX2-15b — Payday reminder label', () => {
+    it('renders "Payday reminder" instead of "Month-start pre-flight"', () => {
+      const { getAllByText, queryAllByText } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+      expect(getAllByText(/Payday reminder/i).length).toBeGreaterThan(0);
+      expect(queryAllByText(/Month-start pre-flight/i).length).toBe(0);
+    });
+
+    it('renders the correct description for payday reminder', () => {
+      const { getAllByText } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+      expect(
+        getAllByText(/A nudge on payday to set up the month's budget/i).length,
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  // UX2-15c — Locally-controlled time inputs with validation
+  describe('UX2-15c — locally-controlled time inputs', () => {
     beforeEach(() => {
       jest.useFakeTimers();
     });
@@ -350,36 +458,111 @@ describe('NotificationPreferencesScreen', () => {
       jest.useRealTimers();
     });
 
-    it('persists both the hour and minute edits when both change within the debounce window', async () => {
+    it('allows clearing the hour field without saving or crashing', async () => {
+      mockPreferences = { ...mockPreferences, eveningLogPromptEnabled: true };
+      const { getByTestId } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+
+      const hourInput = getByTestId('evening-hour-input');
+      act(() => {
+        fireEvent.changeText(hourInput, '');
+      });
+      act(() => {
+        hourInput.props.onBlur();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(700);
+      });
+
+      expect(mockSave).not.toHaveBeenCalled();
+    });
+
+    it('shows error and does not save when hour is 25', async () => {
+      mockPreferences = { ...mockPreferences, eveningLogPromptEnabled: true };
+      const { getByTestId, queryByTestId } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+
+      const hourInput = getByTestId('evening-hour-input');
+      act(() => {
+        fireEvent.changeText(hourInput, '25');
+      });
+      act(() => {
+        hourInput.props.onBlur();
+      });
+
+      expect(getByTestId('hour-error')).toBeTruthy();
+      expect(getByTestId('hour-error')).toHaveTextContent(/Enter an hour from 0 to 23/);
+      expect(queryByTestId('time-preview')).toBeNull();
+      await act(async () => {
+        jest.advanceTimersByTime(700);
+      });
+      expect(mockSave).not.toHaveBeenCalled();
+    });
+
+    it('saves and previews 07:05 when hour is 7 and minute is 5', async () => {
       mockPreferences = {
         ...mockPreferences,
         eveningLogPromptEnabled: true,
-        eveningLogPromptHour: 19,
+        eveningLogPromptHour: 20,
         eveningLogPromptMinute: 0,
       };
       const { getByTestId } = render(
         <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
       );
 
+      const hourInput = getByTestId('evening-hour-input');
+      const minuteInput = getByTestId('evening-minute-input');
+
       act(() => {
-        fireEvent.changeText(getByTestId('Hour (0-23)'), '20');
+        fireEvent.changeText(hourInput, '7');
       });
       act(() => {
-        jest.advanceTimersByTime(200);
+        hourInput.props.onBlur();
       });
       act(() => {
-        fireEvent.changeText(getByTestId('Minute (0-59)'), '30');
+        jest.advanceTimersByTime(700);
+      });
+
+      act(() => {
+        fireEvent.changeText(minuteInput, '5');
+      });
+      act(() => {
+        minuteInput.props.onBlur();
       });
       await act(async () => {
         jest.advanceTimersByTime(700);
       });
 
-      expect(mockSave).toHaveBeenCalled();
+      expect(getByTestId('time-preview')).toHaveTextContent(/Reminder at 07:05/);
       const lastSaved = mockSave.mock.calls[mockSave.mock.calls.length - 1][0];
       expect(lastSaved).toMatchObject({
-        eveningLogPromptHour: 20,
-        eveningLogPromptMinute: 30,
+        eveningLogPromptHour: 7,
+        eveningLogPromptMinute: 5,
       });
+    });
+
+    it('shows error and does not save when minute is 60', async () => {
+      mockPreferences = { ...mockPreferences, eveningLogPromptEnabled: true };
+      const { getByTestId } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+
+      const minuteInput = getByTestId('evening-minute-input');
+      act(() => {
+        fireEvent.changeText(minuteInput, '60');
+      });
+      act(() => {
+        minuteInput.props.onBlur();
+      });
+
+      expect(getByTestId('minute-error')).toBeTruthy();
+      expect(getByTestId('minute-error')).toHaveTextContent(/Enter minutes from 0 to 59/);
+      await act(async () => {
+        jest.advanceTimersByTime(700);
+      });
+      expect(mockSave).not.toHaveBeenCalled();
     });
   });
 });

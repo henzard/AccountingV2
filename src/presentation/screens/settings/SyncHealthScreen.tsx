@@ -26,9 +26,11 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { useAppStore } from '../../stores/appStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { useSyncEngineStore } from '../../stores/syncEngineStore';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 import type { DeadLetteredOp, PullHealth } from '../../../data/sync/SyncEngine';
 import { radius, spacing, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { describeSyncOp } from './describeSyncOp';
 
 const MIN_TOUCH = 48;
 
@@ -39,11 +41,14 @@ function formatTimestamp(iso: string | null | undefined): string {
   return d.toLocaleString('en-ZA');
 }
 
-/** Short, non-sensitive label for one DLQ row -- never shows the op payload
- * (§7.4, financial data), only table/op-type/row-id metadata. */
-function opLabel(op: DeadLetteredOp): string {
-  const shortRowId = op.rowId.length > 8 ? `${op.rowId.slice(0, 8)}…` : op.rowId;
-  return `${op.table} · ${op.opType} · ${shortRowId}`;
+/** Plain-language description for one DLQ row. */
+function opDescription(op: DeadLetteredOp): string {
+  return describeSyncOp(op.table, op.opType);
+}
+
+/** Short row ID for support/debugging purposes. */
+function opShortId(op: DeadLetteredOp): string {
+  return op.rowId.length > 8 ? `${op.rowId.slice(0, 8)}…` : op.rowId;
 }
 
 export const SyncHealthScreen: React.FC = () => {
@@ -97,7 +102,7 @@ export const SyncHealthScreen: React.FC = () => {
     setBusyOpId(opId);
     try {
       engine.retryDeadLettered(opId);
-      setLiveMessage('Operation queued for retry.');
+      setLiveMessage("We'll try again");
       refresh();
       scheduler?.requestSync(householdId, { immediate: true });
     } finally {
@@ -107,11 +112,20 @@ export const SyncHealthScreen: React.FC = () => {
 
   const handleDiscard = async (opId: string): Promise<void> => {
     if (!engine) return;
+
+    const confirmed = await confirm({
+      title: 'Discard this change?',
+      message: "This change will be lost on all your devices. This can't be undone.",
+      confirmLabel: 'Discard',
+      destructive: true,
+    });
+    if (!confirmed) return;
+
     setBusyOpId(opId);
     setDiscardError(null);
     try {
       await engine.discardDeadLettered(opId);
-      setLiveMessage('Operation discarded. Row refreshed from the server.');
+      setLiveMessage('Change discarded');
       refresh();
     } catch (err) {
       const message =
@@ -283,13 +297,21 @@ export const SyncHealthScreen: React.FC = () => {
                     size={18}
                     color={colors.error}
                   />
-                  <Text
-                    variant="bodyMedium"
-                    style={[styles.dlqLabel, { color: colors.onSurface }]}
-                    accessibilityLabel={`Failed change: ${opLabel(op)}. Rejected on ${formatTimestamp(op.deadLetteredAt)}.`}
-                  >
-                    {opLabel(op)}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      variant="bodyMedium"
+                      style={[styles.dlqLabel, { color: colors.onSurface }]}
+                      accessibilityLabel={`Failed change: ${opDescription(op)}. Rejected on ${formatTimestamp(op.deadLetteredAt)}.`}
+                    >
+                      {opDescription(op)} couldn't be saved to the cloud
+                    </Text>
+                    <Text
+                      variant="bodySmall"
+                      style={{ color: colors.onSurfaceVariant, marginTop: spacing.xs }}
+                    >
+                      {opShortId(op)}
+                    </Text>
+                  </View>
                 </View>
                 <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
                   Rejected {formatTimestamp(op.deadLetteredAt)}
@@ -303,7 +325,7 @@ export const SyncHealthScreen: React.FC = () => {
                     style={styles.touchTarget}
                     contentStyle={styles.touchTargetContent}
                     accessibilityRole="button"
-                    accessibilityLabel={`Retry ${opLabel(op)}`}
+                    accessibilityLabel={`Retry ${opDescription(op)}`}
                     testID={`dlq-retry-${op.opId}`}
                   >
                     Retry
@@ -317,7 +339,7 @@ export const SyncHealthScreen: React.FC = () => {
                     style={styles.touchTarget}
                     contentStyle={styles.touchTargetContent}
                     accessibilityRole="button"
-                    accessibilityLabel={`Discard ${opLabel(op)}`}
+                    accessibilityLabel={`Discard ${opDescription(op)}`}
                     testID={`dlq-discard-${op.opId}`}
                   >
                     Discard

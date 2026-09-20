@@ -4,11 +4,17 @@
  * Covers: renders sync health (last synced, pending count), "Sync now" calls
  * the scheduler, the pull-blocked banner + its Retry calling
  * `engine.clearPullBlock`, and the DLQ list's per-item Retry/Discard calling
- * the engine's `retryDeadLettered`/`discardDeadLettered`.
+ * the engine's `retryDeadLettered`/`discardDeadLettered` after confirmation.
  */
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import type { DeadLetteredOp, PullHealth } from '../../../../data/sync/SyncEngine';
+
+// ─── confirm() mock (ConfirmDialogHost) ───────────────────────────────────
+const mockConfirm = jest.fn();
+jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
+  confirm: (...args: unknown[]) => mockConfirm(...args),
+}));
 
 const NOW = '2026-01-01T00:00:00.000Z';
 const HH = 'hh-1';
@@ -69,6 +75,7 @@ beforeEach(() => {
   mockEngine.getPullHealth.mockReturnValue({ blocked: false });
   mockEngine.listDeadLettered.mockReturnValue([]);
   mockEngine.discardDeadLettered.mockResolvedValue(undefined);
+  mockConfirm.mockResolvedValue(true);
 });
 
 describe('SyncHealthScreen', () => {
@@ -127,7 +134,56 @@ describe('SyncHealthScreen', () => {
     expect(mockScheduler.requestSync).toHaveBeenCalledWith(HH, { immediate: true });
   });
 
-  it('Discard calls engine.discardDeadLettered and refreshes the list on success', async () => {
+  it('Discard asks for confirmation before calling engine.discardDeadLettered', async () => {
+    mockEngine.listDeadLettered.mockReturnValue([
+      {
+        opId: 'op-1',
+        householdId: HH,
+        table: 'debts',
+        rowId: 'd1',
+        opType: 'insert',
+        deadLetteredAt: NOW,
+        retryCount: 0,
+      },
+    ]);
+
+    const { getByTestId } = render(<SyncHealthScreen />);
+    fireEvent.press(getByTestId('dlq-discard-op-1'));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Discard this change?',
+        message: "This change will be lost on all your devices. This can't be undone.",
+        confirmLabel: 'Discard',
+        destructive: true,
+      }),
+    );
+    expect(mockEngine.discardDeadLettered).toHaveBeenCalledWith('op-1');
+  });
+
+  it('does not call discardDeadLettered when the confirm dialog is dismissed', async () => {
+    mockConfirm.mockResolvedValue(false);
+    mockEngine.listDeadLettered.mockReturnValue([
+      {
+        opId: 'op-1',
+        householdId: HH,
+        table: 'debts',
+        rowId: 'd1',
+        opType: 'insert',
+        deadLetteredAt: NOW,
+        retryCount: 0,
+      },
+    ]);
+
+    const { getByTestId } = render(<SyncHealthScreen />);
+    fireEvent.press(getByTestId('dlq-discard-op-1'));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    expect(mockEngine.discardDeadLettered).not.toHaveBeenCalled();
+  });
+
+  it('Discard calls engine.discardDeadLettered and refreshes the list on success when confirmed', async () => {
     let dlqRows: DeadLetteredOp[] = [
       {
         opId: 'op-1',
@@ -148,7 +204,6 @@ describe('SyncHealthScreen', () => {
     expect(getByTestId('dlq-row-op-1')).toBeTruthy();
 
     fireEvent.press(getByTestId('dlq-discard-op-1'));
-    expect(mockEngine.discardDeadLettered).toHaveBeenCalledWith('op-1');
 
     // `findByTestId` polls (retrying on the not-found throw) until the empty
     // state appears post-discard -- more robust here than asserting the

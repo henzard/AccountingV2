@@ -941,3 +941,172 @@ describe('SYNC-5: a second emergency_fund envelope is demoted, never dropped', (
     raw.close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// REG-1 / VAL2-0 — pull-apply must be FORWARD-COMPATIBLE
+//
+// A household mate on a newer build writes rows this client's schema has no
+// table or column for. Before this, building the INSERT threw ("no such
+// table" / "no column named"), the batch rolled back, and after
+// `maxPullApplyRetries` the household was pull-blocked on this device
+// permanently — no partner data of any kind arrived again until the user
+// updated. Exactly what 1.1.122 clients hit when a 1.1.130 mate wrote
+// `envelope_contributions`.
+// ---------------------------------------------------------------------------
+
+describe('REG-1: a pulled op this schema cannot represent is skipped, not poison', () => {
+  /** A batch mixing a good op, an unknown-TABLE op and an unknown-COLUMN op. */
+  function mixedBatch(): ServerOplogRow[] {
+    return [
+      {
+        seq: 1,
+        op_id: 'op-good-1',
+        household_id: HH,
+        table_name: 'debts',
+        row_id: 'd1',
+        op_type: 'insert',
+        payload: {
+          creditor_name: 'Visa',
+          debt_type: 'credit_card',
+          outstanding_balance_cents: 100_000,
+          interest_rate_percent: 19.9,
+          minimum_payment_cents: 5_000,
+          total_paid_cents: 0,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+        device_id: 'peer',
+      },
+      {
+        // A table only the newer build has.
+        seq: 2,
+        op_id: 'op-unknown-table',
+        household_id: HH,
+        table_name: 'future_widgets',
+        row_id: 'fw1',
+        op_type: 'insert',
+        payload: { label: 'from the future', created_at: NOW },
+        device_id: 'peer',
+      },
+      {
+        // A known table, plus a column only the newer build has.
+        seq: 3,
+        op_id: 'op-unknown-column',
+        household_id: HH,
+        table_name: 'debts',
+        row_id: 'd2',
+        op_type: 'insert',
+        payload: {
+          creditor_name: 'Mastercard',
+          debt_type: 'credit_card',
+          outstanding_balance_cents: 42_000,
+          interest_rate_percent: 15.5,
+          minimum_payment_cents: 2_000,
+          total_paid_cents: 0,
+          future_flag: 1,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+        device_id: 'peer',
+      },
+      {
+        seq: 4,
+        op_id: 'op-good-2',
+        household_id: HH,
+        table_name: 'debts',
+        row_id: 'd1',
+        op_type: 'update',
+        payload: { creditor_name: 'Visa Gold', updated_at: NOW },
+        device_id: 'peer',
+      },
+    ];
+  }
+
+  it('applies everything else in the batch and advances the cursor past the skipped ops', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const batch = mixedBatch();
+    const transport: SyncTransport = {
+      push: async () => [],
+      pull: async (householdId, afterSeq) =>
+        batch.filter((r) => r.household_id === householdId && Number(r.seq) > afterSeq),
+    };
+    const engine = engineFor(raw, transport);
+
+    const summary = await engine.pull(HH);
+
+    // Three ops wrote something — only the unknown-TABLE op has nothing local
+    // to write at all; the unknown-COLUMN one still lands its known columns.
+    expect(summary?.applied).toBe(3);
+    expect(summary?.blocked).toBeFalsy();
+    expect(engine.getPullHealth(HH).blocked).toBe(false);
+
+    const d1 = raw.prepare('SELECT creditor_name AS n FROM debts WHERE id = ?').get('d1') as
+      | { n: string }
+      | undefined;
+    expect(d1?.n).toBe('Visa Gold');
+    // The unknown-column op is NOT dropped whole: the row lands with exactly
+    // the columns this schema does have.
+    const d2 = raw
+      .prepare('SELECT creditor_name AS n, outstanding_balance_cents AS b FROM debts WHERE id = ?')
+      .get('d2') as { n: string; b: number } | undefined;
+    expect(d2).toEqual({ n: 'Mastercard', b: 42_000 });
+
+    // Cursor advanced past the whole batch — the household keeps syncing.
+    const cursor = raw
+      .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
+      .get(HH) as { s: number };
+    expect(cursor.s).toBe(4);
+
+    // Every op, skipped ones included, is recorded as applied so a
+    // re-delivery is a no-op (R5).
+    const applied = raw.prepare('SELECT COUNT(*) AS c FROM oplog_applied').get() as { c: number };
+    expect(applied.c).toBe(4);
+    raw.close();
+  });
+
+  it('skips an increment naming a column this schema does not have, without blocking', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedDebt(raw, 100_000);
+    const batch: ServerOplogRow[] = [
+      {
+        seq: 1,
+        op_id: 'inc-future-col',
+        household_id: HH,
+        table_name: 'debts',
+        row_id: 'd1',
+        op_type: 'increment',
+        payload: { field: 'future_counter_cents', delta: 500, clamp: 'none' },
+        device_id: 'peer',
+      },
+      {
+        seq: 2,
+        op_id: 'inc-real-col',
+        household_id: HH,
+        table_name: 'debts',
+        row_id: 'd1',
+        op_type: 'increment',
+        payload: { field: 'total_paid_cents', delta: 500, clamp: 'none' },
+        device_id: 'peer',
+      },
+    ];
+    const transport: SyncTransport = {
+      push: async () => [],
+      pull: async (householdId, afterSeq) =>
+        batch.filter((r) => r.household_id === householdId && Number(r.seq) > afterSeq),
+    };
+    const engine = engineFor(raw, transport);
+
+    const summary = await engine.pull(HH);
+
+    expect(summary?.applied).toBe(1);
+    expect(engine.getPullHealth(HH).blocked).toBe(false);
+    expect(readDebt(raw).paid).toBe(500);
+    const cursor = raw
+      .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
+      .get(HH) as { s: number };
+    expect(cursor.s).toBe(2);
+    raw.close();
+  });
+});

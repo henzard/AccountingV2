@@ -14,6 +14,15 @@ jest.mock('@react-navigation/native', () => ({
 
 // ─── Local DB mock ────────────────────────────────────────────────────────────
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
+jest.mock('react-native-safe-area-context', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const RN = require('react');
+  return {
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+    SafeAreaView: ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
+      RN.createElement('View', p, children),
+  };
+});
 
 // ─── Domain/hooks mocks ───────────────────────────────────────────────────────
 jest.mock('../../../hooks/useEnvelopes', () => ({
@@ -47,6 +56,7 @@ jest.mock('../resolveMeterReadingsLogged', () => ({
 
 jest.mock('../findLatestPeriodWithEnvelopes', () => ({
   findLatestPeriodWithEnvelopes: jest.fn().mockResolvedValue(null),
+  hasPeriodScopedEnvelopeAfter: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock('../resolveEnvelopeTransactions', () => ({

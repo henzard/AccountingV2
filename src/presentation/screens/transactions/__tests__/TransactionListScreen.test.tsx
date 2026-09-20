@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 
 // ─── confirm() mock (ConfirmDialogHost) ────────────────────────────────────────
 const mockConfirm = jest.fn();
@@ -34,6 +35,11 @@ jest.mock('../../../../domain/transactions/DeleteTransactionUseCase', () => ({
 }));
 jest.mock('drizzle-orm', () => ({ eq: jest.fn() }));
 
+const mockRequestSyncNow = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../../data/sync/syncRuntime', () => ({
+  requestSyncNow: (...args: unknown[]) => mockRequestSyncNow(...args),
+}));
+
 const mockUseTransactions = jest.fn().mockReturnValue({
   transactions: [],
   loading: false,
@@ -61,8 +67,23 @@ jest.mock('react-native-paper', () => {
   return {
     Text: ({ children, ...p }: { children?: React.ReactNode; [k: string]: unknown }) =>
       React.createElement('Text', p, children),
-    FAB: ({ onPress, testID }: { onPress?: () => void; testID?: string }) =>
-      React.createElement('Pressable', { onPress, testID: testID ?? 'fab' }),
+    FAB: ({
+      onPress,
+      testID,
+      label,
+      accessibilityLabel,
+    }: {
+      onPress?: () => void;
+      testID?: string;
+      label?: string;
+      accessibilityLabel?: string;
+    }) =>
+      React.createElement('Pressable', {
+        onPress,
+        testID: testID ?? 'fab',
+        label,
+        accessibilityLabel,
+      }),
     ActivityIndicator: ({ animating }: { animating?: boolean }) =>
       animating !== false ? React.createElement('View', { testID: 'loading' }) : null,
     Surface: ({ children }: { children?: React.ReactNode }) =>
@@ -154,6 +175,7 @@ describe('TransactionListScreen', () => {
     mockHouseholdId = 'hh-1';
     mockUseTransactions.mockReturnValue({ transactions: [], loading: false, reload: jest.fn() });
     mockConfirm.mockResolvedValue(true);
+    mockRequestSyncNow.mockResolvedValue(undefined);
   });
 
   it('renders without crashing and shows FAB', () => {
@@ -471,5 +493,86 @@ describe('TransactionListScreen', () => {
       expect(getByTestId('period-total').props.children).toContain('50');
     });
     jest.useRealTimers();
+  });
+
+  // UX2-12: the total needs a label so it reads as a total OF something.
+  it('labels the period total "Spent this period" when not searching', () => {
+    mockUseTransactions.mockReturnValue({
+      transactions: [{ ...mockTransaction, id: 'tx-1', amountCents: 5000 }],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(getByTestId('period-total').props.children).toContain('Spent this period');
+  });
+
+  // UX2-12: keep the FAB for a past period (back-dating is legitimate), but
+  // it must be labelled — a bare "+" reads as "add today's spend".
+  it('labels the FAB when viewing a past period, and leaves it unlabelled for the current one', () => {
+    const { getByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    expect(getByTestId('fab').props.label).toBeUndefined();
+
+    fireEvent.press(getByTestId('period-prev-button'));
+
+    expect(getByTestId('fab').props.label).toBe('Back-date entry');
+  });
+
+  // UX2-12: pull-to-refresh asks the sync scheduler for an immediate round,
+  // swallows a rejection (offline/no runtime), then reloads from local
+  // storage either way.
+  describe('pull-to-refresh', () => {
+    it('requests a sync then reloads', async () => {
+      const mockReload = jest.fn();
+      mockUseTransactions.mockReturnValue({
+        transactions: [{ ...mockTransaction, id: 'tx-1' }],
+        loading: false,
+        reload: mockReload,
+      });
+      const { UNSAFE_getByType } = render(
+        <TransactionListScreen
+          route={{} as never}
+          navigation={{ navigate: mockNavigate } as never}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent(UNSAFE_getByType(RefreshControl), 'refresh');
+      });
+
+      expect(mockRequestSyncNow).toHaveBeenCalledWith('hh-1');
+      expect(mockReload).toHaveBeenCalled();
+    });
+
+    it('still reloads when the sync request rejects (offline)', async () => {
+      mockRequestSyncNow.mockRejectedValue(new Error('offline'));
+      const mockReload = jest.fn();
+      mockUseTransactions.mockReturnValue({
+        transactions: [{ ...mockTransaction, id: 'tx-1' }],
+        loading: false,
+        reload: mockReload,
+      });
+      const { UNSAFE_getByType } = render(
+        <TransactionListScreen
+          route={{} as never}
+          navigation={{ navigate: mockNavigate } as never}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent(UNSAFE_getByType(RefreshControl), 'refresh');
+      });
+
+      expect(mockReload).toHaveBeenCalled();
+    });
   });
 });

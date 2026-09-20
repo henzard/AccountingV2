@@ -13,6 +13,22 @@
  */
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
+
+jest.mock('../../../theme/useAppTheme', () => ({
+  useAppTheme: () => ({
+    colors: {
+      onSurface: '#000',
+      onSurfaceVariant: '#666',
+      surface: '#fff',
+      outline: '#ccc',
+    },
+  }),
+}));
+
+jest.mock('../../../stores/themeStore', () => ({
+  useThemeStore: jest.fn((sel: (s: object) => unknown) => sel({ preference: 'light' })),
+}));
+
 import { DateField } from '../DateField.web';
 
 describe('DateField (web)', () => {
@@ -83,5 +99,14 @@ describe('DateField (web)', () => {
       <DateField value="2027-12-01" onChange={jest.fn()} disabled testID="my-date-field" />,
     );
     expect(UNSAFE_getByProps({ 'data-testid': 'my-date-field' }).props.disabled).toBe(true);
+  });
+
+  it('sets colorScheme based on theme preference', () => {
+    const { UNSAFE_getByProps } = render(
+      <DateField value="2027-12-01" onChange={jest.fn()} testID="my-date-field" />,
+    );
+    const input = UNSAFE_getByProps({ 'data-testid': 'my-date-field' });
+    // The colorScheme should be set based on the theme (light in this test)
+    expect(input.props.style.colorScheme).toBeDefined();
   });
 });

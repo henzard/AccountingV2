@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, TextInput, TouchableRipple } from 'react-native-paper';
+import { Text, TextInput, TouchableRipple, IconButton } from 'react-native-paper';
 import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import { formatCurrency } from '../../../utils/currency';
@@ -134,6 +134,7 @@ export function LineItemRow({
         <TouchableRipple
           onPress={() => onSelectEnvelope(index)}
           style={styles.envelopeButton}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           testID={`line-item-envelope-picker-${index}`}
           accessibilityRole="button"
           accessibilityLabel={
@@ -154,17 +155,22 @@ export function LineItemRow({
           </Text>
         </TouchableRipple>
         {editable && onRemove && (
-          <TouchableRipple
+          // UX2-19: the old "Remove" text button sat directly beside "Assign
+          // envelope…" at ~24dp tall — a fat-finger tap on the destructive
+          // action next to a frequently-used one. A trailing icon button
+          // gives it its own visually distinct target, a 44dp minimum hit
+          // area, and hitSlop so the effective touch target is even larger.
+          <IconButton
+            icon="close-circle-outline"
+            size={20}
             onPress={() => onRemove(index)}
             style={styles.removeButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            iconColor={colors.error}
             testID={`line-item-remove-${index}`}
             accessibilityRole="button"
-            accessibilityLabel={`Remove line item ${index + 1}`}
-          >
-            <Text variant="bodySmall" style={{ color: colors.error }}>
-              Remove
-            </Text>
-          </TouchableRipple>
+            accessibilityLabel={`Remove line ${item.description}`}
+          />
         )}
       </View>
     </View>
@@ -183,8 +189,11 @@ const styles = StyleSheet.create({
   descInput: { flex: 1, marginRight: spacing.sm },
   amountInput: { width: 120 },
   footerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  envelopeButton: { paddingVertical: 4 },
+  // UX2-19: 44dp is the minimum comfortable touch target — the old 24dp
+  // paddingVertical:4 row made both the (frequent) envelope picker and the
+  // (destructive) remove action easy to mis-tap.
+  envelopeButton: { justifyContent: 'center', minHeight: 44, paddingVertical: 4, flex: 1 },
   envelopeSelected: {},
   envelopePlaceholder: {},
-  removeButton: { paddingVertical: 4, paddingHorizontal: spacing.sm },
+  removeButton: { margin: 0, minHeight: 44, minWidth: 44 },
 });
