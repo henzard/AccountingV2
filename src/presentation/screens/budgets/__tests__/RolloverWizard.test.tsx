@@ -134,7 +134,43 @@ jest.mock('react-native-paper', () => {
   };
 });
 
+// ─── score-history / level-advancement mocks (VAL-14/DOM-13) ─────────────────
+// Mocked at the module boundary (rather than faking their db chains) since
+// each already has its own dedicated unit tests — RecordPeriodScoreUseCase's
+// idempotency/failure-isolation and buildHabitScoreInput's parity live in
+// `src/domain/scoring/__tests__/`, not here. These default to harmless
+// success values so the existing commit-flow tests above are unaffected;
+// individual tests below override them to exercise the new wiring.
+const mockResolvePeriodHabitScoreInput = jest.fn();
+jest.mock('../../../../domain/scoring/resolvePeriodHabitScoreInput', () => ({
+  resolvePeriodHabitScoreInput: (...args: unknown[]) => mockResolvePeriodHabitScoreInput(...args),
+}));
+
+const mockRecordExecute = jest.fn();
+jest.mock('../../../../domain/scoring/RecordPeriodScoreUseCase', () => ({
+  RecordPeriodScoreUseCase: jest.fn().mockImplementation(() => ({ execute: mockRecordExecute })),
+}));
+
+const mockGetPeriodScoresAscending = jest.fn();
+jest.mock('../../../../domain/scoring/getPeriodScoresAscending', () => ({
+  getPeriodScoresAscending: (...args: unknown[]) => mockGetPeriodScoresAscending(...args),
+}));
+
+const mockCheck = jest.fn();
+jest.mock('../../../hooks/useLevelAdvancement', () => ({
+  useLevelAdvancement: () => ({ check: mockCheck }),
+}));
+
+// ─── logger mock (RULES2 forbids console.* in app code; RolloverWizard
+// reports its best-effort score/level failures via the app logger, same as
+// `bestEffortAudit`) ───────────────────────────────────────────────────────
+jest.mock('../../../../infrastructure/logging/Logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
+
 import { RolloverWizard } from '../RolloverWizard';
+import { useAppStore } from '../../../stores/appStore';
+import { logger } from '../../../../infrastructure/logging/Logger';
 
 const HOUSEHOLD = 'hh-1';
 const FROM_PERIOD = '2026-06-01';
@@ -195,6 +231,18 @@ describe('RolloverWizard', () => {
         ['env-2', 10000], // on budget
       ]),
     );
+    useAppStore.setState({ userLevel: 1 });
+    mockResolvePeriodHabitScoreInput.mockResolvedValue({
+      loggingDaysCount: 0,
+      totalDaysInPeriod: 30,
+      envelopesOnBudget: 0,
+      totalEnvelopes: 0,
+      meterReadingsLoggedThisPeriod: false,
+      babyStepIsActive: false,
+    });
+    mockRecordExecute.mockResolvedValue({ success: true, data: { id: 'score-1', created: true } });
+    mockGetPeriodScoresAscending.mockResolvedValue([]);
+    mockCheck.mockImplementation(() => undefined);
   });
 
   it('renders step 1 (review) after loading resolves', async () => {
@@ -486,5 +534,107 @@ describe('RolloverWizard', () => {
     expect(fs.existsSync(path.resolve(__dirname, '../../dashboard/PeriodRolloverModal.tsx'))).toBe(
       false,
     );
+  });
+
+  // ── Score history + level advancement (VAL-14/DOM-13) ────────────────────
+  describe('score history and level advancement', () => {
+    it('shows "Last period\'s score" in the review step when history exists', async () => {
+      mockGetPeriodScoresAscending.mockResolvedValue([
+        { periodStart: '2026-04-01', score: 40 },
+        { periodStart: '2026-05-01', score: 72 },
+      ]);
+
+      const { findByTestId } = render(<RolloverWizard {...baseProps} />);
+      const line = await findByTestId('rollover-previous-score');
+      expect(line.props.children).toBe("Last period's score: 72");
+    });
+
+    it('does not show "Last period\'s score" when no history exists yet', async () => {
+      mockGetPeriodScoresAscending.mockResolvedValue([]);
+
+      const { findByTestId, queryByTestId } = render(<RolloverWizard {...baseProps} />);
+      await findByTestId('rollover-step-review');
+      expect(queryByTestId('rollover-previous-score')).toBeNull();
+    });
+
+    it("records the closing period's score after a successful commit", async () => {
+      const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+      await findByTestId('rollover-step-review');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-adjust');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      await findByTestId('rollover-success');
+
+      await waitFor(() => {
+        expect(mockRecordExecute).toHaveBeenCalledTimes(1);
+      });
+      const [input] = mockRecordExecute.mock.calls[0];
+      // The CLOSING period is `fromPeriodStart`/one day before `toPeriodStart` —
+      // never the just-started `toPeriodStart` period, which has no data yet.
+      expect(input.householdId).toBe(HOUSEHOLD);
+      expect(input.periodStart).toBe(FROM_PERIOD);
+      expect(input.periodEnd).toBe('2026-06-30');
+      expect(typeof input.score.score).toBe('number');
+    });
+
+    it('shows a "Level up" line in the success block when the level check advances the level', async () => {
+      mockCheck.mockImplementation(() => {
+        useAppStore.getState().setUserLevel(2);
+      });
+
+      const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+      await findByTestId('rollover-step-review');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-adjust');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      const levelUpLine = await findByTestId('rollover-level-up');
+      expect(levelUpLine.props.children).toBe('Level up — Lv2 Practitioner');
+    });
+
+    it('does not show a "Level up" line when the level does not advance', async () => {
+      // mockCheck (from beforeEach) is a no-op — userLevel stays 1.
+      const { findByTestId, getByTestId, queryByTestId } = render(
+        <RolloverWizard {...baseProps} />,
+      );
+      await findByTestId('rollover-step-review');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-adjust');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      await findByTestId('rollover-success');
+      expect(queryByTestId('rollover-level-up')).toBeNull();
+    });
+
+    it('a score-recording failure never blocks the rollover success block', async () => {
+      mockRecordExecute.mockRejectedValue(new Error('disk full'));
+
+      const { findByTestId, getByTestId } = render(<RolloverWizard {...baseProps} />);
+      await findByTestId('rollover-step-review');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-adjust');
+      fireEvent.press(getByTestId('rollover-next'));
+      await findByTestId('rollover-step-commit');
+      fireEvent.press(getByTestId('rollover-commit'));
+
+      const success = await findByTestId('rollover-success');
+      expect(success).toBeTruthy();
+      expect(getByTestId('rollover-dismiss').props.disabled).toBeFalsy();
+
+      await waitFor(() => {
+        expect(logger.error).toHaveBeenCalledWith(
+          'RolloverWizard: failed to record period score/level',
+          expect.any(Error),
+          expect.objectContaining({ householdId: HOUSEHOLD, periodStart: FROM_PERIOD }),
+        );
+      });
+    });
   });
 });

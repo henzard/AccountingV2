@@ -22,7 +22,7 @@ function gradleBlock(source: string, header: string, from = 0): string {
 describe('Android Play Console compliance configuration', () => {
   it('disables expo-camera barcode scanning in app.config.ts', () => {
     const configSource = fs.readFileSync(path.join(repoRoot, 'app.config.ts'), 'utf8');
-    expect(configSource).toMatch(/expo-camera',\s*\{\s*barcodeScannerEnabled:\s*false\s*\}/);
+    expect(configSource).toMatch(/expo-camera',\s*\{\s*barcodeScannerEnabled:\s*false\s*,?\s*recordAudioAndroid:\s*false\s*\}/);
   });
 
   it('does not lock orientation to portrait in app.config.ts', () => {
@@ -125,5 +125,55 @@ describe('Android Play Console compliance configuration', () => {
     const configSource = fs.readFileSync(path.join(repoRoot, 'app.config.ts'), 'utf8');
     expect(configSource).toContain('withAndroidPlayCompliance');
     expect(configSource).toContain("tools:node': 'remove'");
+  });
+
+  it('disables audio recording in expo-camera plugin config', () => {
+    const configSource = fs.readFileSync(path.join(repoRoot, 'app.config.ts'), 'utf8');
+    expect(configSource).toMatch(/expo-camera',\s*\{\s*barcodeScannerEnabled:\s*false,\s*recordAudioAndroid:\s*false\s*\}/);
+  });
+
+  it('removes RECORD_AUDIO permission via tools:node="remove" in main manifest', () => {
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(manifest).toContain('android:name="android.permission.RECORD_AUDIO"');
+    expect(manifest).toContain('tools:node="remove"');
+    // Verify it's the RECORD_AUDIO permission that has tools:node="remove"
+    expect(manifest).toMatch(/android:name="android\.permission\.RECORD_AUDIO"\s+tools:node="remove"/);
+  });
+
+  it('does not declare SYSTEM_ALERT_WINDOW in main manifest', () => {
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(manifest).not.toContain('android.permission.SYSTEM_ALERT_WINDOW');
+  });
+
+  it('does not declare expo.modules.updates metadata in main manifest', () => {
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(manifest).not.toContain('expo.modules.updates.ENABLED');
+    expect(manifest).not.toContain('expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH');
+    expect(manifest).not.toContain('expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS');
+  });
+
+  it('declares the tools namespace in main manifest root element', () => {
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(manifest).toMatch(/xmlns:tools="http:\/\/schemas\.android\.com\/tools"/);
+  });
+
+  it('declares SYSTEM_ALERT_WINDOW only in debug manifest', () => {
+    const debugManifest = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/debug/AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(debugManifest).toContain('android.permission.SYSTEM_ALERT_WINDOW');
   });
 });

@@ -63,6 +63,14 @@ jest.mock('../../screens/household/CreateHouseholdScreen', () => {
     CreateHouseholdScreen: () => React.createElement(View, { testID: 'create-household-screen' }),
   };
 });
+jest.mock('../../screens/household/HouseholdMembersScreen', () => {
+  const React = jest.requireActual('react');
+  const { View } = jest.requireActual('react-native');
+  return {
+    HouseholdMembersScreen: () => React.createElement(View, { testID: 'household-members-screen' }),
+  };
+});
+
 jest.mock('../../screens/household/ShareInviteScreen', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');

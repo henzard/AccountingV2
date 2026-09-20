@@ -1,6 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, SectionList, TouchableOpacity } from 'react-native';
-import { FAB, ActivityIndicator, Surface, IconButton, Divider, Text } from 'react-native-paper';
+import {
+  FAB,
+  ActivityIndicator,
+  Surface,
+  IconButton,
+  Divider,
+  Text,
+  Searchbar,
+} from 'react-native-paper';
 import { ListRow } from '../../components/shared/ListRow';
 import { useFocusEffect } from '@react-navigation/native';
 import { eq } from 'drizzle-orm';
@@ -14,18 +22,24 @@ import { ScreenHeader } from '../../components/shared/ScreenHeader';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
+import { getPreviousPeriod, getNextPeriod, isCurrentOrFuturePeriod } from './periodNavigation';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
+import { formatCurrency } from '../../utils/currency';
 import { fontSize, spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { format, parseISO } from 'date-fns';
 import type { TransactionListScreenProps } from '../../navigation/types';
 import type { TransactionEntity } from '../../../domain/transactions/TransactionEntity';
+import type { BudgetPeriod } from '../../../domain/shared/types';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
+
+/** How long to wait after the last keystroke before the search filter applies. */
+const SEARCH_DEBOUNCE_MS = 200;
 
 interface Section {
   title: string;
@@ -42,17 +56,61 @@ function groupByDate(txs: TransactionEntity[]): Section[] {
   return Array.from(map.entries()).map(([title, data]) => ({ title, data }));
 }
 
+/** Case-insensitive substring match over payee/description, client-side over the loaded rows. */
+function matchesQuery(tx: TransactionEntity, normalizedQuery: string): boolean {
+  const payee = tx.payee?.toLowerCase() ?? '';
+  const description = tx.description?.toLowerCase() ?? '';
+  return payee.includes(normalizedQuery) || description.includes(normalizedQuery);
+}
+
 export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId);
   const paydayDay = useAppStore((s) => s.paydayDay);
   const enqueue = useToastStore((s) => s.enqueue);
-  const period = engine.getCurrentPeriod(paydayDay);
-  const periodStart = formatPeriodDateKey(period.startDate);
+
+  const [viewedPeriod, setViewedPeriod] = useState<BudgetPeriod>(() =>
+    engine.getCurrentPeriod(paydayDay),
+  );
+  const periodStart = formatPeriodDateKey(viewedPeriod.startDate);
+  const periodEnd = formatPeriodDateKey(viewedPeriod.endDate);
+  const nextDisabled = isCurrentOrFuturePeriod(paydayDay, viewedPeriod);
+
+  const handlePreviousPeriod = useCallback(() => {
+    setViewedPeriod((current) => getPreviousPeriod(paydayDay, current));
+  }, [paydayDay]);
+
+  const handleNextPeriod = useCallback(() => {
+    setViewedPeriod((current) =>
+      isCurrentOrFuturePeriod(paydayDay, current) ? current : getNextPeriod(paydayDay, current),
+    );
+  }, [paydayDay]);
 
   const hid = householdId ?? '';
-  const { transactions, loading, error, reload } = useTransactions(hid, periodStart);
+  const { transactions, loading, error, reload } = useTransactions(hid, { periodStart, periodEnd });
   const [envelopeNames, setEnvelopeNames] = useState<Map<string, string>>(new Map());
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedQuery(searchQuery), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
+
+  const normalizedQuery = debouncedQuery.trim().toLowerCase();
+  const filteredTransactions = useMemo(
+    () =>
+      normalizedQuery
+        ? transactions.filter((tx) => matchesQuery(tx, normalizedQuery))
+        : transactions,
+    [transactions, normalizedQuery],
+  );
+
+  const periodTotalCents = useMemo(
+    () => filteredTransactions.reduce((sum, tx) => sum + tx.amountCents, 0),
+    [filteredTransactions],
+  );
 
   useEffect(() => {
     db.select({ id: envelopesTable.id, name: envelopesTable.name })
@@ -102,13 +160,14 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
 
   if (!householdId) return <LoadingSplash />;
 
-  const sections = groupByDate(transactions);
+  const sections = groupByDate(filteredTransactions);
+  const trimmedQuery = debouncedQuery.trim();
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <Surface style={[styles.header, { backgroundColor: colors.surface }]} elevation={0}>
         <View style={styles.headerRow}>
-          <ScreenHeader eyebrow="Transactions" title={period.label} />
+          <ScreenHeader eyebrow="Transactions" title="Transactions" />
           <TouchableOpacity
             onPress={() => navigation.navigate('BusinessExpenseReport')}
             style={styles.bizButton}
@@ -122,6 +181,41 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
             </Text>
           </TouchableOpacity>
         </View>
+
+        <View style={styles.periodRow} testID="period-switcher">
+          <IconButton
+            icon="chevron-left"
+            onPress={handlePreviousPeriod}
+            testID="period-prev-button"
+            accessibilityLabel="Previous period"
+          />
+          <Text variant="titleMedium" style={{ color: colors.onSurface }} testID="period-label">
+            {viewedPeriod.label}
+          </Text>
+          <IconButton
+            icon="chevron-right"
+            onPress={handleNextPeriod}
+            disabled={nextDisabled}
+            testID="period-next-button"
+            accessibilityLabel="Next period"
+          />
+        </View>
+
+        <Searchbar
+          placeholder="Search payee or description"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          style={styles.search}
+          testID="transaction-search"
+        />
+
+        <Text
+          variant="bodyMedium"
+          style={[styles.periodTotal, { color: colors.onSurfaceVariant }]}
+          testID="period-total"
+        >
+          {formatCurrency(periodTotalCents)}
+        </Text>
       </Surface>
 
       {loading ? (
@@ -136,9 +230,14 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
         </View>
       ) : transactions.length === 0 ? (
         <EmptyState
-          title="No transactions yet"
+          title="No transactions this period"
           body="Tap + to record spending"
           testID="transaction-list-empty-state"
+        />
+      ) : filteredTransactions.length === 0 ? (
+        <EmptyState
+          title={`No matches for "${trimmedQuery}"`}
+          testID="transaction-list-no-matches"
         />
       ) : (
         <SectionList
@@ -200,6 +299,21 @@ const styles = StyleSheet.create({
   header: {},
   headerRow: { flexDirection: 'row', alignItems: 'flex-end' },
   bizButton: { paddingHorizontal: spacing.base, paddingBottom: spacing.md },
+  periodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  search: {
+    marginHorizontal: spacing.base,
+    marginBottom: spacing.xs,
+  },
+  periodTotal: {
+    textAlign: 'right',
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.sm,
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   rowTrailing: {
     flexDirection: 'row',

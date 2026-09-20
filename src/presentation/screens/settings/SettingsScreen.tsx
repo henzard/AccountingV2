@@ -156,6 +156,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           />
           <Divider />
           <List.Item
+            title="Household members"
+            description="See who is in this household, remove members, or leave"
+            left={(props) => <List.Icon {...props} icon="account-group-outline" />}
+            right={(props) => <List.Icon {...props} icon="chevron-right" />}
+            onPress={() =>
+              rootNavigation.navigate('HouseholdMembers', {
+                householdId: householdId!,
+                householdName: currentHousehold?.name ?? 'My Household',
+              })
+            }
+            testID="household-members-row"
+          />
+          <Divider />
+          <List.Item
             title="Invite Member"
             description="Share an invite code"
             left={(props) => <List.Icon {...props} icon="account-plus-outline" />}
@@ -316,6 +330,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           testID="sign-out-button"
         >
           Sign out
+        </Button>
+        <Button
+          mode="text"
+          onPress={() => navigation.navigate('DeleteAccount')}
+          textColor={colors.error}
+          accessibilityLabel="Delete account"
+          testID="delete-account-row"
+        >
+          Delete account
         </Button>
       </View>
 

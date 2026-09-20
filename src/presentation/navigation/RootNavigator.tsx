@@ -11,6 +11,7 @@ import { OnboardingNavigator } from '../screens/auth/onboarding/OnboardingNaviga
 import { HouseholdPickerScreen } from '../screens/household/HouseholdPickerScreen';
 import { CreateHouseholdScreen } from '../screens/household/CreateHouseholdScreen';
 import { ShareInviteScreen } from '../screens/household/ShareInviteScreen';
+import { HouseholdMembersScreen } from '../screens/household/HouseholdMembersScreen';
 import { JoinHouseholdScreen } from '../screens/household/JoinHouseholdScreen';
 import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
 import { LoadingSplash } from '../components/shared/LoadingSplash';
@@ -282,6 +283,16 @@ export function RootNavigator(): React.JSX.Element {
           component={CreateHouseholdScreen}
           options={{
             title: 'New Household',
+            headerShown: true,
+            headerStyle: { backgroundColor: colors.surface },
+            headerTintColor: colors.onSurface,
+          }}
+        />
+        <Stack.Screen
+          name="HouseholdMembers"
+          component={HouseholdMembersScreen}
+          options={{
+            title: 'Household members',
             headerShown: true,
             headerStyle: { backgroundColor: colors.surface },
             headerTintColor: colors.onSurface,

@@ -10,15 +10,23 @@
 
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { openMigratedDb } from '../../../tests/realsql/harness/openMigratedDb';
 import type { PortableDb } from '../uow/UnitOfWork';
 import {
   SyncEngine,
+  createSupabaseSyncTransport,
   type SyncTransport,
   type WireOp,
   type PushResult,
   type ServerOplogRow,
 } from './SyncEngine';
+import {
+  consumeHouseholdEviction,
+  resetHouseholdEvictions,
+  subscribeHouseholdEviction,
+} from './householdEviction';
+import { clearSyncWriteDefaults, setSyncWriteDefaults } from '../../domain/shared/syncWrite';
 
 const NOW = '2026-01-01T00:00:00.000Z';
 const HH = 'hh-1';
@@ -870,5 +878,445 @@ describe('SyncEngine.getPendingPushCount', () => {
     await engine.push();
     expect(engine.getPendingPushCount()).toBe(1);
     raw.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Membership-loss detection + local eviction.
+//
+// A removed member's device can never PULL its own removal: `sync_pull` is
+// SECURITY INVOKER over an RLS-protected `oplog`, so every op for that
+// household — the removal included — becomes invisible the moment they are
+// removed, and their pulls return zero rows forever. The only authoritative
+// signal that reaches them is a push rejected `not_member`, verified by one
+// cheap membership check before anything local is touched.
+// ---------------------------------------------------------------------------
+
+function seedMembership(
+  raw: Database.Database,
+  userId: string,
+  householdId = HH,
+  deletedAt: string | null = null,
+): void {
+  raw
+    .prepare(
+      `INSERT INTO household_members (id, household_id, user_id, role, joined_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, 'member', ?, ?, ?)`,
+    )
+    .run(`hm-${userId}-${householdId}`, householdId, userId, NOW, NOW, deletedAt);
+}
+
+function activeMembershipCount(raw: Database.Database, householdId = HH): number {
+  const row = raw
+    .prepare(
+      'SELECT COUNT(*) AS c FROM household_members WHERE household_id = ? AND deleted_at IS NULL',
+    )
+    .get(householdId) as { c: number };
+  return row.c;
+}
+
+/** A transport whose `membershipCheck` is programmable per test. */
+class MembershipTransport extends FakeTransport {
+  calls = 0;
+  membershipImpl: () => Promise<boolean> = async () => true;
+  async membershipCheck(): Promise<boolean> {
+    this.calls += 1;
+    return this.membershipImpl();
+  }
+}
+
+describe('SyncEngine.push — household_members reject codes are permanent', () => {
+  it.each(['last_owner', 'forbidden_member'])(
+    'reject code %s dead-letters on the FIRST rejection',
+    async (code) => {
+      const raw = openMigratedDb();
+      seedHousehold(raw);
+      const opId = insertOplog(raw, { table_name: 'household_members', op_type: 'delete' });
+      const t = new FakeTransport();
+      t.pushImpl = async (ops) => ops.map((o) => ({ op_id: o.op_id, status: 'rejected', code }));
+      const engine = makeEngine(raw, t);
+
+      const summary = await engine.push();
+
+      expect(summary).toMatchObject({ applied: 0, deadLettered: 1, backedOff: 0 });
+      const st = oplogState(raw, opId);
+      expect(st.dead_lettered_at).toBe(NOW);
+      expect(st.next_attempt_at).toBeNull();
+      expect(st.retry_count).toBe(1);
+      raw.close();
+    },
+  );
+
+  it.each(['last_owner', 'forbidden_member'])(
+    'reject code %s does NOT stall the household queue — later ops keep draining',
+    async (code) => {
+      const raw = openMigratedDb();
+      seedHousehold(raw);
+      const rejectedId = insertOplog(raw, { table_name: 'household_members', op_type: 'delete' });
+      const laterId = insertOplog(raw);
+      const t = new FakeTransport();
+      t.pushImpl = async (ops) =>
+        ops.map((o) => ({
+          op_id: o.op_id,
+          status: o.op_id === rejectedId ? 'rejected' : 'applied',
+          code: o.op_id === rejectedId ? code : null,
+        }));
+      // batchSize 1 forces the later op into its OWN batch, so it is pushed
+      // only if the rejection did NOT mark the household stalled.
+      const engine = makeEngine(raw, t, { options: { batchSize: 1 } });
+
+      await engine.push();
+
+      expect(oplogState(raw, rejectedId).dead_lettered_at).toBe(NOW);
+      expect(oplogState(raw, laterId).pushed_at).toBe(NOW);
+      raw.close();
+    },
+  );
+
+  it('an UNEXPECTED code still stalls the household — the contrast that proves the above', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const rejectedId = insertOplog(raw);
+    const laterId = insertOplog(raw);
+    const t = new FakeTransport();
+    t.pushImpl = async (ops) =>
+      ops.map((o) => ({
+        op_id: o.op_id,
+        status: o.op_id === rejectedId ? 'rejected' : 'applied',
+        code: o.op_id === rejectedId ? '23502' : null,
+      }));
+    const engine = makeEngine(raw, t, { options: { batchSize: 1 } });
+
+    await engine.push();
+
+    expect(oplogState(raw, rejectedId).dead_lettered_at).toBeNull();
+    expect(oplogState(raw, laterId).pushed_at).toBeNull();
+    raw.close();
+  });
+});
+
+describe('SyncEngine — membership loss eviction', () => {
+  const USER = 'user-1';
+
+  beforeEach(() => {
+    resetHouseholdEvictions();
+    setSyncWriteDefaults({ deviceId: 'devA', actorUserId: USER });
+  });
+
+  afterEach(() => {
+    resetHouseholdEvictions();
+    clearSyncWriteDefaults();
+  });
+
+  function notMemberTransport(): MembershipTransport {
+    const t = new MembershipTransport();
+    t.pushImpl = async (ops) =>
+      ops.map((o) => ({ op_id: o.op_id, status: 'rejected', code: 'not_member' }));
+    return t;
+  }
+
+  it('evicts on a not_member push once the membership check confirms it', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    const rejectedId = insertOplog(raw);
+    raw
+      .prepare('INSERT INTO sync_cursor (household_id, last_pulled_seq) VALUES (?, ?)')
+      .run(HH, 42);
+    const t = notMemberTransport();
+    t.membershipImpl = async () => false;
+    const engine = makeEngine(raw, t);
+    const seen: string[] = [];
+    subscribeHouseholdEviction((e) => seen.push(e.householdId));
+
+    await engine.push();
+
+    expect(t.calls).toBe(1);
+    // Membership retired locally, WITHOUT a new oplog op for it.
+    expect(activeMembershipCount(raw)).toBe(0);
+    const memberOps = raw
+      .prepare("SELECT COUNT(*) AS c FROM oplog WHERE table_name = 'household_members'")
+      .get() as { c: number };
+    expect(memberOps.c).toBe(0);
+    // Remaining unpushed ops journaled, not dropped, and never pushed.
+    expect(oplogState(raw, rejectedId).dead_lettered_at).toBe(NOW);
+    expect(engine.listDeadLettered(HH)).toHaveLength(1);
+    // Cursor dropped so a re-invite restores from seq 0.
+    expect(raw.prepare('SELECT * FROM sync_cursor WHERE household_id = ?').get(HH)).toBeUndefined();
+    // The household's financial rows are deliberately NOT deleted.
+    expect(raw.prepare('SELECT id FROM households WHERE id = ?').get(HH)).toBeDefined();
+    expect(seen).toEqual([HH]);
+    // Handled by the live subscriber, so NOT also latched for a later mount.
+    expect(consumeHouseholdEviction()).toBeNull();
+    raw.close();
+  });
+
+  it('does NOT evict when the membership check says still a member', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    insertOplog(raw);
+    const t = notMemberTransport();
+    t.membershipImpl = async () => true;
+    const engine = makeEngine(raw, t);
+
+    await engine.push();
+
+    expect(t.calls).toBe(1);
+    expect(activeMembershipCount(raw)).toBe(1);
+    expect(consumeHouseholdEviction()).toBeNull();
+    raw.close();
+  });
+
+  it('does NOT evict when the membership check itself fails (inconclusive)', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    insertOplog(raw);
+    const t = notMemberTransport();
+    t.membershipImpl = async (): Promise<boolean> => {
+      throw new Error('Network request failed');
+    };
+    const engine = makeEngine(raw, t);
+
+    await engine.push();
+
+    expect(activeMembershipCount(raw)).toBe(1);
+    expect(consumeHouseholdEviction()).toBeNull();
+    raw.close();
+  });
+
+  it('does NOT evict when the push fails at the transport (no rejection at all)', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    insertOplog(raw);
+    const t = new MembershipTransport();
+    t.pushImpl = async (): Promise<PushResult[]> => {
+      throw new Error('Network request failed');
+    };
+    t.membershipImpl = async () => false;
+    const engine = makeEngine(raw, t);
+
+    const summary = await engine.push();
+
+    expect(summary?.transportFailed).toBe(true);
+    expect(t.calls).toBe(0);
+    expect(activeMembershipCount(raw)).toBe(1);
+    expect(consumeHouseholdEviction()).toBeNull();
+    raw.close();
+  });
+
+  it('does NOT evict when the transport cannot verify membership at all', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    insertOplog(raw);
+    const t = new FakeTransport();
+    t.pushImpl = async (ops) =>
+      ops.map((o) => ({ op_id: o.op_id, status: 'rejected', code: 'not_member' }));
+    const engine = makeEngine(raw, t);
+
+    await engine.push();
+
+    expect(activeMembershipCount(raw)).toBe(1);
+    expect(consumeHouseholdEviction()).toBeNull();
+    raw.close();
+  });
+
+  it('is idempotent — a second eviction is a no-op and announces nothing', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    const engine = makeEngine(raw, new MembershipTransport());
+
+    expect(engine.evictHousehold(HH)).toBe(true);
+    expect(consumeHouseholdEviction()).toMatchObject({ householdId: HH });
+
+    const seen: string[] = [];
+    subscribeHouseholdEviction((e) => seen.push(e.householdId));
+    expect(engine.evictHousehold(HH)).toBe(false);
+    expect(seen).toEqual([]);
+    expect(consumeHouseholdEviction()).toBeNull();
+    expect(activeMembershipCount(raw)).toBe(0);
+    raw.close();
+  });
+
+  it('refuses to evict with no actor user id installed', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    clearSyncWriteDefaults();
+    const engine = makeEngine(raw, new MembershipTransport());
+
+    expect(engine.evictHousehold(HH)).toBe(false);
+    expect(activeMembershipCount(raw)).toBe(1);
+    expect(consumeHouseholdEviction()).toBeNull();
+    raw.close();
+  });
+
+  it('leaves OTHER households untouched', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedHousehold(raw, 'hh-2');
+    seedMembership(raw, USER);
+    seedMembership(raw, USER, 'hh-2');
+    const otherOpId = insertOplog(raw, { household_id: 'hh-2' });
+    const engine = makeEngine(raw, new MembershipTransport());
+
+    expect(engine.evictHousehold(HH)).toBe(true);
+
+    expect(activeMembershipCount(raw, 'hh-2')).toBe(1);
+    expect(oplogState(raw, otherOpId).dead_lettered_at).toBeNull();
+    raw.close();
+  });
+
+  it('checks membership after a permission-shaped PULL failure, and evicts when confirmed', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    const t = new MembershipTransport();
+    t.pullImpl = async (): Promise<ServerOplogRow[]> => {
+      throw new Error('sync_pull failed: permission denied for relation oplog');
+    };
+    t.membershipImpl = async () => false;
+    const engine = makeEngine(raw, t);
+
+    await engine.pull(HH);
+
+    expect(t.calls).toBe(1);
+    expect(activeMembershipCount(raw)).toBe(0);
+    expect(consumeHouseholdEviction()).toMatchObject({ householdId: HH });
+    raw.close();
+  });
+
+  it('does NOT check membership after an ordinary network PULL failure', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedMembership(raw, USER);
+    const t = new MembershipTransport();
+    t.pullImpl = async (): Promise<ServerOplogRow[]> => {
+      throw new Error('sync_pull failed: Network request failed');
+    };
+    t.membershipImpl = async () => false;
+    const engine = makeEngine(raw, t);
+
+    await engine.pull(HH);
+
+    expect(t.calls).toBe(0);
+    expect(activeMembershipCount(raw)).toBe(1);
+    raw.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSupabaseSyncTransport().membershipCheck — the three-valued contract.
+//
+// This is the single decision that can tear a household off a device, so each
+// answer shape is pinned: only an EXPLICIT server "no" resolves false;
+// everything ambiguous throws so `checkMembershipAndEvict` does nothing.
+// ---------------------------------------------------------------------------
+
+interface RpcAnswer {
+  data?: unknown;
+  error?: { code?: string; message?: string } | null;
+}
+
+function makeSupabase(opts: {
+  rpc: RpcAnswer;
+  select?: RpcAnswer;
+  userId?: string | null;
+}): SupabaseClient {
+  const selectChain = {
+    select: () => selectChain,
+    eq: () => selectChain,
+    is: () => selectChain,
+    limit: () => selectChain,
+    abortSignal: () => Promise.resolve(opts.select ?? { data: [], error: null }),
+  };
+  return {
+    rpc: () => ({ abortSignal: () => Promise.resolve(opts.rpc) }),
+    from: () => selectChain,
+    auth: {
+      getSession: () =>
+        Promise.resolve({
+          data: { session: opts.userId === null ? null : { user: { id: opts.userId ?? 'u-1' } } },
+        }),
+    },
+  } as unknown as SupabaseClient;
+}
+
+function membershipCheckOf(supabase: SupabaseClient): (hh: string) => Promise<boolean> {
+  const transport = createSupabaseSyncTransport(supabase);
+  const check = transport.membershipCheck;
+  if (!check) throw new Error('production transport must implement membershipCheck');
+  return (hh) => check.call(transport, hh, new AbortController().signal);
+}
+
+describe('createSupabaseSyncTransport — membershipCheck', () => {
+  it('resolves true when list_household_members succeeds', async () => {
+    const check = membershipCheckOf(makeSupabase({ rpc: { data: [], error: null } }));
+    await expect(check('hh-1')).resolves.toBe(true);
+  });
+
+  it('resolves false on the RPC-s explicit 42501 refusal', async () => {
+    const check = membershipCheckOf(
+      makeSupabase({ rpc: { data: null, error: { code: '42501', message: 'whatever' } } }),
+    );
+    await expect(check('hh-1')).resolves.toBe(false);
+  });
+
+  it('resolves false when only the message survives the gateway', async () => {
+    const check = membershipCheckOf(
+      makeSupabase({
+        rpc: { data: null, error: { code: 'P0001', message: 'not a member of this household' } },
+      }),
+    );
+    await expect(check('hh-1')).resolves.toBe(false);
+  });
+
+  it('falls back to a direct membership select when 0011 is not deployed yet', async () => {
+    const stillMember = membershipCheckOf(
+      makeSupabase({
+        rpc: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } },
+        select: { data: [{ id: 'hm-1' }], error: null },
+      }),
+    );
+    await expect(stillMember('hh-1')).resolves.toBe(true);
+
+    const removed = membershipCheckOf(
+      makeSupabase({
+        rpc: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } },
+        select: { data: [], error: null },
+      }),
+    );
+    await expect(removed('hh-1')).resolves.toBe(false);
+  });
+
+  it('THROWS (inconclusive) on a network-shaped error — never evicts', async () => {
+    const check = membershipCheckOf(
+      makeSupabase({ rpc: { data: null, error: { message: 'Network request failed' } } }),
+    );
+    await expect(check('hh-1')).rejects.toThrow(/membership_check failed/);
+  });
+
+  it('THROWS when the fallback has no signed-in user', async () => {
+    const check = membershipCheckOf(
+      makeSupabase({
+        rpc: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } },
+        userId: null,
+      }),
+    );
+    await expect(check('hh-1')).rejects.toThrow(/no signed-in user/);
+  });
+
+  it('THROWS when the fallback select itself fails', async () => {
+    const check = membershipCheckOf(
+      makeSupabase({
+        rpc: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } },
+        select: { data: null, error: { message: 'Network request failed' } },
+      }),
+    );
+    await expect(check('hh-1')).rejects.toThrow(/fallback failed/);
   });
 });

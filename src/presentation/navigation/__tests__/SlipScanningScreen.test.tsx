@@ -14,6 +14,24 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
+// Captures the last `confirmSlip` prop SlipScanningScreen passed down, so the
+// notify-on-confirm test can invoke it directly without driving the whole
+// camera/extraction flow. `mock`-prefixed so babel-plugin-jest-hoist allows
+// referencing it from inside the jest.mock factory below.
+let mockCapturedConfirmSlip:
+  | ((input: {
+      slipId: string;
+      items: Array<{
+        description: string;
+        amountCents: number;
+        envelopeId: string;
+        transactionDate: string;
+      }>;
+      merchant: string | null;
+      totalCents: number | null;
+    }) => Promise<{ success: boolean; totalMismatch?: boolean }>)
+  | null = null;
+
 // ─── Heavy child navigator — capture the `envelopes` prop it receives ────────
 jest.mock('../SlipScanningStackNavigator', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -23,8 +41,10 @@ jest.mock('../SlipScanningStackNavigator', () => {
   return {
     SlipScanningStackNavigator: (props: {
       envelopes: Array<{ id: string; name: string; allocatedCents: number; spentCents: number }>;
-    }) =>
-      React.createElement(
+      confirmSlip: typeof mockCapturedConfirmSlip;
+    }) => {
+      mockCapturedConfirmSlip = props.confirmSlip;
+      return React.createElement(
         View,
         { testID: 'slip-stack-navigator' },
         props.envelopes.map((e) =>
@@ -34,7 +54,8 @@ jest.mock('../SlipScanningStackNavigator', () => {
             `${e.name}:${e.allocatedCents - e.spentCents}`,
           ),
         ),
-      ),
+      );
+    },
   };
 });
 
@@ -90,6 +111,10 @@ jest.mock('../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
 }));
 jest.mock('../../../data/remote/supabaseClient', () => ({ supabase: {} }));
+
+jest.mock('../../../infrastructure/notifications/HouseholdNotifier', () => ({
+  householdNotifier: { notifyHousehold: jest.fn() },
+}));
 
 // ─── BudgetPeriodEngine — fixed period so periodStart is deterministic ───────
 jest.mock('../../../domain/shared/BudgetPeriodEngine', () => ({
@@ -160,8 +185,12 @@ import { SlipScanningScreen } from '../SlipScanningScreen';
 import { getEnvelopeSpentCents } from '../../../data/local/balances/EnvelopeBalanceQuery';
 import { SlipScanFlow } from '../../../application/SlipScanFlow';
 import { requestSyncNow } from '../../../data/sync/syncRuntime';
+import { ConfirmSlipUseCase } from '../../../domain/slipScanning/ConfirmSlipUseCase';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { db: mockDb } = require('../../../data/local/db');
+const { householdNotifier: mockHouseholdNotifier } = jest.requireMock(
+  '../../../infrastructure/notifications/HouseholdNotifier',
+) as { householdNotifier: { notifyHousehold: jest.Mock } };
 
 const mockSlipScanFlow = SlipScanFlow as jest.MockedClass<typeof SlipScanFlow>;
 // `SlipScanningScreen` constructs its `SlipScanFlow` singleton once at
@@ -169,6 +198,16 @@ const mockSlipScanFlow = SlipScanFlow as jest.MockedClass<typeof SlipScanFlow>;
 // `jest.clearAllMocks()` has a chance to wipe the mock's recorded calls.
 // Snapshot the constructor args here, once, for the DB-13 wiring test below.
 const slipScanFlowCtorArgs = mockSlipScanFlow.mock.calls[0]?.[0];
+
+// Unlike `SlipScanFlow` (built at module scope), `ConfirmSlipUseCase` is
+// built inside the component via `useMemo(..., [])` — its mocked `execute`
+// only exists once the component has actually rendered, so this reads the
+// LATEST constructed instance rather than snapshotting at import time.
+const mockConfirmSlipUseCase = ConfirmSlipUseCase as jest.MockedClass<typeof ConfirmSlipUseCase>;
+function getLatestConfirmSlipExecute(): jest.Mock {
+  const results = mockConfirmSlipUseCase.mock.results;
+  return results[results.length - 1]!.value.execute as jest.Mock;
+}
 
 const mockGetEnvelopeSpentCents = getEnvelopeSpentCents as jest.MockedFunction<
   typeof getEnvelopeSpentCents
@@ -240,5 +279,79 @@ describe('SlipScanningScreen', () => {
   // asserting once at import time, since the module is a singleton.
   it('wires SlipScanFlow.ensureSynced to requestSyncNow (DB-13)', () => {
     expect(slipScanFlowCtorArgs).toEqual(expect.objectContaining({ ensureSynced: requestSyncNow }));
+  });
+
+  // VAL-6/DB-7: a confirmed slip wakes the household with the item count.
+  describe('household notification on confirm', () => {
+    it('notifies the household with the confirmed item count on success', async () => {
+      setupDbChain([
+        { id: 'env-1', name: 'Groceries', allocatedCents: 1000, envelopeType: 'spending' },
+      ]);
+      mockGetEnvelopeSpentCents.mockResolvedValue(new Map());
+
+      render(<SlipScanningScreen />);
+      await waitFor(() => expect(mockCapturedConfirmSlip).not.toBeNull());
+      getLatestConfirmSlipExecute().mockResolvedValue({
+        success: true,
+        data: { totalMismatch: false },
+      });
+
+      await mockCapturedConfirmSlip!({
+        slipId: 'slip-1',
+        items: [
+          {
+            description: 'Milk',
+            amountCents: 100,
+            envelopeId: 'env-1',
+            transactionDate: '2026-04-05',
+          },
+          {
+            description: 'Bread',
+            amountCents: 200,
+            envelopeId: 'env-1',
+            transactionDate: '2026-04-05',
+          },
+        ],
+        merchant: 'Pick n Pay',
+        totalCents: 300,
+      });
+
+      expect(mockHouseholdNotifier.notifyHousehold).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'slip_confirmed',
+          body: expect.stringContaining('Confirmed 2 items'),
+        }),
+      );
+    });
+
+    it('does not notify the household when the confirm fails', async () => {
+      setupDbChain([
+        { id: 'env-1', name: 'Groceries', allocatedCents: 1000, envelopeType: 'spending' },
+      ]);
+      mockGetEnvelopeSpentCents.mockResolvedValue(new Map());
+
+      render(<SlipScanningScreen />);
+      await waitFor(() => expect(mockCapturedConfirmSlip).not.toBeNull());
+      getLatestConfirmSlipExecute().mockResolvedValue({
+        success: false,
+        error: { code: 'SLIP_NOT_FOUND', message: 'not found' },
+      });
+
+      await mockCapturedConfirmSlip!({
+        slipId: 'slip-1',
+        items: [
+          {
+            description: 'Milk',
+            amountCents: 100,
+            envelopeId: 'env-1',
+            transactionDate: '2026-04-05',
+          },
+        ],
+        merchant: 'Pick n Pay',
+        totalCents: 100,
+      });
+
+      expect(mockHouseholdNotifier.notifyHousehold).not.toHaveBeenCalled();
+    });
   });
 });

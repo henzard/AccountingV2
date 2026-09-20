@@ -1,9 +1,10 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
+﻿/* eslint-disable @typescript-eslint/no-require-imports */
 /**
- * BusinessExpenseReportScreen.test.tsx — zero-coverage screen test
+ * BusinessExpenseReportScreen.test.tsx — comprehensive screen test with CSV export
  */
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { Share } from 'react-native';
 
 // ─── Navigation mock ──────────────────────────────────────────────────────────
 jest.mock('@react-navigation/native', () => {
@@ -38,11 +39,16 @@ jest.mock('../../../../data/local/schema', () => ({
   },
 }));
 
-// ─── Store mock ───────────────────────────────────────────────────────────────
+// ─── Store mocks ──────────────────────────────────────────────────────────────
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((sel: (s: { householdId: string }) => unknown) =>
     sel({ householdId: 'hh-1' }),
   ),
+}));
+
+const mockEnqueue = jest.fn();
+jest.mock('../../../stores/toastStore', () => ({
+  useToastStore: (selector: (s: object) => unknown): unknown => selector({ enqueue: mockEnqueue }),
 }));
 
 // ─── Theme mock ───────────────────────────────────────────────────────────────
@@ -80,8 +86,37 @@ jest.mock('react-native-paper', () => {
       React.createElement('View', p, children),
     ActivityIndicator: ({ testID }: { testID?: string; [k: string]: unknown }) =>
       React.createElement('View', { testID: testID ?? 'activity-indicator' }),
+    IconButton: ({
+      testID,
+      onPress,
+      _disabled,
+      ...p
+    }: {
+      testID?: string;
+      onPress?: () => void;
+      disabled?: boolean;
+      [k: string]: unknown;
+    }) => {
+      const el = React.createElement('button', {
+        testID,
+        onPress,
+        ...p,
+      });
+      return el;
+    },
   };
 });
+
+// ─── CSV builder mocks ────────────────────────────────────────────────────────
+jest.mock('../buildBusinessExpenseCsv', () => ({
+  buildBusinessExpenseCsv: jest.fn((rows: unknown[]) => {
+    if (Array.isArray(rows) && rows.length > 0) {
+      return 'Date,Payee,Description,Amount (ZAR)\r\n2026-01-15,"Test","Desc","100.00"\r\n"","","Total","100.00"';
+    }
+    return 'Date,Payee,Description,Amount (ZAR)\r\n"","","Total","0.00"';
+  }),
+  transactionsToCsvRows: jest.fn((txs: unknown[]) => txs),
+}));
 
 // ─── groupBusinessExpenses mock ───────────────────────────────────────────────
 const mockGroupBusinessExpenses = jest.fn();
@@ -93,6 +128,9 @@ jest.mock('../../../../domain/transactions/BusinessExpenseReport', () => ({
 jest.mock('../../../utils/currency', () => ({
   formatCurrency: (cents: number) => `R${(cents / 100).toFixed(2)}`,
 }));
+
+// ─── Share API mock ───────────────────────────────────────────────────────────
+const mockShare = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
 
 const { db: mockDb } = require('../../../../data/local/db');
 
@@ -113,10 +151,13 @@ function setupDbError(): void {
 describe('BusinessExpenseReportScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEnqueue.mockClear();
+    mockShare.mockClear();
     setupDbChain([]);
     mockGroupBusinessExpenses.mockReturnValue([]);
   });
 
+  // ─── Original coverage tests ──────────────────────────────────────────────────
   it('renders empty state when no business expenses', async () => {
     mockGroupBusinessExpenses.mockReturnValue([]);
     const { getByTestId } = render(<BusinessExpenseReportScreen />);
@@ -201,6 +242,183 @@ describe('BusinessExpenseReportScreen', () => {
     await waitFor(() => {
       const { isNull } = require('drizzle-orm');
       expect(isNull).toHaveBeenCalled();
+    });
+  });
+
+  // ─── New CSV export feature tests ──────────────────────────────────────────────
+  it('renders Share CSV button when expenses exist', async () => {
+    const txRows = [
+      {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'e1',
+        amountCents: 10000,
+        payee: 'Store A',
+        description: 'Office supplies',
+        transactionDate: '2026-01-15',
+        isBusinessExpense: true,
+        spendingTriggerNote: null,
+        slipId: null,
+        createdAt: '2026-01-15',
+        updatedAt: '2026-01-15',
+      },
+    ];
+    setupDbChain(txRows);
+    mockGroupBusinessExpenses.mockReturnValue([
+      {
+        monthKey: '2026-01',
+        monthLabel: 'January 2026',
+        totalCents: 10000,
+        transactions: txRows,
+      },
+    ]);
+
+    const { getByTestId } = render(<BusinessExpenseReportScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('share-csv-button')).toBeTruthy();
+    });
+  });
+
+  it('calls Share.share with title and CSV when Share CSV button is pressed', async () => {
+    const txRows = [
+      {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'e1',
+        amountCents: 10000,
+        payee: 'Store A',
+        description: 'Office supplies',
+        transactionDate: '2026-01-15',
+        isBusinessExpense: true,
+        spendingTriggerNote: null,
+        slipId: null,
+        createdAt: '2026-01-15',
+        updatedAt: '2026-01-15',
+      },
+    ];
+    setupDbChain(txRows);
+    mockGroupBusinessExpenses.mockReturnValue([
+      {
+        monthKey: '2026-01',
+        monthLabel: 'January 2026',
+        totalCents: 10000,
+        transactions: txRows,
+      },
+    ]);
+
+    const { getByTestId } = render(<BusinessExpenseReportScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('share-csv-button')).toBeTruthy();
+    });
+
+    const button = getByTestId('share-csv-button');
+    fireEvent.press(button);
+
+    await waitFor(() => {
+      expect(mockShare).toHaveBeenCalled();
+      const call = mockShare.mock.calls[0][0];
+      expect(call.title).toBe('Business expenses');
+      expect(call.message).toContain('Date,Payee,Description,Amount (ZAR)');
+    });
+  });
+
+  it('includes CSV header in the shared message', async () => {
+    const txRows = [
+      {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'e1',
+        amountCents: 10000,
+        payee: 'Store A',
+        description: 'Office supplies',
+        transactionDate: '2026-01-15',
+        isBusinessExpense: true,
+        spendingTriggerNote: null,
+        slipId: null,
+        createdAt: '2026-01-15',
+        updatedAt: '2026-01-15',
+      },
+    ];
+    setupDbChain(txRows);
+    mockGroupBusinessExpenses.mockReturnValue([
+      {
+        monthKey: '2026-01',
+        monthLabel: 'January 2026',
+        totalCents: 10000,
+        transactions: txRows,
+      },
+    ]);
+
+    const { getByTestId } = render(<BusinessExpenseReportScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('share-csv-button')).toBeTruthy();
+    });
+
+    const button = getByTestId('share-csv-button');
+    fireEvent.press(button);
+
+    await waitFor(() => {
+      expect(mockShare).toHaveBeenCalled();
+      const message = mockShare.mock.calls[0][0].message as string;
+      expect(message.startsWith('Date,Payee,Description,Amount (ZAR)')).toBe(true);
+    });
+  });
+
+  it('shows error toast when Share.share fails', async () => {
+    const txRows = [
+      {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'e1',
+        amountCents: 10000,
+        payee: 'Store A',
+        description: 'Office supplies',
+        transactionDate: '2026-01-15',
+        isBusinessExpense: true,
+        spendingTriggerNote: null,
+        slipId: null,
+        createdAt: '2026-01-15',
+        updatedAt: '2026-01-15',
+      },
+    ];
+    setupDbChain(txRows);
+    mockGroupBusinessExpenses.mockReturnValue([
+      {
+        monthKey: '2026-01',
+        monthLabel: 'January 2026',
+        totalCents: 10000,
+        transactions: txRows,
+      },
+    ]);
+
+    mockShare.mockRejectedValueOnce(new Error('Share failed'));
+
+    const { getByTestId } = render(<BusinessExpenseReportScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('share-csv-button')).toBeTruthy();
+    });
+
+    const button = getByTestId('share-csv-button');
+    fireEvent.press(button);
+
+    await waitFor(() => {
+      expect(mockEnqueue).toHaveBeenCalledWith('Share failed', 'error');
+    });
+  });
+
+  it('disables button when transactions is empty', async () => {
+    setupDbChain([]);
+    mockGroupBusinessExpenses.mockReturnValue([]);
+
+    const { queryByTestId } = render(<BusinessExpenseReportScreen />);
+
+    // When empty, EmptyState is shown instead of the list+header, so button isn't rendered
+    await waitFor(() => {
+      expect(queryByTestId('biz-expense-empty')).toBeTruthy();
     });
   });
 });

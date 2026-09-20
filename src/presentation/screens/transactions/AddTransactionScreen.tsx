@@ -33,6 +33,7 @@ import { CoachingModal } from '../../components/shared/CoachingModal';
 import type { CoachingResult } from '../../../domain/coaching/SpendingCoach';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
 import { detectThresholdCrossing, buildThresholdToastMessage } from './envelopeUsageThreshold';
+import { householdNotifier } from '../../../infrastructure/notifications/HouseholdNotifier';
 
 const audit = new AuditLogger(db);
 const engine = new BudgetPeriodEngine();
@@ -54,6 +55,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId) ?? '';
   const paydayDay = useAppStore((s) => s.paydayDay);
+  const senderId = useAppStore((s) => s.session?.user?.id) ?? '';
   const enqueue = useToastStore((s) => s.enqueue);
 
   const period = engine.getCurrentPeriod(paydayDay);
@@ -245,6 +247,18 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         if (result.success) {
           enqueue(existingTransaction ? 'Transaction updated' : 'Transaction saved', 'success');
 
+          // VAL-6/DB-7: only a genuine CREATE wakes the partner's device —
+          // an edit is not a new spend and must not re-notify.
+          if (!existingTransaction) {
+            householdNotifier.notifyHousehold({
+              kind: 'transaction_created',
+              householdId,
+              senderId,
+              title: (payee.trim() || envelope.name).slice(0, 120),
+              body: `${payee.trim() || envelope.name} · ${formatCurrency(amountCents)} from ${envelope.name}`,
+            });
+          }
+
           // VAL-13: only for period-scoped envelopes, and only when THIS
           // save is the one that crosses 80%/100% (not every save above it).
           if (getEnvelopeScope({ envelopeType: envelope.envelopeType }) === 'period') {
@@ -264,6 +278,22 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
                 ),
                 crossing === 100 ? 'error' : 'regression',
               );
+              // VAL-6/DB-7: only the 100% ("over budget") crossing wakes the
+              // household — the 80% heads-up is a solo nudge, not shared news.
+              if (crossing === 100) {
+                householdNotifier.notifyHousehold({
+                  kind: 'envelope_over_budget',
+                  householdId,
+                  senderId,
+                  title: envelope.name.slice(0, 120),
+                  body: buildThresholdToastMessage(
+                    crossing,
+                    envelope.name,
+                    envelope.allocatedCents,
+                    newSpentCents,
+                  ),
+                });
+              }
             }
           }
 
@@ -290,6 +320,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
       payee,
       description,
       householdId,
+      senderId,
       transactionDate,
       isBusinessExpense,
       spendingTriggerNote,

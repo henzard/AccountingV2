@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, SectionList } from 'react-native';
-import { Text, Surface, ActivityIndicator } from 'react-native-paper';
+import { View, StyleSheet, SectionList, Share } from 'react-native';
+import { Text, Surface, ActivityIndicator, IconButton } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
@@ -11,12 +11,16 @@ import { EmptyState } from '../../components/shared/EmptyState';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
+import { buildBusinessExpenseCsv, transactionsToCsvRows } from './buildBusinessExpenseCsv';
 import type { TransactionEntity } from '../../../domain/transactions/TransactionEntity';
 
 export function BusinessExpenseReportScreen(): React.JSX.Element {
   const { colors } = useAppTheme();
   const householdId = useAppStore((s) => s.householdId) ?? '';
+  const enqueue = useToastStore((s) => s.enqueue);
   const [groups, setGroups] = useState<ReturnType<typeof groupBusinessExpenses>>([]);
+  const [transactions, setTransactions] = useState<TransactionEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +52,7 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
       }));
+      setTransactions(entities);
       setGroups(groupBusinessExpenses(entities));
     } catch (err: unknown) {
       setGroups([]);
@@ -56,6 +61,20 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
       setLoading(false);
     }
   }, [householdId]);
+
+  const handleShareCsv = useCallback(async (): Promise<void> => {
+    try {
+      const csvRows = transactionsToCsvRows(transactions);
+      const csv = buildBusinessExpenseCsv(csvRows);
+      await Share.share({
+        title: 'Business expenses',
+        message: csv,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to share CSV';
+      enqueue(message, 'error');
+    }
+  }, [transactions, enqueue]);
 
   useFocusEffect(
     useCallback(() => {
@@ -98,50 +117,68 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
   }));
 
   return (
-    <SectionList
-      style={[styles.flex, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.content}
-      sections={sections}
-      keyExtractor={(item) => item.id}
-      renderSectionHeader={({ section }) => (
-        <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
-          <Text variant="titleSmall" style={{ color: colors.onSurface }}>
-            {section.title}
-          </Text>
-          <Text variant="titleSmall" style={{ color: colors.primary }}>
-            {formatCurrency(section.total)}
-          </Text>
-        </View>
-      )}
-      renderItem={({ item }) => (
-        <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={0}>
-          <View style={styles.rowMain}>
-            <Text variant="bodyMedium" style={{ color: colors.onSurface }} numberOfLines={1}>
-              {item.payee ?? 'Unknown payee'}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.header}>
+        <IconButton
+          icon="share-variant"
+          disabled={transactions.length === 0}
+          onPress={handleShareCsv}
+          accessibilityLabel="Share business expenses as CSV"
+          testID="share-csv-button"
+        />
+      </View>
+      <SectionList
+        style={styles.flex}
+        contentContainerStyle={styles.content}
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        renderSectionHeader={({ section }) => (
+          <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
+            <Text variant="titleSmall" style={{ color: colors.onSurface }}>
+              {section.title}
             </Text>
-            {item.spendingTriggerNote ? (
-              <Text
-                variant="bodySmall"
-                style={{ color: colors.onSurfaceVariant }}
-                numberOfLines={1}
-              >
-                {item.spendingTriggerNote}
-              </Text>
-            ) : null}
+            <Text variant="titleSmall" style={{ color: colors.primary }}>
+              {formatCurrency(section.total)}
+            </Text>
           </View>
-          <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
-            {formatCurrency(item.amountCents)}
-          </Text>
-        </Surface>
-      )}
-      testID="biz-expense-list"
-    />
+        )}
+        renderItem={({ item }) => (
+          <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={0}>
+            <View style={styles.rowMain}>
+              <Text variant="bodyMedium" style={{ color: colors.onSurface }} numberOfLines={1}>
+                {item.payee ?? 'Unknown payee'}
+              </Text>
+              {item.spendingTriggerNote ? (
+                <Text
+                  variant="bodySmall"
+                  style={{ color: colors.onSurfaceVariant }}
+                  numberOfLines={1}
+                >
+                  {item.spendingTriggerNote}
+                </Text>
+              ) : null}
+            </View>
+            <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
+              {formatCurrency(item.amountCents)}
+            </Text>
+          </Surface>
+        )}
+        testID="biz-expense-list"
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1 },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
   content: { paddingBottom: spacing.xl },
   sectionHeader: {
     flexDirection: 'row',

@@ -180,6 +180,10 @@ jest.mock('./src/infrastructure/notifications/FcmTokenRegistrar', () => ({
   subscribeToTokenRefresh: jest.fn(() => jest.fn()),
 }));
 
+jest.mock('./src/infrastructure/notifications/ForegroundMessageHandler', () => ({
+  subscribeToForegroundMessages: jest.fn(() => jest.fn()),
+}));
+
 jest.mock('./src/infrastructure/monitoring/crashlytics', () => ({
   initCrashlytics: jest.fn().mockResolvedValue(undefined),
 }));

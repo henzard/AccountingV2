@@ -55,6 +55,8 @@ import {
   registerFcmToken,
   subscribeToTokenRefresh,
 } from './src/infrastructure/notifications/FcmTokenRegistrar';
+import { subscribeToForegroundMessages } from './src/infrastructure/notifications/ForegroundMessageHandler';
+import { subscribeToHouseholdEvictions } from './src/presentation/boot/householdEvictionHandler';
 import {
   hydrateThemeFromLocal,
   hydrateThemeFromRemote,
@@ -426,6 +428,16 @@ export default function App(): React.JSX.Element | null {
     const unsubscribeNetwork = subscribeNetworkChanges();
     networkObserver.start();
 
+    // VAL-6/DB-7: show a household-activity push as an in-app toast and
+    // pull the change in immediately while the app is open. App-lifetime,
+    // not per-session — a push can arrive right after boot even before a
+    // user-specific session is resolved.
+    const unsubscribeForegroundMessages = subscribeToForegroundMessages();
+
+    // A member removed from another device: the sync layer confirms it and
+    // makes the household unreachable; this moves the UI off it.
+    const unsubscribeHouseholdEvictions = subscribeToHouseholdEvictions();
+
     // Cleanup expired slip images (fire-and-forget — non-fatal).
     void cleanupSlips.execute().catch(() => {});
 
@@ -443,6 +455,8 @@ export default function App(): React.JSX.Element | null {
     return () => {
       unsubscribeNetwork();
       networkObserver.stop();
+      unsubscribeForegroundMessages();
+      unsubscribeHouseholdEvictions();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bindCelebrationStore]);

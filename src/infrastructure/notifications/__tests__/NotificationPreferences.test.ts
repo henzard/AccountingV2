@@ -33,6 +33,10 @@ describe('NotificationPreferences', () => {
       expect(DEFAULT_NOTIFICATION_PREFERENCES.envelopeWarningEnabled).toBe(true);
     });
 
+    it('has householdActivityEnabled set to true', () => {
+      expect(DEFAULT_NOTIFICATION_PREFERENCES.householdActivityEnabled).toBe(true);
+    });
+
     it('satisfies NotificationPreferences interface shape', () => {
       const prefs: NotificationPreferences = DEFAULT_NOTIFICATION_PREFERENCES;
       const expectedKeys = [
@@ -43,6 +47,7 @@ describe('NotificationPreferences', () => {
         'meterReadingReminderDay',
         'monthStartPreflightEnabled',
         'envelopeWarningEnabled',
+        'householdActivityEnabled',
       ];
       expect(Object.keys(prefs).sort()).toEqual(expectedKeys.sort());
     });

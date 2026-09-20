@@ -33,6 +33,7 @@ import {
 import { eq, ne, and, isNull } from 'drizzle-orm';
 import { useAppStore } from '../stores/appStore';
 import type { EnvelopeOption } from '../screens/slipScanning/components/EnvelopePickerSheet';
+import { householdNotifier } from '../../infrastructure/notifications/HouseholdNotifier';
 
 const budgetEngine = new BudgetPeriodEngine();
 
@@ -178,12 +179,24 @@ export function SlipScanningScreen(): React.JSX.Element {
         });
         // DOM-12: surface a Σ(items) vs slip.totalCents mismatch to the
         // caller as a warning flag — it never blocks the save.
+        if (result.success) {
+          const itemCount = input.items.length;
+          householdNotifier.notifyHousehold({
+            kind: 'slip_confirmed',
+            householdId,
+            senderId: createdBy,
+            title: (input.merchant ?? 'Slip confirmed').slice(0, 120),
+            body: `Confirmed ${itemCount} item${itemCount === 1 ? '' : 's'}${
+              input.merchant ? ` from ${input.merchant}` : ''
+            }`,
+          });
+        }
         return {
           success: result.success,
           totalMismatch: result.success ? result.data.totalMismatch : undefined,
         };
       },
-    [confirmSlipUseCase, householdId],
+    [confirmSlipUseCase, householdId, createdBy],
   );
 
   const cancelSlip = useCallback(async (slipId: string): Promise<void> => {
