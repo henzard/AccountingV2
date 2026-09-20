@@ -10,10 +10,21 @@ jest.mock('../../../data/local/db', () => ({
   },
 }));
 
+// Real `and`/`eq`/`isNull` (only `db` above is faked) so the WHERE clause
+// built by the hook is a real drizzle SQL descriptor — `isNull` is wrapped
+// so a test can assert the hook actually asked for `deletedAt IS NULL` on
+// the `debts` table, not just that SOME where clause was built.
+jest.mock('drizzle-orm', () => {
+  const actual = jest.requireActual('drizzle-orm');
+  return { ...actual, isNull: jest.fn(actual.isNull) };
+});
+
 mockFrom.mockReturnValue({ where: mockWhere });
 mockWhere.mockReturnValue({ orderBy: mockOrderBy });
 
+import { isNull } from 'drizzle-orm';
 import { useDebts } from '../useDebts';
+import { debts as debtsTable } from '../../../data/local/schema';
 import type { DebtEntity } from '../../../domain/debtSnowball/DebtEntity';
 
 const HOUSEHOLD = 'hh-1';
@@ -74,6 +85,17 @@ describe('useDebts', () => {
 
     expect(result.current.debts).toEqual([]);
     expect(result.current.loading).toBe(false);
+  });
+
+  it('excludes soft-deleted debts (filters on debts.deletedAt IS NULL)', async () => {
+    mockOrderBy.mockResolvedValue([makeDebt()]);
+
+    const { result } = renderHook(() => useDebts(HOUSEHOLD));
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(isNull).toHaveBeenCalledWith(debtsTable.deletedAt);
   });
 
   it('sets error when fetch throws Error', async () => {

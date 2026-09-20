@@ -1,5 +1,5 @@
 import { differenceInCalendarMonths, format } from 'date-fns';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, FlatList, StyleSheet } from 'react-native';
 import {
   Text,
@@ -62,22 +62,34 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
     }, [reload]),
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    getLatestDebtSnapshot(db, householdId, currentPeriodStart)
-      .then((snapshot) => {
-        if (!cancelled) setPreviousSnapshot(snapshot);
-      })
-      .catch((err: unknown) => {
-        // Best-effort, read-only — the dashboard's own numbers are unaffected.
-        logger.error('SnowballDashboardScreen: failed to load previous debt snapshot', err, {
-          householdId,
+  // Re-runs on every focus (not just when householdId/currentPeriodStart
+  // change) — a rollover completed elsewhere (another tab, another device
+  // via sync) writes a new snapshot without touching either of those, and
+  // this screen used to keep showing a stale (or, across a household
+  // switch, a WRONG) snapshot until something else happened to remount it.
+  // Cleared up front on every run (not just on failure) so a slow/failed
+  // lookup can never leave the PREVIOUS household's snapshot on screen.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setPreviousSnapshot(null);
+      getLatestDebtSnapshot(db, householdId, currentPeriodStart)
+        .then((snapshot) => {
+          if (!cancelled) setPreviousSnapshot(snapshot);
+        })
+        .catch((err: unknown) => {
+          // Best-effort, read-only — the dashboard's own numbers are
+          // unaffected. Explicitly null (not left stale) on failure.
+          if (!cancelled) setPreviousSnapshot(null);
+          logger.error('SnowballDashboardScreen: failed to load previous debt snapshot', err, {
+            householdId,
+          });
         });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [householdId, currentPeriodStart]);
+      return () => {
+        cancelled = true;
+      };
+    }, [householdId, currentPeriodStart]),
+  );
 
   const extraPaymentCents = useMemo(() => {
     if (!extraPaymentRands.trim()) return 0;
@@ -239,16 +251,21 @@ export const SnowballDashboardScreen: React.FC<SnowballDashboardScreenProps> = (
                         {debtProgress.dateMessage}
                       </Text>
                     )}
-                    {debtProgress.paidOffMessage && (
-                      <Text
-                        variant="bodySmall"
-                        style={{ color: colors.success }}
-                        testID="debt-progress-paid-off-message"
-                      >
-                        {debtProgress.paidOffMessage}
-                      </Text>
-                    )}
                   </View>
+                )}
+                {/* Independent of `plan.debtFreeDate` — total debt can drop
+                    (and is worth celebrating) even when every debt just got
+                    paid off, or when the remaining balance/payments make a
+                    payoff date uncomputable. Gating this on the date above
+                    hid it exactly when it mattered most. */}
+                {debtProgress.paidOffMessage && (
+                  <Text
+                    variant="bodySmall"
+                    style={{ color: colors.success }}
+                    testID="debt-progress-paid-off-message"
+                  >
+                    {debtProgress.paidOffMessage}
+                  </Text>
                 )}
               </View>
               <PayoffProjectionCard plan={plan} totalDebtCents={totalDebtCents} />

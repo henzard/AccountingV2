@@ -32,11 +32,25 @@ export function ForecastScreen(): React.JSX.Element {
   const periodStart = formatPeriodDateKey(period.startDate);
   const periodEnd = formatPeriodDateKey(period.endDate);
 
-  const { envelopes, loading, refreshing, reload } = useEnvelopes(householdId, periodStart);
-  const { transactions, reload: reloadTransactions } = useTransactions(householdId, {
+  const {
+    envelopes,
+    loading,
+    refreshing: envelopesRefreshing,
+    reload,
+  } = useEnvelopes(householdId, periodStart);
+  const {
+    transactions,
+    refreshing: transactionsRefreshing,
+    reload: reloadTransactions,
+  } = useTransactions(householdId, {
     periodStart,
     periodEnd,
   });
+  // The screen reloads both together (see the focus effect below), so
+  // either one still being in flight (e.g. envelopes resolved first) must
+  // keep the bar visible — tracking only `envelopesRefreshing` let it
+  // disappear while transactions were still loading.
+  const refreshing = envelopesRefreshing || transactionsRefreshing;
 
   useFocusEffect(
     useCallback(() => {

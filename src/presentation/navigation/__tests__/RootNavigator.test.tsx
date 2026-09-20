@@ -165,12 +165,19 @@ jest.mock('expo-notifications', () => ({
   getLastNotificationResponseAsync: () => mockGetLastNotificationResponseAsync(),
 }));
 
-// ─── Mock db/schema (used by RootNavigator's hasLoggedTransactionToday check) ─
+// ─── Mock db/schema (used by RootNavigator's hasLoggedTransactionToday check,
+// and by rearmBudgetNudges' VAL2-11 envelope/spend lookups) ──────────────────
+// `where(...)` is BOTH directly awaitable (resolving to `[]`, the shape
+// `rearmBudgetNudges`'s helpers query with) AND exposes `.limit()` (the shape
+// `hasLoggedTransactionToday` queries with) — a Promise is a plain object, so
+// attaching `.limit` to one satisfies both call shapes off the same mock.
 const mockDbSelect = jest.fn(() => ({
   from: jest.fn(() => ({
-    where: jest.fn(() => ({
-      limit: jest.fn().mockResolvedValue([]),
-    })),
+    where: jest.fn(() => {
+      const result = Promise.resolve([]) as Promise<never[]> & { limit: jest.Mock };
+      result.limit = jest.fn().mockResolvedValue([]);
+      return result;
+    }),
   })),
 }));
 jest.mock('../../../data/local/db', () => ({
@@ -180,7 +187,17 @@ jest.mock('../../../data/local/schema', () => ({
   transactions: {
     id: 'id',
     householdId: 'householdId',
+    amountCents: 'amountCents',
     transactionDate: 'transactionDate',
+    deletedAt: 'deletedAt',
+  },
+  // VAL2-11: `rearmBudgetNudges`' envelope-snapshot lookup selects these columns.
+  envelopes: {
+    id: 'id',
+    householdId: 'householdId',
+    allocatedCents: 'allocatedCents',
+    envelopeType: 'envelopeType',
+    isArchived: 'isArchived',
     deletedAt: 'deletedAt',
   },
 }));
@@ -202,6 +219,12 @@ jest.mock('../../../infrastructure/notifications/LocalNotificationScheduler', ()
     scheduleEveningLogPrompt: jest.fn().mockResolvedValue(undefined),
     scheduleMeterReadingReminder: jest.fn().mockResolvedValue(undefined),
     scheduleMonthStartPreflight: jest.fn().mockResolvedValue(undefined),
+    // VAL2-11: constructed unconditionally by rearmBudgetNudges (even
+    // without permission, so a disabled nudge is still cancelled).
+    schedulePeriodClosingNudge: jest.fn().mockResolvedValue(undefined),
+    scheduleWeeklyCheckIn: jest.fn().mockResolvedValue(undefined),
+    cancelPeriodClosingNudge: jest.fn().mockResolvedValue(undefined),
+    cancelWeeklyCheckIn: jest.fn().mockResolvedValue(undefined),
   })),
 }));
 
@@ -233,6 +256,8 @@ const mockNotificationState = {
     meterReadingReminderDay: 1,
     monthStartPreflightEnabled: false,
     envelopeWarningEnabled: true,
+    periodClosingNudgeEnabled: true,
+    weeklyCheckInNudgeEnabled: true,
     householdActivityEnabled: true,
   },
   permissionsGranted: true,
@@ -570,7 +595,7 @@ describe('RootNavigator — re-arms evening-log prompt on AppState active (VAL2-
     );
   });
 
-  it('does not construct a scheduler on AppState active when permissions were never granted', async () => {
+  it('does not construct an evening-log scheduler on AppState active when permissions were never granted', async () => {
     setStore({ user: { id: 'user-1' } }, 'h1');
     mockIsOnboardingComplete.mockResolvedValue(true);
 
@@ -581,7 +606,16 @@ describe('RootNavigator — re-arms evening-log prompt on AppState active (VAL2-
 
     await mockAppStateListener?.('active');
 
-    expect(mockLocalNotificationScheduler).not.toHaveBeenCalled();
+    // `rearmEveningLogPrompt` still guards on permission BEFORE constructing
+    // its scheduler (identified here by the `hasLoggedTransactionToday` it
+    // passes in) — unlike `rearmBudgetNudges` (VAL2-11), which now
+    // constructs a scheduler unconditionally so it can still cancel a
+    // disabled nudge with no permission (see eveningLogPrompt.ts item 2,
+    // round-3 review), so this file's shared scheduler mock class may still
+    // have been constructed for THAT reason alone.
+    expect(mockLocalNotificationScheduler).not.toHaveBeenCalledWith(
+      expect.objectContaining({ hasLoggedTransactionToday: expect.any(Function) }),
+    );
   });
 });
 

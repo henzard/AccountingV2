@@ -55,7 +55,7 @@ jest.mock('../../stores/notificationStore', () => ({
   useNotificationStore: { getState: () => mockNotificationState },
 }));
 
-import { rearmBudgetNudges } from '../eveningLogPrompt';
+import { rearmBudgetNudges, internalHooks } from '../eveningLogPrompt';
 
 function seedHousehold(raw: Database.Database, id: string): void {
   raw
@@ -168,6 +168,110 @@ describe('rearmBudgetNudges (VAL2-11)', () => {
     mockNotificationState.permissionsGranted = false;
     await rearmBudgetNudges(() => NOW);
     expect(mockSchedule).not.toHaveBeenCalled();
+  });
+
+  // Item 2 (round-3 review): a disabled nudge must be cancelled even when
+  // the function returns early for missing household/permission — otherwise
+  // a persisted opt-out leaves an old OS notification alive forever.
+  it('cancels a disabled period-closing nudge even with no household (persisted opt-out must not survive)', async () => {
+    mockGetAllScheduled.mockResolvedValue([{ identifier: 'period-closing-2026-03-30' }]);
+    mockAppState = { householdId: '', paydayDay: 25 };
+    mockNotificationState.preferences.periodClosingNudgeEnabled = false;
+
+    await rearmBudgetNudges(() => NOW);
+
+    expect(mockCancel).toHaveBeenCalledWith('period-closing-2026-03-30');
+    expect(mockSchedule).not.toHaveBeenCalled();
+  });
+
+  it('cancels a disabled weekly check-in nudge even when permission was never granted', async () => {
+    mockGetAllScheduled.mockResolvedValue([{ identifier: 'weekly-checkin-2026-04-12' }]);
+    mockNotificationState.permissionsGranted = false;
+    mockNotificationState.preferences.weeklyCheckInNudgeEnabled = false;
+
+    await rearmBudgetNudges(() => NOW);
+
+    expect(mockCancel).toHaveBeenCalledWith('weekly-checkin-2026-04-12');
+    expect(mockSchedule).not.toHaveBeenCalled();
+  });
+
+  // Item 3 (round-3 review): preferences are re-read immediately before
+  // scheduling, so a concurrent settings change landing DURING the awaited
+  // DB work wins over the stale snapshot this call started with.
+  it('re-reads preferences immediately before scheduling: a toggle-off during the DB work wins over the stale read', async () => {
+    seedEnvelope(mockRawDb, {
+      id: 'env-groceries',
+      allocatedCents: 50000,
+      periodStart: '2026-03-25',
+    });
+    const originalComputeWeekSpentCents = internalHooks.computeWeekSpentCents;
+    internalHooks.computeWeekSpentCents = async (householdId, now) => {
+      // Simulate a concurrent settings-screen toggle landing while this DB
+      // call (which runs AFTER the initial preferences read, and BEFORE the
+      // pre-schedule re-read) is still in flight.
+      mockNotificationState.preferences.periodClosingNudgeEnabled = false;
+      return originalComputeWeekSpentCents(householdId, now);
+    };
+
+    try {
+      await rearmBudgetNudges(() => NOW);
+    } finally {
+      internalHooks.computeWeekSpentCents = originalComputeWeekSpentCents;
+    }
+
+    const ids = scheduledIdentifiers();
+    // The stale ("enabled") snapshot would have scheduled this — the fresh
+    // re-read must have won instead.
+    expect(ids.some((id) => id.startsWith('period-closing-'))).toBe(false);
+    // The untouched flag is unaffected.
+    expect(ids.some((id) => id.startsWith('weekly-checkin-'))).toBe(true);
+  });
+
+  // Item 3 (round-3 review): concurrent invocations must never interleave.
+  it('serialises concurrent rearmBudgetNudges calls so they run one at a time, in call order', async () => {
+    seedEnvelope(mockRawDb, {
+      id: 'env-groceries',
+      allocatedCents: 50000,
+      periodStart: '2026-03-25',
+    });
+    const order: string[] = [];
+    const originalLoad = internalHooks.loadPeriodEnvelopeSnapshots;
+    let releaseFirstCall: () => void = () => {};
+    const firstCallGate = new Promise<void>((resolve) => {
+      releaseFirstCall = resolve;
+    });
+    let callCount = 0;
+    internalHooks.loadPeriodEnvelopeSnapshots = async (householdId, periodStart) => {
+      callCount += 1;
+      const callIndex = callCount;
+      order.push(`start-${callIndex}`);
+      if (callIndex === 1) {
+        await firstCallGate; // held open until the test explicitly releases it
+      }
+      const result = await originalLoad(householdId, periodStart);
+      order.push(`end-${callIndex}`);
+      return result;
+    };
+
+    try {
+      const first = rearmBudgetNudges(() => NOW);
+      const second = rearmBudgetNudges(() => NOW);
+
+      // Give call 2 every chance to (incorrectly) start while call 1 is
+      // still held open — if serialization were broken, this would flush
+      // enough microtasks for its `loadPeriodEnvelopeSnapshots` to run too.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(order).toEqual(['start-1']);
+
+      releaseFirstCall();
+      await Promise.all([first, second]);
+
+      expect(order).toEqual(['start-1', 'end-1', 'start-2', 'end-2']);
+    } finally {
+      internalHooks.loadPeriodEnvelopeSnapshots = originalLoad;
+    }
   });
 
   it('only schedules the period-closing nudge when the weekly check-in is disabled', async () => {

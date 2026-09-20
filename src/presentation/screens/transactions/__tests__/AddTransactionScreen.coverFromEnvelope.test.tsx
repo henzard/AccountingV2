@@ -145,6 +145,9 @@ jest.mock('react-native-paper', () => {
 });
 
 import { AddTransactionScreen } from '../AddTransactionScreen';
+import { householdNotifier } from '../../../../infrastructure/notifications/HouseholdNotifier';
+
+const mockNotifyHousehold = householdNotifier.notifyHousehold as jest.Mock;
 
 function seedHousehold(raw: Database.Database, id: string): void {
   raw
@@ -240,6 +243,41 @@ describe('AddTransactionScreen — "cover it from another envelope" (VAL2-9, rea
 
     // The save then continued automatically.
     await waitFor(() => expect(mockExecute).toHaveBeenCalled());
+  });
+
+  // Round-3 review item 1: `doSave`'s memoized closure used to still see the
+  // PRE-move allocation (the stale `selectedEnvelope`), so a cover landing
+  // the envelope exactly at its new allocation looked like "R50 over"
+  // instead of "exactly fully spent" — firing a false over-budget toast AND
+  // household push.
+  it('after a cover that lands the envelope EXACTLY at its new allocation, fires NO over-budget toast or push', async () => {
+    seedEnvelope(mockRawDb, { id: 'env-groceries', name: 'Groceries', allocatedCents: 10000 });
+    seedEnvelope(mockRawDb, { id: 'env-fun', name: 'Fun money', allocatedCents: 20000 });
+
+    const { getByTestId, getByText } = render(<AddTransactionScreen {...makeNavProps()} />);
+
+    fireEvent.press(getByTestId('envelope-picker-trigger'));
+    await waitFor(() => expect(getByText('Groceries')).toBeTruthy());
+    fireEvent.press(getByTestId('envelope-option-env-groceries'));
+
+    // R150 against a R100 envelope with nothing spent yet -> R50 overspend,
+    // covered by exactly R50 from Fun money -> Groceries' allocation becomes
+    // R150, EXACTLY matching this R150 spend (100%, not over).
+    fireEvent.changeText(getByTestId('amount-input'), '150.00');
+    fireEvent.press(getByTestId('record-transaction-submit'));
+
+    await waitFor(() => expect(getByTestId('coaching-cover-from-another-envelope')).toBeTruthy());
+    fireEvent.press(getByTestId('coaching-cover-from-another-envelope'));
+    await waitFor(() => expect(getByTestId('envelope-option-env-fun')).toBeTruthy());
+    fireEvent.press(getByTestId('envelope-option-env-fun'));
+
+    await waitFor(() => expect(mockExecute).toHaveBeenCalled());
+
+    expect(envelopeRow(mockRawDb, 'env-groceries').allocated_cents).toBe(15000);
+    expect(mockEnqueue).not.toHaveBeenCalledWith(expect.stringContaining('over budget'), 'error');
+    expect(mockNotifyHousehold).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'envelope_over_budget' }),
+    );
   });
 
   it('does not offer "cover it from another envelope" when no sibling envelope has enough unspent money', async () => {

@@ -23,6 +23,42 @@ export interface NudgeMessage {
   body: string;
 }
 
+/**
+ * `BudgetPeriodEngine.getCurrentPeriod` builds `endDate` with `Date.UTC(...)`
+ * (a UTC-midnight instant) so it round-trips exactly through
+ * `formatPeriodDateKey` elsewhere in the app. `subDays`/`format` (date-fns)
+ * both read/write the LOCAL calendar day, though — on any NEGATIVE UTC
+ * offset, a UTC-midnight instant is still the PREVIOUS local calendar day
+ * (e.g. UTC 2026-04-30T00:00Z is 2026-04-29 19:00 local at UTC-5), so
+ * subtracting local days from it — or `format`-ing it — silently lands the
+ * nudge (and its identifier) a full day early. This rebuilds a Date at
+ * LOCAL midnight carrying the SAME calendar year/month/day as `date`'s UTC
+ * fields, so every local-time operation downstream
+ * (`subDays`/`setHours`/`format`) operates on the intended calendar day
+ * regardless of the host's offset.
+ */
+function utcInstantToLocalCalendarDay(date: Date): Date {
+  return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+/**
+ * The calendar day `scheduleWeeklyCheckIn` should key its "weekly check-in"
+ * nudge to, given `today` and the user's evening-prompt `hour`/`minute`:
+ * the FOLLOWING Sunday, UNLESS `today` is itself a Sunday and that time
+ * hasn't passed yet today — in which case today is correct (there is no
+ * reason to wait a further 7 days when today already qualifies). Matches
+ * `date-fns`'s `nextSunday`, which always returns a date strictly AFTER
+ * `today` even when `today` is a Sunday.
+ */
+function resolveWeeklyCheckInDay(today: Date, hour: number, minute: number): Date {
+  if (today.getDay() === 0) {
+    const todayAtTime = new Date(today);
+    todayAtTime.setHours(hour, minute, 0, 0);
+    if (todayAtTime.getTime() > today.getTime()) return today;
+  }
+  return nextSunday(today);
+}
+
 export class LocalNotificationScheduler {
   /**
    * VAL2-1 (replaces the earlier VAL-12 fix, which this closes a real gap
@@ -142,12 +178,13 @@ export class LocalNotificationScheduler {
   ): Promise<void> {
     await this.cancelPeriodClosingNudge();
 
-    const triggerDate = subDays(periodEndDate, PERIOD_CLOSING_DAYS_BEFORE);
+    const periodEndLocalDay = utcInstantToLocalCalendarDay(periodEndDate);
+    const triggerDate = subDays(periodEndLocalDay, PERIOD_CLOSING_DAYS_BEFORE);
     triggerDate.setHours(hour, minute, 0, 0);
     if (triggerDate.getTime() <= this.now().getTime()) return;
 
     await Notifications.scheduleNotificationAsync({
-      identifier: `${PERIOD_CLOSING_PREFIX}${format(periodEndDate, 'yyyy-MM-dd')}`,
+      identifier: `${PERIOD_CLOSING_PREFIX}${format(periodEndLocalDay, 'yyyy-MM-dd')}`,
       content: {
         title: message.title,
         body: message.body,
@@ -183,7 +220,7 @@ export class LocalNotificationScheduler {
     await this.cancelWeeklyCheckIn();
 
     const today = this.now();
-    const sunday = nextSunday(today);
+    const sunday = resolveWeeklyCheckInDay(today, hour, minute);
     const triggerDate = new Date(sunday);
     triggerDate.setHours(hour, minute, 0, 0);
     if (triggerDate.getTime() <= today.getTime()) return;

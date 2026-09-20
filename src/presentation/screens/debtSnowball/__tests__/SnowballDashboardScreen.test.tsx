@@ -4,10 +4,22 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-jest.mock('@react-navigation/native', () => ({
-  ...jest.requireActual('@react-navigation/native'),
-  useFocusEffect: jest.fn(),
-}));
+jest.mock('@react-navigation/native', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const R = require('react');
+  return {
+    ...jest.requireActual('@react-navigation/native'),
+    // A real `useEffect` keyed on the callback's own identity (mimicking
+    // "runs once per focus", not "runs on every render") — the screen now
+    // runs its previous-snapshot lookup inside a `useFocusEffect` too, and a
+    // mock that just called `cb()` unconditionally on every render made that
+    // lookup's own `setState` calls re-trigger it every render, looping
+    // forever.
+    useFocusEffect: (cb: () => void | (() => void)) => {
+      R.useEffect(() => cb(), [cb]);
+    },
+  };
+});
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 jest.mock('../../../hooks/useDebts', () => ({
   useDebts: jest.fn().mockReturnValue({ debts: [], loading: false, reload: jest.fn() }),
@@ -375,6 +387,88 @@ describe('SnowballDashboardScreen', () => {
         require('../../../../domain/scoring/getLatestDebtSnapshot').getLatestDebtSnapshot,
       )
       .mockResolvedValue(null);
+
+    const { queryByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    await waitFor(() => {
+      expect(queryByTestId('debt-progress-paid-off-message')).toBeNull();
+      expect(queryByTestId('debt-progress-date-message')).toBeNull();
+    });
+  });
+
+  it('VAL2-10: shows "paid off since last month" even when there is no payoff date to show (all debts paid off)', async () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Credit Card',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 0,
+        totalPaidCents: 10000,
+        minimumPaymentCents: 5000,
+        interestRatePercent: 0,
+        sortOrder: 0,
+        isPaidOff: true,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      reload: jest.fn(),
+    });
+    jest
+      .mocked(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('../../../../domain/scoring/getLatestDebtSnapshot').getLatestDebtSnapshot,
+      )
+      .mockResolvedValue({ totalDebtCents: 100000, debtFreeDateISO: null });
+
+    const { findByTestId, queryByTestId } = render(
+      <SnowballDashboardScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+    // No payoff date exists to project (every debt is already paid off) —
+    // the "paid off since last month" line must still show.
+    expect(await findByTestId('debt-progress-paid-off-message')).toBeTruthy();
+    expect(queryByTestId('debt-progress-date-message')).toBeNull();
+  });
+
+  it('VAL2-10: a failed previous-snapshot lookup shows no stale progress line (sets null, not left as-is)', async () => {
+    const debts = [
+      {
+        id: 'd1',
+        creditorName: 'Credit Card',
+        debtType: 'credit_card' as const,
+        outstandingBalanceCents: 50000,
+        totalPaidCents: 0,
+        minimumPaymentCents: 50000,
+        interestRatePercent: 0,
+        sortOrder: 0,
+        isPaidOff: false,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.mocked(require('../../../hooks/useDebts').useDebts).mockReturnValue({
+      debts,
+      loading: false,
+      reload: jest.fn(),
+    });
+    jest
+      .mocked(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('../../../../domain/scoring/getLatestDebtSnapshot').getLatestDebtSnapshot,
+      )
+      .mockRejectedValue(new Error('db locked'));
 
     const { queryByTestId } = render(
       <SnowballDashboardScreen

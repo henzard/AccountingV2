@@ -160,6 +160,12 @@ describe('ForecastScreen', () => {
       error: null,
       reload: mockReload,
     });
+    mockUseTransactions.mockReturnValue({
+      transactions: [],
+      loading: false,
+      error: null,
+      reload: mockReloadTransactions,
+    });
     mockProject.mockReturnValue([]);
   });
 
@@ -196,6 +202,28 @@ describe('ForecastScreen', () => {
       refreshing: true,
       error: null,
       reload: mockReload,
+    });
+    mockProject.mockReturnValue(mockForecasts);
+
+    const { getByTestId } = render(<ForecastScreen />);
+    expect(getByTestId('refreshing-bar')).toBeTruthy();
+    expect(getByTestId('forecast-list')).toBeTruthy();
+  });
+
+  it('shows the RefreshingBar when only transactions are refreshing (envelopes already settled)', () => {
+    mockUseEnvelopes.mockReturnValue({
+      envelopes: [{ id: 'e1' }, { id: 'e2' }],
+      loading: false,
+      refreshing: false,
+      error: null,
+      reload: mockReload,
+    });
+    mockUseTransactions.mockReturnValue({
+      transactions: [],
+      loading: false,
+      refreshing: true,
+      error: null,
+      reload: mockReloadTransactions,
     });
     mockProject.mockReturnValue(mockForecasts);
 
