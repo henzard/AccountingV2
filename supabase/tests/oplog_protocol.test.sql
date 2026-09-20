@@ -303,7 +303,11 @@ select is(
   null, 'P10: non-member gets null row state');
 
 -- ===========================================================================
--- Probe 11: insert whose row already exists with same id -> applied no-op
+-- Probe 11: insert whose row already exists with same id but DIFFERENT values.
+-- Until 0016 this answered `applied` while silently keeping the old row (spec
+-- 6.6), which let two devices hold different values forever. It is now
+-- rejected `row_exists` so the losing client overwrites itself from the server
+-- (an IDENTICAL duplicate is still `applied` -- see Probe 21).
 -- ===========================================================================
 select is(
   public.sync_push(jsonb_build_array(jsonb_build_object(
@@ -317,8 +321,8 @@ select is(
       'name', 'Should Not Overwrite', 'period_start', '2026-01-01',
       'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
     'device_id', 'dev-a'
-  ))) -> 0 ->> 'status',
-  'applied', 'P11: insert onto existing id returns applied (no-op)');
+  ))) -> 0 ->> 'code',
+  'row_exists', 'P11: a differing insert onto an existing id is rejected row_exists');
 
 select is(
   (select name from public.envelopes where id = 'env-a1'),
@@ -794,7 +798,7 @@ select is(
   'row_exists', 'P21: the rejection code is row_exists');
 
 select is(
-  (select amount_cents from public.envelope_contributions where id = 'contrib-initial'),
+  (select amount_cents::int from public.envelope_contributions where id = 'contrib-initial'),
   50000, 'P21: the SERVER row is untouched by the losing insert');
 
 select is(
