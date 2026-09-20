@@ -1,6 +1,9 @@
 import { assertEquals } from 'jsr:@std/assert';
 import { handle } from '../index.ts';
 import type { HandleDeps } from '../index.ts';
+import { calculateOpenAIcost } from '../pricing.ts';
+
+type ApplyServerOpArgs = { p_op: Record<string, unknown> };
 
 function makeRequest(body: unknown, authHeader?: string): Request {
   return new Request('http://localhost/extract-slip', {
@@ -24,11 +27,30 @@ type ReserveArgs = { p_household_id: string; p_user_id: string; p_slip_id: strin
 //        ('processing' for a freshly-captured slip, 'failed' for re-extraction).
 // This replaces the previous constant `{ allowed: true }` mock, which never
 // exercised the real no-auth reservation path and masked both defects.
+// DB-6(b): every slip_queue write now goes through `rpc('apply_server_op', {
+// p_op }})` instead of a direct `.from('slip_queue').update()` (see index.ts's
+// `applySlipUpdate` helper), so this emulator's dispatch function receives
+// BOTH RPC names over the life of one request. It routes by `name` so:
+//   - `check_and_reserve_slip_slot` calls behave EXACTLY as before (the `onCall`
+//     hook only ever sees these, preserving every existing test's
+//     `seen`/call-count assertions);
+//   - `apply_server_op` calls are acknowledged with a plausible {status:
+//     'applied'} response (harmless — production code never inspects this
+//     return value, matching the old fire-and-forget `.update()` calls) and,
+//     if provided, forwarded to `onApplyServerOp` for tests that want to
+//     assert on the written payload.
 function makeReserveEmulator(
   slipStatusById: Record<string, string> = { slip1: 'processing' },
   onCall?: (args: ReserveArgs) => void,
+  onApplyServerOp?: (args: ApplyServerOpArgs) => void,
 ) {
-  return (_name: string, rawArgs: unknown) => {
+  return (name: string, rawArgs: unknown) => {
+    if (name === 'apply_server_op') {
+      const args = rawArgs as ApplyServerOpArgs;
+      onApplyServerOp?.(args);
+      const opId = (args?.p_op as { op_id?: string } | undefined)?.op_id ?? null;
+      return Promise.resolve({ data: { op_id: opId, status: 'applied', code: null }, error: null });
+    }
     const args = rawArgs as ReserveArgs;
     onCall?.(args);
     const status = slipStatusById[args.p_slip_id] ?? 'processing';
@@ -929,3 +951,96 @@ Deno.test('C2: reserve succeeds for a service-role caller with no auth.uid()', a
   assertEquals(seen[0].p_household_id, 'h1');
   assertEquals(seen[0].p_slip_id, 'slip1');
 });
+
+// ── DB-6(b): slip_queue writes go through apply_server_op (oplog fan-out) ──
+
+Deno.test(
+  'DB-6(b): the completed-extraction write routes through apply_server_op (not a direct table update), carrying openai_cost_cents',
+  async () => {
+    const baseDeps = makeBaseDeps();
+    const applyServerOpCalls: ApplyServerOpArgs[] = [];
+    const deps: HandleDeps = {
+      ...baseDeps,
+      createAdminClient: () => {
+        const base = baseDeps.createAdminClient();
+        return {
+          ...base,
+          rpc: makeReserveEmulator({ slip1: 'processing' }, undefined, (args) =>
+            applyServerOpCalls.push(args),
+          ),
+        };
+      },
+    };
+    const req = makeRequest(
+      { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+      'Bearer tok',
+    );
+    const resp = await handle(req, deps);
+    assertEquals(resp.status, 200);
+
+    assertEquals(applyServerOpCalls.length, 1);
+    const op = applyServerOpCalls[0].p_op as {
+      v: string;
+      table: string;
+      op_type: string;
+      household_id: string;
+      row_id: string;
+      device_id: string;
+      payload: Record<string, unknown>;
+    };
+    assertEquals(op.v, '1');
+    assertEquals(op.table, 'slip_queue');
+    assertEquals(op.op_type, 'update');
+    assertEquals(op.household_id, 'h1');
+    assertEquals(op.row_id, 'slip1');
+    assertEquals(typeof op.device_id, 'string');
+    assertEquals(op.payload.status, 'completed');
+    assertEquals(op.payload.merchant, 'Pick n Pay');
+    assertEquals(
+      op.payload.openai_cost_cents,
+      calculateOpenAIcost({ prompt_tokens: 1000, completion_tokens: 200 }),
+    );
+  },
+);
+
+Deno.test(
+  'DB-6(b): a failure write (OpenAI unreachable) also routes through apply_server_op with status failed',
+  async () => {
+    const baseDeps = makeBaseDeps({
+      openAIFetch: () => Promise.resolve(new Response('Server error', { status: 503 })) as any,
+    });
+    const applyServerOpCalls: ApplyServerOpArgs[] = [];
+    const deps: HandleDeps = {
+      ...baseDeps,
+      createAdminClient: () => {
+        const base = baseDeps.createAdminClient();
+        return {
+          ...base,
+          rpc: makeReserveEmulator({ slip1: 'processing' }, undefined, (args) =>
+            applyServerOpCalls.push(args),
+          ),
+        };
+      },
+    };
+    const req = makeRequest(
+      { slip_id: 'slip1', household_id: 'h1', images_base64: ['aaa'] },
+      'Bearer tok',
+    );
+    const resp = await handle(req, deps);
+    assertEquals(resp.status, 503);
+
+    assertEquals(applyServerOpCalls.length, 1);
+    const op = applyServerOpCalls[0].p_op as {
+      table: string;
+      op_type: string;
+      row_id: string;
+      payload: Record<string, unknown>;
+    };
+    assertEquals(op.table, 'slip_queue');
+    assertEquals(op.op_type, 'update');
+    assertEquals(op.row_id, 'slip1');
+    assertEquals(op.payload.status, 'failed');
+    assertEquals(op.payload.error_message, 'OpenAI unreachable');
+    assertEquals('openai_cost_cents' in op.payload, false);
+  },
+);

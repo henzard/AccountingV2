@@ -17,7 +17,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(20);
+select plan(30);
 
 -- Users only — NO households / household_members pre-seeded: the household is
 -- created through sync_push, which is the whole point.
@@ -289,6 +289,176 @@ select is((select res -> 0 ->> 'code' from t_hhupd_bad), 'not_member',
 select is(
   (select payday_day from public.households where id = 'hh-boot'),
   10, 'P20: households.payday_day unchanged after the rejected update');
+
+-- ===========================================================================
+-- 0007 DB-1: a plain (non-owner) member cannot self-escalate by pushing
+-- [delete own membership, insert own membership role=owner] in one batch.
+-- The delete succeeds (they are not the last owner of hh-boot); the insert
+-- must be rejected because the caller already has a (now soft-deleted) row
+-- for this household -- rejoining/re-inserting goes through
+-- join_household_via_invite, never sync_push.
+-- ===========================================================================
+reset role;
+
+insert into auth.users (id, email)
+values ('00000000-0000-0000-0000-00000000000e', 'plain-member@test.local');
+
+-- Seed the plain member directly (as postgres, bypassing RLS) so this probe
+-- is self-contained and does not depend on the invite flow under test
+-- elsewhere.
+insert into public.household_members (id, household_id, user_id, role, joined_at)
+values ('hm-plain', 'hh-boot', '00000000-0000-0000-0000-00000000000e', 'member', '2026-01-01T00:00:00Z');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000e","role":"authenticated"}';
+
+create temporary table t_escalate as
+select public.sync_push(jsonb_build_array(
+  jsonb_build_object(
+    'v', '1', 'op_id', 'f1000000-0000-0000-0000-000000000001',
+    'household_id', 'hh-boot', 'table', 'household_members', 'row_id', 'hm-plain',
+    'op_type', 'delete',
+    'payload', jsonb_build_object(),
+    'device_id', 'devPlain',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000e',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ),
+  jsonb_build_object(
+    'v', '1', 'op_id', 'f1000000-0000-0000-0000-000000000002',
+    'household_id', 'hh-boot', 'table', 'household_members', 'row_id', 'hm-plain-new',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'user_id', '00000000-0000-0000-0000-00000000000e', 'role', 'owner',
+      'joined_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'devPlain',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000e',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  )
+)) as res;
+
+select is((select res -> 1 ->> 'status' from t_escalate), 'rejected',
+  'P21: delete-then-reinsert-as-owner escalation insert leg is rejected');
+select is((select res -> 1 ->> 'code' from t_escalate), 'forbidden_member',
+  'P21: escalation insert leg rejection code is forbidden_member');
+
+reset role;
+select is(
+  (select role from public.household_members where id = 'hm-plain'),
+  'member', 'P22: the targeted member''s role column is unchanged (still member)');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000e","role":"authenticated"}';
+select throws_ok(
+  $$select public.create_invitation('hh-boot')$$,
+  '42501'::character(5),
+  null,
+  'P23: the would-be escalator still cannot create an invitation (never became owner)');
+
+-- ===========================================================================
+-- 0007 DB-9: a foreign caller cannot bootstrap-hijack a household that has
+-- EVER had a membership row, even if every row is now soft-deleted (the
+-- household's last active member left). Simulated here via a direct
+-- soft-delete (as postgres) rather than via sync_push, since the DB-9
+-- last-owner delete guard now makes leaving-to-zero-active-members
+-- unreachable through legitimate client traffic -- the server-side guard
+-- must still hold regardless of how that historical state came about.
+-- ===========================================================================
+reset role;
+
+insert into auth.users (id, email)
+values
+  ('00000000-0000-0000-0000-00000000000f', 'ex-owner@test.local'),
+  ('00000000-0000-0000-0000-000000000010', 'foreign-bootstrap@test.local');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000f","role":"authenticated"}';
+set constraints all deferred;
+
+select public.sync_push(jsonb_build_array(
+  jsonb_build_object(
+    'v', '1', 'op_id', 'f2000000-0000-0000-0000-000000000001',
+    'household_id', 'hh-emptied', 'table', 'households', 'row_id', 'hh-emptied',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'name', 'Emptied', 'payday_day', 1, 'user_level', 1,
+      'created_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'devEx',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000f',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  ),
+  jsonb_build_object(
+    'v', '1', 'op_id', 'f2000000-0000-0000-0000-000000000002',
+    'household_id', 'hh-emptied', 'table', 'household_members', 'row_id', 'hm-ex-owner',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'user_id', '00000000-0000-0000-0000-00000000000f', 'role', 'owner',
+      'joined_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'devEx',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000f',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  )
+));
+
+reset role;
+-- Simulate "the last member left": soft-delete the sole owner's row directly.
+update public.household_members
+  set deleted_at = now()
+  where household_id = 'hh-emptied' and user_id = '00000000-0000-0000-0000-00000000000f';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-000000000010","role":"authenticated"}';
+
+create temporary table t_foreign_boot as
+select public.sync_push(jsonb_build_array(
+  jsonb_build_object(
+    'v', '1', 'op_id', 'f2000000-0000-0000-0000-000000000003',
+    'household_id', 'hh-emptied', 'table', 'household_members', 'row_id', 'hm-foreign',
+    'op_type', 'insert',
+    'payload', jsonb_build_object(
+      'user_id', '00000000-0000-0000-0000-000000000010', 'role', 'owner',
+      'joined_at', '2026-01-01T00:00:00Z', 'updated_at', '2026-01-01T00:00:00Z'),
+    'device_id', 'devForeign',
+    'actor_user_id', '00000000-0000-0000-0000-000000000010',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  )
+)) as res;
+
+select is((select res -> 0 ->> 'status' from t_foreign_boot), 'rejected',
+  'P24: bootstrap of a household with historical (now all soft-deleted) membership is rejected');
+select is((select res -> 0 ->> 'code' from t_foreign_boot), 'not_member',
+  'P25: rejection code is not_member (household never qualifies for bootstrap again)');
+select is(
+  (select count(*)::int from public.household_members
+     where household_id = 'hh-emptied' and user_id = '00000000-0000-0000-0000-000000000010'),
+  0, 'P26: the foreign caller gained no membership row at all');
+
+-- ===========================================================================
+-- 0007 DB-9: the sole active owner of hh-boot cannot leave via sync_push.
+-- ===========================================================================
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+
+create temporary table t_last_owner as
+select public.sync_push(jsonb_build_array(
+  jsonb_build_object(
+    'v', '1', 'op_id', 'f3000000-0000-0000-0000-000000000001',
+    'household_id', 'hh-boot', 'table', 'household_members', 'row_id', 'hm-owner',
+    'op_type', 'delete',
+    'payload', jsonb_build_object(),
+    'device_id', 'devBoot',
+    'actor_user_id', '00000000-0000-0000-0000-00000000000a',
+    'client_created_at', '2026-01-01T00:00:00Z'
+  )
+)) as res;
+
+select is((select res -> 0 ->> 'status' from t_last_owner), 'rejected',
+  'P27: the sole active owner cannot soft-delete their own membership');
+select is((select res -> 0 ->> 'code' from t_last_owner), 'last_owner',
+  'P28: rejection code is last_owner');
+select is(
+  (select deleted_at from public.household_members where id = 'hm-owner'),
+  null, 'P29: the owner''s membership row is still active');
 
 select * from finish();
 rollback;
