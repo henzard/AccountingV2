@@ -21,7 +21,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(7);
+select plan(11);
 
 insert into auth.users (id, email)
 values
@@ -29,21 +29,29 @@ values
   ('00000000-0000-0000-0000-0000000000b2', 'slip-lease-user@test.local');
 
 insert into public.households (id, name, payday_day, created_at, updated_at)
-values ('hh-slip-rl', 'Slip Rate Limit Household', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+values
+  ('hh-slip-rl', 'Slip Rate Limit Household', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+  ('hh-slip-rl-b', 'Second Household Same User', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 
 insert into public.household_members (id, household_id, user_id, role, joined_at)
 values
   ('hm-slip-rl-1', 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b1', 'owner', '2026-01-01T00:00:00.000Z'),
-  ('hm-slip-rl-2', 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b2', 'member', '2026-01-01T00:00:00.000Z');
+  ('hm-slip-rl-2', 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b2', 'member', '2026-01-01T00:00:00.000Z'),
+  ('hm-slip-rl-3', 'hh-slip-rl-b', '00000000-0000-0000-0000-0000000000b1', 'owner', '2026-01-01T00:00:00.000Z');
 
 -- 26 slip_queue rows, ALL back-dated 10 days (well outside any created_at-
--- based 24h window), pending reservation.
+-- based 24h window). Seeded 'processing' because that is what the client's
+-- capture step really writes -- 0013: seeding 'pending' is how this file
+-- previously hid a function that could never reserve a real slip.
 insert into public.slip_queue (id, household_id, created_by, image_uris, status, created_at, updated_at)
-select 'slip-rl-' || g, 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b1', '[]', 'pending',
+select 'slip-rl-' || g, 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b1', '[]', 'processing',
        now() - interval '10 days', now() - interval '10 days'
 from generate_series(1, 26) g;
 
-set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
+-- 0013: call exactly as production does -- the extract-slip edge function uses
+-- the service-role client, whose JWT carries NO `sub`, so auth.uid() IS NULL.
+-- (Same no-sub simulation rls_cross_household.test.sql uses.)
+set local request.jwt.claims to '{}';
 
 -- ===========================================================================
 -- Probe 1: the first 25 reservations for this user all succeed even though
@@ -70,9 +78,10 @@ select lives_ok(
   'P1: 25 back-dated slips all reserve successfully (limit not yet hit)');
 
 select is(
-  (select count(*)::int from public.slip_queue
-     where household_id = 'hh-slip-rl' and status = 'processing'),
-  25, 'P2: all 25 back-dated slips transitioned to processing');
+  (select count(*)::int from public.slip_extraction_attempts
+     where household_id = 'hh-slip-rl'
+       and user_id = '00000000-0000-0000-0000-0000000000b1'),
+  25, 'P2: each of the 25 reservations recorded one server-clock attempt row');
 
 -- ===========================================================================
 -- Probe 3: the 26th attempt in the same hour is denied user_limit, despite
@@ -85,8 +94,8 @@ select is(
   'P3: the 26th attempt in the same hour is denied user_limit despite back-dated created_at');
 
 select is(
-  (select status from public.slip_queue where id = 'slip-rl-26'),
-  'pending', 'P4: the denied 26th slip stays pending, not reserved');
+  (select count(*)::int from public.slip_extraction_attempts where slip_id = 'slip-rl-26'),
+  0, 'P4: the denied 26th attempt recorded nothing and reserved nothing');
 
 -- ===========================================================================
 -- Probe 5/6/7 (lease): a fresh slip for a DIFFERENT user in the same
@@ -96,9 +105,10 @@ select is(
 -- reset to 'pending' or 'failed').
 -- ===========================================================================
 insert into public.slip_queue (id, household_id, created_by, image_uris, status, created_at, updated_at)
-values ('slip-rl-lease', 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b2', '[]', 'pending', now(), now());
-
-set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b2","role":"authenticated"}';
+values
+  ('slip-rl-lease', 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b2', '[]', 'processing', now(), now()),
+  ('slip-rl-retry', 'hh-slip-rl', '00000000-0000-0000-0000-0000000000b2', '[]', 'failed', now(), now()),
+  ('slip-rl-other-hh', 'hh-slip-rl-b', '00000000-0000-0000-0000-0000000000b1', '[]', 'processing', now(), now());
 
 select is(
   (public.check_and_reserve_slip_slot(
@@ -114,6 +124,39 @@ select is(
 select is(
   (select status from public.slip_queue where id = 'slip-rl-lease'),
   'processing', 'P7: the leased slip remains processing (unaffected by the denied re-reservation)');
+
+-- ===========================================================================
+-- Probe 8/9 (0013 C1): a slip whose earlier extraction FAILED can be reserved
+-- again and goes back to 'processing' -- the retry path.
+-- ===========================================================================
+select is(
+  (public.check_and_reserve_slip_slot(
+     'hh-slip-rl', '00000000-0000-0000-0000-0000000000b2', 'slip-rl-retry') ->> 'allowed')::boolean,
+  true, 'P8: a failed slip can be reserved for a retry');
+
+select is(
+  (select status from public.slip_queue where id = 'slip-rl-retry'),
+  'processing', 'P9: the retried slip is back to processing');
+
+-- ===========================================================================
+-- Probe 10 (0013): the per-user cap spans households. User b1 has used all 25
+-- attempts in hh-slip-rl; a fresh slip in their OTHER household is refused.
+-- ===========================================================================
+select is(
+  (public.check_and_reserve_slip_slot(
+     'hh-slip-rl-b', '00000000-0000-0000-0000-0000000000b1', 'slip-rl-other-hh') ->> 'reason'),
+  'user_limit',
+  'P10: the 24h user cap follows the user across households');
+
+-- ===========================================================================
+-- Probe 11 (0013 C2 regression pin): the function must never self-check
+-- auth.uid() -- its only caller has none.
+-- ===========================================================================
+select ok(
+  (select prosrc not like '%auth.uid%'
+     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'check_and_reserve_slip_slot'),
+  'P11: check_and_reserve_slip_slot does not reference auth.uid()');
 
 select * from finish();
 rollback;
