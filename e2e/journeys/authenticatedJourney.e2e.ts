@@ -185,10 +185,13 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
       .withTimeout(MEDIUM_TIMEOUT);
     await element(by.id('onboarding-cta')).tap();
 
-    // Finish
+    // Finish. This tap lands on the dashboard, which never goes idle (see
+    // the note above the next test) — CD run #139 performed the tap, then
+    // timed out waiting for idle afterwards. Synchronisation goes off first.
     await waitFor(element(by.id('onboarding-cta')))
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
+    await device.disableSynchronization();
     await element(by.id('onboarding-cta')).tap();
 
     // Onboarding created 4 envelopes, so the dashboard renders the populated
@@ -205,10 +208,9 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
   // current step with an endless native-driver Animated.loop while the
   // dashboard stays mounted under every screen pushed on it. CD run #138 sat on "Wait for
   // AnimatedModuleIdlingResource to become idle" for 60s at the first tap
-  // after that bar appeared. Automatic synchronisation is therefore switched
-  // off for the rest of the journey and every step waits explicitly instead.
+  // after that bar appeared. Automatic synchronisation is therefore off from
+  // onboarding's last tap onward, and every step waits explicitly instead.
   it('creates an additional envelope (sinking fund)', async () => {
-    await device.disableSynchronization();
     await tapWhenVisible(by.id('sinking-funds-entry'));
     await waitFor(element(by.id('new-sinking-fund-fab')))
       .toBeVisible()
