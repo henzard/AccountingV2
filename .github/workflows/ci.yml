@@ -171,5 +171,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-smoke-logcat
-          path: logcat-release-smoke.txt
+          path: |
+            logcat-release-smoke.txt
+            monkey-release-smoke.txt
           if-no-files-found: ignore

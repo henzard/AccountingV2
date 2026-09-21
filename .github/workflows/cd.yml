@@ -296,7 +296,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-smoke-logcat
-          path: logcat-release-smoke.txt
+          path: |
+            logcat-release-smoke.txt
+            monkey-release-smoke.txt
           if-no-files-found: ignore
 
   # CD-races-CI fix (deep-review finding): build-and-publish previously only
@@ -350,64 +352,14 @@ jobs:
           # 1.0.0; this is the version the build is actually published as.
           EXPO_PUBLIC_APP_VERSION: ${{ steps.vname.outputs.name }}
 
-      - name: Check Firebase secrets
-        id: firebase_check
-        env:
-          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-        run: |
-          if [ -n "$SA_JSON" ]; then
-            echo "has_sa=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_sa=false" >> $GITHUB_OUTPUT
-          fi
-          if [ -n "$SA_JSON" ] && [ -n "$PROJECT_ID" ]; then
-            echo "has_both=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_both=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Authenticate to Google Cloud
-        if: steps.firebase_check.outputs.has_sa == 'true'
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-
-      - name: Set up gcloud CLI
-        if: steps.firebase_check.outputs.has_sa == 'true'
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Build release APK for Firebase Test Lab
-        if: steps.firebase_check.outputs.has_sa == 'true'
-        working-directory: android
-        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PversionName=${{ steps.vname.outputs.name }} --no-daemon
-        env:
-          KEYSTORE_PATH: release.keystore
-          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
-          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
-          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
-          EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
-          # Shown on Settings -> About. The JS-side config version is a static
-          # 1.0.0; this is the version the build is actually published as.
-          EXPO_PUBLIC_APP_VERSION: ${{ steps.vname.outputs.name }}
-
-      - name: Firebase Test Lab — Robo smoke test
-        if: steps.firebase_check.outputs.has_both == 'true'
-        # DECISION: continue-on-error kept because toolresults.googleapis.com
-        # (Cloud Tool Results API) is currently DISABLED on this Firebase/GCP
-        # project — verified in GCP Console → APIs & Services. Robo results
-        # cannot be written without it, so this step fails every run
-        # regardless of app health. Enable the API in the console, then
-        # remove continue-on-error to make this a hard gate.
-        continue-on-error: true
-        run: |
-          gcloud firebase test android run \
-            --type robo \
-            --app android/app/build/outputs/apk/release/app-release.apk \
-            --device model=oriole,version=33,locale=en,orientation=portrait \
-            --timeout 90s \
-            --project ${{ secrets.FIREBASE_PROJECT_ID }}
+      # The Firebase Test Lab Robo step that used to sit here (with its Google
+      # auth, gcloud setup and a second full assembleRelease build) was removed:
+      # it never ran. Without billing, Test Lab can only write results to a
+      # Google-managed bucket that needs the project-wide Editor role on the CI
+      # service account, and the step was continue-on-error, so it showed green
+      # while failing every release. The same signal now comes from the seeded
+      # random-tap crawl in scripts/ci/release-smoke.sh (release-smoke job),
+      # which needs no cloud permissions and IS a blocking gate.
 
       - name: Upload Crashlytics mapping file artifact
         # The Crashlytics Gradle plugin (android/build.gradle) already runs
