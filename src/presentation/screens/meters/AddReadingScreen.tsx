@@ -71,6 +71,11 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
   const today = format(new Date(), 'yyyy-MM-dd');
 
   useEffect(() => {
+    // Drop the previous meter's history first, and ignore a query that
+    // resolves after the meter changed — anomaly checks must never compare a
+    // reading against another meter's readings.
+    let cancelled = false;
+    setPriorReadings([]);
     db.select()
       .from(meterReadingsTable)
       .where(
@@ -81,7 +86,9 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       )
       .orderBy(desc(meterReadingsTable.readingDate))
       .limit(10)
-      .then((rows) => setPriorReadings(rows as MeterReadingEntity[]))
+      .then((rows) => {
+        if (!cancelled) setPriorReadings(rows as MeterReadingEntity[]);
+      })
       .catch((err) => {
         // Anomaly detection is a nice-to-have — if prior readings fail to
         // load, priorReadings stays empty, checkAnomaly's `length < 4` guard
@@ -91,6 +98,9 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
           meterType,
         });
       });
+    return () => {
+      cancelled = true;
+    };
   }, [householdId, meterType]);
 
   const checkAnomaly = useCallback(

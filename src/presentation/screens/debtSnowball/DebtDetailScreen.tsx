@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import {
   Text,
@@ -53,7 +53,12 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSaving, setUpdateSaving] = useState(false);
 
+  // Only the newest load may write state: if the active household changes
+  // while a query is in flight, the older result must not land afterwards.
+  const loadSeq = useRef(0);
+
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     if (!householdId) {
       setDebt(null);
@@ -70,6 +75,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
           isNull(debtsTable.deletedAt),
         ),
       );
+    if (seq !== loadSeq.current) return;
     const loaded = (rows[0] as DebtEntity) ?? null;
     setDebt(loaded);
     if (loaded) {

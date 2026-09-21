@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, ActivityIndicator, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
@@ -37,7 +37,12 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Only the newest load may write state (the household can change under a
+  // mounted screen on eviction, and an older query can resolve last).
+  const loadSeq = useRef(0);
+
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
@@ -63,12 +68,14 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
           (rows[1] as MeterReadingEntity) ?? null,
         ];
       }
+      if (seq !== loadSeq.current) return;
       setReadingPairs(result);
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       logger.error('MeterDashboardScreen: failed to load meter readings', err, { householdId });
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [householdId]);
 
