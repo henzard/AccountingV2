@@ -198,6 +198,17 @@ jest.mock('../../../stores/appStore', () => ({
 
 // ������ toastStore mock ��������������������������������������������������������������������������������������������������������������������
 const mockEnqueue = jest.fn();
+// syncStore mock: pending (unsynced) change count shown in the sign-out dialog
+let mockPendingSyncCount = 0;
+jest.mock('../../../stores/syncStore', () => ({
+  useSyncStore: (sel: (s: { pendingSyncCount: number }) => unknown) =>
+    sel({ pendingSyncCount: mockPendingSyncCount }),
+}));
+
+jest.mock('../../../../infrastructure/slipScanning/SupabaseSlipImageUploader', () => ({
+  resetWifiOnlyCache: jest.fn(),
+}));
+
 jest.mock('../../../stores/toastStore', () => ({
   useToastStore: jest.fn((selector: (s: { enqueue: () => void }) => unknown) =>
     selector({ enqueue: (...args: unknown[]) => mockEnqueue(...args) }),
@@ -483,5 +494,35 @@ describe('SettingsScreen', () => {
       await waitFor(() => expect(mockPaydayExecute).toHaveBeenCalled());
       expect(mockSetPaydayDay).toHaveBeenCalledWith(28);
     });
+  });
+});
+
+describe('SettingsScreen sign-out warns about unsynced changes', () => {
+  beforeEach(() => {
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(false);
+    mockPendingSyncCount = 0;
+  });
+
+  function signOutMessage(): string {
+    const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+    fireEvent.press(getByTestId('sign-out-button'));
+    return (mockConfirm.mock.calls[0][0] as { message: string }).message;
+  }
+
+  it('keeps the plain copy when everything has synced', () => {
+    expect(signOutMessage()).toBe('You will need to sign in again to access your data.');
+  });
+
+  it('says one change has not synced (singular)', () => {
+    mockPendingSyncCount = 1;
+    const message = signOutMessage();
+    expect(message).toContain("1 change hasn't synced yet");
+    expect(message).toContain('lost if you uninstall');
+  });
+
+  it('says how many changes have not synced (plural)', () => {
+    mockPendingSyncCount = 3;
+    expect(signOutMessage()).toContain("3 changes haven't synced yet");
   });
 });

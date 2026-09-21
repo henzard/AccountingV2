@@ -121,4 +121,76 @@ describe('EnsureHouseholdUseCase', () => {
     if (result.success) expect(result.data.id).toBe('hh-active');
     raw.close();
   });
+
+  // F1 (round 6): a join that completed SERVER-side and then lost
+  // connectivity leaves an active household_members row with no local
+  // `households` row (AcceptInviteUseCase's HOUSEHOLD_RESTORE_FAILED path).
+  // Reporting that as `no_household` sends an already-joined member to the
+  // create/join choice screen, where "Create Household" mints a SECOND
+  // household for them.
+  describe('F1: membership row without a local households row', () => {
+    function seedMembershipOnly(raw: Database.Database, householdId: string, userId: string): void {
+      raw
+        .prepare(
+          `INSERT INTO household_members (id, household_id, user_id, role, joined_at, updated_at)
+           VALUES ('hm-orphan', ?, ?, 'member', ?, ?)`,
+        )
+        .run(householdId, userId, NOW, NOW);
+    }
+
+    it('reports household_not_downloaded (not no_household) and carries the household id', async () => {
+      const raw = openMigratedDb();
+      seedMembershipOnly(raw, 'hh-not-downloaded', 'user-1');
+
+      const result = await new EnsureHouseholdUseCase(asDb(raw), 'user-1').execute();
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('household_not_downloaded');
+        expect(result.error.context?.householdId).toBe('hh-not-downloaded');
+      }
+      raw.close();
+    });
+
+    it('leaves an established member (local households row present) completely unaffected — offline boot must not brick them', async () => {
+      const raw = openMigratedDb();
+      seedHouseholdAndMembership(raw, {
+        householdId: 'hh-established',
+        userId: 'user-1',
+        deletedAt: null,
+      });
+
+      const result = await new EnsureHouseholdUseCase(asDb(raw), 'user-1').execute();
+
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.id).toBe('hh-established');
+      raw.close();
+    });
+
+    it('still reports no_household when the membership is SOFT-DELETED (left/removed — nothing to resume)', async () => {
+      const raw = openMigratedDb();
+      raw
+        .prepare(
+          `INSERT INTO household_members (id, household_id, user_id, role, joined_at, updated_at, deleted_at)
+           VALUES ('hm-gone', 'hh-left', 'user-1', 'member', ?, ?, ?)`,
+        )
+        .run(NOW, NOW, '2026-02-01T00:00:00.000Z');
+
+      const result = await new EnsureHouseholdUseCase(asDb(raw), 'user-1').execute();
+
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('no_household');
+      raw.close();
+    });
+
+    it('still reports no_household for a genuinely new user', async () => {
+      const raw = openMigratedDb();
+
+      const result = await new EnsureHouseholdUseCase(asDb(raw), 'brand-new-user').execute();
+
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('no_household');
+      raw.close();
+    });
+  });
 });

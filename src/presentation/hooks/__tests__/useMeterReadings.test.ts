@@ -11,11 +11,30 @@ jest.mock('../../../data/local/db', () => ({
   },
 }));
 
+// Tags eq/and/isNull/desc output so a test can inspect the SHAPE of the
+// predicate the hook actually built (see the isNull assertion below) without
+// re-implementing the deleted_at filter in the mock itself — the mocked
+// `where`/`orderBy`/`limit` chain below still ignores its arguments and
+// returns whatever the individual tests set up, so this is additive only.
+interface MockCond {
+  type: 'eq' | 'and' | 'isNull' | 'desc';
+  col?: unknown;
+  val?: unknown;
+  conditions?: MockCond[];
+}
+jest.mock('drizzle-orm', () => ({
+  eq: jest.fn((col: unknown, val: unknown) => ({ type: 'eq', col, val })),
+  and: jest.fn((...conditions: MockCond[]) => ({ type: 'and', conditions })),
+  isNull: jest.fn((col: unknown) => ({ type: 'isNull', col })),
+  desc: jest.fn((col: unknown) => ({ type: 'desc', col })),
+}));
+
 mockFrom.mockReturnValue({ where: mockWhere });
 mockWhere.mockReturnValue({ orderBy: mockOrderBy });
 mockOrderBy.mockReturnValue({ limit: mockLimit });
 
 import { useMeterReadings } from '../useMeterReadings';
+import { meterReadings as meterReadingsTable } from '../../../data/local/schema';
 import type { MeterReadingEntity } from '../../../domain/meterReadings/MeterReadingEntity';
 
 const HOUSEHOLD = 'hh-1';
@@ -192,5 +211,29 @@ describe('useMeterReadings', () => {
     });
 
     expect(result.current.loading).toBe(false);
+  });
+
+  // Round-6 follow-up: once a reading can be soft-deleted, this hook — the
+  // one RateHistoryScreen renders from — must exclude deleted_at rows or a
+  // deleted reading keeps showing up. Fails without the
+  // `isNull(meterReadingsTable.deletedAt)` condition in the hook's query.
+  it('scopes the query to non-deleted rows (deleted_at IS NULL)', async () => {
+    mockLimit.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useMeterReadings(HOUSEHOLD, METER_TYPE));
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(mockWhere).toHaveBeenCalledTimes(1);
+    const predicate = mockWhere.mock.calls[0][0] as {
+      type: string;
+      conditions?: { type: string; col?: unknown }[];
+    };
+    expect(predicate.type).toBe('and');
+    const hasDeletedAtFilter = (predicate.conditions ?? []).some(
+      (c) => c.type === 'isNull' && c.col === meterReadingsTable.deletedAt,
+    );
+    expect(hasDeletedAtFilter).toBe(true);
   });
 });

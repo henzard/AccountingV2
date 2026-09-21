@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, ActivityIndicator, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
-import { and, eq, desc } from 'drizzle-orm';
+import { and, eq, desc, isNull } from 'drizzle-orm';
 import { db } from '../../../data/local/db';
 import { meterReadings as meterReadingsTable } from '../../../data/local/schema';
 import { useAppStore } from '../../stores/appStore';
@@ -59,6 +59,7 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
             and(
               eq(meterReadingsTable.householdId, householdId),
               eq(meterReadingsTable.meterType, meterType),
+              isNull(meterReadingsTable.deletedAt),
             ),
           )
           .orderBy(desc(meterReadingsTable.readingDate))

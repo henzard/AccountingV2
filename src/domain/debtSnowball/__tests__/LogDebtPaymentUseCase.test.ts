@@ -35,10 +35,25 @@ const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as any;
  * enough of `PortableDb` for `runInUnitOfWork` to work: `.transaction(fn)`
  * calls `fn(tx)` synchronously and returns its result, and `tx.run(...)`
  * records every raw-SQL statement issued inside the transaction.
+ *
+ * `tx.get(...)` answers the use case's in-transaction re-read of the debt's
+ * LIVE money columns (the deltas are sized from that row, not from the
+ * caller's possibly-stale `currentDebt` snapshot). It mirrors `changes`: a
+ * fake that matches no row on UPDATE has no row to read either. The default
+ * row matches `currentDebt` below, so every pre-existing expectation here is
+ * unchanged; `liveRow` overrides it to simulate a stale snapshot.
  */
-function makeUowDb(changes = 1) {
+function makeUowDb(changes = 1, liveRow?: { balance: number; totalPaid: number }) {
   const runCalls: unknown[] = [];
+  const row =
+    changes > 0
+      ? {
+          outstanding_balance_cents: liveRow?.balance ?? currentDebt.outstandingBalanceCents,
+          total_paid_cents: liveRow?.totalPaid ?? currentDebt.totalPaidCents,
+        }
+      : undefined;
   const tx = {
+    get: jest.fn(() => row),
     run: jest.fn((query: unknown) => {
       runCalls.push(query);
       return { changes };
@@ -169,6 +184,63 @@ describe('LogDebtPaymentUseCase', () => {
     if (!result.success) expect(result.error.code).toBe('DEBT_NOT_FOUND');
     // Only the UPDATE ran — no oplog inserts followed it.
     expect(runCalls).toHaveLength(1);
+  });
+
+  it('sizes the payment from the LIVE balance, not a stale currentDebt snapshot', async () => {
+    // Screen still holds the 100000 snapshot; the row is really down to 20000
+    // (a slow first submit landed, or the puller moved it).
+    const { db } = makeUowDb(1, { balance: 20000, totalPaid: 80000 });
+    const uc = new LogDebtPaymentUseCase(db, mockAudit, {
+      householdId: 'h1',
+      debtId: 'd1',
+      paymentAmountCents: 100000,
+      currentDebt,
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.outstandingBalanceCents).toBe(0);
+      // 80000 already paid + only the 20000 that was actually owed — NOT
+      // 80000 + the stale snapshot's 100000.
+      expect(result.data.totalPaidCents).toBe(100000);
+      expect(result.data.isPaidOff).toBe(true);
+    }
+  });
+
+  it('audits the amount actually applied, keeping the requested amount alongside', async () => {
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
+    mockBestEffortAudit.mockClear();
+    const { db } = makeUowDb(1, { balance: 20000, totalPaid: 80000 });
+    await new LogDebtPaymentUseCase(db, mockAudit, {
+      householdId: 'h1',
+      debtId: 'd1',
+      paymentAmountCents: 100000,
+      currentDebt,
+    }).execute();
+
+    const entry = mockBestEffortAudit.mock.calls[0][1];
+    // previous 20000 → new 0 only adds up with an applied amount of 20000.
+    expect(entry.previousValue.outstandingBalanceCents).toBe(20000);
+    expect(entry.newValue.outstandingBalanceCents).toBe(0);
+    expect(entry.newValue.paymentAmountCents).toBe(20000);
+    expect(entry.newValue.requestedPaymentAmountCents).toBe(100000);
+  });
+
+  it('fails with DEBT_ALREADY_PAID_OFF and appends no ops when the live balance is 0', async () => {
+    const { db, runCalls } = makeUowDb(1, { balance: 0, totalPaid: 100000 });
+    const uc = new LogDebtPaymentUseCase(db, mockAudit, {
+      householdId: 'h1',
+      debtId: 'd1',
+      paymentAmountCents: 5000,
+      currentDebt,
+    });
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DEBT_ALREADY_PAID_OFF');
+    // Nothing ran at all — not even the UPDATE.
+    expect(runCalls).toHaveLength(0);
   });
 
   it('returns success even when audit fails', async () => {

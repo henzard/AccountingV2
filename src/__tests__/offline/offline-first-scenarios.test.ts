@@ -92,6 +92,26 @@ function createMockDb(envelopeRows: unknown[] = []) {
       this.ran.push(query);
       return { changes: 1 };
     }),
+    // The debt row `LogDebtPaymentUseCase`'s in-transaction re-read finds.
+    // It sizes BOTH of its `increment` deltas from the LIVE row rather than
+    // from the caller's `currentDebt` snapshot (`total_paid_cents` is pushed
+    // with `clamp: 'none'`, so a delta sized off a stale snapshot
+    // over-credits it) — so this fake has to hold a real row, not just
+    // answer `.run()`. Each payment test calls `setLiveDebtRow(debt)` to
+    // point it at the debt that test is paying; a fresh `createMockDb()` per
+    // test keeps the state from leaking between them.
+    liveDebtRow: undefined as
+      | { outstanding_balance_cents: number; total_paid_cents: number }
+      | undefined,
+    setLiveDebtRow(debt: { outstandingBalanceCents: number; totalPaidCents: number }): void {
+      db.liveDebtRow = {
+        outstanding_balance_cents: debt.outstandingBalanceCents,
+        total_paid_cents: debt.totalPaidCents,
+      };
+    },
+    get: jest.fn().mockImplementation(function (this: any) {
+      return this.liveDebtRow;
+    }),
   };
 
   return db;
@@ -364,6 +384,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
         totalPaidCents: 0,
       });
       const db = createMockDb();
+      db.setLiveDebtRow(debt);
       const audit = createMockAudit();
 
       const uc = new LogDebtPaymentUseCase(db, audit as any, {
@@ -390,6 +411,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
         totalPaidCents: 95000,
       });
       const db = createMockDb();
+      db.setLiveDebtRow(debt);
       const audit = createMockAudit();
 
       const uc = new LogDebtPaymentUseCase(db, audit as any, {
@@ -412,6 +434,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
     it('appends its writes via the oplog (no pending_sync enqueue)', async () => {
       const debt = buildDebt({ householdId: KRUGER_ID });
       const db = createMockDb();
+      db.setLiveDebtRow(debt);
       const audit = createMockAudit();
 
       const uc = new LogDebtPaymentUseCase(db, audit as any, {
@@ -445,6 +468,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
         outstandingBalanceCents: 100000,
       });
       const db = createMockDb();
+      db.setLiveDebtRow(debt);
       const audit = createMockAudit();
 
       const uc = new LogDebtPaymentUseCase(db, audit as any, {
@@ -499,6 +523,7 @@ describe('Offline-First Scenarios (airplane mode)', () => {
     it('LogDebtPaymentUseCase logs audit event with payment action', async () => {
       const debt = buildDebt({ householdId: KRUGER_ID });
       const db = createMockDb();
+      db.setLiveDebtRow(debt);
       const audit = createMockAudit();
 
       const uc = new LogDebtPaymentUseCase(db, audit as any, {

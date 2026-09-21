@@ -13,6 +13,8 @@ import { CreateHouseholdScreen } from '../screens/household/CreateHouseholdScree
 import { ShareInviteScreen } from '../screens/household/ShareInviteScreen';
 import { HouseholdMembersScreen } from '../screens/household/HouseholdMembersScreen';
 import { JoinHouseholdScreen } from '../screens/household/JoinHouseholdScreen';
+import { FinishJoinScreen } from '../screens/household/FinishJoinScreen';
+import { usePendingJoinStore } from '../boot/pendingJoinStore';
 import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
 import { LoadingSplash } from '../components/shared/LoadingSplash';
 import { ConfirmDialogHost } from '../components/shared/ConfirmDialogHost';
@@ -87,6 +89,9 @@ export function RootNavigator(): React.JSX.Element {
   const passwordRecoveryPending = useAppStore((s) => s.passwordRecoveryPending);
   const passwordRecoveryError = useAppStore((s) => s.passwordRecoveryError);
   const paydayDay = useAppStore((s) => s.paydayDay);
+  // F1 (round 6): set by App.tsx's local boot phase when
+  // EnsureHouseholdUseCase reports `household_not_downloaded`.
+  const pendingJoinHouseholdId = usePendingJoinStore((s) => s.pendingJoinHouseholdId);
   const { setPreferences, setPermissionsGranted } = useNotificationStore();
 
   const onboardingCompleted = useAppStore((s) => s.onboardingCompleted);
@@ -281,6 +286,14 @@ export function RootNavigator(): React.JSX.Element {
       return <Stack.Screen name="Auth" component={AuthNavigator} />;
     }
     if (!hasHousehold) {
+      // F1 (round 6): this user IS already a member — only the local
+      // household copy is missing (force-quit after a half-completed join).
+      // Finish the download instead of offering the create/join choice,
+      // where "Create Household" would mint a second household for them.
+      // Reuses the same route slot so the route list stays unchanged.
+      if (pendingJoinHouseholdId) {
+        return <Stack.Screen name="CreateHouseholdFlow" component={FinishJoinScreen} />;
+      }
       return <Stack.Screen name="CreateHouseholdFlow" component={CreateHouseholdNavigator} />;
     }
     // Wait for onboarding check to resolve before showing either wizard or main.

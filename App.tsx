@@ -50,6 +50,7 @@ import { DrizzleSlipQueueRepository } from './src/data/repositories/DrizzleSlipQ
 import { SlipImageLocalStore } from './src/infrastructure/slipScanning/SlipImageLocalStore';
 import { CleanupExpiredSlipsUseCase } from './src/domain/slipScanning/CleanupExpiredSlipsUseCase';
 import { BootRecoveryGate } from './src/presentation/boot/BootRecoveryGate';
+import { usePendingJoinStore } from './src/presentation/boot/pendingJoinStore';
 import { BootErrorBoundary } from './src/presentation/boot/BootErrorBoundary';
 import {
   registerFcmToken,
@@ -229,6 +230,16 @@ async function initSessionLocal(userId: string): Promise<void> {
     store.setHouseholdId(result.data.id);
     store.setPaydayDay(result.data.paydayDay);
     store.setAvailableHouseholds([result.data]);
+  } else if (result.error.code === 'household_not_downloaded') {
+    // F1 (round 6): the user IS an active member (local household_members
+    // row) but the `households` row was never downloaded — a join that
+    // completed server-side and then lost connectivity. RootNavigator shows
+    // FinishJoinScreen for this, NOT the create/join choice screen, where
+    // "Create Household" would mint a second household for them. Set here,
+    // on the awaited LOCAL phase, so it is already true at first paint.
+    usePendingJoinStore
+      .getState()
+      .setPendingJoinHouseholdId((result.error.context?.householdId as string) ?? null);
   }
   // else: nothing resolved locally (new user, or a reinstall whose
   // memberships only exist server-side) — householdId stays null;
@@ -350,6 +361,8 @@ function resetAllStoresOnSignOut(): void {
   tokenRefreshUnsubscribe?.();
   tokenRefreshUnsubscribe = null;
   useAppStore.getState().reset();
+  // F1 (round 6): a half-completed join belongs to the session that ended.
+  usePendingJoinStore.getState().setPendingJoinHouseholdId(null);
   useSyncStore.getState().reset();
   resetThemeStore();
   useToastStore.getState().clear();

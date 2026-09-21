@@ -25,6 +25,20 @@ function resolveOpId(ctx: SyncedRepoCtx): string {
   return ctx.genId ? ctx.genId() : randomUUID();
 }
 
+/**
+ * Thrown inside the unit of work when the row's CURRENT balance is already 0,
+ * so the transaction rolls back and no ops are appended. Translated to the
+ * `DEBT_ALREADY_PAID_OFF` failure below — `LogPaymentScreen` surfaces
+ * `error.message` and undoes the envelope transaction it may have created
+ * just before, exactly as it already does for `DEBT_NOT_FOUND`.
+ */
+class DebtAlreadyPaidOffError extends Error {
+  constructor() {
+    super('This debt is already paid off');
+    this.name = 'DebtAlreadyPaidOffError';
+  }
+}
+
 export class LogDebtPaymentUseCase {
   constructor(
     private readonly db: ExpoSQLiteDatabase<typeof schema>,
@@ -42,13 +56,14 @@ export class LogDebtPaymentUseCase {
     }
 
     const now = new Date().toISOString();
-    const actualApplied = Math.min(
-      this.input.paymentAmountCents,
-      this.input.currentDebt.outstandingBalanceCents,
-    );
-    const newBalance = this.input.currentDebt.outstandingBalanceCents - actualApplied;
-    const isPaidOff = newBalance === 0;
     const ctx = resolveSyncedRepoCtx(this.deps);
+
+    // Assigned inside the unit of work from the row's LIVE values — see the
+    // re-read below. Read after the commit for the audit entry and the
+    // returned entity.
+    let actualApplied = 0;
+    let liveBalanceBefore = 0;
+    let liveTotalPaidBefore = 0;
 
     // `createSyncedRepo`'s generic `increment` helper writes/appends exactly
     // ONE field per call, which doesn't fit a debt payment: it must move
@@ -74,6 +89,40 @@ export class LogDebtPaymentUseCase {
     // op to push per payment.
     try {
       runInUnitOfWork(this.db, (uow) => {
+        // Re-read the LIVE balance inside the transaction, immediately before
+        // computing `actualApplied`. The in-statement `MAX(0, ...)` below and
+        // the server's `greatest(0, ...)` both self-heal the BALANCE against a
+        // stale `this.input.currentDebt` snapshot — but `total_paid_cents` is
+        // pushed with `clamp: 'none'` and has no such floor, so a delta sized
+        // from a stale snapshot over-credits it (balance stops at 0, total
+        // paid keeps climbing). Sizing BOTH deltas from the row as it actually
+        // is at write time is what keeps the two columns consistent: a second
+        // submission from the same screen state after a slow/failed first one,
+        // or a debt the puller moved while the screen sat open, now credits
+        // only what is really owed.
+        const live = uow.db.get<{
+          outstanding_balance_cents: number;
+          total_paid_cents: number;
+        }>(sql`
+          SELECT outstanding_balance_cents, total_paid_cents
+          FROM debts
+          WHERE id = ${this.input.debtId} AND household_id = ${this.input.householdId}
+        `);
+        // A missing/other-household row falls through with the snapshot's
+        // figures: the UPDATE below matches no row and
+        // `assertRunMatchedRow` turns it into DEBT_NOT_FOUND, unchanged.
+        liveBalanceBefore = live?.outstanding_balance_cents ?? 0;
+        liveTotalPaidBefore = live?.total_paid_cents ?? 0;
+        if (live != null && liveBalanceBefore <= 0) {
+          // Nothing left to pay: appending a +payment `total_paid_cents` op
+          // here would credit money against a settled debt. Roll back with no
+          // ops at all.
+          throw new DebtAlreadyPaidOffError();
+        }
+        actualApplied = live
+          ? Math.min(this.input.paymentAmountCents, liveBalanceBefore)
+          : Math.min(this.input.paymentAmountCents, this.input.currentDebt.outstandingBalanceCents);
+
         // ONE SQL statement recomputes outstanding_balance_cents,
         // total_paid_cents, AND is_paid_off from the row's CURRENT (pre-update)
         // values — not from `this.input.currentDebt`, which may be a stale
@@ -138,20 +187,31 @@ export class LogDebtPaymentUseCase {
       if (isRowNotMatchedError(err)) {
         return createFailure({ code: 'DEBT_NOT_FOUND', message: 'Debt no longer exists' });
       }
+      if (err instanceof DebtAlreadyPaidOffError) {
+        return createFailure({ code: 'DEBT_ALREADY_PAID_OFF', message: err.message });
+      }
       throw err;
     }
+
+    const newBalance = liveBalanceBefore - actualApplied;
+    const isPaidOff = newBalance === 0;
 
     await bestEffortAudit(this.audit, {
       householdId: this.input.householdId,
       entityType: 'debt',
       entityId: this.input.debtId,
       action: 'payment',
+      // The row's live pre-payment figures, not the screen's snapshot — the
+      // audit trail should record what the write actually moved.
       previousValue: {
-        outstandingBalanceCents: this.input.currentDebt.outstandingBalanceCents,
-        totalPaidCents: this.input.currentDebt.totalPaidCents,
+        outstandingBalanceCents: liveBalanceBefore,
+        totalPaidCents: liveTotalPaidBefore,
       },
       newValue: {
-        paymentAmountCents: this.input.paymentAmountCents,
+        // What the write actually applied — it can be less than what was
+        // asked for when the payment exceeded the live balance.
+        paymentAmountCents: actualApplied,
+        requestedPaymentAmountCents: this.input.paymentAmountCents,
         outstandingBalanceCents: newBalance,
         isPaidOff,
       },
@@ -160,7 +220,7 @@ export class LogDebtPaymentUseCase {
     const updated: DebtEntity = {
       ...this.input.currentDebt,
       outstandingBalanceCents: newBalance,
-      totalPaidCents: this.input.currentDebt.totalPaidCents + actualApplied,
+      totalPaidCents: liveTotalPaidBefore + actualApplied,
       isPaidOff,
       updatedAt: now,
     };

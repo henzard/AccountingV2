@@ -105,6 +105,17 @@ jest.mock('../../screens/household/JoinHouseholdScreen', () => {
     JoinHouseholdScreen: () => React.createElement(View, { testID: 'join-household-screen' }),
   };
 });
+// F1 (round 6): mocked like every other household screen — it pulls in db,
+// supabase and RestoreService, and has its own dedicated test file.
+jest.mock('../../screens/household/FinishJoinScreen', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+  return {
+    FinishJoinScreen: () => React.createElement(View, { testID: 'finish-join-screen' }),
+  };
+});
 
 // ─── Mock ResetPasswordScreen — has its own dedicated test file ──────────────
 jest.mock('../../screens/auth/ResetPasswordScreen', () => {
@@ -277,6 +288,7 @@ jest.mock('../../stores/notificationStore', () => {
 import { isOnboardingComplete } from '../../../infrastructure/storage/onboardingFlag';
 import { RootNavigator, resolveNotificationTarget } from '../RootNavigator';
 import { useAppStore } from '../../stores/appStore';
+import { usePendingJoinStore } from '../../boot/pendingJoinStore';
 import * as Notifications from 'expo-notifications';
 import { LocalNotificationScheduler } from '../../../infrastructure/notifications/LocalNotificationScheduler';
 
@@ -314,6 +326,22 @@ describe('RootNavigator routing', () => {
 
     const { getByTestId } = render(<RootNavigator />);
     expect(getByTestId('create-household-nav')).toBeTruthy();
+  });
+
+  // F1 (round 6): a user who force-quit after a half-completed join has an
+  // active membership but no local household row. They must NOT get the
+  // create/join gate — "Create Household" there mints a SECOND household for
+  // someone who is already a member.
+  it('renders FinishJoinScreen (not the create/join gate) when a join is pending download', () => {
+    setStore({ user: { id: 'user-1' } }, null);
+    usePendingJoinStore.getState().setPendingJoinHouseholdId('hh-orphan');
+    mockIsOnboardingComplete.mockResolvedValue(false);
+
+    const { getByTestId, queryByTestId } = render(<RootNavigator />);
+    expect(getByTestId('finish-join-screen')).toBeTruthy();
+    expect(queryByTestId('create-household-nav')).toBeNull();
+
+    usePendingJoinStore.getState().setPendingJoinHouseholdId(null);
   });
 
   it('renders MainTabNavigator when user and household exist and onboarding is complete', async () => {
