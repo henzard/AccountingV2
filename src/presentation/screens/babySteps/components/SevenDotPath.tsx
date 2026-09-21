@@ -23,6 +23,10 @@ import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
 import type { BabyStepStatus } from '../../../../domain/babySteps/types';
 import { BABY_STEP_RULES } from '../../../../domain/babySteps/BabyStepRules';
+import {
+  inferBabyStepSkips,
+  type BabyStepSkipInference,
+} from '../../../../domain/babySteps/BabyStepEvaluator';
 
 const COMPACT_BREAKPOINT = 360;
 const NODE_RADIUS_FUTURE = 10;
@@ -36,12 +40,23 @@ export interface SevenDotPathProps {
   reducedMotion?: boolean;
 }
 
-function buildDotString(statuses: BabyStepStatus[]): string {
-  return statuses.map((s) => (s.isCompleted ? '●' : '○')).join('');
+/**
+ * A Step 2/6 vacuous skip (see BabyStepEvaluator's "Steps 2 and 6" note) is
+ * deliberately never `isCompleted: true` (baby_steps is a SYNCED table), so
+ * this dashboard bar re-derives "passed" via `inferBabyStepSkips` — the same
+ * presentation-layer inference BabyStepsScreen uses — rather than reading
+ * `isCompleted` alone, so a debt-free household's progress bar advances past
+ * it instead of showing it stuck as "current" forever.
+ */
+function buildDotString(statuses: BabyStepStatus[], skips: BabyStepSkipInference): string {
+  return statuses.map((s) => (skips.isEffectivelyDone(s.stepNumber) ? '●' : '○')).join('');
 }
 
-function getCurrentStepTitle(statuses: BabyStepStatus[]): { stepNumber: number; title: string } {
-  const current = statuses.find((s) => !s.isCompleted);
+function getCurrentStepTitle(
+  statuses: BabyStepStatus[],
+  skips: BabyStepSkipInference,
+): { stepNumber: number; title: string } {
+  const current = statuses.find((s) => !skips.isEffectivelyDone(s.stepNumber));
   if (!current) {
     return { stepNumber: 7, title: BABY_STEP_RULES[7].shortTitle };
   }
@@ -108,21 +123,31 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
   const { width: windowWidth } = useWindowDimensions();
 
   // ─── All hooks must be declared before any early return ──────────────────────
+  // C-5: read the current value once, then subscribe for changes made while
+  // mounted (mirrors CelebrationModal's pattern) — reading only on mount left
+  // this node stuck animating (or not) even after the user toggled the system
+  // setting.
   const [systemReducedMotion, setSystemReducedMotion] = React.useState(false);
-  React.useEffect(() => {
+  React.useEffect((): (() => void) => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setSystemReducedMotion);
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setSystemReducedMotion);
+    return () => sub.remove();
   }, []);
 
   const isCompact = windowWidth < COMPACT_BREAKPOINT;
 
-  const completedCount = statuses.filter((s) => s.isCompleted).length;
-  const { stepNumber: currentStepNumber, title: currentTitle } = getCurrentStepTitle(statuses);
+  const skips = React.useMemo(() => inferBabyStepSkips(statuses), [statuses]);
+  const completedCount = statuses.filter((s) => skips.isEffectivelyDone(s.stepNumber)).length;
+  const { stepNumber: currentStepNumber, title: currentTitle } = getCurrentStepTitle(
+    statuses,
+    skips,
+  );
 
   const a11yLabel = `Baby Steps progress: ${completedCount} of 7 steps complete, currently on Step ${currentStepNumber}`;
 
   // ─── Compact fallback ────────────────────────────────────────────────────────
   if (isCompact) {
-    const dots = buildDotString(statuses);
+    const dots = buildDotString(statuses, skips);
     return (
       <View style={styles.compactContainer} accessible accessibilityLabel={a11yLabel}>
         <Text variant="bodySmall" style={[styles.compactDots, { color: colors.primary }]}>
@@ -164,7 +189,7 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
             }) as BabyStepStatus,
         );
 
-  const currentIndex = nodes.findIndex((s) => !s.isCompleted);
+  const currentIndex = nodes.findIndex((s) => !skips.isEffectivelyDone(s.stepNumber));
 
   // Determine effective reducedMotion
   const noAnimation = reducedMotionProp ?? systemReducedMotion;
@@ -201,7 +226,9 @@ export const SevenDotPath: React.FC<SevenDotPathProps> = ({
         {nodes.map((s, i) => {
           const cx = paddingH + i * segment;
           const isCurrentNode = i === currentIndex;
-          const isComplete = s.isCompleted;
+          // A skipped Step 2/6 renders as "passed" (filled + check), same as
+          // a genuine completion — see the comment on `buildDotString` above.
+          const isComplete = skips.isEffectivelyDone(s.stepNumber);
 
           if (isComplete) {
             return (

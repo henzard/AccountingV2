@@ -80,6 +80,35 @@ export interface SyncStatusSink {
   setPullBlocked(blocked: boolean): void;
 }
 
+/**
+ * D-2: maps an unclassified `engine.sync()` failure's raw `Error.message` to
+ * plain language before it reaches `statusSink.setError` (-> `syncStore.error`
+ * -> shown verbatim by `SyncHealthScreen`/`OfflineBanner`). A raw message here
+ * can be a bare SQL/HTTP internal, so only known shapes get a specific
+ * rewrite; everything else falls back to one honest generic message. The raw
+ * text is still always logged via `logger.warn` at the single call site below
+ * — only the user-facing copy is replaced.
+ *
+ * Mirrors `presentation/screens/settings/syncErrorMessage.ts` (used by
+ * `SyncHealthScreen`'s discard failure) but is deliberately duplicated, not
+ * imported: this is a data-layer file and must never import `presentation/*`
+ * (dependencies point inward only — see the module doc above). Keep the two
+ * in sync by hand if the categories change.
+ */
+function describeUnclassifiedSyncError(error: Error): string {
+  const raw = error.message;
+  if (/network|timeout|fetch|unreachable|connection/i.test(raw)) {
+    return "Can't reach the server. Check your connection and try again.";
+  }
+  if (/jwt|unauthorized|unauthenticated|token.*expired|expired.*token|auth/i.test(raw)) {
+    return 'Your session expired. Sign in again to keep syncing.';
+  }
+  if (/permission|forbidden|denied|not[_ ]?member/i.test(raw)) {
+    return "You don't have permission to make this change.";
+  }
+  return "Something went wrong while syncing. We'll try again.";
+}
+
 /** No-op sink — used when the caller doesn't wire live status (most tests;
  * also a safe default so a missing `statusSink` never crashes the scheduler). */
 export const NULL_SYNC_STATUS_SINK: SyncStatusSink = {
@@ -445,7 +474,7 @@ export class SyncScheduler {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.warn('SyncScheduler: sync() failed', { householdId, error: error.message });
-      this.statusSink.setError(error.message);
+      this.statusSink.setError(describeUnclassifiedSyncError(error));
       return {
         summary: { transportFailed: true, pullBlocked: false, skipped: false },
         error,

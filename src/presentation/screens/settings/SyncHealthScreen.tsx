@@ -31,6 +31,8 @@ import type { DeadLetteredOp, PullHealth } from '../../../data/sync/SyncEngine';
 import { radius, spacing, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { describeSyncOp } from './describeSyncOp';
+import { syncErrorMessage } from './syncErrorMessage';
+import { logger } from '../../../infrastructure/logging/Logger';
 
 const MIN_TOUCH = 48;
 
@@ -49,6 +51,29 @@ function opDescription(op: DeadLetteredOp): string {
 /** Short row ID for support/debugging purposes. */
 function opShortId(op: DeadLetteredOp): string {
   return op.rowId.length > 8 ? `${op.rowId.slice(0, 8)}…` : op.rowId;
+}
+
+/**
+ * D-3: plain-language explanation for a DLQ row. Every op that reaches the
+ * DLQ is, by construction, NOT one of `TRANSIENT_REJECT_CODES` — those are
+ * backed off indefinitely and are explicitly NEVER dead-lettered (see
+ * SyncEngine.ts's `TRANSIENT_REJECT_CODES` doc comment). So every row here
+ * is either a deterministic `PERMANENT_REJECT_CODES` rejection or an
+ * unrecognised code that already exhausted its retries — in both cases,
+ * retrying the identical op is very unlikely to change the outcome without
+ * an app update. `DeadLetteredOp` deliberately doesn't expose the reject
+ * code to the UI (only `retryCount` — see SyncEngine.ts), so this applies to
+ * every row rather than branching on a code the surface doesn't have.
+ */
+function dlqExplanation(op: DeadLetteredOp): string {
+  const retriedNote =
+    op.retryCount > 0
+      ? ` It has already been retried ${op.retryCount} time${op.retryCount === 1 ? '' : 's'}.`
+      : '';
+  return (
+    `Retrying probably won't help until the app is updated.${retriedNote} ` +
+    "Discard will replace this device's version with the household's."
+  );
 }
 
 export const SyncHealthScreen: React.FC = () => {
@@ -128,10 +153,15 @@ export const SyncHealthScreen: React.FC = () => {
       setLiveMessage('Change discarded');
       refresh();
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Could not discard this operation. Check your connection and try again.';
+      const error = err instanceof Error ? err : new Error(String(err));
+      // D-2: the raw error can be a bare SQL/HTTP internal — log it, but
+      // never show it. `discardError`/`liveMessage` below only ever get the
+      // normalised, plain-language copy.
+      logger.warn('SyncHealthScreen: discardDeadLettered failed', {
+        opId,
+        error: error.message,
+      });
+      const message = syncErrorMessage(error);
       setDiscardError(message);
       setLiveMessage(`Discard failed: ${message}`);
     } finally {
@@ -226,12 +256,19 @@ export const SyncHealthScreen: React.FC = () => {
           style={[styles.section, { backgroundColor: colors.warningContainer }]}
           elevation={0}
           testID="pull-blocked-banner"
-          accessibilityRole="alert"
-          accessibilityLabel={`Sync is paused for this household. ${
-            pullHealth.opIds?.length ?? 0
-          } operations could not be applied.`}
         >
-          <View style={styles.statusRow}>
+          {/* The alert lives on this non-interactive row, not on the Surface:
+              making the Surface one accessibility element would swallow the
+              Retry button below it for screen-reader users. */}
+          <View
+            style={styles.statusRow}
+            accessible
+            accessibilityRole="alert"
+            accessibilityLabel={`Sync is paused for this household. ${
+              pullHealth.opIds?.length ?? 0
+            } operations could not be applied.`}
+            testID="pull-blocked-alert"
+          >
             <MaterialCommunityIcons name="pause-circle-outline" size={22} color={colors.warning} />
             <Text variant="titleSmall" style={[styles.statusLabel, { color: colors.warning }]}>
               Sync paused for this household
@@ -315,6 +352,13 @@ export const SyncHealthScreen: React.FC = () => {
                 </View>
                 <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
                   Rejected {formatTimestamp(op.deadLetteredAt)}
+                </Text>
+                <Text
+                  variant="bodySmall"
+                  style={{ color: colors.onSurfaceVariant, marginTop: spacing.xs }}
+                  testID={`dlq-explanation-${op.opId}`}
+                >
+                  {dlqExplanation(op)}
                 </Text>
                 <View style={styles.dlqActions}>
                   <Button

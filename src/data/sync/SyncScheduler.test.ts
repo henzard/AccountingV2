@@ -552,7 +552,7 @@ describe('SyncScheduler', () => {
       expect(sink.setPullBlocked).toHaveBeenCalledWith(false);
     });
 
-    it('reports setError with the failure message when sync() rejects, and still refreshes diagnostics', async () => {
+    it('reports setError with a plain-language message (never the raw text) when sync() rejects, and still refreshes diagnostics', async () => {
       const engine = makeEngine({
         sync: jest.fn().mockRejectedValue(new Error('sync_push failed: network error')),
         getPendingPushCount: jest.fn().mockReturnValue(5),
@@ -579,11 +579,48 @@ describe('SyncScheduler', () => {
       fireAppStateChange('active');
       await flushMicrotasks();
 
-      expect(sink.setError).toHaveBeenCalledWith('sync_push failed: network error');
+      // D-2: the raw `Error.message` must never reach the status sink (it
+      // feeds `syncStore.error`, which SyncHealthScreen/OfflineBanner render
+      // verbatim) — only the mapped, plain-language copy does. The raw text
+      // is still logged (see the `logger.warn` assertion elsewhere in this
+      // file for the unclassified-catch path).
+      expect(sink.setError).toHaveBeenCalledWith(
+        "Can't reach the server. Check your connection and try again.",
+      );
+      expect(sink.setError).not.toHaveBeenCalledWith(expect.stringContaining('sync_push failed'));
       expect(sink.setLastSyncedAt).not.toHaveBeenCalled();
       expect(sink.setSyncing).toHaveBeenCalledWith(false);
       expect(sink.setPendingCount).toHaveBeenCalledWith(5);
       expect(sink.setPullBlocked).toHaveBeenCalledWith(true);
+    });
+
+    it('maps an unrecognised sync() failure to one generic message, never the raw text', async () => {
+      const engine = makeEngine({
+        sync: jest.fn().mockRejectedValue(new Error('duplicate key value violates constraint')),
+      });
+      const channel = new FakeChannel();
+      const supabase = makeSupabase(channel);
+      const sink = {
+        setSyncing: jest.fn(),
+        setLastSyncedAt: jest.fn(),
+        setPendingCount: jest.fn(),
+        setError: jest.fn(),
+        setPullBlocked: jest.fn(),
+      };
+      const scheduler = new SyncScheduler({
+        engine,
+        supabase: supabase as any,
+        networkObserver: makeReconnectSource(),
+        statusSink: sink,
+      });
+      scheduler.start(HH);
+
+      fireAppStateChange('active');
+      await flushMicrotasks();
+
+      expect(sink.setError).toHaveBeenCalledWith(
+        "Something went wrong while syncing. We'll try again.",
+      );
     });
   });
 

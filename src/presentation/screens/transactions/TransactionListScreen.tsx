@@ -58,11 +58,66 @@ function groupByDate(txs: TransactionEntity[]): Section[] {
   return Array.from(map.entries()).map(([title, data]) => ({ title, data }));
 }
 
-/** Case-insensitive substring match over payee/description, client-side over the loaded rows. */
-function matchesQuery(tx: TransactionEntity, normalizedQuery: string): boolean {
+/**
+ * Case-insensitive substring match over payee, description, envelope name, and amount.
+ * Matches against:
+ * - Payee and description (as before)
+ * - Envelope name (resolved from the map)
+ * - Amount in multiple formats: plain value ("25", "25.00", "25,00") and formatted ("R 25", "R 25,00", etc.)
+ * An empty query matches everything.
+ */
+export function matchesQuery(
+  tx: TransactionEntity,
+  normalizedQuery: string,
+  envelopeNames: Map<string, string>,
+): boolean {
+  // Empty query matches everything
+  if (!normalizedQuery) return true;
+
   const payee = tx.payee?.toLowerCase() ?? '';
   const description = tx.description?.toLowerCase() ?? '';
-  return payee.includes(normalizedQuery) || description.includes(normalizedQuery);
+  const envelopeName = envelopeNames.get(tx.envelopeId)?.toLowerCase() ?? '';
+
+  // Match payee or description
+  if (payee.includes(normalizedQuery) || description.includes(normalizedQuery)) {
+    return true;
+  }
+
+  // Match envelope name
+  if (envelopeName.includes(normalizedQuery)) {
+    return true;
+  }
+
+  // Match amount in various formats
+  const amountCents = tx.amountCents;
+  const absAmountCents = Math.abs(amountCents);
+
+  // Plain rand values: "25", "25.00", "25,00"
+  const plainValue = (absAmountCents / 100).toFixed(2);
+  const plainValueDot = plainValue; // "25.00"
+  const plainValueComma = plainValue.replace('.', ','); // "25,00"
+  const plainValueNoDecimal = Math.floor(absAmountCents / 100).toString(); // "25"
+
+  if (
+    plainValueDot.includes(normalizedQuery) ||
+    plainValueComma.includes(normalizedQuery) ||
+    plainValueNoDecimal.includes(normalizedQuery)
+  ) {
+    return true;
+  }
+
+  // The string the row actually shows (e.g. "R 1 234,56"). Intl puts
+  // non-breaking spaces in it; a typed query has ordinary ones.
+  const formatted = formatCurrency(absAmountCents).replace(/[  ]/g, ' ').toLowerCase();
+  const query = normalizedQuery.replace(/[  ]/g, ' ');
+  if (
+    formatted.includes(query) ||
+    formatted.replace(/\s/g, '').includes(query.replace(/\s/g, ''))
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigation }) => {
@@ -110,9 +165,9 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   const filteredTransactions = useMemo(
     () =>
       normalizedQuery
-        ? transactions.filter((tx) => matchesQuery(tx, normalizedQuery))
+        ? transactions.filter((tx) => matchesQuery(tx, normalizedQuery, envelopeNames))
         : transactions,
-    [transactions, normalizedQuery],
+    [transactions, normalizedQuery, envelopeNames],
   );
 
   const periodTotalCents = useMemo(

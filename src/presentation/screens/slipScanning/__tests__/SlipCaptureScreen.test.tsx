@@ -113,4 +113,45 @@ describe('SlipCaptureScreen', () => {
     const { getByTestId } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
     expect(getByTestId('daily-counter')).toBeTruthy();
   });
+
+  it('shutter button has accessibility label "Take photo"', () => {
+    const { getByLabelText } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    expect(getByLabelText('Take photo')).toBeTruthy();
+  });
+
+  it('shutter button has correct accessibility state when disabled', () => {
+    mockIsOnline = false;
+    const { getByLabelText } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    const shutter = getByLabelText('Take photo');
+    expect(shutter.props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('done button has accessibility label based on photo count', () => {
+    const { getByLabelText } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    expect(getByLabelText('Process 0 photos')).toBeTruthy();
+  });
+
+  it('done button has correct accessibility state when disabled', () => {
+    const { getByLabelText } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    const done = getByLabelText('Process 0 photos');
+    expect(done.props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('grant permission button has accessibility label', () => {
+    (useCameraPermissions as jest.Mock).mockReturnValue([
+      { granted: false, canAskAgain: true },
+      jest.fn().mockResolvedValue({ granted: true }),
+    ]);
+    const { getByLabelText } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    expect(getByLabelText('Grant camera permission')).toBeTruthy();
+  });
+
+  it('open settings button has accessibility label', () => {
+    (useCameraPermissions as jest.Mock).mockReturnValue([
+      { granted: false, canAskAgain: false },
+      jest.fn(),
+    ]);
+    const { getByLabelText } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    expect(getByLabelText('Open device settings to grant camera permission')).toBeTruthy();
+  });
 });

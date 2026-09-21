@@ -212,7 +212,7 @@ describe('SyncHealthScreen', () => {
     await findByTestId('dlq-empty-state');
   });
 
-  it('shows an error message when discard fails, without removing the row', async () => {
+  it('shows a plain-language error message when discard fails, never the raw text, without removing the row', async () => {
     mockEngine.listDeadLettered.mockReturnValue([
       {
         opId: 'op-1',
@@ -224,13 +224,80 @@ describe('SyncHealthScreen', () => {
         retryCount: 0,
       },
     ]);
+    // D-2: a raw error (here containing internal detail a user should never
+    // see) must be mapped before it reaches the screen.
     mockEngine.discardDeadLettered.mockRejectedValueOnce(new Error('network down'));
 
     const { getByTestId } = render(<SyncHealthScreen />);
     fireEvent.press(getByTestId('dlq-discard-op-1'));
 
     await waitFor(() => expect(getByTestId('discard-error-message')).toBeTruthy());
-    expect(getByTestId('discard-error-message').props.children).toContain('network down');
+    expect(getByTestId('discard-error-message').props.children).toBe(
+      "Can't reach the server. Check your connection and try again.",
+    );
+    expect(getByTestId('discard-error-message').props.children).not.toContain('network down');
     expect(getByTestId('dlq-row-op-1')).toBeTruthy();
+  });
+
+  it('shows one generic message when discard fails with an unrecognised error, never the raw text', async () => {
+    mockEngine.listDeadLettered.mockReturnValue([
+      {
+        opId: 'op-1',
+        householdId: HH,
+        table: 'debts',
+        rowId: 'd1',
+        opType: 'insert',
+        deadLetteredAt: NOW,
+        retryCount: 0,
+      },
+    ]);
+    mockEngine.discardDeadLettered.mockRejectedValueOnce(
+      new Error('duplicate key value violates constraint xyz_pkey'),
+    );
+
+    const { getByTestId } = render(<SyncHealthScreen />);
+    fireEvent.press(getByTestId('dlq-discard-op-1'));
+
+    await waitFor(() => expect(getByTestId('discard-error-message')).toBeTruthy());
+    expect(getByTestId('discard-error-message').props.children).toBe(
+      "Something went wrong while syncing. We'll try again.",
+    );
+  });
+
+  it('D-3: explains that retrying likely will not help and what Discard does, for every DLQ row (permanent-shaped or a code the surface does not expose)', () => {
+    mockEngine.listDeadLettered.mockReturnValue([
+      {
+        opId: 'op-1',
+        householdId: HH,
+        table: 'debts',
+        rowId: 'd1',
+        opType: 'insert',
+        deadLetteredAt: NOW,
+        retryCount: 3,
+      },
+    ]);
+    const { getByTestId } = render(<SyncHealthScreen />);
+    const explanation = getByTestId('dlq-explanation-op-1').props.children;
+    const text = Array.isArray(explanation) ? explanation.join('') : explanation;
+    expect(text).toMatch(/won't help until the app is updated/i);
+    expect(text).toMatch(/already been retried 3 times/i);
+    expect(text).toMatch(/discard will replace this device's version with the household's/i);
+    // Retry must still be offered — D-3 says explain, not remove it.
+    expect(getByTestId('dlq-retry-op-1')).toBeTruthy();
+  });
+
+  it('D-4: the pull-blocked alert is one accessible unit, and Retry stays separately reachable', () => {
+    mockEngine.getPullHealth.mockReturnValue({
+      blocked: true,
+      opIds: ['p1'],
+      blockedAt: NOW,
+    });
+    const { getByTestId } = render(<SyncHealthScreen />);
+    expect(getByTestId('pull-blocked-alert').props.accessible).toBe(true);
+    expect(getByTestId('pull-blocked-alert').props.accessibilityRole).toBe('alert');
+    // The container must NOT be a single accessibility element — that would
+    // hide the Retry button inside it from screen readers.
+    expect(getByTestId('pull-blocked-banner').props.accessible).not.toBe(true);
+    expect(getByTestId('clear-pull-block-button')).toBeTruthy();
   });
 });

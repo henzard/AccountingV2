@@ -99,6 +99,16 @@ jest.mock('../../../domain/babySteps/ToggleManualStepUseCase', () => ({
 
 jest.mock('../../../data/local/db', () => ({ db: {} }));
 
+// useBabySteps → useReloadOnSync → syncStore → @react-native-community/netinfo.
+// NetInfo's TurboModule lookup resolves against the REAL 'react-native'
+// module, but this file's `jest.mock('react-native', ...)` above replaces the
+// whole module with only `{ AppState }` (spec §AppState mocking) — so NetInfo
+// must be mocked directly, the same way useBabySteps.test.ts does it.
+jest.mock('@react-native-community/netinfo', () => ({
+  addEventListener: jest.fn(() => jest.fn()),
+  fetch: jest.fn().mockResolvedValue({ isConnected: true, isInternetReachable: true }),
+}));
+
 // ─── DB mocks for useMeterReadings ─────────────────────────────────────────
 const mockFrom = jest.fn();
 const mockWhere = jest.fn();

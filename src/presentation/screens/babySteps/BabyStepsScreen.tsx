@@ -24,6 +24,7 @@ import { useBabySteps } from '../../hooks/useBabySteps';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
 import { BABY_STEP_RULES } from '../../../domain/babySteps/BabyStepRules';
+import { inferBabyStepSkips } from '../../../domain/babySteps/BabyStepEvaluator';
 import type { BabyStepStatus } from '../../../domain/babySteps/types';
 import { fontSize, spacing, radius } from '../../theme/tokens';
 import { LoadingSplash } from '../../components/shared/LoadingSplash';
@@ -55,15 +56,37 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
     }, [reconcile]),
   );
 
+  // C-1 (reworked): `statuses[i].isCompleted` is deliberately FALSE for a
+  // Step 2/6 "no applicable debts" skip — see BabyStepEvaluator's "Steps 2
+  // and 6" note (baby_steps is a SYNCED table; nothing about the skip may be
+  // persisted). `inferBabyStepSkips` re-derives the skip PURELY from these
+  // already-returned statuses so the household still visibly advances past
+  // it, without this screen ever writing or requiring a new persisted field.
+  const { skippedStepNumbers, isEffectivelyDone } = useMemo(
+    () => inferBabyStepSkips(statuses),
+    [statuses],
+  );
+
   const completedSteps = useMemo(() => statuses.filter((s) => s.isCompleted), [statuses]);
 
-  const currentStep = useMemo(() => statuses.find((s) => !s.isCompleted) ?? null, [statuses]);
+  const skippedSteps = useMemo(
+    () => statuses.filter((s) => skippedStepNumbers.has(s.stepNumber)),
+    [statuses, skippedStepNumbers],
+  );
+
+  const currentStep = useMemo(
+    () => statuses.find((s) => !isEffectivelyDone(s.stepNumber)) ?? null,
+    [statuses, isEffectivelyDone],
+  );
 
   const futureSteps = useMemo(() => {
     if (!currentStep) return [];
     const currentIdx = statuses.findIndex((s) => s.stepNumber === currentStep.stepNumber);
-    return statuses.slice(currentIdx + 1);
-  }, [statuses, currentStep]);
+    // Exclude anything effectively done past currentIdx — genuinely completed
+    // OR skipped — so a step never shows both as a completed chip / skipped
+    // notice AND a dimmed future card.
+    return statuses.slice(currentIdx + 1).filter((s) => !isEffectivelyDone(s.stepNumber));
+  }, [statuses, currentStep, isEffectivelyDone]);
 
   const handleToggleManual = useCallback(
     (value: boolean) => {
@@ -103,7 +126,7 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
     >
       {/* ── Tier 1: Completed chips ────────────────────────────────── */}
       {completedSteps.length > 0 && (
-        <View style={styles.section}>
+        <View style={styles.section} testID="completed-steps-section">
           <SectionHeader title="COMPLETED" />
           <ScrollView
             horizontal
@@ -114,6 +137,15 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
               <CompletedChip key={s.stepNumber} status={s} />
             ))}
           </ScrollView>
+        </View>
+      )}
+
+      {/* ── Skipped steps notice — Step 2/6 "no applicable debts" ────── */}
+      {skippedSteps.length > 0 && (
+        <View style={styles.section} testID="skipped-steps-section">
+          {skippedSteps.map((s) => (
+            <SkippedStepNotice key={s.stepNumber} status={s} />
+          ))}
         </View>
       )}
 
@@ -160,6 +192,60 @@ export const BabyStepsScreen: React.FC<BabyStepsScreenProps> = ({ navigation }) 
     </ScrollView>
   );
 };
+
+// ─── Skipped step notice ──────────────────────────────────────────────────────
+
+/**
+ * C-1 (reworked): a Step 2/6 vacuous skip is never `isCompleted` (see
+ * BabyStepEvaluator's "Steps 2 and 6" note), so it never reaches
+ * `CompletedChip` — it gets its own distinct, muted notice instead: no
+ * completion date (there isn't a real one), no "add a debt" CTA blocking the
+ * current step, and not listed in "Coming Up" either.
+ */
+function SkippedStepNotice({ status }: { status: BabyStepStatus }): React.JSX.Element {
+  const { colors } = useAppTheme();
+  const rule = BABY_STEP_RULES[status.stepNumber];
+
+  return (
+    <View
+      style={[skippedStyles.container, { backgroundColor: colors.surfaceVariant }]}
+      testID={`skipped-step-${status.stepNumber}`}
+    >
+      <StepSealMark stepNumber={status.stepNumber} state="future" size={28} />
+      <View style={skippedStyles.textBlock}>
+        <Text
+          variant="labelSmall"
+          style={[skippedStyles.title, { color: colors.onSurfaceVariant }]}
+        >
+          {`${status.stepNumber}. ${rule.shortTitle}`}
+        </Text>
+        <Text variant="bodySmall" style={[skippedStyles.note, { color: colors.onSurfaceVariant }]}>
+          No debts recorded — skipped
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const skippedStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+  },
+  textBlock: {
+    gap: 2,
+  },
+  title: {
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  note: {
+    opacity: 0.7,
+  },
+});
 
 // ─── Completed chip ──────────────────────────────────────────────────────────
 
