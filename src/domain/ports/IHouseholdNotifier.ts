@@ -15,7 +15,8 @@
 export type HouseholdNotificationKind =
   | 'transaction_created'
   | 'envelope_over_budget'
-  | 'slip_confirmed';
+  | 'slip_confirmed'
+  | 'refund_recorded';
 
 interface HouseholdNotificationBase {
   householdId: string;
@@ -42,6 +43,13 @@ export type HouseholdNotificationEvent =
       /** 1..200 line items. */
       itemCount: number;
       merchant?: string;
+    })
+  | (HouseholdNotificationBase & {
+      kind: 'refund_recorded';
+      /** Integer cents, the POSITIVE magnitude of the refund (never negative or zero). */
+      amountCents: number;
+      envelopeName: string;
+      payee?: string;
     });
 
 /**

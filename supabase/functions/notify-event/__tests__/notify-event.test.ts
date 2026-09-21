@@ -396,6 +396,65 @@ Deno.test('parseRequest: slip_confirmed pluralises and appends the merchant', ()
   assertEquals(many.message.body, '7 items added from Checkers');
 });
 
+Deno.test('parseRequest: refund_recorded renders a server-authored message', () => {
+  const parsed = parseRequest({
+    householdId: 'h1',
+    event: {
+      kind: 'refund_recorded',
+      amountCents: 2_500,
+      envelopeName: 'Groceries',
+      payee: 'Woolworths',
+    },
+  });
+  assert(parsed.ok);
+  assert(parsed.shape === 'event');
+  assertEquals(parsed.message, {
+    title: 'Refund recorded',
+    body: 'Refund: R25,00 back to Groceries at Woolworths',
+  });
+  assertEquals(parsed.bucket, 'default');
+  assertEquals(parsed.limit, 20);
+});
+
+Deno.test('parseRequest: refund_recorded without a payee omits the payee clause', () => {
+  const parsed = parseRequest({
+    householdId: 'h1',
+    event: { kind: 'refund_recorded', amountCents: 2_500, envelopeName: 'Groceries' },
+  });
+  assert(parsed.ok);
+  assertEquals(parsed.message.body, 'Refund: R25,00 back to Groceries');
+});
+
+Deno.test(
+  'parseRequest: refund_recorded rejects non-integer, zero, negative and oversized amounts',
+  () => {
+    for (const amountCents of [0, -1, -2_500, 12.5, '100', null, 1_000_000_001]) {
+      const parsed = parseRequest({
+        householdId: 'h1',
+        event: { kind: 'refund_recorded', amountCents, envelopeName: 'Groceries' },
+      });
+      assertEquals(parsed.ok, false, `refund amountCents ${String(amountCents)} must be rejected`);
+    }
+  },
+);
+
+Deno.test('parseRequest: refund_recorded rejects an unknown field', () => {
+  const parsed = parseRequest({
+    householdId: 'h1',
+    event: {
+      kind: 'refund_recorded',
+      amountCents: 2_500,
+      envelopeName: 'Groceries',
+      title: 'Your bank account is locked',
+    },
+  });
+  assertEquals(parsed.ok, false);
+});
+
+Deno.test('pushTargetForKind: refund_recorded routes to Transactions', () => {
+  assertEquals(pushTargetForKind('refund_recorded'), 'Transactions');
+});
+
 Deno.test('parseRequest: rejects an unknown kind', () => {
   const parsed = parseRequest({ householdId: 'h1', event: { kind: 'something_else' } });
   assertEquals(parsed.ok, false);
@@ -847,6 +906,79 @@ Deno.test(
       householdId: 'h1',
       target: 'Dashboard',
       kind: 'slip_confirmed',
+    });
+  },
+);
+
+Deno.test(
+  'PUSH-2: refund_recorded event routes to Transactions and its data carries no amount/payee',
+  async () => {
+    const record = { sends: 0, bodies: [] as unknown[], tokenFetches: 0 };
+    const deps = makeBaseDeps({ fetchImpl: recordingFetch(record) });
+    const resp = await handle(
+      makeRequest(
+        {
+          householdId: 'h1',
+          event: {
+            kind: 'refund_recorded',
+            amountCents: 2_500,
+            envelopeName: 'Groceries',
+            payee: 'Woolworths',
+          },
+        },
+        'Bearer tok',
+      ),
+      deps,
+    );
+    assertEquals(resp.status, 200);
+    const json = await resp.json();
+    // u2 is the only other household member — the sender (CALLER_ID) is
+    // never counted as a recipient of their own event.
+    assertEquals(json.recipients, 1);
+    assertEquals(json.sent, 1);
+    const [sentBody] = record.bodies as Array<{
+      message: { notification: { title: string; body: string }; data?: Record<string, string> };
+    }>;
+    assertEquals(sentBody.message.notification, {
+      title: 'Refund recorded',
+      body: 'Refund: R25,00 back to Groceries at Woolworths',
+    });
+    assertEquals(sentBody.message.data, {
+      type: 'household_activity',
+      householdId: 'h1',
+      target: 'Transactions',
+      kind: 'refund_recorded',
+    });
+    // The `data` block is routing-only: every value is a string, and neither
+    // the amount nor the envelope/payee names ever leak into it.
+    const dataValues = Object.values(sentBody.message.data ?? {});
+    for (const v of dataValues) assertEquals(typeof v, 'string');
+    assert(!dataValues.some((v) => v.includes('Groceries') || v.includes('Woolworths')));
+  },
+);
+
+Deno.test(
+  'REG-15: refund_recorded shares the SAME default throttle bucket as transaction_created',
+  async () => {
+    const rpcCalls: RpcCall[] = [];
+    const deps = makeBaseDeps({
+      createAdminClient: () => makeAdminSupabase({ rpcCalls }) as any,
+    });
+    await handle(
+      makeRequest(
+        {
+          householdId: 'h1',
+          event: { kind: 'refund_recorded', amountCents: 2_500, envelopeName: 'Groceries' },
+        },
+        'Bearer tok',
+      ),
+      deps,
+    );
+    assertEquals(rpcCalls[0].name, 'check_and_reserve_notify_send_v2');
+    assertEquals(rpcCalls[0].args, {
+      p_sender_id: CALLER_ID,
+      p_bucket: 'default',
+      p_limit: 20,
     });
   },
 );

@@ -547,6 +547,42 @@ describe('resolveNotificationTarget (VAL-12)', () => {
     });
   });
 
+  it('PUSH-2: maps a household_activity push for kind "refund_recorded" (target "Transactions") to the Transactions tab', () => {
+    expect(
+      resolveNotificationTarget({
+        type: 'household_activity',
+        kind: 'refund_recorded',
+        householdId: 'h1',
+        target: 'Transactions',
+      }),
+    ).toEqual({
+      screen: 'Main',
+      params: { screen: 'Transactions' },
+      householdId: 'h1',
+    });
+  });
+
+  it('PUSH-2: an older client that has never heard of "refund_recorded" still resolves it via `target`, never throws', () => {
+    // resolveNotificationTarget never switches on `kind` — it's routing
+    // metadata the client doesn't need to recognise. An app build that
+    // predates this event kind entirely still routes correctly off `target`
+    // (set server-side by pushTargetForKind), and an app build that predates
+    // BOTH this kind and its `target` value falls back to Dashboard, exactly
+    // like any other unrecognised target — it never crashes either way.
+    expect(
+      resolveNotificationTarget({
+        type: 'household_activity',
+        kind: 'refund_recorded',
+        householdId: 'h1',
+        target: 'some-future-target',
+      }),
+    ).toEqual({
+      screen: 'Main',
+      params: { screen: 'DashboardTab' },
+      householdId: 'h1',
+    });
+  });
+
   it('PUSH-2: maps a household_activity push with target "Dashboard" to the DashboardTab', () => {
     expect(
       resolveNotificationTarget({

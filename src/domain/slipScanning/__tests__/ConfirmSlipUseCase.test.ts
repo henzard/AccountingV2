@@ -38,7 +38,7 @@ jest.mock('../../../data/uow/createSyncedRepo', () => ({
   updateRowWithinUow: (...args: unknown[]) => mockUpdateRowWithinUow(...args),
 }));
 
-import { ConfirmSlipUseCase } from '../ConfirmSlipUseCase';
+import { ConfirmSlipUseCase, slipLineTransactionId } from '../ConfirmSlipUseCase';
 import type { ISlipQueueRepository, SlipQueueRow } from '../../ports/ISlipQueueRepository';
 import { transactions } from '../../../data/local/schema';
 
@@ -192,7 +192,7 @@ describe('ConfirmSlipUseCase', () => {
     expect(limit).toHaveBeenCalledTimes(1); // the envelope lookup ran
   });
 
-  it('DOM-12: drops a non-positive line item instead of failing the whole confirm, and never persists it', async () => {
+  it('DOM-12/REF-SLIP: drops a ZERO-amount line item instead of failing the whole confirm, and never persists it', async () => {
     const { db, limit } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
     const repo = makeRepo(makeSlip({ totalCents: 5000 }));
     const useCase = new ConfirmSlipUseCase(db as any, repo);
@@ -209,7 +209,7 @@ describe('ConfirmSlipUseCase', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.transactionIds).toHaveLength(1);
-    // Only the positive item was validated/looked up and inserted.
+    // Only the non-zero item was validated/looked up and inserted.
     expect(limit).toHaveBeenCalledTimes(1);
     expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(1);
     expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
@@ -220,7 +220,15 @@ describe('ConfirmSlipUseCase', () => {
     );
   });
 
-  it('DOM-12: an all-non-positive item list fails as SLIP_EMPTY_ITEMS rather than writing nothing silently', async () => {
+  /**
+   * REF-SLIP note: this assertion used to read "an all-NON-POSITIVE item
+   * list fails as SLIP_EMPTY_ITEMS", with a single -500 discount line as its
+   * fixture. That was correct only while the ledger refused a negative row.
+   * It now accepts one (a refund), so the fixture moves to the case that is
+   * still genuinely empty — an all-ZERO list — and the negative case gets its
+   * own test below asserting the OPPOSITE (it confirms, and is written).
+   */
+  it('DOM-12/REF-SLIP: an all-ZERO item list fails as SLIP_EMPTY_ITEMS rather than writing nothing silently', async () => {
     const { db } = makeDb();
     const repo = makeRepo(makeSlip());
     const useCase = new ConfirmSlipUseCase(db as any, repo);
@@ -229,11 +237,101 @@ describe('ConfirmSlipUseCase', () => {
       slipId: 's1',
       householdId: HOUSEHOLD_ID,
       transactionDate: '2026-04-13',
-      items: [{ description: 'discount', amountCents: -500, envelopeId: 'env1' }],
+      items: [{ description: 'free sample', amountCents: 0, envelopeId: 'env1' }],
     });
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('SLIP_EMPTY_ITEMS');
+    expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
+  });
+
+  it('REF-SLIP: keeps a NEGATIVE line and writes it as a negative transaction in its own envelope', async () => {
+    const { db, limit } = makeDb({
+      existingTxns: [],
+      envelopeResults: [SPENDING_ENVELOPE, SPENDING_ENVELOPE],
+    });
+    // Slip total is already net: 10000 - 1500.
+    const repo = makeRepo(makeSlip({ totalCents: 8500 }));
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [
+        { description: 'groceries', amountCents: 10000, envelopeId: 'env1' },
+        { description: 'DISCOUNT', amountCents: -1500, envelopeId: 'env1' },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transactionIds).toHaveLength(2);
+      // The signed sum (8500) reconciles against the slip total — the old
+      // "drop the line but still count it" behaviour made this impossible.
+      expect(result.data.totalMismatch).toBe(false);
+    }
+    // BOTH lines were validated (one envelope lookup each) and written.
+    expect(limit).toHaveBeenCalledTimes(2);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(2);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+      expect.anything(),
+      'transactions',
+      expect.objectContaining({ amount_cents: 10000 }),
+      expect.anything(),
+    );
+    expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+      expect.anything(),
+      'transactions',
+      expect.objectContaining({
+        amount_cents: -1500,
+        description: 'DISCOUNT',
+        envelope_id: 'env1',
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('REF-SLIP: a pure return slip (every line negative) confirms instead of failing as empty', async () => {
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo = makeRepo(makeSlip({ totalCents: -500 }));
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'returned shirt', amountCents: -500, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transactionIds).toHaveLength(1);
+      expect(result.data.totalMismatch).toBe(false);
+    }
+    expect(mockRunInUnitOfWork).toHaveBeenCalledTimes(1);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+      expect.anything(),
+      'transactions',
+      expect.objectContaining({ amount_cents: -500 }),
+      expect.anything(),
+    );
+  });
+
+  it('REF-SLIP: a negative amount still goes through the SHARED amount validator — an unsafe magnitude is rejected symmetrically', async () => {
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo = makeRepo(makeSlip());
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'absurd refund', amountCents: -1e18, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
     expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
   });
 
@@ -269,6 +367,92 @@ describe('ConfirmSlipUseCase', () => {
     });
     expect(mismatched.success).toBe(true);
     if (mismatched.success) expect(mismatched.data.totalMismatch).toBe(true);
+  });
+
+  /**
+   * SLIP-ROUND: South African cash totals are rounded to the nearest 10c, and
+   * the `extract-slip` prompt deliberately tells the model NOT to invent a
+   * cash-rounding line and NOT to fudge item amounts to make them add up — so
+   * an HONEST extraction of a cash slip is a few cents out by construction.
+   * The old exact `!==` comparison warned on every one of those, training the
+   * user to ignore the warning. Less than 10c either way is now tolerated;
+   * 10c or more still warns.
+   */
+  describe('SLIP-ROUND: cash-rounding tolerance on totalMismatch', () => {
+    async function confirmWithSlipTotal(
+      slipTotalCents: number | null,
+      itemAmountCents: number,
+    ): Promise<boolean> {
+      const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+      const repo = makeRepo(makeSlip({ totalCents: slipTotalCents }));
+      const result = await new ConfirmSlipUseCase(db as any, repo).execute({
+        slipId: 's1',
+        householdId: HOUSEHOLD_ID,
+        transactionDate: '2026-04-13',
+        items: [{ description: 'eggs', amountCents: itemAmountCents, envelopeId: 'env1' }],
+      });
+      expect(result.success).toBe(true);
+      return result.success ? result.data.totalMismatch : false;
+    }
+
+    it('does not warn when the items are exactly the slip total', async () => {
+      expect(await confirmWithSlipTotal(5000, 5000)).toBe(false);
+    });
+
+    it('does not warn at 9c over or 9c under — the cash-rounding band', async () => {
+      expect(await confirmWithSlipTotal(5000, 5009)).toBe(false);
+      expect(await confirmWithSlipTotal(5000, 4991)).toBe(false);
+    });
+
+    it('still warns at 10c over or 10c under — a real discrepancy', async () => {
+      expect(await confirmWithSlipTotal(5000, 5010)).toBe(true);
+      expect(await confirmWithSlipTotal(5000, 4990)).toBe(true);
+    });
+
+    it('never warns when the slip has no extracted total (unchanged)', async () => {
+      expect(await confirmWithSlipTotal(null, 5000)).toBe(false);
+    });
+  });
+
+  /**
+   * SYNC-SLIP: the unit tier can only prove the id is DERIVED (deterministic
+   * and slip/line-scoped), not that two devices converge — that needs two
+   * real migrated databases and lives in
+   * `tests/realsql/confirmSlipAtomicity.test.ts`.
+   */
+  describe('SYNC-SLIP: deterministic line-transaction ids', () => {
+    it('derives the same id for the same (household, slip, generation, line) and different ids otherwise', () => {
+      const base = slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 0);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 0)).toBe(base);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 1)).not.toBe(base);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's1', 1, 0)).not.toBe(base);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's2', 0, 0)).not.toBe(base);
+      expect(slipLineTransactionId('hh-2', 's1', 0, 0)).not.toBe(base);
+      expect(base).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    });
+
+    it('writes the DERIVED id, not a random one — the row id matches the returned id', async () => {
+      const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+      const repo = makeRepo(makeSlip());
+      const result = await new ConfirmSlipUseCase(db as any, repo).execute({
+        slipId: 's1',
+        householdId: HOUSEHOLD_ID,
+        transactionDate: '2026-04-13',
+        items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+      });
+
+      // `uow.db.get` is mocked to return undefined, so the generation count
+      // reads as 0 — the first-confirmation case.
+      const expectedId = slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 0);
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.transactionIds).toEqual([expectedId]);
+      expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+        expect.anything(),
+        'transactions',
+        expect.objectContaining({ id: expectedId }),
+        expect.anything(),
+      );
+    });
   });
 
   it('validates the SECOND item too, before writing anything for the first (envelope not found)', async () => {

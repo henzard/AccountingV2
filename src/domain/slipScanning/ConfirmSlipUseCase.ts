@@ -1,6 +1,5 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
-import { randomUUID } from 'expo-crypto';
 import type * as schema from '../../data/local/schema';
 import { envelopes, transactions } from '../../data/local/schema';
 import type { ISlipQueueRepository } from '../ports/ISlipQueueRepository';
@@ -12,11 +11,73 @@ import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import { AuditLogger } from '../../data/audit/AuditLogger';
 import { logger } from '../../infrastructure/logging/Logger';
+import { uuidv5, APP_NAMESPACE } from '../../infrastructure/crypto/uuidv5';
 import {
   validateTransactionAmountCents,
   validateTransactionDate,
   validateTargetEnvelope,
 } from '../transactions/transactionValidation';
+
+/**
+ * SYNC-SLIP. The DETERMINISTIC id of the `generation`-th confirmation's
+ * `index`-th line transaction for a slip. House style matches
+ * `periodContributionId` (`PersistentContributions.ts`).
+ *
+ * Why deterministic: `slip_queue` is HOUSEHOLD-wide, so two phones can both
+ * open the same extracted slip and confirm it before either has synced. The
+ * idempotency guard inside the write transaction only sees LOCAL rows, so it
+ * cannot stop that — and with `randomUUID()` line ids the two devices
+ * produced two disjoint id sets, both of which then synced, permanently
+ * DOUBLE-COUNTING the household's spend. Uniqueness exists only on
+ * `transactions.id` (`slip_id` is merely indexed, migration 0008), so the
+ * id is the only lever that makes the existing convergence machinery apply.
+ *
+ * With the same id on both devices, `private.apply_one_op` (migration 0016)
+ * does the rest: an identical duplicate insert answers `applied`, and one
+ * whose values differ answers `row_exists`, which `SyncEngine` treats as
+ * SUPERSEDED — it marks the op pushed (no dead letter, no retry loop, the
+ * household keeps draining) and then `refreshSupersededRow` copies the
+ * SERVER's authoritative row down over the local one. See the
+ * `ROW_EXISTS_REJECT_CODE` comment in `SyncEngine.ts`, which names exactly
+ * this pattern ("Several client writes use deterministic uuidv5 ids
+ * precisely so two devices doing the same thing produce the same row").
+ *
+ * `generation` exists so that a LEGITIMATE re-confirmation — the user
+ * deleted this slip's transactions and scanned/confirmed it again — does not
+ * reuse the tombstoned rows' primary keys. A soft delete leaves the row in
+ * place, so reusing the id would make the local `INSERT` throw on the
+ * primary key and fail the whole confirm. It is derived from state BOTH
+ * devices share once synced (the number of rows already carrying this
+ * `slip_id`, in ANY state), so it is 0 on both racing devices for a first
+ * confirmation and the convergence above still applies.
+ */
+export function slipLineTransactionId(
+  householdId: string,
+  slipId: string,
+  generation: number,
+  index: number,
+): string {
+  return uuidv5(`slip:${householdId}:${slipId}:gen:${generation}:line:${index}`, APP_NAMESPACE);
+}
+
+/**
+ * SLIP-ROUND. How far the signed sum of a slip's line items may fall from the
+ * slip's own printed total before it is worth warning the user about.
+ *
+ * South African cash totals are rounded to the nearest 10c (there is no 1c or
+ * 5c coin in circulation), so a cash slip's printed TOTAL legitimately
+ * differs from the sum of its line items by up to 9c. The `extract-slip`
+ * prompt deliberately tells the model NOT to invent a cash-rounding line and
+ * NOT to fudge item amounts to make them add up — an honest extraction of
+ * such a slip is therefore a few cents out by construction, and an exact
+ * comparison warned on every single one, training the user to ignore the
+ * warning entirely.
+ *
+ * Strictly LESS than 10c is tolerated (the whole rounding band); 10c or more
+ * in either direction is a real discrepancy — a missed, duplicated or
+ * mis-read line — and still warns.
+ */
+export const TOTAL_MISMATCH_TOLERANCE_CENTS = 10;
 
 export type ConfirmSlipItem = {
   description: string;
@@ -34,11 +95,14 @@ export type ConfirmSlipInput = {
 export type ConfirmSlipResult = {
   transactionIds: string[];
   /**
-   * True when Σ(items.amountCents) — including any non-positive/discount
-   * lines, which are still part of the real net spend even though they are
-   * dropped from what gets persisted (see DOM-12 below) — differs from the
-   * slip's OCR-extracted `totalCents`. Surfaced so the caller can warn the
-   * user (e.g. a missed or mis-split line item); it never blocks the save.
+   * True when the SIGNED sum of the lines this confirm actually wrote —
+   * discount/refund lines included, at their negative value — differs from
+   * the slip's OCR-extracted `totalCents` by `TOTAL_MISMATCH_TOLERANCE_CENTS`
+   * or more. Surfaced so the caller can warn the user (e.g. a missed or
+   * mis-split line item); it never blocks the save. The compared set is
+   * exactly the set persisted (see REF-SLIP below), so a slip carrying a
+   * discount line now reconciles instead of being guaranteed a mismatch, and
+   * sub-10c cash rounding is tolerated (see SLIP-ROUND above).
    */
   totalMismatch: boolean;
 };
@@ -96,16 +160,107 @@ export type ConfirmSlipResult = {
  *    rolls back the WHOLE transaction — true all-or-nothing, proven against
  *    the real better-sqlite3 driver.
  *
- * --- DOM-12 fix (this pass) ---------------------------------------------------
+ * --- DOM-12 fix ---------------------------------------------------------------
  * A single non-positive line (e.g. a discount/rebate row the OCR pulled out
  * as its own item) used to fail the WHOLE confirm with INVALID_AMOUNT.
- * Non-positive items are now dropped rather than persisted — never written
- * as a transaction — instead of blocking every other, valid line on the
- * slip. The dropped amounts are still counted (alongside every confirmed
- * item) when comparing against the slip's extracted total, surfaced as
- * `totalMismatch` rather than a hard failure. Each written transaction's
- * `payee` is now the slip's extracted merchant (previously always `null`
- * despite the merchant being available on the fetched slip row).
+ * Non-positive items were dropped rather than persisted, instead of blocking
+ * every other, valid line on the slip. Each written transaction's `payee` is
+ * now the slip's extracted merchant (previously always `null` despite the
+ * merchant being available on the fetched slip row).
+ *
+ * --- REF-SLIP fix (this pass) -------------------------------------------------
+ * DOM-12's "drop everything that isn't positive" was the right call only
+ * while the ledger itself refused a negative row. It no longer does: a
+ * transaction amount is any NON-ZERO safe integer and negative means money
+ * back (`transactionValidation.validateTransactionAmountCents`), because
+ * every balance is a signed `SUM(amount_cents)` (`EnvelopeBalanceQuery`) that
+ * nets a negative row out. Slip scanning was the last path that could not
+ * record one, and it was wrong twice over: a "DISCOUNT -5,00" / voucher /
+ * same-slip return line was silently DROPPED (the user lost it), yet its
+ * amount was still counted in the totals comparison — so such a slip was
+ * GUARANTEED a bogus `totalMismatch` warning as well.
+ *
+ * Now: only a ZERO-amount line is dropped (a R0 line moves nothing and is
+ * never what the user meant — the same rule the shared validator applies).
+ * Every non-zero line, positive or negative, is validated by that shared
+ * validator and written as a transaction in its own assigned envelope, and
+ * the totals comparison sums EXACTLY the set that was written, signed. A
+ * slip of [+100,00, −15,00] therefore writes two rows that net to 85,00 in
+ * the envelope's derived spend and reconciles against an 85,00 slip total.
+ * A slip whose lines net to zero or negative overall (a pure return slip)
+ * confirms normally; nothing downstream of this use case treats the net as
+ * a spend figure (the `slip_confirmed` household push carries an item COUNT,
+ * not a total, and the over-budget push is raised by AddTransactionScreen,
+ * not by this path).
+ *
+ * Every guarantee above is unchanged: the write is still one atomic
+ * `runInUnitOfWork` callback, the in-transaction idempotency guard is still
+ * the first statement inside it, and one oplog op is still appended per row
+ * — negative rows included.
+ *
+ * --- SYNC-SLIP fix (this pass) ------------------------------------------------
+ * The idempotency guard above is a LOCAL check, and `slip_queue` is
+ * household-wide: two phones can both open the same extracted slip and
+ * confirm it before either has synced, and neither one's guard can see the
+ * other's rows. With `randomUUID()` line ids that produced two disjoint sets
+ * of transactions, both of which synced — the household's spend for that
+ * slip was permanently DOUBLE-COUNTED, with no server-side uniqueness to
+ * catch it (`transactions` is unique on `id` only; `slip_id` is merely
+ * indexed).
+ *
+ * The fix is `slipLineTransactionId` (see its own note): both devices derive
+ * the SAME id for the same (household, slip, generation, line index), so the
+ * convergence that already exists for every other deterministic-id write
+ * applies. `generation` is read INSIDE the write transaction — the count of
+ * rows already carrying this `slip_id` in any state, soft-deleted included —
+ * rather than before it, because a count read outside the transaction could
+ * be stale by the time the inserts run, and because it must be consistent
+ * with the guard's own snapshot. The ids are therefore filled into
+ * `transactionIds` inside the callback; the post-commit audit loop reads it
+ * afterwards, which is safe precisely because it only ever runs after a
+ * successful commit.
+ *
+ * What each cross-device case ends up as:
+ *
+ *  (a) TRUE RACE — both phones confirm the same line set offline. Neither
+ *      has any row for the slip, so both compute generation 0 and identical
+ *      ids. Whichever pushes first is applied. The second device's inserts
+ *      carry the same ids and the same values, so `apply_one_op` answers
+ *      `applied` for an identical duplicate (and `row_exists` for any line
+ *      whose value differs, handled in (c)). ONE set of rows household-wide,
+ *      spend counted once. This is the hole this fix closes.
+ *
+ *  (b) RE-CONFIRM AFTER DELETE — the user deletes the slip's transactions
+ *      (soft delete: the rows stay, `deleted_at` set) and confirms again.
+ *      The live-row guard no longer matches, so the confirm proceeds; the
+ *      generation count DOES still see the tombstones, so it is now N, the
+ *      ids are fresh, and the local inserts cannot collide with the
+ *      tombstoned primary keys. A second device that has synced those
+ *      tombstones computes the same N and the same fresh ids, so (a) still
+ *      holds for the re-confirmation.
+ *
+ *  (c) DIVERGENT LINE SETS — both phones confirm, but one user removed or
+ *      edited a line first, so index `i` names different content on each
+ *      device. End state, stated plainly: the FIRST set to push wins on the
+ *      server for every id it wrote. The second device's insert for such an
+ *      id comes back `row_exists`, which `SyncEngine` treats as superseded —
+ *      the op is marked PUSHED (never dead-lettered, never retried forever)
+ *      and `refreshSupersededRow` overwrites that device's local row with
+ *      the server's, so the two phones and the server agree. No row is left
+ *      existing on one phone but not the server, and no op is dead-lettered.
+ *      Two asymmetries follow from this and are accepted deliberately:
+ *      a device that confirmed FEWER lines simply pulls the winner's extra
+ *      lines; a device that confirmed MORE lines has its extra lines applied
+ *      (their ids are new to the server), so the household ends on the UNION
+ *      of the two line sets, converged and identical everywhere, rather than
+ *      on a partial or duplicated ledger. That is strictly better than the
+ *      double-count it replaces, and the user can delete a line they did not
+ *      want; nothing silently diverges.
+ *
+ * Older builds keep working: the guard asks whether ANY live row carries
+ * this `slip_id`, never what the id LOOKS like, so a slip confirmed by a
+ * build that wrote random ids is still recognised as confirmed, and its
+ * tombstones still count toward the generation.
  */
 export interface ConfirmSlipUseCaseDeps extends SyncWriteDeps {
   /** Optional — when supplied, one best-effort audit-log row is written per confirmed item after the atomic write commits. */
@@ -169,10 +324,13 @@ export class ConfirmSlipUseCase {
     }
 
     // --- Step 2: validation/reads — ALL async, OUTSIDE any transaction -----
-    // DOM-12: drop non-positive lines (discounts/rebates) instead of failing
-    // the whole confirm; never persist a non-positive transaction.
-    const positiveItems = input.items.filter((item) => item.amountCents > 0);
-    if (positiveItems.length === 0) {
+    // REF-SLIP: drop ONLY zero-amount lines. A negative line is a discount /
+    // voucher / same-slip return and is as real as a purchase — it is kept
+    // and written as a negative transaction, exactly like the Refund toggle
+    // on AddTransactionScreen produces. (DOM-12 used to drop those too,
+    // losing the line AND mis-reporting the total.)
+    const confirmableItems = input.items.filter((item) => item.amountCents !== 0);
+    if (confirmableItems.length === 0) {
       return createFailure({
         code: 'SLIP_EMPTY_ITEMS',
         message: 'Slip has no items to confirm',
@@ -190,7 +348,10 @@ export class ConfirmSlipUseCase {
     const dateResult = validateTransactionDate(input.transactionDate);
     if (!dateResult.success) return dateResult;
 
-    for (const item of positiveItems) {
+    for (const item of confirmableItems) {
+      // Accepts any non-zero safe integer, symmetrically — a −1 500 00c
+      // refund line is rejected on exactly the same footing as a +1 500 00c
+      // purchase line, and on no other.
       const amountResult = validateTransactionAmountCents(item.amountCents);
       if (!amountResult.success) return amountResult;
 
@@ -204,16 +365,27 @@ export class ConfirmSlipUseCase {
       if (!envelopeResult.success) return envelopeResult;
     }
 
-    // DOM-12: compare ALL confirmed items (including dropped non-positive
-    // ones, which are still part of the actual net spend) against the
-    // slip's OCR-extracted total; a mismatch is a warning, never a failure.
-    const itemsTotalCents = input.items.reduce((sum, item) => sum + item.amountCents, 0);
-    const totalMismatch = slip.totalCents != null && itemsTotalCents !== slip.totalCents;
+    // REF-SLIP: sum EXACTLY the set that gets written, signed — so a slip
+    // with a discount line reconciles against its (already net) slip total
+    // instead of warning. Dropped zero lines contribute nothing either way,
+    // so including or excluding them cannot change this figure; summing the
+    // written set is what keeps the two in lockstep if that ever changes.
+    // A mismatch is a warning, never a failure.
+    const itemsTotalCents = confirmableItems.reduce((sum, item) => sum + item.amountCents, 0);
+    // SLIP-ROUND: a cash slip's printed total is rounded to the nearest 10c,
+    // so anything inside that band is expected, not a discrepancy.
+    const totalMismatch =
+      slip.totalCents != null &&
+      Math.abs(itemsTotalCents - slip.totalCents) >= TOTAL_MISMATCH_TOLERANCE_CENTS;
 
     // --- Step 3: ONE synchronous write transaction — all-or-nothing --------
     const ctx = resolveSyncedRepoCtx(this.deps);
     const now = ctx.clock();
-    const transactionIds = positiveItems.map(() => randomUUID());
+    // SYNC-SLIP: filled INSIDE the write transaction, because the generation
+    // each id is derived from is read there (see the SYNC-SLIP note above).
+    // Read back afterwards only on the committed path — the audit loop and
+    // the success result — never on a rollback, where it stays empty.
+    const transactionIds: string[] = [];
 
     try {
       runInUnitOfWork(this.db, (uow) => {
@@ -239,11 +411,39 @@ export class ConfirmSlipUseCase {
           throw new SlipAlreadyConfirmedError();
         }
 
-        positiveItems.forEach((item, i) => {
+        // SYNC-SLIP: the generation this confirmation writes under. Counts
+        // rows in ANY state — a soft delete leaves the row (and therefore
+        // its primary key) in place, so the tombstones of a previous
+        // confirmation must push the next one onto fresh ids or its inserts
+        // would collide. Deliberately NOT filtered by `deleted_at`, and
+        // deliberately id-shape-blind, so an older build's random-id rows
+        // count too. Zero on both devices of a first-confirmation race,
+        // which is what makes their ids agree.
+        const generationRow = uow.db.get<{ n: number }>(sql`
+          SELECT COUNT(*) AS n FROM transactions
+          WHERE slip_id = ${input.slipId}
+            AND household_id = ${input.householdId}
+        `);
+        const generation = generationRow?.n ?? 0;
+        // Reset-then-fill rather than assign: `transactionIds` is the array
+        // the post-commit audit loop and the result read, and this callback
+        // runs exactly once per successful commit.
+        transactionIds.length = 0;
+        for (let i = 0; i < confirmableItems.length; i += 1) {
+          transactionIds.push(
+            slipLineTransactionId(input.householdId, input.slipId, generation, i),
+          );
+        }
+
+        confirmableItems.forEach((item, i) => {
           const row: Record<string, unknown> = {
             id: transactionIds[i],
             household_id: input.householdId,
             envelope_id: item.envelopeId,
+            // REF-SLIP: written SIGNED. `amount_cents` is an existing synced
+            // column that already carries negative values from the Refund
+            // toggle, so nothing about the wire format changes here — an
+            // older build that pulls this row stores and sums it correctly.
             amount_cents: item.amountCents,
             // DOM-12: the merchant IS available (fetched on the slip in
             // Step 1) — write it as payee instead of always `null`.
@@ -305,8 +505,8 @@ export class ConfirmSlipUseCase {
     // surface as a use case failure — the caller would otherwise retry a
     // write that actually succeeded, producing a duplicate confirm.
     if (this.deps.audit) {
-      for (let i = 0; i < positiveItems.length; i += 1) {
-        const item = positiveItems[i];
+      for (let i = 0; i < confirmableItems.length; i += 1) {
+        const item = confirmableItems[i];
         try {
           await this.deps.audit.log({
             householdId: input.householdId,

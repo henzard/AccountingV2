@@ -462,20 +462,28 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
             void rearmEveningLogPrompt().catch(() => undefined);
             // SEC2-12: typed fields only — notify-event writes the words.
             //
-            // REFUNDS: `IHouseholdNotifier`'s contract for this event is
-            // "integer cents, GREATER THAN ZERO", and notify-event validates
-            // it that way, so posting a negative amount here would just be
-            // rejected server-side — a guaranteed-dropped event, not a
-            // notification. A refund therefore does not wake the household
-            // at all. Telling the partner about money coming back would need
-            // its own event kind (and its own server-side copy), which is
-            // out of scope here.
+            // REFUNDS: `IHouseholdNotifier`'s `transaction_created` contract
+            // is "integer cents, GREATER THAN ZERO", and notify-event
+            // validates it that way, so posting a negative amount here would
+            // just be rejected server-side — a guaranteed-dropped event, not
+            // a notification. A refund instead gets its OWN event kind below
+            // with the POSITIVE magnitude of the refund, so partners still
+            // hear about money coming back.
             if (amountCents > 0) {
               householdNotifier.notifyHousehold({
                 kind: 'transaction_created',
                 householdId,
                 senderId,
                 amountCents,
+                envelopeName: envelope.name,
+                payee: payee.trim() || undefined,
+              });
+            } else if (amountCents < 0) {
+              householdNotifier.notifyHousehold({
+                kind: 'refund_recorded',
+                householdId,
+                senderId,
+                amountCents: Math.abs(amountCents),
                 envelopeName: envelope.name,
                 payee: payee.trim() || undefined,
               });

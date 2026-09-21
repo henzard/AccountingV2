@@ -23,6 +23,7 @@ import { supabase } from './src/data/remote/supabaseClient';
 import { useAppStore } from './src/presentation/stores/appStore';
 import { db } from './src/data/local/db';
 import { EnsureHouseholdUseCase } from './src/domain/households/EnsureHouseholdUseCase';
+import { resumePendingHouseholdPurge } from './src/domain/households/pendingHouseholdPurge';
 import { RestoreService } from './src/data/sync/RestoreService';
 import type { RestoredHousehold } from './src/data/sync/RestoreService';
 import { SeedBabyStepsUseCase } from './src/domain/babySteps/SeedBabyStepsUseCase';
@@ -233,6 +234,11 @@ function ensureSyncRuntime(): Promise<{ engine: SyncEngine; scheduler: SyncSched
 /** LOCAL ONLY — reads/writes local SQLite exclusively (EnsureHouseholdUseCase
  * never touches the network). Safe to await on the boot gate. */
 async function initSessionLocal(userId: string): Promise<void> {
+  // A leave interrupted after its op was pushed but before the local purge
+  // committed finishes HERE — before household resolution picks where this
+  // user lands. Local-only, never throws, never waits on the network.
+  await resumePendingHouseholdPurge({ db, userId, slipImages: slipLocalStore });
+
   const uc = new EnsureHouseholdUseCase(db, userId);
   const result = await uc.execute();
   const store = useAppStore.getState();

@@ -169,6 +169,64 @@ describe('HouseholdNotifier', () => {
     ]);
   });
 
+  it('sends refund_recorded with its typed fields, same as transaction_created', async () => {
+    const supabase = makeFakeSupabase();
+    const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);
+    const notifier = new HouseholdNotifier({
+      supabase,
+      db,
+      preferencesRepository: makePrefsRepo(),
+      now: () => 1_000,
+    });
+
+    notifier.notifyHousehold({
+      kind: 'refund_recorded',
+      householdId: 'h1',
+      senderId: 'u1',
+      amountCents: 2_500,
+      envelopeName: 'Groceries',
+      payee: 'Woolworths',
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(supabase.functions.invoke).toHaveBeenCalledTimes(1);
+    expect(supabase.functions.invoke).toHaveBeenCalledWith('notify-event', {
+      body: {
+        householdId: 'h1',
+        event: {
+          kind: 'refund_recorded',
+          amountCents: 2_500,
+          envelopeName: 'Groceries',
+          payee: 'Woolworths',
+        },
+      },
+    });
+  });
+
+  it('skips sending a refund_recorded notification when householdActivityEnabled is off', async () => {
+    const supabase = makeFakeSupabase();
+    const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);
+    const notifier = new HouseholdNotifier({
+      supabase,
+      db,
+      preferencesRepository: makePrefsRepo(false),
+      now: () => 1_000,
+    });
+
+    notifier.notifyHousehold({
+      kind: 'refund_recorded',
+      householdId: 'h1',
+      senderId: 'u1',
+      amountCents: 2_500,
+      envelopeName: 'Groceries',
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(supabase.functions.invoke).not.toHaveBeenCalled();
+  });
+
   it('omits an empty optional free-text field and truncates an over-long one', async () => {
     const supabase = makeFakeSupabase();
     const db = makeFakeDb([{ userId: 'u1' }, { userId: 'u2' }]);

@@ -163,6 +163,13 @@ jest.mock('./src/domain/households/EnsureHouseholdUseCase', () => {
   };
 });
 
+// The interrupted-leave resume runs first inside initSessionLocal. Its own
+// behaviour is proven in src/domain/households/pendingHouseholdPurge.test.ts;
+// here it only has to not reach AsyncStorage or the stubbed database.
+jest.mock('./src/domain/households/pendingHouseholdPurge', () => ({
+  resumePendingHouseholdPurge: jest.fn().mockResolvedValue([]),
+}));
+
 jest.mock('./src/data/sync/RestoreService', () => {
   // Hangs forever by default -- stands in for "offline"/a dead network call.
   // The boot gate must NEVER await this.
@@ -369,6 +376,30 @@ describe('App boot (Task 5)', () => {
     // exercise App.tsx's module evaluation; asserted here rather than a
     // dedicated test, which would see 0 calls after `jest.clearAllMocks()`.
     expect(SplashScreen.preventAutoHideAsync).toHaveBeenCalled();
+  });
+
+  it('resumes an interrupted household leave BEFORE deciding which household the user lands in', async () => {
+    // Order matters: a leave whose purge was cut short must be finished before
+    // EnsureHouseholdUseCase reads the local tables, or boot could resolve the
+    // user into (or around) a household that is about to be wiped.
+    const { resumePendingHouseholdPurge: mockResume } = jest.requireMock(
+      './src/domain/households/pendingHouseholdPurge',
+    ) as { resumePendingHouseholdPurge: jest.Mock };
+    // A user id no other test uses: session init runs once per user id for the
+    // lifetime of the App module (initSessionOnce).
+    setSession({ user: { id: 'user-resume-order' } });
+    mockEnsureExecute.mockResolvedValue(successResult('hh-1'));
+
+    const { findByTestId } = render(<App />);
+    await findByTestId('root-navigator');
+
+    expect(mockResume).toHaveBeenCalledTimes(1);
+    expect(mockResume).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-resume-order' }),
+    );
+    expect(mockResume.mock.invocationCallOrder[0]).toBeLessThan(
+      mockEnsureExecute.mock.invocationCallOrder[0],
+    );
   });
 
   it('hides the native splash screen once local boot is ready, not before', async () => {

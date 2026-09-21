@@ -44,6 +44,7 @@ jest.mock('../../../../components/envelopes/AdjustSavedAmountDialog', () => ({
 
 import { EnvelopeDetailSheet } from '../EnvelopeDetailSheet';
 import type { EnvelopeEntity } from '../../../../../domain/envelopes/EnvelopeEntity';
+import { formatCurrency } from '../../../../utils/currency';
 
 const SPEND_ENVELOPE: EnvelopeEntity = {
   id: 'env-1',
@@ -68,6 +69,17 @@ const PERSISTENT_ENVELOPE: EnvelopeEntity = {
   envelopeType: 'emergency_fund',
   allocatedCents: 100000,
   spentCents: 900000,
+};
+
+// REFUNDS: a transaction amount may be negative, so an envelope's derived
+// `spentCents` (a signed sum) can be NEGATIVE — refunds exceeded purchases —
+// which makes `remaining` legitimately exceed `allocatedCents`.
+const NET_REFUNDED_ENVELOPE: EnvelopeEntity = {
+  ...SPEND_ENVELOPE,
+  id: 'env-refunded',
+  name: 'Car Repairs',
+  allocatedCents: 200000,
+  spentCents: -5000,
 };
 
 describe('EnvelopeDetailSheet', () => {
@@ -460,5 +472,92 @@ describe('EnvelopeDetailSheet', () => {
     );
     fireEvent.press(await findByTestId('envelope-detail-adjust-saved'));
     expect(getByTestId('adjust-saved-dialog-stub')).toBeTruthy();
+  });
+
+  it('reads a net-refunded envelope as "Refunded +R…", not a raw negative "Spent"', async () => {
+    const { findByTestId, getByText, queryByText, getByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={NET_REFUNDED_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    await findByTestId('envelope-detail-sheet');
+    // Label reads "Refunded", not "Spent", when net spend is negative.
+    expect(getByText('Refunded')).toBeTruthy();
+    // The figure reads as money coming BACK ("+R50,00"), never a bare "-R50,00".
+    expect(getByText(`+${formatCurrency(5000)}`)).toBeTruthy();
+    expect(queryByText(`-${formatCurrency(5000)}`)).toBeNull();
+    expect(queryByText(formatCurrency(-5000))).toBeNull();
+    // Remaining legitimately exceeds allocated (200000 + 5000 back = 205000)
+    // and must show the true amount, not clamp to the allocation.
+    expect(getByText(formatCurrency(205000))).toBeTruthy();
+    // The accessibility label spells out what the number means in words.
+    const spentStat = getByTestId('envelope-detail-spent-stat');
+    expect(String(spentStat.props.accessibilityLabel).toLowerCase()).toContain('refunded');
+  });
+
+  it('shows an ordinary (non-refunded) envelope\'s spend unchanged: "Spent", unsigned, remaining not exceeding allocated', async () => {
+    const { findByTestId, getByText, getByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={SPEND_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    await findByTestId('envelope-detail-sheet');
+    expect(getByText('Spent')).toBeTruthy();
+    expect(getByText(formatCurrency(50000))).toBeTruthy();
+    const spentStat = getByTestId('envelope-detail-spent-stat');
+    expect(String(spentStat.props.accessibilityLabel).toLowerCase()).toContain('spent');
+  });
+
+  it('shows a refund transaction row as "+R… back" with an explicit "Refund" label, not colour alone', async () => {
+    mockResolveEnvelopeTransactions.mockResolvedValue([
+      {
+        id: 'tx-refund-1',
+        householdId: 'hh-1',
+        envelopeId: 'env-refunded',
+        amountCents: -3000,
+        payee: 'Mechanic refund',
+        description: null,
+        transactionDate: '2026-09-10',
+        isBusinessExpense: false,
+        spendingTriggerNote: null,
+        createdAt: '2026-09-10',
+        updatedAt: '2026-09-10',
+      },
+    ]);
+    const { findByTestId, getByText, getByTestId } = render(
+      <EnvelopeDetailSheet
+        visible
+        envelope={NET_REFUNDED_ENVELOPE}
+        householdId="hh-1"
+        savedCentsByEnvelopeId={new Map()}
+        onDismiss={onDismiss}
+        currentPeriodStart="2026-09-01"
+        onAddTransaction={onAddTransaction}
+        onOpenTransaction={onOpenTransaction}
+        onEditEnvelope={onEditEnvelope}
+      />,
+    );
+    expect(await findByTestId('envelope-detail-tx-tx-refund-1')).toBeTruthy();
+    expect(getByTestId('envelope-detail-tx-refund-label-tx-refund-1')).toBeTruthy();
+    expect(getByText('Refund')).toBeTruthy();
+    expect(getByText(`+${formatCurrency(3000)}`)).toBeTruthy();
+    const row = getByTestId('envelope-detail-tx-tx-refund-1');
+    expect(String(row.props.accessibilityLabel).toLowerCase()).toContain('refund');
   });
 });

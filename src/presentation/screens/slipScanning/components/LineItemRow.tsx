@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Switch } from 'react-native';
 import { Text, TextInput, TouchableRipple, IconButton } from 'react-native-paper';
 import { spacing } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme/useAppTheme';
@@ -21,6 +21,15 @@ export type LineItemRowProps = {
    * (see SlipQueueScreen), which must never look editable.
    */
   onDescriptionChange?: (idx: number, description: string) => void;
+  /**
+   * REF-SLIP: `amountCents` is SIGNED — negative means a discount / voucher /
+   * returned item, which `ConfirmSlipUseCase` writes as a negative
+   * transaction that the envelope's derived `SUM(amount_cents)` nets out.
+   * The amount FIELD always holds a positive number; the "Discount / refund"
+   * switch below it is what decides the sign (the same split
+   * AddTransactionScreen's Refund toggle uses, and the reason the shared
+   * `parseMoneyInput` can go on rejecting a typed "-").
+   */
   onAmountChange?: (idx: number, amountCents: number) => void;
   onRemove?: (idx: number) => void;
   readOnly?: boolean;
@@ -62,6 +71,13 @@ export function LineItemRow({
       ? 'low confidence'
       : 'confident';
 
+  // REF-SLIP: derived from the (signed) item rather than held as its own
+  // state, so the switch can never drift out of sync with the value that
+  // actually gets confirmed — including for a line the extractor already
+  // returned negative ("DISCOUNT -5,00"), which must render as a discount on
+  // first paint with no user interaction.
+  const isDiscount = item.amountCents < 0;
+
   function handleAmountChangeText(text: string): void {
     setAmountDraft(text);
     const parsed = parseMoneyInput(text);
@@ -70,7 +86,16 @@ export function LineItemRow({
       return;
     }
     setAmountError(null);
-    onAmountChange?.(index, parsed.cents);
+    // The typed magnitude, re-signed by the toggle — editing a discount
+    // keeps it a discount instead of silently flipping it to a charge.
+    onAmountChange?.(index, isDiscount ? -parsed.cents : parsed.cents);
+  }
+
+  function handleDiscountToggle(next: boolean): void {
+    // `item.amountCents` is authoritative: every valid keystroke has already
+    // been pushed up through `onAmountChange`, so its magnitude is current.
+    const magnitude = Math.abs(item.amountCents);
+    onAmountChange?.(index, next ? -magnitude : magnitude);
   }
 
   return (
@@ -84,7 +109,7 @@ export function LineItemRow({
         },
       ]}
       testID={`line-item-${index}`}
-      accessibilityLabel={`Line item ${index + 1}: ${item.description}, ${formatCurrency(item.amountCents)}, ${confidenceLabel}`}
+      accessibilityLabel={`Line item ${index + 1}: ${item.description}, ${formatCurrency(item.amountCents)}${isDiscount ? ', discount or refund — money back' : ''}, ${confidenceLabel}`}
     >
       <View style={styles.descRow}>
         {editable ? (
@@ -114,7 +139,11 @@ export function LineItemRow({
             value={amountDraft ?? formatCurrency(item.amountCents).replace(/^-?R/, '')}
             onChangeText={handleAmountChangeText}
             style={styles.amountInput}
-            left={<TextInput.Affix text="R" />}
+            // REF-SLIP: the affix carries the sign so a discount reads
+            // unmistakably as "-R …" even while being typed, without the
+            // field itself ever holding a "-" (which `parseMoneyInput`
+            // rejects by design).
+            left={<TextInput.Affix text={isDiscount ? '-R' : 'R'} />}
             error={amountError !== null}
             testID={`line-item-amount-${index}`}
             accessibilityLabel={`Amount for line item ${index + 1}`}
@@ -129,6 +158,39 @@ export function LineItemRow({
         <Text variant="bodySmall" style={{ color: colors.error, marginBottom: 4 }}>
           {amountError}
         </Text>
+      )}
+      {/* REF-SLIP: the sign lives here, not in the Amount field — mirroring
+          AddTransactionScreen's Refund toggle. A negative line is marked by
+          a WORDED label (and the signed amount above), never by colour
+          alone, so it survives a colour-blind or greyscale reading. */}
+      {editable ? (
+        <View style={styles.discountRow}>
+          <Text
+            variant="bodySmall"
+            style={{ color: isDiscount ? colors.success : colors.onSurfaceVariant }}
+            testID={`line-item-discount-label-${index}`}
+          >
+            Discount / refund (money back)
+          </Text>
+          <Switch
+            value={isDiscount}
+            onValueChange={handleDiscountToggle}
+            testID={`line-item-discount-toggle-${index}`}
+            accessibilityLabel={`Discount or refund for line item ${index + 1} — record this line as money coming back, not money spent`}
+            trackColor={{ true: colors.success, false: colors.surfaceVariant }}
+            thumbColor={colors.onPrimary}
+          />
+        </View>
+      ) : (
+        isDiscount && (
+          <Text
+            variant="bodySmall"
+            style={{ color: colors.success, marginBottom: 4 }}
+            testID={`line-item-discount-label-${index}`}
+          >
+            Discount / refund (money back)
+          </Text>
+        )
       )}
       <View style={styles.footerRow}>
         <TouchableRipple
@@ -189,6 +251,15 @@ const styles = StyleSheet.create({
   descInput: { flex: 1, marginRight: spacing.sm },
   amountInput: { width: 120 },
   footerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // REF-SLIP: its own row rather than a third element in `footerRow`, which
+  // already holds the envelope picker and the destructive remove button —
+  // crowding a third control in there would shrink both existing targets.
+  discountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   // UX2-19: 44dp is the minimum comfortable touch target — the old 24dp
   // paddingVertical:4 row made both the (frequent) envelope picker and the
   // (destructive) remove action easy to mis-tap.
