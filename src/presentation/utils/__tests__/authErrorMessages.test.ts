@@ -81,6 +81,18 @@ describe('getFriendlyAuthErrorMessage', () => {
         }),
       ).toBe(FRIENDLY_AUTH_MESSAGES.invalidCredentials);
     });
+
+    it('prefers the provider code in context over the top-level DOMAIN code', () => {
+      // The real shape SupabaseAuthService returns: the domain code sits at the
+      // top level and would otherwise shadow the provider code entirely.
+      expect(
+        getFriendlyAuthErrorMessage({
+          code: 'AUTH_SIGN_IN_FAILED',
+          message: 'Sign in failed',
+          context: { code: 'email_not_confirmed' },
+        }),
+      ).toBe(FRIENDLY_AUTH_MESSAGES.unconfirmedEmail);
+    });
   });
 
   describe('unconfirmed email', () => {
@@ -118,24 +130,29 @@ describe('getFriendlyAuthErrorMessage', () => {
   });
 
   describe('weak password', () => {
-    it('shows AuthWeakPasswordError message as-is (plain wording, not the generic fallback)', () => {
+    it('maps AuthWeakPasswordError to fixed app copy, never the provider text', () => {
       const raw = new AuthWeakPasswordError('Password should be at least 6 characters.', 422, [
         'length',
       ]);
-      expect(getFriendlyAuthErrorMessage(raw)).toBe('Password should be at least 6 characters.');
+      expect(getFriendlyAuthErrorMessage(raw)).toBe(FRIENDLY_AUTH_MESSAGES.weakPassword);
     });
   });
 
   describe('already registered', () => {
-    it('shows AuthApiError("User already registered", 422, "user_already_exists") as-is', () => {
+    it('maps AuthApiError("User already registered", 422, "user_already_exists") to fixed copy', () => {
       const raw = new AuthApiError('User already registered', 422, 'user_already_exists');
-      expect(getFriendlyAuthErrorMessage(raw)).toBe('User already registered');
+      expect(getFriendlyAuthErrorMessage(raw)).toBe(FRIENDLY_AUTH_MESSAGES.alreadyRegistered);
     });
 
     it('maps a plain "already registered" message by text when there is no code', () => {
       expect(getFriendlyAuthErrorMessage({ message: 'This email is already registered' })).toBe(
-        'This email is already registered',
+        FRIENDLY_AUTH_MESSAGES.alreadyRegistered,
       );
+    });
+
+    it('never leaks internal text that merely looks like "already exists"', () => {
+      const leaky = 'relation "auth.users" already exists';
+      expect(getFriendlyAuthErrorMessage({ message: leaky })).not.toContain('auth.users');
     });
   });
 

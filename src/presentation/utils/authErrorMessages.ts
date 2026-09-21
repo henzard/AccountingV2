@@ -70,6 +70,8 @@ export const FRIENDLY_AUTH_MESSAGES = {
   unconfirmedEmail:
     'Please confirm your email address first — check your inbox for the confirmation link.',
   invalidCredentials: 'Incorrect email or password. Please try again.',
+  weakPassword: 'That password is too weak. Use at least 8 characters.',
+  alreadyRegistered: 'An account with this email already exists. Try signing in instead.',
   fallback: 'Something went wrong. Please try again.',
 } as const;
 
@@ -103,7 +105,10 @@ export function getFriendlyAuthErrorMessage(error: unknown, logContext?: string)
   );
 
   const message = typeof err.message === 'string' ? err.message : undefined;
-  const code = (typeof err.code === 'string' ? err.code : undefined) ?? err.context?.code;
+  // A wrapped failure carries the DOMAIN code at the top level (e.g.
+  // AUTH_SIGN_IN_FAILED) and the provider's code in `context` — the provider
+  // code is the one the branches below understand, so it wins.
+  const code = err.context?.code ?? (typeof err.code === 'string' ? err.code : undefined);
   const status = (typeof err.status === 'number' ? err.status : undefined) ?? err.context?.status;
   const name = err.name;
 
@@ -137,21 +142,22 @@ export function getFriendlyAuthErrorMessage(error: unknown, logContext?: string)
     return FRIENDLY_AUTH_MESSAGES.invalidCredentials;
   }
 
-  // Weak password / already registered — Supabase's own message is already
-  // plain, actionable copy ("Password should be at least 6 characters."),
-  // so show it as-is rather than a generic fallback.
+  // Weak password / already registered. Fixed app-authored copy, never the
+  // provider's text: these branches can also be reached by a loose message
+  // match (e.g. an internal `relation "…" already exists`), and raw text
+  // must not reach the screen.
   if (
     code === 'weak_password' ||
     name === 'AuthWeakPasswordError' ||
     matchesAny(message, WEAK_PASSWORD_MESSAGE_PATTERNS)
   ) {
-    return message ?? FRIENDLY_AUTH_MESSAGES.fallback;
+    return FRIENDLY_AUTH_MESSAGES.weakPassword;
   }
   if (
     (code !== undefined && ALREADY_REGISTERED_CODES.has(code)) ||
     matchesAny(message, ALREADY_REGISTERED_MESSAGE_PATTERNS)
   ) {
-    return message ?? FRIENDLY_AUTH_MESSAGES.fallback;
+    return FRIENDLY_AUTH_MESSAGES.alreadyRegistered;
   }
 
   return FRIENDLY_AUTH_MESSAGES.fallback;

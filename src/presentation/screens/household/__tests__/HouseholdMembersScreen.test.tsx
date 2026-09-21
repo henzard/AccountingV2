@@ -2,7 +2,7 @@
  * HouseholdMembersScreen.test.tsx — roster, owner-only removal, leaving.
  */
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { RefreshControl } from 'react-native';
 
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
@@ -394,7 +394,7 @@ describe('HouseholdMembersScreen', () => {
           }),
       );
       const refreshControl = UNSAFE_getByType(RefreshControl);
-      const slowRefresh = refreshControl.props.onRefresh();
+      refreshControl.props.onRefresh();
 
       mockListExecute.mockResolvedValueOnce({ success: true, data: [OWNER, CO_OWNER] });
       await refreshControl.props.onRefresh();
@@ -403,8 +403,14 @@ describe('HouseholdMembersScreen', () => {
       expect(queryByTestId('member-row-u-member')).toBeNull();
 
       // Now the stale, slower response resolves — it must be discarded.
-      resolveSlow({ success: true, data: [MEMBER] });
-      await slowRefresh;
+      // onRefresh is fire-and-forget (returns undefined), so awaiting its
+      // return value would prove nothing: resolve inside act and flush the
+      // microtasks so a stale overwrite, if any, has really been committed.
+      await act(async () => {
+        resolveSlow({ success: true, data: [MEMBER] });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
 
       expect(getByTestId('member-row-u-owner-2')).toBeTruthy();
       expect(queryByTestId('member-row-u-member')).toBeNull();

@@ -39,6 +39,12 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   // focus so the resync below never clobbers what the user is mid-typing.
   const [hourFocused, setHourFocused] = useState(false);
   const [minuteFocused, setMinuteFocused] = useState(false);
+  // Whether the user actually TYPED in the field during this focus. A field
+  // that was only tapped must not be persisted on blur: if the store
+  // hydrated meanwhile, that would write the stale pre-hydration value back
+  // over the real preference.
+  const hourEditedRef = useRef(false);
+  const minuteEditedRef = useRef(false);
 
   useEffect(() => {
     if (!hourFocused) setHourInput(String(preferences.eveningLogPromptHour));
@@ -164,10 +170,20 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                   <TextInput
                     label="Hour (0-23)"
                     value={hourInput}
-                    onChangeText={setHourInput}
-                    onFocus={() => setHourFocused(true)}
+                    onChangeText={(v) => {
+                      hourEditedRef.current = true;
+                      setHourInput(v);
+                    }}
+                    onFocus={() => {
+                      hourEditedRef.current = false;
+                      setHourFocused(true);
+                    }}
                     onBlur={() => {
                       setHourFocused(false);
+                      if (!hourEditedRef.current) {
+                        setHourError(null);
+                        return;
+                      }
                       if (hourInput === '') {
                         setHourError(null);
                         return;
@@ -195,10 +211,20 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                   <TextInput
                     label="Minute (0-59)"
                     value={minuteInput}
-                    onChangeText={setMinuteInput}
-                    onFocus={() => setMinuteFocused(true)}
+                    onChangeText={(v) => {
+                      minuteEditedRef.current = true;
+                      setMinuteInput(v);
+                    }}
+                    onFocus={() => {
+                      minuteEditedRef.current = false;
+                      setMinuteFocused(true);
+                    }}
                     onBlur={() => {
                       setMinuteFocused(false);
+                      if (!minuteEditedRef.current) {
+                        setMinuteError(null);
+                        return;
+                      }
                       if (minuteInput === '') {
                         setMinuteError(null);
                         return;

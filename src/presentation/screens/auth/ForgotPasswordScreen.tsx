@@ -41,6 +41,7 @@ export function ForgotPasswordScreen(): React.JSX.Element {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendError, setResendError] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
+  const resendSeqRef = useRef(0);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearCooldownTimer = (): void => {
@@ -97,9 +98,13 @@ export function ForgotPasswordScreen(): React.JSX.Element {
     if (resendCooldown > 0 || resending) return;
     setResendError(null);
     setResending(true);
+    const seq = ++resendSeqRef.current;
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(sentEmail, {
       redirectTo: RESET_PASSWORD_REDIRECT_URL,
     });
+    // The user went back to edit the address (or left) while this was in
+    // flight: its outcome belongs to the OLD address.
+    if (seq !== resendSeqRef.current) return;
     setResending(false);
     if (resetError) {
       setResendError(getFriendlyAuthErrorMessage(resetError, 'ForgotPasswordScreen.resend'));
@@ -114,6 +119,8 @@ export function ForgotPasswordScreen(): React.JSX.Element {
   // Returns to the form WITHOUT clearing what was typed, so the user can fix
   // a typo'd address rather than re-typing it.
   const handleEditEmail = (): void => {
+    resendSeqRef.current += 1;
+    setResending(false);
     clearCooldownTimer();
     setResendCooldown(0);
     setResendError(null);

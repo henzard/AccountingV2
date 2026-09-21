@@ -37,7 +37,9 @@ export class BootErrorBoundary extends React.Component<Props, State> {
     this.setState({ shareFailed: false });
     Share.share({
       message: `${err.message}\n\n${err.stack ?? '(no stack)'}`,
-    }).catch(() => {
+    }).catch((shareErr: unknown) => {
+      // Closing the web share sheet rejects with AbortError — not a failure.
+      if (shareErr instanceof Error && shareErr.name === 'AbortError') return;
       // This boundary renders when the app crashed, so it must not depend on
       // any store/provider that may not exist — e.g. react-native-web's
       // Share.share rejects outright when navigator.share is unavailable

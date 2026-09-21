@@ -254,7 +254,7 @@ describe('SignUpScreen', () => {
       });
     });
 
-    it('keeps a weak-password message as plain wording (not the generic fallback)', async () => {
+    it('shows fixed app copy for a weak password (not the provider text, not the generic fallback)', async () => {
       mockSignUp.mockResolvedValue({
         error: { message: 'Password should be at least 6 characters.', code: 'weak_password' },
       });
@@ -265,7 +265,7 @@ describe('SignUpScreen', () => {
       fireEvent.press(getByText('Create Account'));
       await waitFor(() => {
         expect(getByTestId('signup-error').props.children).toBe(
-          'Password should be at least 6 characters.',
+          'That password is too weak. Use at least 8 characters.',
         );
       });
     });

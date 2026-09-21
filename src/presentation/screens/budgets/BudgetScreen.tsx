@@ -30,6 +30,7 @@ import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { EnvelopeDetailSheet } from '../dashboard/components/EnvelopeDetailSheet';
 import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeSavings';
+import { useReloadOnSync } from '../../hooks/useReloadOnSync';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
@@ -101,11 +102,19 @@ export const BudgetScreen: React.FC = () => {
   const [rolloverFromPeriodStart, setRolloverFromPeriodStart] = useState(currentPeriodStart);
   const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeEntity | null>(null);
 
+  // The saved balances come from their own hook: reload them wherever the
+  // envelopes reload (focus, pull-to-refresh) and when a sync round lands, or
+  // a contribution pulled from the other phone leaves a stale "saved" figure.
+  const reloadAll = useCallback(async (): Promise<void> => {
+    await Promise.all([reload(), reloadSavings()]);
+  }, [reload, reloadSavings]);
+
   useFocusEffect(
     useCallback(() => {
-      void reload();
-    }, [reload]),
+      void reloadAll();
+    }, [reloadAll]),
   );
+  useReloadOnSync(reloadSavings);
 
   // Looks up the latest earlier period that actually has envelopes and opens
   // the rollover wizard from it (UX-1/DOM-2/VAL-2); if none exists (brand-new
@@ -327,7 +336,11 @@ export const BudgetScreen: React.FC = () => {
             // REG-9: `loading` is first-load-only — using it here meant the
             // platform pull-to-refresh spinner stopped reflecting an
             // in-flight reload the moment the first load finished.
-            <RefreshControl refreshing={refreshing} onRefresh={reload} colors={[colors.primary]} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={reloadAll}
+              colors={[colors.primary]}
+            />
           }
           stickySectionHeadersEnabled={false}
         />

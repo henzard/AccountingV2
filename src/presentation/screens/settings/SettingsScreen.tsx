@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, StyleSheet, Switch } from 'react-native';
 import {
   List,
@@ -71,30 +71,50 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   // is reflected here. Defaults to null (not consented / unknown) until
   // resolved.
   const [slipConsentAt, setSlipConsentAt] = useState<string | null>(null);
+  // A failed read is NOT "no consent": it must not hide Withdraw behind a
+  // state that looks like the user never agreed.
+  const [slipConsentLoadFailed, setSlipConsentLoadFailed] = useState(false);
   const [withdrawingConsent, setWithdrawingConsent] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(WIFI_ONLY_KEY).then((v) => setWifiOnly(v === 'true'));
   }, []);
 
-  useEffect(() => {
+  const consentLoadSeq = useRef(0);
+  const loadSlipConsent = useCallback((): void => {
+    const seq = ++consentLoadSeq.current;
     if (!userId) {
       setSlipConsentAt(null);
+      setSlipConsentLoadFailed(false);
       return;
     }
-    let cancelled = false;
     userConsentRepo
       .get(userId)
       .then((row) => {
-        if (!cancelled) setSlipConsentAt(row?.slipScanConsentAt ?? null);
+        if (seq !== consentLoadSeq.current) return;
+        setSlipConsentAt(row?.slipScanConsentAt ?? null);
+        setSlipConsentLoadFailed(false);
       })
       .catch(() => {
-        if (!cancelled) setSlipConsentAt(null);
+        if (seq !== consentLoadSeq.current) return;
+        setSlipConsentLoadFailed(true);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [userId]);
+
+  // On mount / user change, and again whenever the screen regains focus: the
+  // stack keeps Settings mounted while the consent screen is open, so
+  // agreeing there and coming back must show Withdraw without a remount.
+  useEffect(() => {
+    loadSlipConsent();
+    const unsubscribe =
+      typeof navigation?.addListener === 'function'
+        ? navigation.addListener('focus', loadSlipConsent)
+        : undefined;
+    return () => {
+      consentLoadSeq.current += 1;
+      unsubscribe?.();
+    };
+  }, [loadSlipConsent, navigation]);
 
   const handleWithdrawSlipConsent = async (): Promise<void> => {
     if (!userId || withdrawingConsent) return;
@@ -343,9 +363,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             description={
               // SET-1: show the recorded state (date) once consent has been
               // granted, instead of always saying "Manage your consent".
-              slipConsentAt
-                ? `Consented on ${format(new Date(slipConsentAt), 'MMM d, yyyy')}`
-                : 'Manage your consent'
+              slipConsentLoadFailed
+                ? 'Couldn’t load your consent status'
+                : slipConsentAt
+                  ? `Consented on ${format(new Date(slipConsentAt), 'MMM d, yyyy')}`
+                  : 'Manage your consent'
             }
             left={(props) => <List.Icon {...props} icon="shield-account-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
@@ -365,6 +387,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             }
             testID="slip-consent-item"
           />
+          {slipConsentLoadFailed && (
+            <>
+              <Divider />
+              <List.Item
+                title="Try again"
+                description="Reload your slip scanning consent status"
+                left={(props) => <List.Icon {...props} icon="refresh" />}
+                onPress={loadSlipConsent}
+                testID="slip-consent-retry-item"
+              />
+            </>
+          )}
           {slipConsentAt !== null && (
             <>
               <Divider />

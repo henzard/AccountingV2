@@ -41,6 +41,7 @@ export function SignUpScreen(): React.JSX.Element {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendError, setResendError] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
+  const resendSeqRef = useRef(0);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearCooldownTimer = (): void => {
@@ -113,7 +114,12 @@ export function SignUpScreen(): React.JSX.Element {
     if (resendCooldown > 0 || resending) return;
     setResendError(null);
     setResending(true);
+    const seq = ++resendSeqRef.current;
     const { error } = await supabase.auth.resend({ type: 'signup', email: submittedEmail });
+    // The user went back to edit the address (or left) while this was in
+    // flight: its outcome belongs to the OLD address and must not touch the
+    // next confirmation state.
+    if (seq !== resendSeqRef.current) return;
     setResending(false);
     if (error) {
       setResendError(getFriendlyAuthErrorMessage(error, 'SignUpScreen.resend'));
@@ -126,6 +132,8 @@ export function SignUpScreen(): React.JSX.Element {
   // and confirm are still in state — so the user can just fix a typo'd
   // address rather than re-typing everything.
   const handleEditEmail = (): void => {
+    resendSeqRef.current += 1;
+    setResending(false);
     clearCooldownTimer();
     setResendCooldown(0);
     setResendError(null);

@@ -58,7 +58,9 @@ export function BootRecoveryGate({ children }: Props): React.JSX.Element {
     setShareFailed(false);
     Share.share({
       message: `[${crash.timestamp}] ${crash.step}\n${crash.message}\n\n${crash.stack}`,
-    }).catch(() => {
+    }).catch((shareErr: unknown) => {
+      // Closing the web share sheet rejects with AbortError — not a failure.
+      if (shareErr instanceof Error && shareErr.name === 'AbortError') return;
       // This gate renders when boot itself failed, so it must not depend on
       // any store/provider that may not exist — e.g. react-native-web's
       // Share.share rejects outright when navigator.share is unavailable
