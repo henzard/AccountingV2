@@ -27,9 +27,23 @@ export function subscribeToForegroundMessages(): () => void {
 
     useToastStore.getState().enqueue([title, body].filter(Boolean).join(': '), 'info');
 
-    const householdId = useAppStore.getState().householdId;
-    if (householdId) {
-      void requestSyncNow(householdId).catch((err: unknown) => {
+    // PUSH-3: sync the household the push is ABOUT (notify-event's
+    // `data.householdId`, see index.ts's `buildV1Message`), not necessarily
+    // the one currently being viewed — otherwise a push about household B
+    // arriving while household A is open would refresh the wrong household
+    // and leave B's change unsynced until the next scheduled sync. Falls
+    // back to the current household when `data.householdId` is absent (an
+    // older server build, or the legacy request shape) or the user is no
+    // longer a member of it (removed/left since the push was queued).
+    const { householdId: currentHouseholdId, availableHouseholds } = useAppStore.getState();
+    const pushedHouseholdId = message.data?.householdId;
+    const isMemberOfPushedHousehold =
+      typeof pushedHouseholdId === 'string' &&
+      availableHouseholds.some((h) => h.id === pushedHouseholdId);
+    const syncHouseholdId = isMemberOfPushedHousehold ? pushedHouseholdId : currentHouseholdId;
+
+    if (syncHouseholdId) {
+      void requestSyncNow(syncHouseholdId).catch((err: unknown) => {
         logger.warn('[ForegroundMessageHandler] requestSyncNow after push failed', {
           err: String(err),
         });

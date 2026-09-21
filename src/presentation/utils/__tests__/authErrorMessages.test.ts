@@ -15,12 +15,24 @@ jest.mock('../../../infrastructure/logging/Logger', () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { logger } = require('../../../infrastructure/logging/Logger') as {
-  logger: { error: jest.Mock };
+  logger: { error: jest.Mock; warn: jest.Mock };
 };
 
 describe('getFriendlyAuthErrorMessage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('does not raise a Crashlytics non-fatal for an expected outcome like a wrong password', () => {
+    // logger.error forwards to Crashlytics; a typo'd password is not an app error.
+    getFriendlyAuthErrorMessage(
+      { code: 'AUTH_SIGN_IN_FAILED', message: 'x', context: { code: 'invalid_credentials' } },
+      'LoginScreen.signIn',
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    // The warn payload carries our own copy only — never the raw provider text.
+    expect(JSON.stringify(logger.warn.mock.calls[0])).not.toContain('"x"');
   });
 
   it('logs the raw error through the project logger and never returns its message verbatim for a generic failure', () => {

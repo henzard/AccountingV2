@@ -59,6 +59,19 @@ describe('EnvelopeEntity pure functions', () => {
       expect(getRemainingCents(overspent)).toBe(-45000);
       expect(getPercentRemaining(overspent)).toBe(0);
     });
+    // REFUNDS: a negative `spentCents` (refunds exceeding purchases on a
+    // derived signed SUM) must not read as more than a full envelope.
+    it('returns 100 (not more) when the envelope is net-refunded', () => {
+      expect(getPercentRemaining(makeEnvelope(100000, -30000))).toBe(100);
+    });
+    it('stays consistent with the other helpers when net-refunded', () => {
+      const refunded = makeEnvelope(100000, -30000);
+      expect(isOverBudget(refunded)).toBe(false);
+      // The card still shows the true, larger-than-allocated cash figure —
+      // only the PERCENTAGE (and therefore the fill bar) is clamped.
+      expect(getRemainingCents(refunded)).toBe(130000);
+      expect(getPercentRemaining(refunded)).toBe(100);
+    });
   });
 
   describe('isOverBudget', () => {

@@ -60,12 +60,46 @@ describe('CreateTransactionUseCase', () => {
     expect(repo.insert).not.toHaveBeenCalled();
   });
 
-  it('returns failure when amountCents is negative', async () => {
+  // REFUNDS: a negative amountCents is a refund / reversal / store credit and
+  // is written to the ledger verbatim. This case previously asserted the
+  // opposite; the domain rule deliberately changed from "greater than zero"
+  // to "non-zero" (see transactionValidation).
+  it('inserts a NEGATIVE amountCents verbatim (a refund)', async () => {
     const repo = makeFakeRepo();
     const uc = new CreateTransactionUseCase(
       mockDb,
       mockAudit,
-      { ...input, amountCents: -100 },
+      { ...input, amountCents: -2500 },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.amountCents).toBe(-2500);
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+    expect(repo.insert.mock.calls[0][0]).toMatchObject({ amount_cents: -2500 });
+  });
+
+  it('still rejects a refund against an income envelope', async () => {
+    mockDb.select = makeSelectMock([{ id: 'e1', envelopeType: 'income' }]);
+    const repo = makeFakeRepo();
+    const uc = new CreateTransactionUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, amountCents: -2500 },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_ENVELOPE_TYPE');
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('rejects an absurdly large negative amount just like an absurdly large positive one', async () => {
+    const repo = makeFakeRepo();
+    const uc = new CreateTransactionUseCase(
+      mockDb,
+      mockAudit,
+      { ...input, amountCents: -(Number.MAX_SAFE_INTEGER + 10) },
       { repo },
     );
     const result = await uc.execute();

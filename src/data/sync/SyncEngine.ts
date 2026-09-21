@@ -619,6 +619,18 @@ export class SyncEngine {
     return row ? Number(row.c) : 0;
   }
 
+  /** When the OLDEST still-unpushed (not dead-lettered) local op was written
+   * (`client_created_at`, ISO), or null when nothing is pending. Read-only
+   * diagnostic for the sync-health reporter: "changes have been stuck on this
+   * phone for N hours" needs the real age, not when someone first looked. */
+  getOldestPendingCreatedAt(): string | null {
+    const row = this.db.get<{ t: string | null }>(sql`
+      SELECT MIN(client_created_at) AS t FROM oplog
+      WHERE pushed_at IS NULL AND dead_lettered_at IS NULL
+    `);
+    return row?.t ?? null;
+  }
+
   /** Manual unblock for a household's poison-batch pull block (Task 5's Sync
    * Health "Retry" action). `getPullHealth().blocked` otherwise clears only on
    * a process restart (Task 3 review finding) — this lets the UI clear it

@@ -37,8 +37,24 @@ jest.mock('../../../../domain/households/RemoveHouseholdMemberUseCase', () => ({
 }));
 
 const mockLeaveExecute = jest.fn();
+const mockLeaveCtor = jest.fn();
+const mockPreflight = jest.fn();
 jest.mock('../../../../domain/households/LeaveHouseholdUseCase', () => ({
-  LeaveHouseholdUseCase: jest.fn().mockImplementation(() => ({ execute: mockLeaveExecute })),
+  LeaveHouseholdUseCase: jest.fn().mockImplementation((...args: unknown[]) => {
+    mockLeaveCtor(...args);
+    return { execute: mockLeaveExecute };
+  }),
+  inspectLeaveHouseholdPreflight: (...args: unknown[]) => mockPreflight(...args),
+}));
+
+// The on-disk slip image store reaches for expo-file-system; the screen only
+// needs to HAND it to the use case, so the module is stubbed wholesale.
+const mockSlipImageStoreCtor = jest.fn();
+jest.mock('../../../../infrastructure/slipScanning/SlipImageLocalStore', () => ({
+  SlipImageLocalStore: jest.fn().mockImplementation(() => {
+    mockSlipImageStoreCtor();
+    return { delete: jest.fn() };
+  }),
 }));
 
 const mockConfirm = jest.fn();
@@ -158,7 +174,11 @@ describe('HouseholdMembersScreen', () => {
     ];
     mockListExecute.mockResolvedValue({ success: true, data: [OWNER, MEMBER] });
     mockRemoveExecute.mockResolvedValue({ success: true, data: undefined });
-    mockLeaveExecute.mockResolvedValue({ success: true, data: { householdId: 'hh-1' } });
+    mockLeaveExecute.mockResolvedValue({
+      success: true,
+      data: { householdId: 'hh-1', purgedTables: ['households'], deadLetteredDiscarded: 0 },
+    });
+    mockPreflight.mockReturnValue({ unsyncedCount: 0, deadLetteredCount: 0 });
     mockConfirm.mockResolvedValue(true);
   });
 
@@ -415,6 +435,142 @@ describe('HouseholdMembersScreen', () => {
       expect(getByTestId('member-row-u-owner-2')).toBeTruthy();
       expect(queryByTestId('member-row-u-member')).toBeNull();
       expect(queryByTestId('members-error')).toBeNull();
+    });
+  });
+
+  // The product instruction for leaving was "make sure to let the user know
+  // and make sure it's synced". The confirmation is where the user is told,
+  // so its wording is a contract, not decoration.
+  describe('leave confirmation copy and the non-destructive failure states', () => {
+    async function pressLeave(getByTestId: (id: string) => unknown): Promise<void> {
+      mockListExecute.mockResolvedValue({ success: true, data: [OWNER, CO_OWNER] });
+      await waitFor(() => expect(getByTestId('leave-household-btn')).toBeTruthy());
+      fireEvent.press(getByTestId('leave-household-btn') as never);
+    }
+
+    function confirmMessage(): string {
+      return (mockConfirm.mock.calls[0][0] as { message: string }).message;
+    }
+
+    it('says the data leaves THIS phone and stays with the remaining members', async () => {
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      const message = confirmMessage();
+      expect(message).toMatch(/will be removed from this phone/i);
+      expect(message).toMatch(/remaining members keep it all/i);
+      expect(message).toMatch(/rejoin later with a new invite code/i);
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ destructive: true, confirmLabel: 'Leave' }),
+      );
+    });
+
+    it('promises unsynced work is synced first, and names the count', async () => {
+      mockPreflight.mockReturnValue({ unsyncedCount: 3, deadLetteredCount: 0 });
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      expect(confirmMessage()).toMatch(/Your 3 unsynced changes will be synced first/);
+    });
+
+    it('warns, before the user agrees, how many rejected changes are discarded', async () => {
+      mockPreflight.mockReturnValue({ unsyncedCount: 0, deadLetteredCount: 1 });
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      expect(confirmMessage()).toMatch(
+        /1 change the server rejected can never be sent and will be discarded/,
+      );
+    });
+
+    it('mentions neither count when there is nothing outstanding', async () => {
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      expect(confirmMessage()).not.toMatch(/unsynced/);
+      expect(confirmMessage()).not.toMatch(/discarded/);
+    });
+
+    it('still offers the confirmation when the preflight read itself fails', async () => {
+      mockPreflight.mockImplementation(() => {
+        throw new Error('no such table: oplog');
+      });
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      // A failed count must not block leaving — the use case's own oplog
+      // checks are the guarantee; this is only the wording.
+      await waitFor(() => expect(mockLeaveExecute).toHaveBeenCalled());
+      expect(confirmMessage()).toMatch(/will be removed from this phone/i);
+    });
+
+    it('hands the use case a slip image store so the images go with the rows', async () => {
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() => expect(mockLeaveCtor).toHaveBeenCalled());
+      expect(mockLeaveCtor).toHaveBeenCalledWith(
+        expect.anything(),
+        { householdId: 'hh-1', userId: 'u-owner' },
+        expect.objectContaining({ slipImages: expect.anything() }),
+      );
+    });
+
+    it('reports the refusal and changes NOTHING when local work is unsynced', async () => {
+      mockLeaveExecute.mockResolvedValue({
+        success: false,
+        error: {
+          code: 'UNSYNCED_CHANGES',
+          message: "Some changes haven't synced yet. Connect to the internet and try again.",
+        },
+      });
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() =>
+        expect(mockEnqueue).toHaveBeenCalledWith(
+          "Some changes haven't synced yet. Connect to the internet and try again.",
+          'error',
+        ),
+      );
+      expect(mockSetAvailableHouseholds).not.toHaveBeenCalled();
+      expect(mockSetHouseholdId).not.toHaveBeenCalled();
+      expect(mockClearHousehold).not.toHaveBeenCalled();
+      expect(mockNavReset).not.toHaveBeenCalled();
+    });
+
+    it('stays put when the departure could not be pushed', async () => {
+      mockLeaveExecute.mockResolvedValue({
+        success: false,
+        error: { code: 'LEAVE_NOT_SYNCED', message: "the change hasn't reached the others yet" },
+      });
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() =>
+        expect(mockEnqueue).toHaveBeenCalledWith(
+          "the change hasn't reached the others yet",
+          'error',
+        ),
+      );
+      expect(mockSetAvailableHouseholds).not.toHaveBeenCalled();
+      expect(mockClearHousehold).not.toHaveBeenCalled();
+    });
+
+    it('tells the user the data is off this phone once it succeeds', async () => {
+      const { getByTestId } = renderScreen();
+      await pressLeave(getByTestId);
+
+      await waitFor(() =>
+        expect(mockEnqueue).toHaveBeenCalledWith(
+          'You left Kruger Home. Its data is off this phone.',
+          'success',
+        ),
+      );
     });
   });
 });

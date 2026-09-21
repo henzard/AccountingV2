@@ -26,6 +26,10 @@ function pluralize(count: number, noun: string): string {
  */
 export function buildPeriodClosingMessage(envelopes: PeriodEnvelopeSnapshot[]): NudgeMessage {
   const remainingCents = envelopes.reduce(
+    // REFUNDS: a net-refunded envelope (negative `spentCents`) genuinely has
+    // MORE than its allocation available to spend, so it is left uncapped and
+    // reported truthfully. The `Math.max(0, …)` floor is only about an
+    // OVERSPENT envelope, which must not silently eat its siblings' balances.
     (sum, envelope) => sum + Math.max(0, envelope.allocatedCents - envelope.spentCents),
     0,
   );
@@ -46,10 +50,21 @@ export function buildWeeklyCheckInMessage(
   weekSpentCents: number,
 ): NudgeMessage {
   const onTrackCount = envelopes.filter(
+    // A net-refunded envelope has a NEGATIVE spentCents, which is comfortably
+    // within its allocation — it counts as on track, as it should.
     (envelope) => envelope.spentCents <= envelope.allocatedCents,
   ).length;
+  // REFUNDS: `weekSpentCents` is a signed sum over the ledger, so a week whose
+  // refunds outweigh its purchases is NEGATIVE. `formatCurrency` renders that
+  // as "-R250,00", which read "This week: -R250,00 spent" — a double negative
+  // that says the opposite of what happened. A net-refunded week is reworded
+  // instead of being force-fitted into the "spent" phrasing.
+  const spendSummary =
+    weekSpentCents < 0
+      ? `${formatCurrency(Math.abs(weekSpentCents))} back in your budget`
+      : `${formatCurrency(weekSpentCents)} spent`;
   return {
     title: 'Your week in envelopes',
-    body: `This week: ${formatCurrency(weekSpentCents)} spent, ${pluralize(onTrackCount, 'envelope')} on track`,
+    body: `This week: ${spendSummary}, ${pluralize(onTrackCount, 'envelope')} on track`,
   };
 }

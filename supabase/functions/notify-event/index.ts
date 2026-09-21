@@ -173,10 +173,19 @@ export function buildV1Message(
   token: string,
   title: string,
   body: string,
+  // PUSH-2: routing-only metadata for the client's notification-tap handler
+  // (RootNavigator.resolveNotificationTarget). FCM v1 requires every `data`
+  // value to be a string. Never put amounts, payees, names or any other
+  // free-text field in here — the notification text above is already
+  // server-rendered; `data` exists purely so a tap can pick a screen.
+  // Optional (and omitted from the built message when absent) so this stays
+  // backward compatible with callers, and the wire shape, that predate it.
+  data?: Record<string, string>,
 ): {
   message: {
     token: string;
     notification: { title: string; body: string };
+    data?: Record<string, string>;
     android: { priority: 'high' };
     apns: { headers: { 'apns-priority': '10' } };
   };
@@ -185,10 +194,26 @@ export function buildV1Message(
     message: {
       token,
       notification: { title, body },
+      ...(data ? { data } : {}),
       android: { priority: 'high' },
       apns: { headers: { 'apns-priority': '10' } },
     },
   };
+}
+
+/** PUSH-2: maps a rendered event to one of a small, fixed set of client
+ * routes that actually exist (src/presentation/navigation/types.ts) — a
+ * Transactions tab, or the Dashboard as the catch-all for anything that
+ * isn't specifically about spending/budget. Exported so every branch is
+ * directly testable without a full request round trip. */
+export function pushTargetForKind(kind: NotifyEventKind): 'Transactions' | 'Dashboard' {
+  switch (kind) {
+    case 'transaction_created':
+    case 'envelope_over_budget':
+      return 'Transactions';
+    default:
+      return 'Dashboard';
+  }
 }
 
 function parseServiceAccount(raw: string): FcmServiceAccount | null {
@@ -608,6 +633,16 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
 
   // 9. Send one FCM v1 message per token; prune tokens FCM reports as dead.
   const { title, body } = parsed.message;
+  // PUSH-2: routing-only data, no free text. `kind` is only known for the
+  // typed event shape; the legacy shape (no NotifyEventKind) omits it and
+  // just routes to the Dashboard, which is still a valid message for older
+  // clients that ignore unknown `data` entirely (rule 19).
+  const pushData: Record<string, string> = {
+    type: 'household_activity',
+    householdId: parsed.householdId,
+    target: parsed.shape === 'event' ? pushTargetForKind(parsed.kind) : 'Dashboard',
+  };
+  if (parsed.shape === 'event') pushData.kind = parsed.kind;
   let sent = 0;
   const staleByUser = new Map<string, string[]>();
   for (const { user_id: recipientId, token } of tokens) {
@@ -619,7 +654,7 @@ export async function handle(req: Request, deps: HandleDeps): Promise<Response> 
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(buildV1Message(token, title, body)),
+        body: JSON.stringify(buildV1Message(token, title, body, pushData)),
       },
     );
 

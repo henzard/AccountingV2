@@ -199,4 +199,77 @@ describe('CashFlowForecaster', () => {
       expect(result[0].daysRemaining).toBe(20);
     });
   });
+
+  // REFUNDS: `spentCents` is a derived signed SUM over the transaction ledger,
+  // so an envelope whose refunds exceed its purchases has a NEGATIVE spend.
+  describe('net-refunded envelopes', () => {
+    it('never projects a NEGATIVE daily spend rate (a refund is not a spending rate)', () => {
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 100000, spentCents: -30000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].dailySpendCents).toBe(0);
+    });
+
+    it('does not forecast FUTURE refunds for the rest of the period', () => {
+      // Unfloored this would be -3000/day x 20 remaining days = -60000,
+      // i.e. the forecast inventing R600,00 of refunds still to come.
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 100000, spentCents: -30000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].projectedSpendRemainingCents).toBe(0);
+    });
+
+    it('caps the projected percentage at 100 instead of printing "130% projected left"', () => {
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 100000, spentCents: -30000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].projectedRemainingPct).toBe(100);
+      expect(result[0].status).toBe('on_track');
+      // The cash figure stays truthful — only the PERCENTAGE is capped.
+      expect(result[0].projectedRemainingCents).toBe(130000);
+    });
+
+    it('caps a heavily net-refunded envelope at 100 too', () => {
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 100000, spentCents: -500000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].projectedRemainingPct).toBe(100);
+      expect(result[0].dailySpendCents).toBe(0);
+    });
+
+    it('still reports a NEGATIVE pct for a heavy overspend (only the top is capped)', () => {
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 100000, spentCents: 300000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].projectedRemainingPct).toBeLessThan(0);
+      expect(result[0].status).toBe('over_budget');
+    });
+
+    it('leaves an ordinary envelope untouched', () => {
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 100000, spentCents: 30000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].dailySpendCents).toBe(3000);
+      expect(result[0].projectedSpendRemainingCents).toBe(60000);
+      expect(result[0].projectedRemainingPct).toBe(10);
+    });
+  });
 });

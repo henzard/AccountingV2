@@ -34,7 +34,13 @@ export function getPercentRemaining(envelope: EnvelopeEntity): number {
   // amount. An untouched zero-allocation envelope keeps reading 100.
   if (envelope.allocatedCents === 0) return envelope.spentCents > 0 ? 0 : 100;
   const pct = ((envelope.allocatedCents - envelope.spentCents) / envelope.allocatedCents) * 100;
-  return Math.max(0, Math.round(pct));
+  // REFUNDS: `spentCents` is a derived signed SUM, so a net-refunded envelope
+  // (refunds exceeding purchases) makes it NEGATIVE and pushes this above 100.
+  // "130% remaining" is not a thing — an envelope cannot have more of its
+  // budget left than it was given — and `EnvelopeCard` feeds this same number
+  // to both its text and its fill bar. Clamped at BOTH ends: the floor keeps
+  // an overspend at 0, the ceiling keeps a refund at 100.
+  return Math.min(100, Math.max(0, Math.round(pct)));
 }
 
 export function isOverBudget(envelope: EnvelopeEntity): boolean {

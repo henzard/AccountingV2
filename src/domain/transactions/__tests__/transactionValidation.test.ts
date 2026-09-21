@@ -11,10 +11,11 @@ describe('validateTransactionAmountCents', () => {
     if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
   });
 
-  it('rejects negative amounts', () => {
-    const result = validateTransactionAmountCents(-100);
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+  // REFUNDS: a negative amount is a refund / reversal / store credit. This
+  // case previously asserted the opposite; the domain rule deliberately
+  // changed from "greater than zero" to "non-zero".
+  it('accepts a negative amount (a refund)', () => {
+    expect(validateTransactionAmountCents(-100).success).toBe(true);
   });
 
   it('rejects non-safe-integer amounts', () => {
@@ -23,8 +24,36 @@ describe('validateTransactionAmountCents', () => {
     if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
   });
 
+  // The magnitude guard must be symmetric — an absurd refund is no more
+  // acceptable than an absurd purchase.
+  it('rejects an absurdly large NEGATIVE amount on the same footing as a positive one', () => {
+    const result = validateTransactionAmountCents(-(Number.MAX_SAFE_INTEGER + 10));
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+  });
+
+  it('rejects a fractional (non-integer) refund amount', () => {
+    const result = validateTransactionAmountCents(-100.5);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+  });
+
   it('accepts a positive integer amount', () => {
     expect(validateTransactionAmountCents(5000).success).toBe(true);
+  });
+});
+
+describe('validateTargetEnvelope (refunds)', () => {
+  // A refund must belong to an envelope exactly like a purchase does — the
+  // envelope rules are amount-independent, so there is nothing to relax.
+  it('still rejects an income envelope for a refund-shaped save', () => {
+    const result = validateTargetEnvelope({
+      envelopeType: 'income',
+      isArchived: false,
+      deletedAt: null,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_ENVELOPE_TYPE');
   });
 });
 

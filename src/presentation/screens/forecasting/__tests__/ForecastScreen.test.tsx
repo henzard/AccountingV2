@@ -326,4 +326,52 @@ describe('ForecastScreen', () => {
     // Groceries is not fixed, so should show per-day amount
     expect(queryByText(/100\.00.*day/)).toBeTruthy();
   });
+
+  // REFUNDS: a net-refunded envelope projects more money left than it was
+  // allocated. The forecaster now caps that, but the row caps it too so the
+  // printed figure can never disagree with the bar beside it, whatever the
+  // forecast source.
+  describe('a net-refunded envelope’s row', () => {
+    function renderWithForecast(over: Record<string, unknown>) {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [{ id: 'e1' }],
+        loading: false,
+        error: null,
+        reload: mockReload,
+      });
+      mockProject.mockReturnValue([{ ...mockForecasts[0], ...over }]);
+      return render(<ForecastScreen />);
+    }
+
+    it('never prints more than "100% projected left"', () => {
+      const { getByText, queryByText } = renderWithForecast({
+        projectedRemainingPct: 180,
+        projectedRemainingCents: 900000,
+      });
+      expect(getByText('100% projected left')).toBeTruthy();
+      expect(queryByText('180% projected left')).toBeNull();
+    });
+
+    it('still prints a truthful NEGATIVE percentage for a heavy overspend', () => {
+      const { getByText } = renderWithForecast({
+        projectedRemainingPct: -50,
+        status: 'over_budget' as const,
+      });
+      expect(getByText('-50% projected left')).toBeTruthy();
+    });
+
+    it('leaves an ordinary percentage alone', () => {
+      const { getByText } = renderWithForecast({ projectedRemainingPct: 40 });
+      expect(getByText('40% projected left')).toBeTruthy();
+    });
+
+    it('shows a zero daily rate rather than a negative one (the forecaster floors it)', () => {
+      const { getByText } = renderWithForecast({
+        dailySpendCents: 0,
+        spentCents: -30000,
+        projectedRemainingPct: 100,
+      });
+      expect(getByText(/R0\.00\/day/)).toBeTruthy();
+    });
+  });
 });

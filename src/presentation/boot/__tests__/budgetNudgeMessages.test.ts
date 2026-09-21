@@ -53,4 +53,49 @@ describe('buildWeeklyCheckInMessage (VAL2-11)', () => {
     const message = buildWeeklyCheckInMessage([], 5000);
     expect(message.body).toBe('This week: R50,00 spent, 0 envelopes on track');
   });
+
+  // REFUNDS: the week's spend is a signed sum over the ledger, so a week with
+  // more refunds than purchases is negative.
+  describe('a net-refunded week', () => {
+    it('does not say "-R250,00 spent"', () => {
+      const message = buildWeeklyCheckInMessage([{ allocatedCents: 50000, spentCents: 0 }], -25000);
+      expect(message.body).not.toContain('-R250,00 spent');
+    });
+
+    it('reports the money as coming back, not as spending', () => {
+      const message = buildWeeklyCheckInMessage([{ allocatedCents: 50000, spentCents: 0 }], -25000);
+      expect(message.body).toBe('This week: R250,00 back in your budget, 1 envelope on track');
+    });
+
+    it('counts a net-refunded envelope as on track', () => {
+      const message = buildWeeklyCheckInMessage(
+        [{ allocatedCents: 50000, spentCents: -30000 }],
+        -30000,
+      );
+      expect(message.body).toContain('1 envelope on track');
+    });
+
+    it('keeps a zero week in the ordinary "spent" phrasing', () => {
+      const message = buildWeeklyCheckInMessage([{ allocatedCents: 10000, spentCents: 0 }], 0);
+      expect(message.body).toBe('This week: R0,00 spent, 1 envelope on track');
+    });
+  });
+});
+
+describe('buildPeriodClosingMessage — refunds', () => {
+  it('reports a net-refunded envelope’s real (larger than allocated) balance', () => {
+    // Not a sign bug: a R500,00 envelope holding a R300,00 refund really does
+    // have R800,00 available to spend this period. The `Math.max(0, …)` floor
+    // exists for the OVERSPENT case, not this one.
+    const message = buildPeriodClosingMessage([{ allocatedCents: 50000, spentCents: -30000 }]);
+    expect(message.body).toBe('R800,00 left across 1 envelope');
+  });
+
+  it('still floors an overspent envelope at zero rather than letting it eat a sibling’s balance', () => {
+    const message = buildPeriodClosingMessage([
+      { allocatedCents: 50000, spentCents: 80000 }, // overspent -> contributes 0
+      { allocatedCents: 30000, spentCents: 10000 }, // 20000 left
+    ]);
+    expect(message.body).toBe('R200,00 left across 2 envelopes');
+  });
 });
