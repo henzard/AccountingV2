@@ -13,6 +13,25 @@ jest.mock('../../data/sync/syncRuntime', () => ({
 let mockUuidCounter = 0;
 jest.mock('expo-crypto', () => ({ randomUUID: () => `op-${++mockUuidCounter}` }));
 
+// The pending-purge marker is device-local AsyncStorage (see
+// `pendingHouseholdPurge.ts`); an in-memory map is enough to watch its
+// lifetime across every exit of `execute`.
+const mockMarkers = new Map<string, string>();
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: (key: string) => Promise.resolve(mockMarkers.get(key) ?? null),
+  setItem: (key: string, value: string) => {
+    mockMarkers.set(key, value);
+    return Promise.resolve();
+  },
+  removeItem: (key: string) => {
+    mockMarkers.delete(key);
+    return Promise.resolve();
+  },
+  getAllKeys: () => Promise.resolve([...mockMarkers.keys()]),
+}));
+const markerKeyFor = (userId: string, householdId: string): string =>
+  `@pending_household_purge:${userId}:${householdId}`;
+
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { openMigratedDb } from '../../../tests/realsql/harness/openMigratedDb';
@@ -83,6 +102,7 @@ const MEMBER: MemberRow = {
 describe('LeaveHouseholdUseCase', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMarkers.clear();
     mockRequestSyncNow.mockResolvedValue(undefined);
   });
 
@@ -294,6 +314,149 @@ describe('LeaveHouseholdUseCase', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The pending-purge marker's lifetime, on every exit of `execute`.
+//
+// The marker is what lets a boot AFTER a kill tell a voluntary leave from an
+// owner-removal, so it must exist for the whole window in which this phone
+// owes the user a purge — and for not one moment longer: a marker that
+// outlived a leave that did not happen would destroy a household the user is
+// still a member of.
+// ---------------------------------------------------------------------------
+
+describe('LeaveHouseholdUseCase — the pending-purge marker', () => {
+  const KEY = markerKeyFor('u-member', 'hh-1');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockMarkers.clear();
+    mockRequestSyncNow.mockResolvedValue(undefined);
+  });
+
+  it('writes the marker BEFORE the leave op, and clears it once the purge has committed', async () => {
+    const repo = makeRepo();
+    let markerAtWriteTime: string | undefined;
+    repo.softDelete.mockImplementation(() => {
+      markerAtWriteTime = mockMarkers.get(KEY);
+    });
+
+    const result = await new LeaveHouseholdUseCase(
+      makeDb([OWNER, MEMBER]),
+      { householdId: 'hh-1', userId: 'u-member' },
+      { repo },
+    ).execute();
+
+    expect(result.success).toBe(true);
+    // The dangerous window opens with the leave op — the marker is already
+    // down by then.
+    expect(JSON.parse(markerAtWriteTime as string)).toMatchObject({
+      householdId: 'hh-1',
+      userId: 'u-member',
+    });
+    expect(mockMarkers.get(KEY)).toBeUndefined();
+  });
+
+  it('never writes one when the leave is refused before anything is written', async () => {
+    const repo = makeRepo();
+
+    await new LeaveHouseholdUseCase(
+      makeDb([OWNER, MEMBER], { unsynced: 2, dead: 0 }),
+      { householdId: 'hh-1', userId: 'u-member' },
+      { repo },
+    ).execute();
+    expect(mockMarkers.size).toBe(0);
+
+    await new LeaveHouseholdUseCase(makeDb([OWNER]), {
+      householdId: 'hh-1',
+      userId: 'u-owner',
+    }).execute();
+    expect(mockMarkers.size).toBe(0);
+
+    await new LeaveHouseholdUseCase(makeDb([OWNER]), {
+      householdId: 'hh-1',
+      userId: 'u-nobody',
+    }).execute();
+    expect(mockMarkers.size).toBe(0);
+  });
+
+  it('clears the marker when the membership write throws — the user is still a member', async () => {
+    const repo = makeRepo();
+    repo.softDelete.mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+
+    const result = await new LeaveHouseholdUseCase(
+      makeDb([OWNER, MEMBER]),
+      { householdId: 'hh-1', userId: 'u-member' },
+      { repo },
+    ).execute();
+
+    expect(result.success).toBe(false);
+    expect(mockMarkers.size).toBe(0);
+  });
+
+  it('KEEPS the marker on LEAVE_NOT_SYNCED so a later boot finishes the purge', async () => {
+    const repo = makeRepo();
+    const result = await new LeaveHouseholdUseCase(
+      makeDb(
+        [OWNER, MEMBER],
+        [
+          { unsynced: 0, dead: 0 },
+          { unsynced: 1, dead: 0 },
+        ],
+      ),
+      { householdId: 'hh-1', userId: 'u-member' },
+      { repo, purge: jest.fn() },
+    ).execute();
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('LEAVE_NOT_SYNCED');
+    expect(JSON.parse(mockMarkers.get(KEY) as string)).toMatchObject({ householdId: 'hh-1' });
+  });
+
+  it('KEEPS the marker when the purge fails — every row is still here', async () => {
+    const repo = makeRepo();
+    const purge = jest.fn().mockResolvedValue({
+      success: false,
+      error: { code: 'PURGE_FAILED', message: 'database is locked' },
+    });
+
+    await new LeaveHouseholdUseCase(
+      makeDb([OWNER, MEMBER]),
+      { householdId: 'hh-1', userId: 'u-member' },
+      { repo, purge },
+    ).execute();
+
+    expect(mockMarkers.get(KEY)).toBeDefined();
+  });
+
+  it('re-asserts the marker on a resumed attempt, keeping the original requestedAt', async () => {
+    const repo = makeRepo();
+    let markerAtPurgeTime: string | undefined;
+    const purge = jest.fn().mockImplementation(() => {
+      markerAtPurgeTime = mockMarkers.get(KEY);
+      return Promise.resolve({
+        success: true,
+        data: { householdId: 'hh-1', purgedTables: ['households'], slipImageDirsDeleted: 0 },
+      });
+    });
+    // A resume that reaches a phone whose marker write had failed: the
+    // membership is already tombstoned, so the purge is still owed.
+    const result = await new LeaveHouseholdUseCase(
+      makeDb([OWNER, { ...MEMBER, deletedAt: '2026-09-21T00:00:00.000Z' }]),
+      { householdId: 'hh-1', userId: 'u-member' },
+      { repo, purge },
+    ).execute();
+
+    expect(result.success).toBe(true);
+    expect(repo.softDelete).not.toHaveBeenCalled();
+    // Written on the way through — the purge saw it — and spent afterwards.
+    expect(JSON.parse(markerAtPurgeTime as string)).toMatchObject({ householdId: 'hh-1' });
+    expect(mockMarkers.get(KEY)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The whole sequence against a REAL migrated better-sqlite3 database. The fake
 // db above can prove the decisions; only real SQLite can prove that the
 // household's rows are actually gone, that the OTHER household on the same
@@ -403,6 +566,7 @@ describe('LeaveHouseholdUseCase — the full sequence (real migrated SQLite)', (
 
   beforeEach(() => {
     mockUuidCounter = 0;
+    mockMarkers.clear();
     events = [];
     raw = openMigratedDb();
     db = drizzle(raw);

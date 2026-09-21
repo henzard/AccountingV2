@@ -51,6 +51,15 @@
  *      household-scoped table plus the `households` row and the slip images
  *      on disk.
  *
+ * A PENDING-PURGE MARKER (`pendingHouseholdPurge.ts`) is written just BEFORE
+ * the soft delete and cleared only once the purge has committed, so the whole
+ * window in which the phone owes the user a purge is covered by a durable,
+ * device-local record of their INTENT. Without it, a process killed between
+ * step 2 and step 3 leaves the household's rows on the phone forever with no
+ * screen left to retry from — and a boot-time sweep cannot infer the intent,
+ * because an owner-REMOVAL leaves the identical tombstone and must keep the
+ * data. `resumePendingHouseholdPurge` finishes the job at the next boot.
+ *
  * Re-running after a failure at step 2 is SAFE and RESUMES: the caller's own
  * membership row is already soft-deleted, so `execute` detects that, skips
  * the write (a second `softDelete` would throw and append a second delete op)
@@ -69,6 +78,7 @@ import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import type { Result } from '../shared/types';
 import { createSuccess, createFailure } from '../shared/types';
+import { clearPendingHouseholdPurge, ensurePendingHouseholdPurge } from './pendingHouseholdPurge';
 import {
   PurgeLocalHouseholdDataUseCase,
   type PurgeLocalHouseholdDataOutcome,
@@ -207,15 +217,28 @@ export class LeaveHouseholdUseCase {
       }
 
       // ---- 2a. Leave ------------------------------------------------------
+      // The marker goes down BEFORE the leave op, so the dangerous window
+      // (leave written/pushed, purge not yet committed) is never unmarked.
+      await ensurePendingHouseholdPurge(userId, householdId);
+
       const repo = resolveSyncedRepo(this.db, 'household_members', this.deps);
       try {
         repo.softDelete(own.id, householdId, resolveSyncedRepoCtx(this.deps));
       } catch (err) {
+        // Still a member, nothing written: a marker must never outlive a
+        // leave that did not happen.
+        await clearPendingHouseholdPurge(userId, householdId);
         return createFailure({
           code: 'LEAVE_FAILED',
           message: err instanceof Error ? err.message : 'Could not leave the household.',
         });
       }
+    } else {
+      // A resumed attempt: the membership is already tombstoned, so this
+      // phone already owes the purge. Re-assert the marker (idempotent — an
+      // existing one keeps its original `requestedAt`) in case the first
+      // attempt's write failed.
+      await ensurePendingHouseholdPurge(userId, householdId);
     }
 
     // ---- 2b. Get the leave op pushed -------------------------------------
@@ -225,7 +248,9 @@ export class LeaveHouseholdUseCase {
     if (this.countUnsynced(householdId) > 0) {
       // A member-in-limbo: gone locally, still a member server-side. Safe —
       // nothing has been destroyed, the op is queued, and re-running this use
-      // case resumes from exactly here.
+      // case resumes from exactly here. The marker STAYS: if the app never
+      // comes back to this screen, a later boot finishes the purge once sync
+      // has drained.
       return createFailure({
         code: 'LEAVE_NOT_SYNCED',
         message:
@@ -250,7 +275,11 @@ export class LeaveHouseholdUseCase {
         ).execute());
 
     const purged = await purge(householdId);
+    // A failed purge is one rolled-back transaction: every row is still here,
+    // so the marker stays and a later boot retries.
     if (!purged.success) return purged;
+
+    await clearPendingHouseholdPurge(userId, householdId);
 
     return createSuccess({
       householdId,

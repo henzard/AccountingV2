@@ -427,6 +427,62 @@ describe('SlipConfirmScreen', () => {
 
   // UX-14: an already-confirmed slip (reopened from SlipQueueScreen) must
   // render read-only — no Save button, no envelope-editing affordance.
+  /**
+   * REF-SLIP regression guard. `ConfirmSlipUseCase` now writes a negative
+   * line as a negative transaction, so the screen between the extractor and
+   * that use case must not quietly sanitise the sign: no Math.abs, no
+   * `amountCents > 0` filter, no clamping anywhere on the way to the
+   * `confirmSlip` payload. The screen needed no change for this — the test
+   * exists so a future "tidy-up" cannot reintroduce one silently.
+   */
+  it('REF-SLIP: passes a NEGATIVE line item through to confirmSlip with its sign intact, and keeps it in the save count', async () => {
+    mockRouteParams = {
+      slipId: 's-neg',
+      extraction: {
+        ...mockExtraction,
+        totalCents: 8500,
+        items: [
+          {
+            description: 'Groceries',
+            amountCents: 10000,
+            quantity: 1,
+            suggestedEnvelopeId: 'e1',
+            confidence: 0.9,
+          },
+          {
+            description: 'DISCOUNT',
+            amountCents: -1500,
+            quantity: 1,
+            suggestedEnvelopeId: 'e1',
+            confidence: 0.9,
+          },
+        ],
+      },
+    };
+    const confirmSlip = jest.fn().mockResolvedValue({ success: true });
+    const { getByTestId } = render(
+      <SlipConfirmScreen envelopes={mockEnvelopes} confirmSlip={confirmSlip} />,
+    );
+
+    // Both lines carry a suggested envelope, so Save is enabled immediately.
+    const save = getByTestId('save-button');
+    expect(save.props.disabled).toBeFalsy();
+    fireEvent.press(save);
+
+    await waitFor(() => {
+      expect(confirmSlip).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slipId: 's-neg',
+          totalCents: 8500,
+          items: [
+            expect.objectContaining({ description: 'Groceries', amountCents: 10000 }),
+            expect.objectContaining({ description: 'DISCOUNT', amountCents: -1500 }),
+          ],
+        }),
+      );
+    });
+  });
+
   it('renders read-only (no Save button, no unassigned chip) when route.params.readOnly is true', () => {
     mockRouteParams = { slipId: 's1', extraction: mockExtraction, readOnly: true };
     const { queryByTestId } = render(

@@ -34,11 +34,13 @@ export type ConfirmSlipInput = {
 export type ConfirmSlipResult = {
   transactionIds: string[];
   /**
-   * True when Σ(items.amountCents) — including any non-positive/discount
-   * lines, which are still part of the real net spend even though they are
-   * dropped from what gets persisted (see DOM-12 below) — differs from the
-   * slip's OCR-extracted `totalCents`. Surfaced so the caller can warn the
-   * user (e.g. a missed or mis-split line item); it never blocks the save.
+   * True when the SIGNED sum of the lines this confirm actually wrote —
+   * discount/refund lines included, at their negative value — differs from
+   * the slip's OCR-extracted `totalCents`. Surfaced so the caller can warn
+   * the user (e.g. a missed or mis-split line item); it never blocks the
+   * save. The compared set is exactly the set persisted (see REF-SLIP
+   * below), so a slip carrying a discount line now reconciles instead of
+   * being guaranteed a mismatch.
    */
   totalMismatch: boolean;
 };
@@ -96,16 +98,43 @@ export type ConfirmSlipResult = {
  *    rolls back the WHOLE transaction — true all-or-nothing, proven against
  *    the real better-sqlite3 driver.
  *
- * --- DOM-12 fix (this pass) ---------------------------------------------------
+ * --- DOM-12 fix ---------------------------------------------------------------
  * A single non-positive line (e.g. a discount/rebate row the OCR pulled out
  * as its own item) used to fail the WHOLE confirm with INVALID_AMOUNT.
- * Non-positive items are now dropped rather than persisted — never written
- * as a transaction — instead of blocking every other, valid line on the
- * slip. The dropped amounts are still counted (alongside every confirmed
- * item) when comparing against the slip's extracted total, surfaced as
- * `totalMismatch` rather than a hard failure. Each written transaction's
- * `payee` is now the slip's extracted merchant (previously always `null`
- * despite the merchant being available on the fetched slip row).
+ * Non-positive items were dropped rather than persisted, instead of blocking
+ * every other, valid line on the slip. Each written transaction's `payee` is
+ * now the slip's extracted merchant (previously always `null` despite the
+ * merchant being available on the fetched slip row).
+ *
+ * --- REF-SLIP fix (this pass) -------------------------------------------------
+ * DOM-12's "drop everything that isn't positive" was the right call only
+ * while the ledger itself refused a negative row. It no longer does: a
+ * transaction amount is any NON-ZERO safe integer and negative means money
+ * back (`transactionValidation.validateTransactionAmountCents`), because
+ * every balance is a signed `SUM(amount_cents)` (`EnvelopeBalanceQuery`) that
+ * nets a negative row out. Slip scanning was the last path that could not
+ * record one, and it was wrong twice over: a "DISCOUNT -5,00" / voucher /
+ * same-slip return line was silently DROPPED (the user lost it), yet its
+ * amount was still counted in the totals comparison — so such a slip was
+ * GUARANTEED a bogus `totalMismatch` warning as well.
+ *
+ * Now: only a ZERO-amount line is dropped (a R0 line moves nothing and is
+ * never what the user meant — the same rule the shared validator applies).
+ * Every non-zero line, positive or negative, is validated by that shared
+ * validator and written as a transaction in its own assigned envelope, and
+ * the totals comparison sums EXACTLY the set that was written, signed. A
+ * slip of [+100,00, −15,00] therefore writes two rows that net to 85,00 in
+ * the envelope's derived spend and reconciles against an 85,00 slip total.
+ * A slip whose lines net to zero or negative overall (a pure return slip)
+ * confirms normally; nothing downstream of this use case treats the net as
+ * a spend figure (the `slip_confirmed` household push carries an item COUNT,
+ * not a total, and the over-budget push is raised by AddTransactionScreen,
+ * not by this path).
+ *
+ * Every guarantee above is unchanged: the write is still one atomic
+ * `runInUnitOfWork` callback, the in-transaction idempotency guard is still
+ * the first statement inside it, ids are still generated up front, and one
+ * oplog op is still appended per row — negative rows included.
  */
 export interface ConfirmSlipUseCaseDeps extends SyncWriteDeps {
   /** Optional — when supplied, one best-effort audit-log row is written per confirmed item after the atomic write commits. */
@@ -169,10 +198,13 @@ export class ConfirmSlipUseCase {
     }
 
     // --- Step 2: validation/reads — ALL async, OUTSIDE any transaction -----
-    // DOM-12: drop non-positive lines (discounts/rebates) instead of failing
-    // the whole confirm; never persist a non-positive transaction.
-    const positiveItems = input.items.filter((item) => item.amountCents > 0);
-    if (positiveItems.length === 0) {
+    // REF-SLIP: drop ONLY zero-amount lines. A negative line is a discount /
+    // voucher / same-slip return and is as real as a purchase — it is kept
+    // and written as a negative transaction, exactly like the Refund toggle
+    // on AddTransactionScreen produces. (DOM-12 used to drop those too,
+    // losing the line AND mis-reporting the total.)
+    const confirmableItems = input.items.filter((item) => item.amountCents !== 0);
+    if (confirmableItems.length === 0) {
       return createFailure({
         code: 'SLIP_EMPTY_ITEMS',
         message: 'Slip has no items to confirm',
@@ -190,7 +222,10 @@ export class ConfirmSlipUseCase {
     const dateResult = validateTransactionDate(input.transactionDate);
     if (!dateResult.success) return dateResult;
 
-    for (const item of positiveItems) {
+    for (const item of confirmableItems) {
+      // Accepts any non-zero safe integer, symmetrically — a −1 500 00c
+      // refund line is rejected on exactly the same footing as a +1 500 00c
+      // purchase line, and on no other.
       const amountResult = validateTransactionAmountCents(item.amountCents);
       if (!amountResult.success) return amountResult;
 
@@ -204,16 +239,19 @@ export class ConfirmSlipUseCase {
       if (!envelopeResult.success) return envelopeResult;
     }
 
-    // DOM-12: compare ALL confirmed items (including dropped non-positive
-    // ones, which are still part of the actual net spend) against the
-    // slip's OCR-extracted total; a mismatch is a warning, never a failure.
-    const itemsTotalCents = input.items.reduce((sum, item) => sum + item.amountCents, 0);
+    // REF-SLIP: sum EXACTLY the set that gets written, signed — so a slip
+    // with a discount line reconciles against its (already net) slip total
+    // instead of warning. Dropped zero lines contribute nothing either way,
+    // so including or excluding them cannot change this figure; summing the
+    // written set is what keeps the two in lockstep if that ever changes.
+    // A mismatch is a warning, never a failure.
+    const itemsTotalCents = confirmableItems.reduce((sum, item) => sum + item.amountCents, 0);
     const totalMismatch = slip.totalCents != null && itemsTotalCents !== slip.totalCents;
 
     // --- Step 3: ONE synchronous write transaction — all-or-nothing --------
     const ctx = resolveSyncedRepoCtx(this.deps);
     const now = ctx.clock();
-    const transactionIds = positiveItems.map(() => randomUUID());
+    const transactionIds = confirmableItems.map(() => randomUUID());
 
     try {
       runInUnitOfWork(this.db, (uow) => {
@@ -239,11 +277,15 @@ export class ConfirmSlipUseCase {
           throw new SlipAlreadyConfirmedError();
         }
 
-        positiveItems.forEach((item, i) => {
+        confirmableItems.forEach((item, i) => {
           const row: Record<string, unknown> = {
             id: transactionIds[i],
             household_id: input.householdId,
             envelope_id: item.envelopeId,
+            // REF-SLIP: written SIGNED. `amount_cents` is an existing synced
+            // column that already carries negative values from the Refund
+            // toggle, so nothing about the wire format changes here — an
+            // older build that pulls this row stores and sums it correctly.
             amount_cents: item.amountCents,
             // DOM-12: the merchant IS available (fetched on the slip in
             // Step 1) — write it as payee instead of always `null`.
@@ -305,8 +347,8 @@ export class ConfirmSlipUseCase {
     // surface as a use case failure — the caller would otherwise retry a
     // write that actually succeeded, producing a duplicate confirm.
     if (this.deps.audit) {
-      for (let i = 0; i < positiveItems.length; i += 1) {
-        const item = positiveItems[i];
+      for (let i = 0; i < confirmableItems.length; i += 1) {
+        const item = confirmableItems[i];
         try {
           await this.deps.audit.log({
             householdId: input.householdId,

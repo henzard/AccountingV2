@@ -192,7 +192,7 @@ describe('ConfirmSlipUseCase', () => {
     expect(limit).toHaveBeenCalledTimes(1); // the envelope lookup ran
   });
 
-  it('DOM-12: drops a non-positive line item instead of failing the whole confirm, and never persists it', async () => {
+  it('DOM-12/REF-SLIP: drops a ZERO-amount line item instead of failing the whole confirm, and never persists it', async () => {
     const { db, limit } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
     const repo = makeRepo(makeSlip({ totalCents: 5000 }));
     const useCase = new ConfirmSlipUseCase(db as any, repo);
@@ -209,7 +209,7 @@ describe('ConfirmSlipUseCase', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.transactionIds).toHaveLength(1);
-    // Only the positive item was validated/looked up and inserted.
+    // Only the non-zero item was validated/looked up and inserted.
     expect(limit).toHaveBeenCalledTimes(1);
     expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(1);
     expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
@@ -220,7 +220,15 @@ describe('ConfirmSlipUseCase', () => {
     );
   });
 
-  it('DOM-12: an all-non-positive item list fails as SLIP_EMPTY_ITEMS rather than writing nothing silently', async () => {
+  /**
+   * REF-SLIP note: this assertion used to read "an all-NON-POSITIVE item
+   * list fails as SLIP_EMPTY_ITEMS", with a single -500 discount line as its
+   * fixture. That was correct only while the ledger refused a negative row.
+   * It now accepts one (a refund), so the fixture moves to the case that is
+   * still genuinely empty — an all-ZERO list — and the negative case gets its
+   * own test below asserting the OPPOSITE (it confirms, and is written).
+   */
+  it('DOM-12/REF-SLIP: an all-ZERO item list fails as SLIP_EMPTY_ITEMS rather than writing nothing silently', async () => {
     const { db } = makeDb();
     const repo = makeRepo(makeSlip());
     const useCase = new ConfirmSlipUseCase(db as any, repo);
@@ -229,11 +237,101 @@ describe('ConfirmSlipUseCase', () => {
       slipId: 's1',
       householdId: HOUSEHOLD_ID,
       transactionDate: '2026-04-13',
-      items: [{ description: 'discount', amountCents: -500, envelopeId: 'env1' }],
+      items: [{ description: 'free sample', amountCents: 0, envelopeId: 'env1' }],
     });
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('SLIP_EMPTY_ITEMS');
+    expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
+  });
+
+  it('REF-SLIP: keeps a NEGATIVE line and writes it as a negative transaction in its own envelope', async () => {
+    const { db, limit } = makeDb({
+      existingTxns: [],
+      envelopeResults: [SPENDING_ENVELOPE, SPENDING_ENVELOPE],
+    });
+    // Slip total is already net: 10000 - 1500.
+    const repo = makeRepo(makeSlip({ totalCents: 8500 }));
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [
+        { description: 'groceries', amountCents: 10000, envelopeId: 'env1' },
+        { description: 'DISCOUNT', amountCents: -1500, envelopeId: 'env1' },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transactionIds).toHaveLength(2);
+      // The signed sum (8500) reconciles against the slip total — the old
+      // "drop the line but still count it" behaviour made this impossible.
+      expect(result.data.totalMismatch).toBe(false);
+    }
+    // BOTH lines were validated (one envelope lookup each) and written.
+    expect(limit).toHaveBeenCalledTimes(2);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledTimes(2);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+      expect.anything(),
+      'transactions',
+      expect.objectContaining({ amount_cents: 10000 }),
+      expect.anything(),
+    );
+    expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+      expect.anything(),
+      'transactions',
+      expect.objectContaining({
+        amount_cents: -1500,
+        description: 'DISCOUNT',
+        envelope_id: 'env1',
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('REF-SLIP: a pure return slip (every line negative) confirms instead of failing as empty', async () => {
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo = makeRepo(makeSlip({ totalCents: -500 }));
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'returned shirt', amountCents: -500, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transactionIds).toHaveLength(1);
+      expect(result.data.totalMismatch).toBe(false);
+    }
+    expect(mockRunInUnitOfWork).toHaveBeenCalledTimes(1);
+    expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+      expect.anything(),
+      'transactions',
+      expect.objectContaining({ amount_cents: -500 }),
+      expect.anything(),
+    );
+  });
+
+  it('REF-SLIP: a negative amount still goes through the SHARED amount validator — an unsafe magnitude is rejected symmetrically', async () => {
+    const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+    const repo = makeRepo(makeSlip());
+    const useCase = new ConfirmSlipUseCase(db as any, repo);
+
+    const result = await useCase.execute({
+      slipId: 's1',
+      householdId: HOUSEHOLD_ID,
+      transactionDate: '2026-04-13',
+      items: [{ description: 'absurd refund', amountCents: -1e18, envelopeId: 'env1' }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
     expect(mockRunInUnitOfWork).not.toHaveBeenCalled();
   });
 

@@ -163,6 +163,13 @@ jest.mock('./src/domain/households/EnsureHouseholdUseCase', () => {
   };
 });
 
+// The interrupted-leave resume runs first inside initSessionLocal. Its own
+// behaviour is proven in src/domain/households/pendingHouseholdPurge.test.ts;
+// here it only has to not reach AsyncStorage or the stubbed database.
+jest.mock('./src/domain/households/pendingHouseholdPurge', () => ({
+  resumePendingHouseholdPurge: jest.fn().mockResolvedValue([]),
+}));
+
 jest.mock('./src/data/sync/RestoreService', () => {
   // Hangs forever by default -- stands in for "offline"/a dead network call.
   // The boot gate must NEVER await this.

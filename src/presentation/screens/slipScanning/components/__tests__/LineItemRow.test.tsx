@@ -137,6 +137,136 @@ describe('LineItemRow (UX2-19)', () => {
     expect(onRemove).toHaveBeenCalledWith(2);
   });
 
+  /**
+   * REF-SLIP: a slip routinely carries a "DISCOUNT -5,00" / voucher /
+   * returned-item line. Before this fix the amount field stripped the sign
+   * (`.replace(/^-?R/, '')` with no way to put it back), so such a line could
+   * not be shown as a discount, could not be typed, and any edit silently
+   * turned it into a CHARGE.
+   */
+  describe('REF-SLIP: negative (discount / refund) lines', () => {
+    const discountItem: SlipExtractionItem = {
+      description: 'DISCOUNT',
+      amountCents: -1500,
+      quantity: 1,
+      suggestedEnvelopeId: null,
+      confidence: 0.9,
+    };
+
+    it('marks a negative line with a worded label (not colour alone), a signed affix and an accessibilityLabel that says so', () => {
+      const { getByTestId } = render(
+        <LineItemRow
+          item={discountItem}
+          index={0}
+          selectedEnvelope={envelope}
+          transactionDate="2026-04-13"
+          onSelectEnvelope={jest.fn()}
+          onDescriptionChange={jest.fn()}
+          onAmountChange={jest.fn()}
+          onRemove={jest.fn()}
+        />,
+      );
+
+      expect(getByTestId('line-item-discount-label-0').props.children).toBe(
+        'Discount / refund (money back)',
+      );
+      expect(getByTestId('line-item-0').props.accessibilityLabel).toContain(
+        'discount or refund — money back',
+      );
+      // The amount is announced SIGNED (formatCurrency renders "-R…").
+      expect(getByTestId('line-item-0').props.accessibilityLabel).toContain('-R');
+      // The FIELD holds the positive magnitude; the affix carries the sign.
+      expect(getByTestId('line-item-amount-0').props.value).not.toMatch(/^-/);
+      expect(getByTestId('line-item-amount-0').props.left.props.text).toBe('-R');
+      expect(getByTestId('line-item-discount-toggle-0').props.value).toBe(true);
+    });
+
+    it('keeps the sign when the amount is edited — a discount stays a discount', () => {
+      const onAmountChange = jest.fn();
+      const { getByTestId } = render(
+        <LineItemRow
+          item={discountItem}
+          index={0}
+          selectedEnvelope={envelope}
+          transactionDate="2026-04-13"
+          onSelectEnvelope={jest.fn()}
+          onDescriptionChange={jest.fn()}
+          onAmountChange={onAmountChange}
+          onRemove={jest.fn()}
+        />,
+      );
+
+      fireEvent(getByTestId('line-item-amount-0'), 'changeText', '20,00');
+      expect(onAmountChange).toHaveBeenCalledWith(0, -2000);
+    });
+
+    it('flips a charge into a discount and back again with the explicit toggle', () => {
+      const onAmountChange = jest.fn();
+      const { getByTestId, rerender } = render(
+        <LineItemRow
+          item={item}
+          index={0}
+          selectedEnvelope={envelope}
+          transactionDate="2026-04-13"
+          onSelectEnvelope={jest.fn()}
+          onDescriptionChange={jest.fn()}
+          onAmountChange={onAmountChange}
+          onRemove={jest.fn()}
+        />,
+      );
+
+      const toggle = getByTestId('line-item-discount-toggle-0');
+      expect(toggle.props.value).toBe(false);
+      fireEvent(toggle, 'valueChange', true);
+      expect(onAmountChange).toHaveBeenLastCalledWith(0, -2500);
+
+      rerender(
+        <LineItemRow
+          item={{ ...item, amountCents: -2500 }}
+          index={0}
+          selectedEnvelope={envelope}
+          transactionDate="2026-04-13"
+          onSelectEnvelope={jest.fn()}
+          onDescriptionChange={jest.fn()}
+          onAmountChange={onAmountChange}
+          onRemove={jest.fn()}
+        />,
+      );
+      fireEvent(getByTestId('line-item-discount-toggle-0'), 'valueChange', false);
+      expect(onAmountChange).toHaveBeenLastCalledWith(0, 2500);
+    });
+
+    it('shows the discount label read-only too, with no toggle', () => {
+      const { getByTestId, queryByTestId } = render(
+        <LineItemRow
+          item={discountItem}
+          index={0}
+          selectedEnvelope={envelope}
+          transactionDate="2026-04-13"
+          onSelectEnvelope={jest.fn()}
+          readOnly
+        />,
+      );
+      expect(getByTestId('line-item-discount-label-0')).toBeTruthy();
+      expect(queryByTestId('line-item-discount-toggle-0')).toBeNull();
+    });
+
+    it('does not label a plain charge as a discount', () => {
+      const { queryByTestId, getByTestId } = render(
+        <LineItemRow
+          item={item}
+          index={0}
+          selectedEnvelope={envelope}
+          transactionDate="2026-04-13"
+          onSelectEnvelope={jest.fn()}
+          readOnly
+        />,
+      );
+      expect(queryByTestId('line-item-discount-label-0')).toBeNull();
+      expect(getByTestId('line-item-0').props.accessibilityLabel).not.toContain('discount');
+    });
+  });
+
   it('does not render the remove button when read-only', () => {
     const { queryByTestId } = render(
       <LineItemRow

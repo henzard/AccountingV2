@@ -68,6 +68,15 @@ function toRequestEvent(event: HouseholdNotificationEvent): NotifyEventBody {
         ...(merchant ? { merchant } : {}),
       };
     }
+    case 'refund_recorded': {
+      const payee = event.payee ? trimText(event.payee) : '';
+      return {
+        kind: event.kind,
+        amountCents: event.amountCents,
+        envelopeName: trimText(event.envelopeName),
+        ...(payee ? { payee } : {}),
+      };
+    }
   }
 }
 

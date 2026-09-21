@@ -20,7 +20,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.103.0';
 // ordinary chatter can never starve a budget alert.
 // ---------------------------------------------------------------------------
 
-export type NotifyEventKind = 'transaction_created' | 'envelope_over_budget' | 'slip_confirmed';
+export type NotifyEventKind =
+  | 'transaction_created'
+  | 'envelope_over_budget'
+  | 'slip_confirmed'
+  | 'refund_recorded';
 
 /** The old per-recipient shape. Still accepted for one release because
  * 1.1.134 clients are installed and send it; its caller-authored title/body
@@ -210,6 +214,7 @@ export function pushTargetForKind(kind: NotifyEventKind): 'Transactions' | 'Dash
   switch (kind) {
     case 'transaction_created':
     case 'envelope_over_budget':
+    case 'refund_recorded':
       return 'Transactions';
     default:
       return 'Dashboard';
@@ -374,6 +379,25 @@ function renderEvent(event: Record<string, unknown>): RenderedEvent | null {
       message: {
         title: 'New spending logged',
         body: `${formatZar(event.amountCents)} from ${envelopeName}${payee ? ` at ${payee}` : ''}`,
+      },
+    };
+  }
+
+  if (kind === 'refund_recorded') {
+    if (!hasOnlyKeys(event, ['kind', 'amountCents', 'envelopeName', 'payee'])) return null;
+    if (!isIntInRange(event.amountCents, 1, MAX_CENTS)) return null;
+    const envelopeName = readRequiredText(event.envelopeName);
+    const payee = readOptionalText(event.payee);
+    if (envelopeName === null || payee === null) return null;
+    return {
+      ok: true,
+      shape: 'event',
+      kind: 'refund_recorded',
+      bucket: BUCKET_DEFAULT,
+      limit: MAX_SENDS_PER_HOUR,
+      message: {
+        title: 'Refund recorded',
+        body: `Refund: ${formatZar(event.amountCents)} back to ${envelopeName}${payee ? ` at ${payee}` : ''}`,
       },
     };
   }

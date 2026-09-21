@@ -307,4 +307,188 @@ describe('ConfirmSlipUseCase atomicity (real SQLite, spec §4.5 fix)', () => {
 
     raw.close();
   });
+
+  /**
+   * REF-SLIP: the same guarantees, proven again with a NEGATIVE line item.
+   *
+   * Before this fix `ConfirmSlipUseCase` did `filter(item => item.amountCents
+   * > 0)`, so the discount line was silently DROPPED (only one row written,
+   * the R15,00 the user actually got back lost from the ledger) while still
+   * being counted in the totals comparison — which guaranteed a bogus
+   * `totalMismatch` warning on every slip carrying one. Both halves are
+   * asserted here against the real better-sqlite3 driver, together with the
+   * derived spend (a signed SUM, exactly what `EnvelopeBalanceQuery` reads)
+   * and the per-row oplog ops.
+   */
+  it('REF-SLIP: a slip of [+100,00, -15,00 discount] writes TWO rows netting to 85,00, reconciles with an 85,00 total, and is idempotent on a second confirm', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-discount';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-5', householdId, status: 'processing' });
+    // The slip's OCR total is the NET the customer paid.
+    raw.prepare('UPDATE slip_queue SET total_cents = 8500 WHERE id = ?').run('slip-5');
+
+    const repo = new DrizzleSlipQueueRepository(db);
+    const useCase = new ConfirmSlipUseCase(db, repo, {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      clock: () => NOW,
+    });
+
+    const input = {
+      slipId: 'slip-5',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [
+        { description: 'Groceries', amountCents: 10000, envelopeId: 'env-1' },
+        { description: 'DISCOUNT', amountCents: -1500, envelopeId: 'env-1' },
+      ],
+    };
+
+    const result = await useCase.execute(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transactionIds).toHaveLength(2);
+      // The signed sum equals the slip total — no spurious warning.
+      expect(result.data.totalMismatch).toBe(false);
+    }
+
+    // TWO rows, not one: the discount line survived.
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE household_id = ?', householdId),
+    ).toBe(2);
+    expect(count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE amount_cents = -1500')).toBe(1);
+
+    // The envelope's derived spend is the signed SUM — 85,00, not 100,00.
+    const spend = raw
+      .prepare(
+        `SELECT COALESCE(SUM(amount_cents), 0) AS total_cents
+           FROM transactions
+          WHERE envelope_id = 'env-1' AND deleted_at IS NULL`,
+      )
+      .get() as { total_cents: number };
+    expect(spend.total_cents).toBe(8500);
+
+    // Deterministic ids + one oplog op per row, negative row included.
+    expect(
+      count(
+        raw,
+        "SELECT COUNT(*) AS n FROM oplog WHERE table_name = 'transactions' AND op_type = 'insert'",
+      ),
+    ).toBe(2);
+    expect(
+      count(
+        raw,
+        "SELECT COUNT(*) AS n FROM oplog WHERE table_name = 'slip_queue' AND op_type = 'update' AND row_id = ?",
+        'slip-5',
+      ),
+    ).toBe(1);
+
+    // Idempotency guard still holds with a negative line in the set: the
+    // second confirm writes NOTHING (no third row, no extra oplog op).
+    const second = await useCase.execute(input);
+    expect(second.success).toBe(true);
+    if (second.success) expect(second.data.transactionIds).toEqual([]);
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE household_id = ?', householdId),
+    ).toBe(2);
+    expect(
+      count(
+        raw,
+        "SELECT COUNT(*) AS n FROM oplog WHERE table_name = 'transactions' AND op_type = 'insert'",
+      ),
+    ).toBe(2);
+
+    raw.close();
+  });
+
+  it('REF-SLIP: a pure RETURN slip (net negative overall) confirms and leaves the envelope with a negative derived spend', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-return';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-6', householdId, status: 'processing' });
+    raw.prepare('UPDATE slip_queue SET total_cents = -2000 WHERE id = ?').run('slip-6');
+
+    const repo = new DrizzleSlipQueueRepository(db);
+    const result = await new ConfirmSlipUseCase(db, repo, {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      clock: () => NOW,
+    }).execute({
+      slipId: 'slip-6',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [{ description: 'Returned kettle', amountCents: -2000, envelopeId: 'env-1' }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.totalMismatch).toBe(false);
+
+    const spend = raw
+      .prepare(
+        `SELECT COALESCE(SUM(amount_cents), 0) AS total_cents
+           FROM transactions
+          WHERE envelope_id = 'env-1' AND deleted_at IS NULL`,
+      )
+      .get() as { total_cents: number };
+    expect(spend.total_cents).toBe(-2000);
+
+    const slip = raw.prepare('SELECT status FROM slip_queue WHERE id = ?').get('slip-6') as {
+      status: string;
+    };
+    expect(slip.status).toBe('completed');
+
+    raw.close();
+  });
+
+  it('REF-SLIP: a mid-transaction failure still rolls BACK the negative line too — atomicity is unchanged', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-neg-rollback';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-7', householdId, status: 'processing' });
+
+    // Same collision fixture as the positive-only rollback test above: the
+    // SECOND line's oplog append hits a PRIMARY KEY conflict after the first
+    // line's transaction row is already written inside the open transaction.
+    raw
+      .prepare(
+        `INSERT INTO oplog (op_id, household_id, table_name, row_id, op_type, payload, device_id, client_created_at)
+         VALUES ('dup-op-neg', 'hh-other', 'transactions', 'other-row', 'insert', '{}', 'device-0', ?)`,
+      )
+      .run(NOW);
+
+    const repo = new DrizzleSlipQueueRepository(db);
+    let genIdCalls = 0;
+    const result = await new ConfirmSlipUseCase(db, repo, {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      clock: () => NOW,
+      genId: () => {
+        genIdCalls += 1;
+        return genIdCalls === 1 ? 'op-neg-1' : 'dup-op-neg';
+      },
+    }).execute({
+      slipId: 'slip-7',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [
+        { description: 'Groceries', amountCents: 10000, envelopeId: 'env-1' },
+        { description: 'DISCOUNT', amountCents: -1500, envelopeId: 'env-1' },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('SLIP_PARTIAL_SAVE_FAILED');
+
+    // Neither the charge nor the discount was left behind.
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE household_id = ?', householdId),
+    ).toBe(0);
+    expect(raw.prepare("SELECT * FROM oplog WHERE op_id = 'op-neg-1'").get()).toBeUndefined();
+
+    raw.close();
+  });
 });

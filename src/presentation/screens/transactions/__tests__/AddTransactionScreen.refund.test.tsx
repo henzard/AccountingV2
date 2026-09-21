@@ -449,7 +449,7 @@ describe('AddTransactionScreen — refunds', () => {
       expect(pushKinds).not.toContain('envelope_over_budget');
     });
 
-    it('does not post the "new spend" household push for a refund (the port requires a positive amount)', async () => {
+    it('does not post the "new spend" household push for a refund (that push requires a positive amount)', async () => {
       const { getByTestId, getByText } = render(<AddTransactionScreen {...makeNavProps()} />);
       await waitFor(() => expect(getByTestId('refund-toggle')).toBeTruthy());
 
@@ -458,7 +458,25 @@ describe('AddTransactionScreen — refunds', () => {
       fireEvent.press(getByText('Record Refund'));
 
       await waitFor(() => expect(mockCreateExecute).toHaveBeenCalled());
-      expect(mockHouseholdNotifier.notifyHousehold).not.toHaveBeenCalled();
+      const pushKinds = mockHouseholdNotifier.notifyHousehold.mock.calls.map(
+        (c) => (c[0] as { kind: string }).kind,
+      );
+      expect(pushKinds).not.toContain('transaction_created');
+    });
+
+    it('posts refund_recorded with the POSITIVE magnitude of the refund on create', async () => {
+      const { getByTestId, getByText } = render(<AddTransactionScreen {...makeNavProps()} />);
+      await waitFor(() => expect(getByTestId('refund-toggle')).toBeTruthy());
+
+      fireEvent.changeText(getByTestId('amount-input'), '25.00');
+      turnRefundOn(getByTestId);
+      fireEvent.press(getByText('Record Refund'));
+
+      await waitFor(() => expect(mockCreateExecute).toHaveBeenCalled());
+      expect(mockHouseholdNotifier.notifyHousehold).toHaveBeenCalledTimes(1);
+      expect(mockHouseholdNotifier.notifyHousehold).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'refund_recorded', amountCents: 2500 }),
+      );
     });
 
     it('still rejects an empty amount with the toggle on (the field stays a positive number)', async () => {
@@ -536,6 +554,18 @@ describe('AddTransactionScreen — refunds', () => {
 
       await waitFor(() => expect(MockUpdateTransactionUseCase).toHaveBeenCalled());
       expect(MockUpdateTransactionUseCase.mock.calls[0][3]).toMatchObject({ amountCents: -2500 });
+    });
+
+    it('does not post refund_recorded when editing an existing refund (an edit is not a new refund)', async () => {
+      const { getByTestId, getByText } = render(
+        <AddTransactionScreen {...makeNavProps({ transactionId: 'tx-refund' })} />,
+      );
+      await waitFor(() => expect(getByTestId('amount-input').props.value).toBe('25.00'));
+
+      fireEvent.press(getByText('Save Changes'));
+
+      await waitFor(() => expect(MockUpdateTransactionUseCase).toHaveBeenCalled());
+      expect(mockHouseholdNotifier.notifyHousehold).not.toHaveBeenCalled();
     });
 
     it('turns a loaded purchase into a refund when the toggle is switched on', async () => {
