@@ -26,7 +26,7 @@ select public.apply_server_op(jsonb_build_object(
   'row_id', gen_random_uuid()::text,      -- the new row's id
   'op_type', 'insert',                    -- insert | update | delete | increment
   'device_id', 'server:<who-you-are>',    -- must start with "server:"
-  'client_created_at', now(),
+  'client_created_at', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   'payload', jsonb_build_object(
     'envelope_id', '<envelope id in the SAME household and period>',
     'amount_cents', 25000,                -- integer cents; negative = refund
