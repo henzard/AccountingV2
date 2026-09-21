@@ -441,6 +441,37 @@ describe('LeaveHouseholdUseCase — the full sequence (real migrated SQLite)', (
     expect(raw.prepare(`SELECT COUNT(*) AS c FROM oplog`).get()).toEqual({ c: 1 });
   });
 
+  it('a member who left and REJOINED still writes and pushes a leave op (the old tombstone is not theirs to resume)', async () => {
+    // Rejoining inserts a NEW active row and leaves the earlier one tombstoned.
+    // Picking the tombstone would look like "already left", skip the leave op,
+    // and purge the phone while the server still counts them as a member. The
+    // tombstone is inserted FIRST so a naive first-match find would pick it.
+    raw.prepare(`DELETE FROM household_members WHERE id = 'hm-a'`).run();
+    raw
+      .prepare(
+        `INSERT INTO household_members (id, household_id, user_id, role, joined_at, updated_at, deleted_at)
+         VALUES ('hm-a-old', 'hh-1', 'u-member', 'member', ?, ?, ?)`,
+      )
+      .run(NOW, NOW, NOW);
+    raw
+      .prepare(
+        `INSERT INTO household_members (id, household_id, user_id, role, joined_at, updated_at)
+         VALUES ('hm-a-new', 'hh-1', 'u-member', 'member', ?, ?)`,
+      )
+      .run(NOW, NOW);
+
+    const result = await new LeaveHouseholdUseCase(
+      db as never,
+      { householdId: 'hh-1', userId: 'u-member' },
+      { purge: recordingPurge() },
+    ).execute();
+
+    expect(result.success).toBe(true);
+    // The second sync round must have carried a household_members op — i.e. the
+    // departure was really written and pushed before anything was destroyed.
+    expect(events).toEqual(['sync[]', 'sync[household_members]', 'purge[unpushed=0]']);
+  });
+
   it('pushes the membership op BEFORE purging, then empties every table for that household', async () => {
     const result = await new LeaveHouseholdUseCase(
       db as never,

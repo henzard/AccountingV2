@@ -162,7 +162,13 @@ export class LeaveHouseholdUseCase {
       .from(householdMembers)
       .where(eq(householdMembers.householdId, householdId));
 
-    const own = rows.find((row) => row.userId === userId);
+    // The ACTIVE row wins. Someone who left and later rejoined has BOTH an old
+    // tombstoned row and a new active one; picking the tombstone would read as
+    // "already left", skip the leave op, and purge the phone while the server
+    // still counts them as a member. A tombstone is only "mine" for a resumed
+    // attempt, i.e. when no active row exists.
+    const ownRows = rows.filter((row) => row.userId === userId);
+    const own = ownRows.find((row) => row.deletedAt == null) ?? ownRows[0];
     if (!own) {
       return createFailure({
         code: 'NOT_A_MEMBER',
