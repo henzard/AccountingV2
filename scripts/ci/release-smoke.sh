@@ -135,11 +135,25 @@ if [ "$CRAWL_EVENTS" -gt 0 ]; then
       fi
     done
   fi
+  # A crawl that did not actually run must not pass: that is precisely the
+  # "green but never ran" failure this phase replaced. monkey must exit 0 AND
+  # report having injected every requested event.
+  if [ "$MONKEY_EXIT" -ne 0 ]; then
+    echo "release-smoke: FAIL - monkey exited $MONKEY_EXIT before completing the crawl"
+    tail -25 "$CRAWL_LOG"
+    CRAWL_FAILED=1
+  fi
+  INJECTED=$(grep -oE 'Events injected: [0-9]+' "$CRAWL_LOG" | tail -1 | grep -oE '[0-9]+' || true)
+  if [ "${INJECTED:-0}" -ne "$CRAWL_EVENTS" ]; then
+    echo "release-smoke: FAIL - monkey injected ${INJECTED:-0} of $CRAWL_EVENTS events"
+    tail -25 "$CRAWL_LOG"
+    CRAWL_FAILED=1
+  fi
   if [ "$CRAWL_FAILED" -ne 0 ]; then
     echo "release-smoke: reproduce with: adb shell monkey -p $PACKAGE -s $CRAWL_SEED --throttle 150 --pct-syskeys 0 --pct-appswitch 0 --pct-anyevent 0 -v $CRAWL_EVENTS"
     exit 1
   fi
-  echo "release-smoke: crawl PASS - $CRAWL_EVENTS events, no crash or ANR in $PACKAGE (monkey exit $MONKEY_EXIT)"
+  echo "release-smoke: crawl PASS - $INJECTED of $CRAWL_EVENTS events injected, no crash or ANR in $PACKAGE"
 fi
 
 echo "release-smoke: PASS - $PACKAGE launched and is still running after ${WAIT_SECONDS}s"
