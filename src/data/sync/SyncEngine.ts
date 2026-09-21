@@ -186,6 +186,14 @@ export interface SyncSummary {
 interface ApplyEffects {
   /** A SYNC-5 emergency-fund demotion appended a local op that needs pushing. */
   queuedLocalOps: boolean;
+  /** Rows a pulled `increment` was applied to in this batch, keyed
+   * `table:rowId` — see `reconcileIncrementedRows`. */
+  incrementedRows: Map<string, IncrementedRow>;
+}
+
+interface IncrementedRow {
+  table: string;
+  rowId: string;
 }
 
 /** Diagnostic surface for a household's puller (Task 5's Sync Health UI).
@@ -482,6 +490,10 @@ export class SyncEngine {
    * `applyOne`'s forward-compatibility note). */
   private readonly loggedUnknownTables = new Set<string>();
   private readonly loggedUnknownColumns = new Set<string>();
+  /** Incremented rows still owed a server-truth reconcile, per household —
+   * see `reconcileIncrementedRows`. In-memory: a lost entry costs nothing in
+   * the steady state, where no replayed increment is ever double-applied. */
+  private readonly pendingIncrementReconcile = new Map<string, Map<string, IncrementedRow>>();
 
   constructor(deps: SyncEngineDeps) {
     this.db = deps.db;
@@ -708,9 +720,13 @@ export class SyncEngine {
       } else {
         // No server truth for this row -- remove the local phantom row so
         // discard can't leave it silently diverged forever (spec §6.10).
-        tx.run(
-          sql`DELETE FROM ${sql.raw(table)} WHERE id = ${op.row_id} AND household_id = ${op.household_id}`,
-        );
+        // `households` has no household_id column and its row is never a
+        // phantom — deleting it would orphan every local row of the household.
+        if (this.localColumns(tx, table).has('household_id')) {
+          tx.run(
+            sql`DELETE FROM ${sql.raw(table)} WHERE id = ${op.row_id} AND household_id = ${op.household_id}`,
+          );
+        }
       }
       tx.run(sql`DELETE FROM oplog WHERE op_id = ${opId}`);
     });
@@ -1234,6 +1250,8 @@ export class SyncEngine {
     }
 
     let cursor = this.readCursor(householdId);
+    const incrementedRows =
+      this.pendingIncrementReconcile.get(householdId) ?? new Map<string, IncrementedRow>();
 
     for (;;) {
       let rows: ServerOplogRow[];
@@ -1263,7 +1281,7 @@ export class SyncEngine {
       if (rows.length === 0) break;
       summary.batches += 1;
 
-      let res: { cursor: number; applied: number };
+      let res: ReturnType<SyncEngine['applyPulledBatch']>;
       try {
         res = this.applyPulledBatch(householdId, rows);
       } catch (err) {
@@ -1284,10 +1302,78 @@ export class SyncEngine {
       this.pullApplyFailures.delete(householdId);
       summary.applied += res.applied;
       cursor = res.cursor;
+      for (const [key, value] of res.incrementedRows) incrementedRows.set(key, value);
       if (rows.length < this.pullLimit) break;
     }
 
+    await this.reconcileIncrementedRows(householdId, incrementedRows);
+
     return summary;
+  }
+
+  /**
+   * Converges every row a pulled `increment` touched onto the server's current
+   * value, once the drain is over.
+   *
+   * An increment is the one op that is not idempotent, and "was this one
+   * already folded in here?" is answered from two local ledgers (`oplog` and
+   * `oplog_applied`) that do not cover all history: own increments written
+   * before the write-time ledger existed are in neither once `prunePushedOps`
+   * has dropped them. A device replaying old history — e.g. one whose pull was
+   * blocked and whose cursor is still 0 — would re-apply those and double-count
+   * the payment. The server applied each increment exactly once, so its row is
+   * the truth; replacing the local row with it is correct whatever the replay
+   * did, and self-heals on the next drain if the row moved again meanwhile.
+   *
+   * A row with unpushed local ops is left alone (the server does not have
+   * those writes yet, and an own increment is skipped when it comes back) and
+   * retried on a later drain. Best-effort: a transport without `rowState`, or
+   * a failed fetch, leaves the row pending and never fails the pull.
+   */
+  private async reconcileIncrementedRows(
+    householdId: string,
+    rows: Map<string, IncrementedRow>,
+  ): Promise<void> {
+    if (rows.size === 0 || !this.transport.rowState) {
+      this.pendingIncrementReconcile.delete(householdId);
+      return;
+    }
+    for (const [key, { table, rowId }] of [...rows]) {
+      if (this.hasUnpushedOpsFor(this.db, table, rowId)) continue;
+      try {
+        const state = await this.fetchServerRowState(householdId, table, rowId);
+        if (state) {
+          this.db.transaction((tx) => {
+            // A local write may have landed while the fetch was in flight.
+            if (this.hasUnpushedOpsFor(tx, table, rowId)) return;
+            this.replaceLocalRowFromServer(tx, table, state);
+            rows.delete(key);
+          });
+        } else {
+          rows.delete(key);
+        }
+      } catch (err) {
+        logger.warn('SyncEngine.pull: could not reconcile an incremented row, will retry', {
+          householdId,
+          table,
+          rowId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (rows.size > 0) this.pendingIncrementReconcile.set(householdId, rows);
+    else this.pendingIncrementReconcile.delete(householdId);
+  }
+
+  private hasUnpushedOpsFor(db: PortableDb, table: string, rowId: string): boolean {
+    return (
+      db.get(sql`
+        SELECT 1 AS x FROM oplog
+        WHERE table_name = ${table} AND row_id = ${rowId}
+          AND pushed_at IS NULL AND dead_lettered_at IS NULL
+        LIMIT 1
+      `) != null
+    );
   }
 
   /** Transient pull-transport failure: capped exponential backoff for this
@@ -1389,11 +1475,11 @@ export class SyncEngine {
   private applyPulledBatch(
     householdId: string,
     rows: ServerOplogRow[],
-  ): { cursor: number; applied: number } {
+  ): { cursor: number; applied: number; incrementedRows: Map<string, IncrementedRow> } {
     const fallbackNow = this.clock();
     // Side effects the batch produced that the caller must act on AFTER the
     // transaction commits (never inside it).
-    const effects: ApplyEffects = { queuedLocalOps: false };
+    const effects: ApplyEffects = { queuedLocalOps: false, incrementedRows: new Map() };
     const result = this.db.transaction((tx) => {
       let maxSeq = 0;
       let applied = 0;
@@ -1423,7 +1509,7 @@ export class SyncEngine {
     // once the household has a single active EMF the rule stops matching.
     if (effects.queuedLocalOps) notifyOplogWrite(householdId);
 
-    return result;
+    return { ...result, incrementedRows: effects.incrementedRows };
   }
 
   /**
@@ -1542,16 +1628,36 @@ export class SyncEngine {
       this.logSkipOnce(this.loggedUnknownTables, table, 'table', { table });
       return false;
     }
+    // `households` is the one synced table with no household_id column: the
+    // row's id IS the household id. Naming the column there threw on every
+    // household's very first op (the bootstrap `households` insert), which
+    // poisoned the batch and left the creating device unable to pull at all.
+    // Such a table is scoped by id alone, and only ever for the op's own
+    // household row.
+    const hasHouseholdColumn = columns.has('household_id');
+    if (!hasHouseholdColumn && row.row_id !== row.household_id) {
+      this.logSkipOnce(this.loggedUnknownColumns, `${table}.household_id`, 'column', {
+        table,
+        column: 'household_id',
+      });
+      return false;
+    }
+    const householdScope = hasHouseholdColumn
+      ? sql` AND household_id = ${row.household_id}`
+      : sql``;
     const payload = this.resolveEmergencyFundType(tx, table, row, fallbackNow, effects);
 
     if (row.op_type === 'insert') {
-      const keys = this.localPayloadKeys(table, payload, columns);
-      const cols = ['id', 'household_id', ...keys];
+      // id / household_id come from the op envelope, never from the payload.
+      const keys = this.localPayloadKeys(table, payload, columns).filter(
+        (k) => k !== 'id' && k !== 'household_id',
+      );
+      const cols = hasHouseholdColumn ? ['id', 'household_id', ...keys] : ['id', ...keys];
       const colList = sql.raw(cols.join(', '));
       const values = sql.join(
         [
           sql`${row.row_id}`,
-          sql`${row.household_id}`,
+          ...(hasHouseholdColumn ? [sql`${row.household_id}`] : []),
           ...keys.map((k) => sql`${coerceValue(payload[k])}`),
         ],
         sql.raw(', '),
@@ -1566,7 +1672,7 @@ export class SyncEngine {
           sql.raw(', '),
         );
         tx.run(
-          sql`UPDATE ${sql.raw(table)} SET ${setClause} WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
+          sql`UPDATE ${sql.raw(table)} SET ${setClause} WHERE id = ${row.row_id}${householdScope}`,
         );
       }
     } else if (row.op_type === 'delete') {
@@ -1599,7 +1705,7 @@ export class SyncEngine {
       }
       const deletedAt = typeof payload.deleted_at === 'string' ? payload.deleted_at : fallbackNow;
       tx.run(
-        sql`UPDATE ${sql.raw(table)} SET deleted_at = ${deletedAt} WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
+        sql`UPDATE ${sql.raw(table)} SET deleted_at = ${deletedAt} WHERE id = ${row.row_id}${householdScope}`,
       );
     } else if (row.op_type === 'increment') {
       const field = assertIdent(String(payload.field));
@@ -1625,8 +1731,9 @@ export class SyncEngine {
           ? sql`MAX(0, ${sql.raw(field)} + ${delta})`
           : sql`${sql.raw(field)} + ${delta}`;
       tx.run(
-        sql`UPDATE ${sql.raw(table)} SET ${sql.raw(field)} = ${expr} WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
+        sql`UPDATE ${sql.raw(table)} SET ${sql.raw(field)} = ${expr} WHERE id = ${row.row_id}${householdScope}`,
       );
+      effects.incrementedRows.set(`${table}:${row.row_id}`, { table, rowId: row.row_id });
       // M6: debts.is_paid_off is a SERVER-derived column (a BEFORE UPDATE
       // trigger sets it to `outstanding_balance_cents <= 0` on every write —
       // see supabase/migrations/0001_baseline.sql §9g). The local SQLite schema
@@ -1638,7 +1745,7 @@ export class SyncEngine {
       // matches the balance this op just wrote.
       if (table === 'debts' && field === 'outstanding_balance_cents') {
         tx.run(
-          sql`UPDATE debts SET is_paid_off = (outstanding_balance_cents <= 0) WHERE id = ${row.row_id} AND household_id = ${row.household_id}`,
+          sql`UPDATE debts SET is_paid_off = (outstanding_balance_cents <= 0) WHERE id = ${row.row_id}${householdScope}`,
         );
       }
     } else {

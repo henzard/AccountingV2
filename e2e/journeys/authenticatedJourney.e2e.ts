@@ -61,6 +61,13 @@ const APP_PACKAGE = 'com.henza.accountingv2';
 const LONG_TIMEOUT = 20000;
 const MEDIUM_TIMEOUT = 10000;
 
+// Tap only once the element is on screen. Needed wherever Detox's automatic
+// synchronisation is off (see the dashboard note below), harmless elsewhere.
+async function tapWhenVisible(matcher: Detox.NativeMatcher): Promise<void> {
+  await waitFor(element(matcher)).toBeVisible().withTimeout(MEDIUM_TIMEOUT);
+  await element(matcher).tap();
+}
+
 describe('Authenticated journey: sign up → onboard → envelope → transaction', () => {
   beforeAll(async () => {
     await device.launchApp({
@@ -193,17 +200,27 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
       .withTimeout(LONG_TIMEOUT);
   });
 
+  // From the dashboard on, the app is never "idle" in Detox's sense. The
+  // likeliest cause is the dashboard's baby-steps bar, which pulses its
+  // current step with an endless native-driver Animated.loop while the
+  // dashboard stays mounted under every screen pushed on it. CD run #138 sat on "Wait for
+  // AnimatedModuleIdlingResource to become idle" for 60s at the first tap
+  // after that bar appeared. Automatic synchronisation is therefore switched
+  // off for the rest of the journey and every step waits explicitly instead.
   it('creates an additional envelope (sinking fund)', async () => {
-    await element(by.id('sinking-funds-entry')).tap();
+    await device.disableSynchronization();
+    await tapWhenVisible(by.id('sinking-funds-entry'));
     await waitFor(element(by.id('new-sinking-fund-fab')))
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
-    await element(by.id('new-sinking-fund-fab')).tap();
+    await tapWhenVisible(by.id('new-sinking-fund-fab'));
 
-    await detoxExpect(element(by.id('envelope-name'))).toBeVisible();
+    await waitFor(element(by.id('envelope-name')))
+      .toBeVisible()
+      .withTimeout(MEDIUM_TIMEOUT);
     await element(by.id('envelope-name')).typeText(SINKING_FUND_NAME);
     await element(by.id('envelope-amount')).typeText(SINKING_FUND_AMOUNT);
-    await element(by.id('envelope-save')).tap();
+    await tapWhenVisible(by.id('envelope-save'));
 
     // Back on SinkingFundsScreen — the new fund's name confirms it was
     // created and persisted (SinkingFundCard renders envelope.name).
@@ -218,7 +235,7 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
   });
 
   it('adds a transaction and verifies it appears in the transaction list', async () => {
-    await element(by.id('add-transaction-fab')).tap();
+    await tapWhenVisible(by.id('add-transaction-fab'));
 
     // Amount autofocuses on mount, but the envelope picker trigger remains a
     // separate touch target above it and is unaffected by the keyboard.
@@ -226,7 +243,10 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
     await element(by.id('envelope-picker-trigger')).tap();
-    await element(by.text(DEFAULT_ENVELOPE_NAME)).tap();
+    await tapWhenVisible(by.text(DEFAULT_ENVELOPE_NAME));
+    await waitFor(element(by.id('amount-input')))
+      .toBeVisible()
+      .withTimeout(MEDIUM_TIMEOUT);
 
     await element(by.id('amount-input')).typeText(TRANSACTION_AMOUNT);
     await element(by.id('payee-input')).typeText(TRANSACTION_PAYEE);
@@ -250,9 +270,13 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
     // "Transactions", not "Budget"), which lands on TransactionListScreen —
     // the row's title is the transaction's payee, and the current period is
     // already selected by default so no period-switcher taps are needed.
-    await element(by.text('Transactions')).tap();
+    await tapWhenVisible(by.text('Transactions'));
     await waitFor(element(by.text(TRANSACTION_PAYEE)))
       .toBeVisible()
       .withTimeout(LONG_TIMEOUT);
+  });
+
+  afterAll(async () => {
+    await device.enableSynchronization();
   });
 });
