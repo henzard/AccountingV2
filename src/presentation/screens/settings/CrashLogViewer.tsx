@@ -12,7 +12,7 @@
  *  - No record → friendly empty state.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, Share, StyleSheet, View } from 'react-native';
 import { Button, Divider, Surface, Text } from 'react-native-paper';
 import {
@@ -29,6 +29,8 @@ export function CrashLogViewer(): React.JSX.Element {
   const { colors } = useAppTheme();
   const [record, setRecord] = useState<CrashRecord | null | undefined>(undefined); // undefined = loading
   const [copied, setCopied] = useState(false);
+  const [shareError, setShareError] = useState(false);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     const r = await readLastCrash();
@@ -39,7 +41,15 @@ export function CrashLogViewer(): React.JSX.Element {
     void load();
   }, [load]);
 
-  const handleCopy = useCallback(() => {
+  // Clear the "Shared!" reset timer on unmount so it never fires setState
+  // against an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+    };
+  }, []);
+
+  const handleCopy = useCallback(async () => {
     if (!record) return;
     const text = [
       `Timestamp : ${record.timestamp}`,
@@ -48,11 +58,20 @@ export function CrashLogViewer(): React.JSX.Element {
       '',
       record.stack,
     ].join('\n');
-    // Share sheet works without a third-party clipboard package and also lets
-    // the user paste into a bug report, email, or Slack directly.
-    void Share.share({ message: text, title: 'Crash log' });
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setShareError(false);
+    try {
+      // Share sheet works without a third-party clipboard package and also
+      // lets the user paste into a bug report, email, or Slack directly.
+      const result = await Share.share({ message: text, title: 'Crash log' });
+      // iOS resolves (doesn't reject) a dismissed share sheet with
+      // Share.dismissedAction — only confirm when the user actually shared.
+      if (result.action === Share.dismissedAction) return;
+      setCopied(true);
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+      copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setShareError(true);
+    }
   }, [record]);
 
   const handleClear = useCallback(async () => {
@@ -135,6 +154,15 @@ export function CrashLogViewer(): React.JSX.Element {
             Clear record
           </Button>
         </View>
+        {shareError && (
+          <Text
+            variant="bodySmall"
+            style={[styles.shareErrorText, { color: colors.error }]}
+            testID="crash-share-error"
+          >
+            Couldn't share — select and copy the text above instead.
+          </Text>
+        )}
       </ScrollView>
     </View>
   );
@@ -212,5 +240,8 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     borderRadius: radius.md,
+  },
+  shareErrorText: {
+    marginTop: spacing.sm,
   },
 });

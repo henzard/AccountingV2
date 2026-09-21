@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { Share } from 'react-native';
 
 // ─── react-native-paper mocks ─────────────────────────────────────────────────
 jest.mock('react-native-paper', () => {
@@ -166,5 +167,66 @@ describe('BootRecoveryGate', () => {
     await waitFor(() => {
       expect(getByTestId('child-content')).toBeTruthy();
     });
+  });
+
+  it('shows an inline fallback line when Share.share rejects (react-native-web with no navigator.share)', async () => {
+    const crashRecord = {
+      timestamp: '2026-06-19T10:00:00.000Z',
+      step: 'App.tsx init',
+      message: 'Module not found',
+      stack: 'Error: Module not found\n    at boot.ts:42',
+    };
+    mockReadLastCrash.mockResolvedValue(crashRecord);
+    const shareSpy = jest
+      .spyOn(Share, 'share')
+      .mockRejectedValueOnce(new Error('Share is not supported'));
+
+    const { getByText, queryByText } = render(
+      <BootRecoveryGate>
+        <ChildComponent />
+      </BootRecoveryGate>,
+    );
+
+    await waitFor(() => {
+      expect(getByText('Previous boot crashed')).toBeTruthy();
+    });
+
+    expect(queryByText(/Couldn't open sharing/)).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(getByText('Share'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(getByText("Couldn't open sharing — select and copy the text above.")).toBeTruthy();
+    });
+
+    shareSpy.mockRestore();
+  });
+
+  it('the crash step, message and stack are selectable so they can be copied without sharing', async () => {
+    const crashRecord = {
+      timestamp: '2026-06-19T10:00:00.000Z',
+      step: 'App.tsx init',
+      message: 'Module not found',
+      stack: 'Error: Module not found\n    at boot.ts:42',
+    };
+    mockReadLastCrash.mockResolvedValue(crashRecord);
+
+    const { getByText } = render(
+      <BootRecoveryGate>
+        <ChildComponent />
+      </BootRecoveryGate>,
+    );
+
+    await waitFor(() => {
+      expect(getByText('Previous boot crashed')).toBeTruthy();
+    });
+
+    expect(getByText('App.tsx init').props.selectable).toBe(true);
+    expect(getByText('Module not found').props.selectable).toBe(true);
+    expect(getByText(crashRecord.stack).props.selectable).toBe(true);
   });
 });

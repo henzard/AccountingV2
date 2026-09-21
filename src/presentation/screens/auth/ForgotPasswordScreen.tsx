@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,6 +11,7 @@ import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../../data/remote/supabaseClient';
+import { getFriendlyAuthErrorMessage } from '../../utils/authErrorMessages';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { AuthStackParamList } from '../../navigation/types';
@@ -22,6 +23,10 @@ type Nav = NativeStackNavigationProp<AuthStackParamList, 'ForgotPassword'>;
 // ResetPasswordScreen / App.tsx's deep-link handler for the consuming side.
 const RESET_PASSWORD_REDIRECT_URL = 'accountingv2://reset-password';
 
+// Cannot be hammered: re-issuing the reset email is throttled client-side on
+// top of whatever Supabase itself enforces server-side.
+const RESEND_COOLDOWN_SECONDS = 30;
+
 export function ForgotPasswordScreen(): React.JSX.Element {
   const { colors } = useAppTheme();
   const navigation = useNavigation<Nav>();
@@ -30,6 +35,39 @@ export function ForgotPasswordScreen(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  // The normalised (trimmed + lowercased) address actually sent to Supabase —
+  // reused for the confirmation copy and as the "Resend email" target.
+  const [sentEmail, setSentEmail] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendError, setResendError] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const resendSeqRef = useRef(0);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearCooldownTimer = (): void => {
+    if (cooldownTimerRef.current !== null) {
+      clearInterval(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
+  };
+
+  // Clear the interval on unmount so it never fires (or leaks) after the
+  // screen is gone.
+  useEffect(() => clearCooldownTimer, []);
+
+  const startResendCooldown = (): void => {
+    clearCooldownTimer();
+    setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    cooldownTimerRef.current = setInterval(() => {
+      setResendCooldown((seconds) => {
+        if (seconds <= 1) {
+          clearCooldownTimer();
+          return 0;
+        }
+        return seconds - 1;
+      });
+    }, 1000);
+  };
 
   const handleSubmit = async (): Promise<void> => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -44,12 +82,49 @@ export function ForgotPasswordScreen(): React.JSX.Element {
     });
     setLoading(false);
     if (resetError) {
-      setError(resetError.message);
-      AccessibilityInfo.announceForAccessibility(`Request failed: ${resetError.message}`);
+      const friendly = getFriendlyAuthErrorMessage(resetError, 'ForgotPasswordScreen.reset');
+      setError(friendly);
+      AccessibilityInfo.announceForAccessibility(`Request failed: ${friendly}`);
       return;
     }
+    setSentEmail(trimmedEmail);
     setSent(true);
+    setResendError(null);
+    startResendCooldown();
     AccessibilityInfo.announceForAccessibility('Password reset email sent. Check your inbox.');
+  };
+
+  const handleResend = async (): Promise<void> => {
+    if (resendCooldown > 0 || resending) return;
+    setResendError(null);
+    setResending(true);
+    const seq = ++resendSeqRef.current;
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(sentEmail, {
+      redirectTo: RESET_PASSWORD_REDIRECT_URL,
+    });
+    // The user went back to edit the address (or left) while this was in
+    // flight: its outcome belongs to the OLD address.
+    if (seq !== resendSeqRef.current) return;
+    setResending(false);
+    if (resetError) {
+      setResendError(getFriendlyAuthErrorMessage(resetError, 'ForgotPasswordScreen.resend'));
+      return;
+    }
+    startResendCooldown();
+    AccessibilityInfo.announceForAccessibility(
+      'Password reset email sent again. Check your inbox.',
+    );
+  };
+
+  // Returns to the form WITHOUT clearing what was typed, so the user can fix
+  // a typo'd address rather than re-typing it.
+  const handleEditEmail = (): void => {
+    resendSeqRef.current += 1;
+    setResending(false);
+    clearCooldownTimer();
+    setResendCooldown(0);
+    setResendError(null);
+    setSent(false);
   };
 
   if (sent) {
@@ -66,8 +141,42 @@ export function ForgotPasswordScreen(): React.JSX.Element {
           style={[styles.successText, { color: colors.onSurfaceVariant }]}
           accessibilityLiveRegion="polite"
         >
-          If an account exists for {email.trim()}, we've sent a link to reset your password.
+          If an account exists for {sentEmail}, we've sent a link to reset your password.
         </Text>
+
+        {resendError !== null && (
+          <HelperText type="error" visible testID="forgot-password-resend-error">
+            {resendError}
+          </HelperText>
+        )}
+
+        <Button
+          mode="outlined"
+          onPress={handleResend}
+          loading={resending}
+          disabled={resending || resendCooldown > 0}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+          testID="forgot-password-resend"
+          accessibilityLabel={
+            resendCooldown > 0
+              ? `Resend email, available in ${resendCooldown} seconds`
+              : 'Resend email'
+          }
+        >
+          {resendCooldown > 0 ? `Resend email (${resendCooldown}s)` : 'Resend email'}
+        </Button>
+
+        <Button
+          mode="text"
+          onPress={handleEditEmail}
+          style={styles.linkButton}
+          testID="forgot-password-edit-email"
+          accessibilityLabel="Wrong email? Edit"
+        >
+          Wrong email? Edit
+        </Button>
+
         <Button
           mode="contained"
           onPress={() => navigation.navigate('Login')}

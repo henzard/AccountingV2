@@ -3,7 +3,7 @@
  * BootErrorBoundary.test.tsx — error boundary test
  */
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, act } from '@testing-library/react-native';
 import { Share } from 'react-native';
 
 // ─── react-native-paper mocks ─────────────────────────────────────────────────
@@ -149,5 +149,55 @@ describe('BootErrorBoundary', () => {
     expect(title.props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ color: '#f00' })]),
     );
+  });
+
+  it('shows an inline fallback line when Share.share rejects (react-native-web with no navigator.share)', async () => {
+    const shareSpy = jest
+      .spyOn(Share, 'share')
+      .mockRejectedValueOnce(new Error('Share is not supported'));
+
+    const { getByText, queryByText } = render(
+      <BootErrorBoundary>
+        <BombComponent />
+      </BootErrorBoundary>,
+    );
+
+    expect(queryByText(/Couldn't open sharing/)).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(getByText('Share'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getByText("Couldn't open sharing — select and copy the text above.")).toBeTruthy();
+    shareSpy.mockRestore();
+  });
+
+  it('does not show the fallback line when Share.share succeeds', async () => {
+    const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+
+    const { getByText, queryByText } = render(
+      <BootErrorBoundary>
+        <BombComponent />
+      </BootErrorBoundary>,
+    );
+
+    await act(async () => {
+      fireEvent.press(getByText('Share'));
+      await Promise.resolve();
+    });
+
+    expect(queryByText(/Couldn't open sharing/)).toBeNull();
+    shareSpy.mockRestore();
+  });
+
+  it('the crash message and stack are selectable so they can be copied without sharing', () => {
+    const { getByText } = render(
+      <BootErrorBoundary>
+        <BombComponent />
+      </BootErrorBoundary>,
+    );
+    expect(getByText('Test explosion').props.selectable).toBe(true);
   });
 });

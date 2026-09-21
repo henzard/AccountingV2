@@ -12,6 +12,13 @@ jest.mock('../../../../infrastructure/monitoring/earlyCrashLog', () => ({
   clearLastCrash: (...args: unknown[]) => mockClearLastCrash(...args),
 }));
 
+// SET-4: handleCopy fires Share.share and must await/catch it rather than
+// firing-and-forgetting. Spying (rather than jest.mock('react-native', ...))
+// avoids pulling in native-only pieces of the real RN module (e.g. DevMenu)
+// that this jest-expo environment can't load.
+import { Share } from 'react-native';
+const mockShare = jest.spyOn(Share, 'share');
+
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
@@ -56,6 +63,7 @@ const mockRecord = {
 describe('CrashLogViewer', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockShare.mockResolvedValue({ action: 'sharedAction' });
   });
 
   it('shows loading text while fetching crash record', () => {
@@ -102,6 +110,49 @@ describe('CrashLogViewer', () => {
     await waitFor(() => {
       expect(mockClearLastCrash).toHaveBeenCalled();
       expect(getByText('No crash record')).toBeTruthy();
+    });
+  });
+
+  // SET-4 — handleCopy previously fired Share.share without awaiting or
+  // catching it, then unconditionally showed "Shared!" regardless of outcome.
+  describe('SET-4 — awaited, honest share result', () => {
+    it('awaits Share.share and shows "Shared!" only when it actually shares', async () => {
+      mockReadLastCrash.mockResolvedValue(mockRecord);
+      mockShare.mockResolvedValue({ action: 'sharedAction' });
+      const { getByTestId, getByText } = render(<CrashLogViewer />);
+      await waitFor(() => expect(getByTestId('crash-copy-button')).toBeTruthy());
+
+      fireEvent.press(getByTestId('crash-copy-button'));
+
+      await waitFor(() => expect(mockShare).toHaveBeenCalled());
+      await waitFor(() => expect(getByText('Shared!')).toBeTruthy());
+    });
+
+    it('does not show "Shared!" when the share sheet is dismissed (iOS dismissedAction)', async () => {
+      mockReadLastCrash.mockResolvedValue(mockRecord);
+      mockShare.mockResolvedValue({ action: 'dismissedAction' });
+      const { getByTestId, queryByText } = render(<CrashLogViewer />);
+      await waitFor(() => expect(getByTestId('crash-copy-button')).toBeTruthy());
+
+      fireEvent.press(getByTestId('crash-copy-button'));
+
+      await waitFor(() => expect(mockShare).toHaveBeenCalled());
+      expect(queryByText('Shared!')).toBeNull();
+    });
+
+    it('shows a failure message instead of "Shared!" when Share.share rejects', async () => {
+      mockReadLastCrash.mockResolvedValue(mockRecord);
+      mockShare.mockRejectedValue(new Error('no share target'));
+      const { getByTestId, queryByText } = render(<CrashLogViewer />);
+      await waitFor(() => expect(getByTestId('crash-copy-button')).toBeTruthy());
+
+      fireEvent.press(getByTestId('crash-copy-button'));
+
+      await waitFor(() => expect(getByTestId('crash-share-error')).toBeTruthy());
+      expect(getByTestId('crash-share-error')).toHaveTextContent(
+        "Couldn't share — select and copy the text above instead.",
+      );
+      expect(queryByText('Shared!')).toBeNull();
     });
   });
 });

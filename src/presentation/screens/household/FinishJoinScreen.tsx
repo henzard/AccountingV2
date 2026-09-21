@@ -7,6 +7,7 @@ import { supabase } from '../../../data/remote/supabaseClient';
 import { RestoreService } from '../../../data/sync/RestoreService';
 import { hydrateHousehold } from '../../../domain/households/hydrateHousehold';
 import { markOnboardingComplete } from '../../../infrastructure/storage/onboardingFlag';
+import { signOutAndUnregisterFcm } from '../../../infrastructure/notifications/signOutAndUnregisterFcm';
 import { usePendingJoinStore } from '../../boot/pendingJoinStore';
 import { useAppStore } from '../../stores/appStore';
 import { spacing } from '../../theme/tokens';
@@ -101,7 +102,11 @@ export function FinishJoinScreen(): React.JSX.Element {
 
   const handleSignOut = (): void => {
     setPendingJoinHouseholdId(null);
-    void supabase.auth.signOut();
+    // PUSH-1: deregister this device's FCM token before signing out — see
+    // signOutAndUnregisterFcm for why (mirrors SettingsScreen's
+    // handleSignOut so a shared device's next user doesn't inherit this
+    // one's pushes).
+    void signOutAndUnregisterFcm(userId);
   };
 
   if (error === null) {

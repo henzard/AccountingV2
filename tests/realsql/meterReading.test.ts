@@ -424,3 +424,142 @@ describe('LogMeterReadingUseCase after a delete (real SQLite, end to end)', () =
     raw.close();
   });
 });
+
+describe('LogMeterReadingUseCase meterReplaced flag (real SQLite)', () => {
+  // MTR-2: a REPLACED METER starts back near zero and is legitimately below
+  // the old meter's last reading. Without the opt-in meterReplaced flag,
+  // LogMeterReadingUseCase's below-previous guard rejects it outright and it
+  // can never be logged.
+  it('rejects a below-previous reading without the meterReplaced flag', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+
+    const first = await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 5000,
+      readingDate: '2026-01-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+    }).execute();
+    expect(first.success).toBe(true);
+
+    const replaced = await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 20,
+      readingDate: '2026-02-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+    }).execute();
+    expect(replaced.success).toBe(false);
+    if (!replaced.success) expect(replaced.error.code).toBe('READING_BELOW_PREVIOUS');
+
+    const rows = raw.prepare('SELECT COUNT(*) AS n FROM meter_readings').get() as { n: number };
+    expect(rows.n).toBe(1); // the rejected insert wrote nothing
+
+    raw.close();
+  });
+
+  it('accepts a below-previous reading when meterReplaced is true, and does not persist any new marker', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+
+    const first = await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 5000,
+      readingDate: '2026-01-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+    }).execute();
+    expect(first.success).toBe(true);
+
+    const replaced = await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 20,
+      readingDate: '2026-02-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+      meterReplaced: true,
+    }).execute();
+    expect(replaced.success).toBe(true);
+    if (replaced.success) expect(replaced.data.readingValue).toBe(20);
+
+    const row = raw
+      .prepare('SELECT * FROM meter_readings WHERE reading_date = ?')
+      .get('2026-02-01') as Record<string, unknown>;
+    // No new column, and the flag must not be smuggled into any existing
+    // synced column (e.g. notes).
+    expect(row.notes).toBeNull();
+    expect(Object.keys(row)).not.toContain('meter_replaced');
+
+    raw.close();
+  });
+
+  it('validates the NEXT reading (after a replacement, without the flag) against the NEW meter value, not the old one', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const db = drizzle(raw);
+
+    await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 5000,
+      readingDate: '2026-01-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+    }).execute();
+
+    const replaced = await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 20,
+      readingDate: '2026-02-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+      meterReplaced: true,
+    }).execute();
+    expect(replaced.success).toBe(true);
+
+    // A normal follow-up reading below the OLD meter's 5000 but above the
+    // NEW meter's 20 must be accepted without needing the flag again.
+    const next = await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 45,
+      readingDate: '2026-03-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+    }).execute();
+    expect(next.success).toBe(true);
+    if (next.success) expect(next.data.readingValue).toBe(45);
+
+    // And a reading still below the new meter's latest (45) must still be
+    // rejected as READING_BELOW_PREVIOUS — the flag only ever waives the
+    // check for the one insert it's passed on.
+    const belowNew = await new LogMeterReadingUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      meterType: 'electricity',
+      readingValue: 30,
+      readingDate: '2026-04-01',
+      costCents: null,
+      vehicleId: null,
+      notes: null,
+    }).execute();
+    expect(belowNew.success).toBe(false);
+    if (!belowNew.success) expect(belowNew.error.code).toBe('READING_BELOW_PREVIOUS');
+
+    raw.close();
+  });
+});

@@ -7,7 +7,7 @@
  * confirmation, without ever revealing whether the email is registered.
  */
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -39,16 +39,20 @@ jest.mock('react-native-paper', () => {
     testID,
     accessibilityLabel,
     accessibilityRole,
+    disabled,
+    loading,
   }: {
     children?: React.ReactNode;
     onPress?: () => void;
     testID?: string;
     accessibilityLabel?: string;
     accessibilityRole?: string;
+    disabled?: boolean;
+    loading?: boolean;
   }) =>
     React.createElement(
       'Pressable',
-      { onPress, testID, accessibilityLabel, accessibilityRole },
+      { onPress, testID, accessibilityLabel, accessibilityRole, disabled, loading },
       children,
     );
   const HelperText = ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
@@ -145,5 +149,100 @@ describe('ForgotPasswordScreen', () => {
     });
     fireEvent.press(getByTestId('forgot-password-back-to-signin'));
     expect(mockNavigate).toHaveBeenCalledWith('Login');
+  });
+
+  // AUTH-1: raw Supabase error text must never reach the helper text.
+  describe('AUTH-1: friendly error copy', () => {
+    it('shows a friendly offline message instead of the raw fetch error', async () => {
+      mockResetPasswordForEmail.mockResolvedValue({ error: { message: 'Failed to fetch' } });
+      const { getByTestId } = render(<ForgotPasswordScreen />);
+      fireEvent.changeText(getByTestId('forgot-password-email'), 'user@example.com');
+      fireEvent.press(getByTestId('forgot-password-submit'));
+      await waitFor(() => {
+        expect(getByTestId('forgot-password-error').props.children).toMatch(/offline|connection/i);
+      });
+    });
+  });
+
+  // AUTH-2: resend + edit affordances on the check-your-email state.
+  describe('AUTH-2: resend email + edit email on the check-your-email state', () => {
+    async function getToCheckEmail() {
+      const utils = render(<ForgotPasswordScreen />);
+      fireEvent.changeText(utils.getByTestId('forgot-password-email'), '  User@Example.COM  ');
+      fireEvent.press(utils.getByTestId('forgot-password-submit'));
+      await waitFor(() => {
+        expect(utils.queryByTestId('forgot-password-check-email')).toBeTruthy();
+      });
+      return utils;
+    }
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('re-issues resetPasswordForEmail with the same normalised email and redirectTo on resend', async () => {
+      jest.useFakeTimers();
+      const { getByTestId } = await getToCheckEmail();
+      await act(async () => {
+        jest.advanceTimersByTime(30000);
+      });
+      await act(async () => {
+        fireEvent.press(getByTestId('forgot-password-resend'));
+      });
+      expect(mockResetPasswordForEmail).toHaveBeenLastCalledWith('user@example.com', {
+        redirectTo: 'accountingv2://reset-password',
+      });
+    });
+
+    it('disables resend during the 30s cooldown, then re-enables it', async () => {
+      jest.useFakeTimers();
+      const { getByTestId } = await getToCheckEmail();
+      expect(getByTestId('forgot-password-resend').props.disabled).toBe(true);
+      await act(async () => {
+        jest.advanceTimersByTime(29000);
+      });
+      expect(getByTestId('forgot-password-resend').props.disabled).toBe(true);
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(getByTestId('forgot-password-resend').props.disabled).toBe(false);
+    });
+
+    it('pressing resend during cooldown does not call resetPasswordForEmail again', async () => {
+      const { getByTestId } = await getToCheckEmail();
+      const callsBefore = mockResetPasswordForEmail.mock.calls.length;
+      fireEvent.press(getByTestId('forgot-password-resend'));
+      expect(mockResetPasswordForEmail.mock.calls.length).toBe(callsBefore);
+    });
+
+    it('shows a friendly error when resend fails', async () => {
+      jest.useFakeTimers();
+      const { getByTestId } = await getToCheckEmail();
+      await act(async () => {
+        jest.advanceTimersByTime(30000);
+      });
+      mockResetPasswordForEmail.mockResolvedValue({ error: { message: 'Rate limit exceeded' } });
+      await act(async () => {
+        fireEvent.press(getByTestId('forgot-password-resend'));
+      });
+      expect(getByTestId('forgot-password-resend-error').props.children).toMatch(
+        /too many attempts/i,
+      );
+    });
+
+    it('"Wrong email? Edit" returns to the form with the typed email still filled', async () => {
+      const { getByTestId } = await getToCheckEmail();
+      fireEvent.press(getByTestId('forgot-password-edit-email'));
+      expect(getByTestId('forgot-password-email').props.value).toBe('  User@Example.COM  ');
+    });
+
+    it('clears the cooldown timer on unmount', async () => {
+      jest.useFakeTimers();
+      const { unmount } = await getToCheckEmail();
+      unmount();
+      await act(async () => {
+        jest.advanceTimersByTime(30000);
+      });
+    });
   });
 });

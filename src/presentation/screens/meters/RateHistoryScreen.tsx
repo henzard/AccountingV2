@@ -25,11 +25,23 @@ import type { RateHistoryScreenProps } from '../../navigation/types';
 const calculator = new UnitRateCalculator();
 const audit = new AuditLogger(db);
 
+// Render 24 rows, but fetch one extra (the boundary row) so the 24th row's
+// consumption can be computed against its real previous reading instead of
+// being mislabelled "First reading" purely because the fetch window cut it
+// off. The extra row itself is never rendered.
+const VISIBLE_LIMIT = 24;
+const FETCH_LIMIT = VISIBLE_LIMIT + 1;
+
 export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) => {
   const { colors } = useAppTheme();
   const { meterType } = route.params;
   const householdId = useAppStore((s) => s.householdId)!;
-  const { readings, loading, error, reload } = useMeterReadings(householdId, meterType, 24);
+  const { readings, loading, error, reload } = useMeterReadings(
+    householdId,
+    meterType,
+    FETCH_LIMIT,
+  );
+  const visibleReadings = readings.slice(0, VISIBLE_LIMIT);
   const enqueue = useToastStore((s) => s.enqueue);
 
   useFocusEffect(
@@ -96,6 +108,19 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
                   </Text>
                 ) : null}
               </>
+            ) : previous ? (
+              // A previous reading exists but the calculator rejected the
+              // pair (consumption <= 0) — most commonly a replaced/new meter
+              // whose reading legitimately dropped below the old meter's
+              // last value. That is not "no history", so it must not be
+              // labelled "First reading"; it also must not render a crash or
+              // a negative figure.
+              <Text
+                variant="bodySmall"
+                style={[styles.firstReading, { color: colors.onSurfaceVariant }]}
+              >
+                Meter replaced / no usage for this period
+              </Text>
             ) : (
               <Text
                 variant="bodySmall"
@@ -164,7 +189,7 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
         </View>
       ) : (
         <FlatList
-          data={readings}
+          data={visibleReadings}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}

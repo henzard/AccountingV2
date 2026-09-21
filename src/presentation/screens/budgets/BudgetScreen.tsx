@@ -30,6 +30,7 @@ import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { SectionHeader } from '../../components/shared/SectionHeader';
 import { EnvelopeDetailSheet } from '../dashboard/components/EnvelopeDetailSheet';
 import { usePersistentEnvelopeSavings } from '../../hooks/usePersistentEnvelopeSavings';
+import { useReloadOnSync } from '../../hooks/useReloadOnSync';
 import { useEnvelopes } from '../../hooks/useEnvelopes';
 import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../../domain/shared/BudgetPeriodEngine';
@@ -43,10 +44,14 @@ import { db } from '../../../data/local/db';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { DashboardStackParamList } from '../../navigation/types';
+import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import type { BudgetPeriod } from '../../../domain/shared/types';
 import type { EnvelopeEntity } from '../../../domain/envelopes/EnvelopeEntity';
 
 const engine = new BudgetPeriodEngine();
+
+/** Matches the dashboard's own persistent-envelope section heading. */
+const SAVINGS_SECTION_TITLE = 'Savings & funds';
 
 type Nav = NativeStackNavigationProp<DashboardStackParamList>;
 
@@ -97,11 +102,19 @@ export const BudgetScreen: React.FC = () => {
   const [rolloverFromPeriodStart, setRolloverFromPeriodStart] = useState(currentPeriodStart);
   const [selectedEnvelope, setSelectedEnvelope] = useState<EnvelopeEntity | null>(null);
 
+  // The saved balances come from their own hook: reload them wherever the
+  // envelopes reload (focus, pull-to-refresh) and when a sync round lands, or
+  // a contribution pulled from the other phone leaves a stale "saved" figure.
+  const reloadAll = useCallback(async (): Promise<void> => {
+    await Promise.all([reload(), reloadSavings()]);
+  }, [reload, reloadSavings]);
+
   useFocusEffect(
     useCallback(() => {
-      void reload();
-    }, [reload]),
+      void reloadAll();
+    }, [reloadAll]),
   );
+  useReloadOnSync(reloadSavings);
 
   // Looks up the latest earlier period that actually has envelopes and opens
   // the rollover wizard from it (UX-1/DOM-2/VAL-2); if none exists (brand-new
@@ -174,9 +187,21 @@ export const BudgetScreen: React.FC = () => {
     }
   }, [incomeEnvelopes, navigation]);
 
-  // Group envelopes into Income / Expenses sections
-  const expenseEnvelopes = useMemo(
-    () => envelopes.filter((e) => e.envelopeType !== 'income'),
+  // Group envelopes into Income / Expenses / Savings & funds sections.
+  //
+  // PERSISTENT envelopes (savings/sinking_fund/emergency_fund/baby_step) get
+  // their own section rather than sitting among the period expenses: their
+  // `spentCents` is an all-time withdrawal total and their `allocatedCents`
+  // is this period's monthly contribution, so the allocated/spent/difference
+  // comparison the Expenses rows show is meaningless for them (see
+  // BudgetEnvelopeRow's header). This mirrors the dashboard's "Savings &
+  // funds" section, which already separates them.
+  const periodExpenseEnvelopes = useMemo(
+    () => envelopes.filter((e) => e.envelopeType !== 'income' && getEnvelopeScope(e) === 'period'),
+    [envelopes],
+  );
+  const persistentEnvelopes = useMemo(
+    () => envelopes.filter((e) => getEnvelopeScope(e) === 'persistent'),
     [envelopes],
   );
   const sections = useMemo(() => {
@@ -184,11 +209,14 @@ export const BudgetScreen: React.FC = () => {
     if (incomeEnvelopes.length > 0) {
       result.push({ title: 'Income', data: incomeEnvelopes });
     }
-    if (expenseEnvelopes.length > 0) {
-      result.push({ title: 'Expenses', data: expenseEnvelopes });
+    if (periodExpenseEnvelopes.length > 0) {
+      result.push({ title: 'Expenses', data: periodExpenseEnvelopes });
+    }
+    if (persistentEnvelopes.length > 0) {
+      result.push({ title: SAVINGS_SECTION_TITLE, data: persistentEnvelopes });
     }
     return result;
-  }, [incomeEnvelopes, expenseEnvelopes]);
+  }, [incomeEnvelopes, periodExpenseEnvelopes, persistentEnvelopes]);
 
   if (loading && envelopes.length === 0) {
     return (
@@ -274,7 +302,15 @@ export const BudgetScreen: React.FC = () => {
           sections={sections}
           keyExtractor={(item) => item.id}
           renderItem={({ item, section }) =>
-            section.title === 'Expenses' ? (
+            section.title === SAVINGS_SECTION_TITLE ? (
+              <BudgetEnvelopeRow
+                envelope={item}
+                deltaCents={null}
+                savedCents={savedCentsByEnvelopeId.get(item.id) ?? 0}
+                onPress={isPastPeriod ? undefined : () => setSelectedEnvelope(item)}
+                testID={`envelope-card-${item.name}`}
+              />
+            ) : section.title === 'Expenses' ? (
               <BudgetEnvelopeRow
                 envelope={item}
                 deltaCents={computeSpentDeltaVsPreviousPeriod(item, previousEnvelopes)}
@@ -300,7 +336,11 @@ export const BudgetScreen: React.FC = () => {
             // REG-9: `loading` is first-load-only — using it here meant the
             // platform pull-to-refresh spinner stopped reflecting an
             // in-flight reload the moment the first load finished.
-            <RefreshControl refreshing={refreshing} onRefresh={reload} colors={[colors.primary]} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={reloadAll}
+              colors={[colors.primary]}
+            />
           }
           stickySectionHeadersEnabled={false}
         />

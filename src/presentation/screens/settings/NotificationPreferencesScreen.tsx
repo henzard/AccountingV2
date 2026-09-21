@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, Linking, Platform } from 'react-native';
 import { List, Switch, Text, TextInput, Surface, Button, HelperText } from 'react-native-paper';
 import { NotificationPreferencesRepository } from '../../../infrastructure/notifications/NotificationPreferencesRepository';
@@ -32,6 +32,27 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
   const [minuteInput, setMinuteInput] = useState(String(preferences.eveningLogPromptMinute));
   const [hourError, setHourError] = useState<string | null>(null);
   const [minuteError, setMinuteError] = useState<string | null>(null);
+  // SET-3: these useState initializers only seed the inputs from the store
+  // ONCE, at first mount — but the store hydrates asynchronously (e.g. from
+  // AsyncStorage) after mount, so opening this screen right after cold start
+  // showed defaults that never resynced once the real values loaded. Track
+  // focus so the resync below never clobbers what the user is mid-typing.
+  const [hourFocused, setHourFocused] = useState(false);
+  const [minuteFocused, setMinuteFocused] = useState(false);
+  // Whether the user actually TYPED in the field during this focus. A field
+  // that was only tapped must not be persisted on blur: if the store
+  // hydrated meanwhile, that would write the stale pre-hydration value back
+  // over the real preference.
+  const hourEditedRef = useRef(false);
+  const minuteEditedRef = useRef(false);
+
+  useEffect(() => {
+    if (!hourFocused) setHourInput(String(preferences.eveningLogPromptHour));
+  }, [preferences.eveningLogPromptHour, hourFocused]);
+
+  useEffect(() => {
+    if (!minuteFocused) setMinuteInput(String(preferences.eveningLogPromptMinute));
+  }, [preferences.eveningLogPromptMinute, minuteFocused]);
 
   const updatePref = async (update: Partial<NotificationPreferences>): Promise<void> => {
     // L10 fix: merge against the FRESHEST store state (read via getState()),
@@ -149,8 +170,20 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                   <TextInput
                     label="Hour (0-23)"
                     value={hourInput}
-                    onChangeText={setHourInput}
+                    onChangeText={(v) => {
+                      hourEditedRef.current = true;
+                      setHourInput(v);
+                    }}
+                    onFocus={() => {
+                      hourEditedRef.current = false;
+                      setHourFocused(true);
+                    }}
                     onBlur={() => {
+                      setHourFocused(false);
+                      if (!hourEditedRef.current) {
+                        setHourError(null);
+                        return;
+                      }
                       if (hourInput === '') {
                         setHourError(null);
                         return;
@@ -178,8 +211,20 @@ export const NotificationPreferencesScreen: React.FC<NotificationPreferencesScre
                   <TextInput
                     label="Minute (0-59)"
                     value={minuteInput}
-                    onChangeText={setMinuteInput}
+                    onChangeText={(v) => {
+                      minuteEditedRef.current = true;
+                      setMinuteInput(v);
+                    }}
+                    onFocus={() => {
+                      minuteEditedRef.current = false;
+                      setMinuteFocused(true);
+                    }}
                     onBlur={() => {
+                      setMinuteFocused(false);
+                      if (!minuteEditedRef.current) {
+                        setMinuteError(null);
+                        return;
+                      }
                       if (minuteInput === '') {
                         setMinuteError(null);
                         return;

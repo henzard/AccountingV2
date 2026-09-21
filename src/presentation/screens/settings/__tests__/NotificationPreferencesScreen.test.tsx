@@ -165,18 +165,21 @@ jest.mock('react-native-paper', () => {
       label,
       value,
       onChangeText,
+      onFocus,
       onBlur,
     }: {
       testID?: string;
       label?: string;
       value?: string;
       onChangeText?: (v: string) => void;
+      onFocus?: () => void;
       onBlur?: () => void;
     }) =>
       React.createElement('TextInput', {
         testID: testID ?? label,
         value,
         onChangeText,
+        onFocus,
         onBlur,
       }),
     HelperText: ({
@@ -658,6 +661,107 @@ describe('NotificationPreferencesScreen', () => {
         jest.advanceTimersByTime(700);
       });
       expect(mockSave).not.toHaveBeenCalled();
+    });
+  });
+
+  // SET-3 — the hour/minute inputs are seeded once via useState from a store
+  // that hydrates asynchronously, so opening the screen right after cold
+  // start showed defaults that never resynced. They must resync when the
+  // stored values change, but never clobber an in-progress edit.
+  describe('SET-3 — resyncing time inputs on store hydration', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('resyncs the hour/minute inputs when the store hydrates after mount', () => {
+      mockPreferences = {
+        ...mockPreferences,
+        eveningLogPromptEnabled: true,
+        eveningLogPromptHour: 20,
+        eveningLogPromptMinute: 0,
+      };
+      const { getByTestId, rerender } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+      expect(getByTestId('evening-hour-input').props.value).toBe('20');
+      expect(getByTestId('evening-minute-input').props.value).toBe('0');
+
+      // Simulate the notification store hydrating a persisted value
+      // asynchronously after this screen already mounted with defaults.
+      mockPreferences = {
+        ...mockPreferences,
+        eveningLogPromptHour: 21,
+        eveningLogPromptMinute: 30,
+      };
+      rerender(<NotificationPreferencesScreen route={{} as never} navigation={{} as never} />);
+
+      expect(getByTestId('evening-hour-input').props.value).toBe('21');
+      expect(getByTestId('evening-minute-input').props.value).toBe('30');
+    });
+
+    it('does not clobber an in-progress hour edit while the field is focused', () => {
+      mockPreferences = {
+        ...mockPreferences,
+        eveningLogPromptEnabled: true,
+        eveningLogPromptHour: 20,
+        eveningLogPromptMinute: 0,
+      };
+      const { getByTestId, rerender } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+
+      const hourInput = getByTestId('evening-hour-input');
+      act(() => {
+        hourInput.props.onFocus();
+      });
+      act(() => {
+        fireEvent.changeText(hourInput, '5');
+      });
+
+      // Store hydrates with a different value while the user is mid-edit.
+      mockPreferences = { ...mockPreferences, eveningLogPromptHour: 9 };
+      rerender(<NotificationPreferencesScreen route={{} as never} navigation={{} as never} />);
+
+      expect(getByTestId('evening-hour-input').props.value).toBe('5');
+    });
+
+    it('resyncs the hour input once it loses focus after a hydration while it was focused', () => {
+      mockPreferences = {
+        ...mockPreferences,
+        eveningLogPromptEnabled: true,
+        eveningLogPromptHour: 20,
+        eveningLogPromptMinute: 0,
+      };
+      const { getByTestId, rerender } = render(
+        <NotificationPreferencesScreen route={{} as never} navigation={{} as never} />,
+      );
+
+      const hourInput = getByTestId('evening-hour-input');
+      act(() => {
+        hourInput.props.onFocus();
+      });
+      mockPreferences = { ...mockPreferences, eveningLogPromptHour: 9 };
+      rerender(<NotificationPreferencesScreen route={{} as never} navigation={{} as never} />);
+      // Still focused — untouched hydration must not overwrite mid-edit state.
+      expect(getByTestId('evening-hour-input').props.value).toBe('20');
+
+      act(() => {
+        getByTestId('evening-hour-input').props.onBlur();
+      });
+      // debouncedUpdatePref isn't triggered by blur alone unless the value
+      // parses as valid AND changed from what's displayed — '20' is valid,
+      // so it schedules a save back to 20. The resync effect itself doesn't
+      // depend on that: once unfocused, it reflects the store's current value.
+      expect(getByTestId('evening-hour-input').props.value).toBe('9');
+
+      // Flush the debounce timer scheduled by onBlur so nothing leaks past this test.
+      act(() => {
+        jest.advanceTimersByTime(700);
+      });
     });
   });
 });

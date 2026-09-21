@@ -2,10 +2,25 @@
  * HouseholdMembersScreen.test.tsx — roster, owner-only removal, leaving.
  */
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 jest.mock('../../../../data/remote/supabaseClient', () => ({ supabase: {} }));
+
+// HH-2: refetch-on-focus uses useFocusEffect, which needs a navigation
+// container in a real app but only React.useEffect's semantics in a test
+// (mirrors MeterDashboardScreen.test.tsx's identical mock).
+jest.mock('@react-navigation/native', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const R = require('react');
+  return {
+    ...jest.requireActual('@react-navigation/native'),
+    useFocusEffect: (cb: () => (() => void) | void) => {
+      R.useEffect(() => cb(), [cb]);
+    },
+  };
+});
 
 const mockListExecute = jest.fn();
 jest.mock('../../../../domain/households/ListHouseholdMembersUseCase', () => ({
@@ -342,6 +357,64 @@ describe('HouseholdMembersScreen', () => {
 
       await waitFor(() => expect(getByTestId('member-row-u-owner')).toBeTruthy());
       expect(getByTestId('member-row-u-owner')).toHaveTextContent(/Joined 1 Jan 2026/);
+    });
+  });
+
+  // HH-2: another owner's change (add/remove/role change) must not leave this
+  // screen's roster — or its "sole owner" computation — stale.
+  describe('HH-2 — pull-to-refresh, refetch-on-focus, and stale-load guard', () => {
+    it('pull-to-refresh re-runs the load', async () => {
+      const { getByTestId, UNSAFE_getByType } = renderScreen();
+      await waitFor(() => expect(getByTestId('member-row-u-member')).toBeTruthy());
+      expect(mockListExecute).toHaveBeenCalledTimes(1);
+
+      mockListExecute.mockResolvedValue({ success: true, data: [OWNER, MEMBER, CO_OWNER] });
+      const refreshControl = UNSAFE_getByType(RefreshControl);
+      await waitFor(() => {
+        refreshControl.props.onRefresh();
+      });
+
+      await waitFor(() => expect(getByTestId('member-row-u-owner-2')).toBeTruthy());
+      expect(mockListExecute).toHaveBeenCalledTimes(2);
+    });
+
+    it('discards a stale slower load when a newer one resolves first', async () => {
+      const { getByTestId, queryByTestId, UNSAFE_getByType } = renderScreen();
+      await waitFor(() => expect(getByTestId('member-row-u-member')).toBeTruthy());
+
+      // Kick off a slow refresh (call #2) that will resolve LATE, then a
+      // second refresh (call #3) that resolves immediately. Without the
+      // request-counter guard, call #2's stale response — arriving after
+      // call #3's fresh one — would overwrite it.
+      let resolveSlow!: (v: unknown) => void;
+      mockListExecute.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSlow = resolve;
+          }),
+      );
+      const refreshControl = UNSAFE_getByType(RefreshControl);
+      refreshControl.props.onRefresh();
+
+      mockListExecute.mockResolvedValueOnce({ success: true, data: [OWNER, CO_OWNER] });
+      await refreshControl.props.onRefresh();
+
+      await waitFor(() => expect(getByTestId('member-row-u-owner-2')).toBeTruthy());
+      expect(queryByTestId('member-row-u-member')).toBeNull();
+
+      // Now the stale, slower response resolves — it must be discarded.
+      // onRefresh is fire-and-forget (returns undefined), so awaiting its
+      // return value would prove nothing: resolve inside act and flush the
+      // microtasks so a stale overwrite, if any, has really been committed.
+      await act(async () => {
+        resolveSlow({ success: true, data: [MEMBER] });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getByTestId('member-row-u-owner-2')).toBeTruthy();
+      expect(queryByTestId('member-row-u-member')).toBeNull();
+      expect(queryByTestId('members-error')).toBeNull();
     });
   });
 });

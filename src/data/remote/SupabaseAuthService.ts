@@ -15,6 +15,11 @@ export class SupabaseAuthService {
       return createFailure<DomainError>({
         code: 'AUTH_SIGN_IN_FAILED',
         message: error?.message ?? 'Sign in failed',
+        // Preserve the underlying Supabase status/code (the domain `code`
+        // above stays a stable domain code) so callers can map the raw
+        // error to friendly copy via getFriendlyAuthErrorMessage without
+        // needing to know about @supabase/auth-js's error shapes directly.
+        context: error ? { status: error.status, code: error.code } : undefined,
       });
     }
     return createSuccess(data.session);

@@ -40,6 +40,11 @@ jest.mock('../../../../domain/meterReadings/AnomalyDetector', () => ({
   AnomalyDetector: jest.fn().mockImplementation(() => ({ detect: mockDetect })),
 }));
 
+const mockConfirm = jest.fn();
+jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
+  confirm: (...args: unknown[]) => mockConfirm(...args),
+}));
+
 const mockEnqueue = jest.fn();
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((sel: (s: { householdId: string }) => unknown) =>
@@ -120,6 +125,7 @@ describe('AddReadingScreen', () => {
     jest.clearAllMocks();
     mockExecute.mockResolvedValue({ success: true });
     mockDetect.mockReturnValue({ isAnomaly: false });
+    mockConfirm.mockResolvedValue(false);
   });
 
   it('renders without crashing', () => {
@@ -595,5 +601,116 @@ describe('AddReadingScreen', () => {
       (c) => c.type === 'isNull',
     );
     expect(hasDeletedAtFilter).toBe(true);
+  });
+
+  // MTR-2: a READING_BELOW_PREVIOUS failure must offer the user an in-place
+  // choice (via the app's confirm() helper) to log it as a new/replaced
+  // meter — never retry with the flag silently.
+  describe('READING_BELOW_PREVIOUS — new/replaced meter flow', () => {
+    it('asks for confirmation instead of just showing an error', async () => {
+      mockExecute.mockResolvedValueOnce({
+        success: false,
+        error: {
+          code: 'READING_BELOW_PREVIOUS',
+          message:
+            'Reading value (20) cannot be lower than the previous reading (5000) on 2026-04-01',
+        },
+      });
+
+      const { getByTestId } = render(
+        <AddReadingScreen
+          route={{ params: { meterType: 'electricity' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      fireEvent.changeText(getByTestId('Current reading (kWh)'), '20');
+
+      await act(async () => {
+        fireEvent.press(getByTestId('save-button'));
+      });
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: expect.stringContaining('meter'),
+            confirmLabel: expect.stringContaining('new/replaced meter'),
+          }),
+        );
+      });
+    });
+
+    it('shows the failure as an inline error (not silently retried) when the user declines the confirm', async () => {
+      mockExecute.mockResolvedValueOnce({
+        success: false,
+        error: {
+          code: 'READING_BELOW_PREVIOUS',
+          message:
+            'Reading value (20) cannot be lower than the previous reading (5000) on 2026-04-01',
+        },
+      });
+      mockConfirm.mockResolvedValue(false);
+
+      const { getByTestId, queryByTestId } = render(
+        <AddReadingScreen
+          route={{ params: { meterType: 'electricity' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      fireEvent.changeText(getByTestId('Current reading (kWh)'), '20');
+
+      await act(async () => {
+        fireEvent.press(getByTestId('save-button'));
+      });
+
+      await waitFor(() => {
+        expect(queryByTestId('helper-error')).toBeTruthy();
+      });
+      expect(mockExecute).toHaveBeenCalledTimes(1); // never silently retried
+      expect(mockGoBack).not.toHaveBeenCalled();
+    });
+
+    it('re-submits with the meterReplaced flag and saves when the user confirms', async () => {
+      mockExecute
+        .mockResolvedValueOnce({
+          success: false,
+          error: {
+            code: 'READING_BELOW_PREVIOUS',
+            message:
+              'Reading value (20) cannot be lower than the previous reading (5000) on 2026-04-01',
+          },
+        })
+        .mockResolvedValueOnce({ success: true });
+      mockConfirm.mockResolvedValue(true);
+
+      const { getByTestId } = render(
+        <AddReadingScreen
+          route={{ params: { meterType: 'electricity' } } as never}
+          navigation={mockNavigation}
+        />,
+      );
+
+      fireEvent.changeText(getByTestId('Current reading (kWh)'), '20');
+
+      await act(async () => {
+        fireEvent.press(getByTestId('save-button'));
+      });
+
+      await waitFor(() => {
+        expect(mockExecute).toHaveBeenCalledTimes(2);
+        expect(mockEnqueue).toHaveBeenCalledWith('Reading saved', 'success');
+        expect(mockGoBack).toHaveBeenCalled();
+      });
+
+      const { LogMeterReadingUseCase } = jest.requireMock(
+        '../../../../domain/meterReadings/LogMeterReadingUseCase',
+      ) as { LogMeterReadingUseCase: jest.Mock };
+      // First call: no flag. Second (retry) call: the flag set explicitly true.
+      expect(LogMeterReadingUseCase.mock.calls[0][2]).not.toHaveProperty('meterReplaced');
+      expect(LogMeterReadingUseCase.mock.calls[1][2]).toEqual(
+        expect.objectContaining({ meterReplaced: true }),
+      );
+    });
   });
 });

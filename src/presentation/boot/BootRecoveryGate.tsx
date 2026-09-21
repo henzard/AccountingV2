@@ -21,6 +21,7 @@ interface Props {
 export function BootRecoveryGate({ children }: Props): React.JSX.Element {
   const [checked, setChecked] = useState(false);
   const [crash, setCrash] = useState<CrashRecord | null>(null);
+  const [shareFailed, setShareFailed] = useState(false);
   const { colors } = useAppTheme();
 
   useEffect(() => {
@@ -54,8 +55,17 @@ export function BootRecoveryGate({ children }: Props): React.JSX.Element {
   };
 
   const handleShare = (): void => {
-    void Share.share({
+    setShareFailed(false);
+    Share.share({
       message: `[${crash.timestamp}] ${crash.step}\n${crash.message}\n\n${crash.stack}`,
+    }).catch((shareErr: unknown) => {
+      // Closing the web share sheet rejects with AbortError — not a failure.
+      if (shareErr instanceof Error && shareErr.name === 'AbortError') return;
+      // This gate renders when boot itself failed, so it must not depend on
+      // any store/provider that may not exist — e.g. react-native-web's
+      // Share.share rejects outright when navigator.share is unavailable
+      // (Firefox, most desktop browsers). Fall back to local component state.
+      setShareFailed(true);
     });
   };
 
@@ -95,6 +105,11 @@ export function BootRecoveryGate({ children }: Props): React.JSX.Element {
           Clear & continue
         </Button>
       </View>
+      {shareFailed && (
+        <Text style={[styles.shareFallback, { color: colors.error }]}>
+          Couldn&apos;t open sharing — select and copy the text above.
+        </Text>
+      )}
     </View>
   );
 }
@@ -132,5 +147,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     padding: spacing.base,
+  },
+  shareFallback: {
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.base,
   },
 });

@@ -215,4 +215,33 @@ describe('ResetPasswordScreen', () => {
       expect(mockSetPasswordRecoveryPending).toHaveBeenCalledWith(false);
     });
   });
+
+  // AUTH-1: raw Supabase error text must never reach the helper text.
+  describe('AUTH-1: friendly error copy', () => {
+    it('shows a friendly offline message instead of the raw fetch error', async () => {
+      mockUpdateUser.mockResolvedValue({ error: { message: 'Network request failed' } });
+      const { getByTestId } = render(<ResetPasswordScreen />);
+      fireEvent.changeText(getByTestId('reset-password-new'), 'longenoughpassword');
+      fireEvent.changeText(getByTestId('reset-password-confirm'), 'longenoughpassword');
+      fireEvent.press(getByTestId('reset-password-submit'));
+      await waitFor(() => {
+        expect(getByTestId('reset-password-error').props.children).toMatch(/offline|connection/i);
+      });
+    });
+
+    it('does not show an unrecognised raw Supabase message verbatim', async () => {
+      mockUpdateUser.mockResolvedValue({
+        error: { message: 'relation "auth.users" does not exist' },
+      });
+      const { getByTestId } = render(<ResetPasswordScreen />);
+      fireEvent.changeText(getByTestId('reset-password-new'), 'longenoughpassword');
+      fireEvent.changeText(getByTestId('reset-password-confirm'), 'longenoughpassword');
+      fireEvent.press(getByTestId('reset-password-submit'));
+      await waitFor(() => {
+        const text = getByTestId('reset-password-error').props.children;
+        expect(text).not.toMatch(/relation "auth.users"/);
+        expect(text).toMatch(/something went wrong/i);
+      });
+    });
+  });
 });

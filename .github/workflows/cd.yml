@@ -346,6 +346,9 @@ jobs:
           # and supabaseClient.ts throws at module eval → app crashes on launch.
           EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
+          # Shown on Settings -> About. The JS-side config version is a static
+          # 1.0.0; this is the version the build is actually published as.
+          EXPO_PUBLIC_APP_VERSION: ${{ steps.vname.outputs.name }}
 
       - name: Check Firebase secrets
         id: firebase_check
@@ -385,6 +388,9 @@ jobs:
           KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
           EXPO_PUBLIC_SUPABASE_URL: https://qmfsobqpnogefvzltwyj.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_Rk3QUD3vehZPVPuoWx-RRg_k5oM47l5
+          # Shown on Settings -> About. The JS-side config version is a static
+          # 1.0.0; this is the version the build is actually published as.
+          EXPO_PUBLIC_APP_VERSION: ${{ steps.vname.outputs.name }}
 
       - name: Firebase Test Lab — Robo smoke test
         if: steps.firebase_check.outputs.has_both == 'true'

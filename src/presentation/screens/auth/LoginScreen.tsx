@@ -12,6 +12,7 @@ import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { SupabaseAuthService } from '../../../data/remote/SupabaseAuthService';
+import { getFriendlyAuthErrorMessage } from '../../utils/authErrorMessages';
 import { useAppStore } from '../../stores/appStore';
 import type { LoginScreenProps } from '../../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -44,7 +45,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
     if (result.success) {
       setSession(result.data);
     } else {
-      const msg = result.error.message;
+      const msg = getFriendlyAuthErrorMessage(result.error, 'LoginScreen.signIn');
       setError(msg);
       AccessibilityInfo.announceForAccessibility(`Sign in failed: ${msg}`);
     }

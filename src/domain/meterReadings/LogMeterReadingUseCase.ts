@@ -20,6 +20,15 @@ export interface LogMeterReadingInput {
   costCents: number | null;
   vehicleId: string | null;
   notes: string | null;
+  // Opt-in escape hatch for a genuinely replaced/new meter, which legitimately
+  // starts back near zero. Skips ONLY the below-previous guard for this one
+  // insert — never set implicitly; the caller must confirm with the user
+  // first. Not persisted anywhere (no new column, no encoding into notes or
+  // any other synced field) — every downstream reader must cope with the
+  // resulting drop on its own (UnitRateCalculator already rejects
+  // non-positive consumption, and AnomalyDetector already excludes
+  // non-positive deltas from its baseline).
+  meterReplaced?: boolean;
 }
 
 export class LogMeterReadingUseCase {
@@ -74,7 +83,11 @@ export class LogMeterReadingUseCase {
     const previousReading = sameMeter
       .filter((r) => r.readingDate < this.input.readingDate)
       .sort((a, b) => b.readingDate.localeCompare(a.readingDate))[0];
-    if (previousReading && this.input.readingValue < previousReading.readingValue) {
+    if (
+      previousReading &&
+      this.input.readingValue < previousReading.readingValue &&
+      !this.input.meterReplaced
+    ) {
       return createFailure({
         code: 'READING_BELOW_PREVIOUS',
         message: `Reading value (${this.input.readingValue}) cannot be lower than the previous reading (${previousReading.readingValue}) on ${previousReading.readingDate}`,

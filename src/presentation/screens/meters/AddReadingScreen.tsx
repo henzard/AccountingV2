@@ -11,6 +11,7 @@ import { AnomalyDetector } from '../../../domain/meterReadings/AnomalyDetector';
 import { logger } from '../../../infrastructure/logging/Logger';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type {
@@ -20,6 +21,7 @@ import type {
 import { getMeterUnitLabel } from '../../../domain/meterReadings/MeterReadingEntity';
 import type { AddReadingScreenProps } from '../../navigation/types';
 import { parseMoneyInput } from '../../utils/parseMoneyInput';
+import type { Result } from '../../../domain/shared/types';
 
 const audit = new AuditLogger(db);
 const anomalyDetector = new AnomalyDetector();
@@ -159,25 +161,60 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       }
       costCents = parsedCost.cents;
     }
+    const attempt = (meterReplaced: boolean): Promise<Result<MeterReadingEntity>> => {
+      const uc = new LogMeterReadingUseCase(db, audit, {
+        householdId,
+        meterType,
+        readingValue: value,
+        readingDate: today,
+        costCents,
+        vehicleId: null,
+        notes: notes.trim() || null,
+        ...(meterReplaced ? { meterReplaced: true } : {}),
+      });
+      return uc.execute();
+    };
+
     setSaving(true);
     setError(null);
-    const uc = new LogMeterReadingUseCase(db, audit, {
-      householdId,
-      meterType,
-      readingValue: value,
-      readingDate: today,
-      costCents,
-      vehicleId: null,
-      notes: notes.trim() || null,
-    });
-    const result = await uc.execute();
-    setSaving(false);
+    const result = await attempt(false);
+
     if (result.success) {
+      setSaving(false);
       enqueue('Reading saved', 'success');
       navigation.goBack();
-    } else {
-      setError(result.error.message);
+      return;
     }
+
+    if (result.error.code === 'READING_BELOW_PREVIOUS') {
+      // Never set the meterReplaced flag silently — offer the choice in
+      // place and only retry with it if the user explicitly confirms this
+      // is a new/replaced meter.
+      setSaving(false);
+      const confirmed = await confirm({
+        title: 'New or replaced meter?',
+        message: `${result.error.message}\n\nIf you've installed a new or replaced meter, you can log this as its first reading.`,
+        confirmLabel: 'This is a new/replaced meter',
+        cancelLabel: 'Cancel',
+      });
+      if (!confirmed) {
+        setError(result.error.message);
+        return;
+      }
+      setSaving(true);
+      const retryResult = await attempt(true);
+      setSaving(false);
+      if (retryResult.success) {
+        enqueue('Reading saved', 'success');
+        navigation.goBack();
+      } else {
+        setError(retryResult.error.message);
+      }
+      return;
+    }
+
+    setSaving(false);
+    setError(result.error.message);
   };
 
   return (

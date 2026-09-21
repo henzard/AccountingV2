@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { supabase } from '../../../data/remote/supabaseClient';
+import { getFriendlyAuthErrorMessage } from '../../utils/authErrorMessages';
 import { useAppStore } from '../../stores/appStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -62,8 +63,9 @@ export function ResetPasswordScreen(): React.JSX.Element {
     const { error: updateError } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (updateError) {
-      setError(updateError.message);
-      AccessibilityInfo.announceForAccessibility(`Reset failed: ${updateError.message}`);
+      const friendly = getFriendlyAuthErrorMessage(updateError, 'ResetPasswordScreen.updateUser');
+      setError(friendly);
+      AccessibilityInfo.announceForAccessibility(`Reset failed: ${friendly}`);
       return;
     }
     setDone(true);

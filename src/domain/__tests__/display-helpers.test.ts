@@ -141,8 +141,15 @@ describe('getPercentRemaining', () => {
     expect(getPercentRemaining(baseEnvelope)).toBe(75);
   });
 
-  it('returns 100 when allocatedCents is 0', () => {
-    expect(getPercentRemaining({ ...baseEnvelope, allocatedCents: 0 })).toBe(100);
+  it('returns 100 when allocatedCents is 0 and nothing was spent', () => {
+    expect(getPercentRemaining({ ...baseEnvelope, allocatedCents: 0, spentCents: 0 })).toBe(100);
+  });
+
+  // This case used to assert 100 while inheriting baseEnvelope's 25 000c of
+  // spend — a full green fill bar beside a red −R250,00. Nothing allocated and
+  // money out is 0% remaining, not 100%.
+  it('returns 0 when allocatedCents is 0 but money was spent', () => {
+    expect(getPercentRemaining({ ...baseEnvelope, allocatedCents: 0 })).toBe(0);
   });
 
   it('returns 0 when fully spent', () => {

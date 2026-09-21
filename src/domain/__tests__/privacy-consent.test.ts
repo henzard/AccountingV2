@@ -7,6 +7,10 @@ describe('Privacy & Consent — RecordSlipConsentUseCase', () => {
     const mockRepo = {
       get: jest.fn(),
       setSlipScanConsent: jest.fn().mockResolvedValue(undefined),
+      // SET-1: IUserConsentRepository gained a revoke method — not exercised
+      // by this RecordSlipConsentUseCase test, but required to satisfy the
+      // interface's shape.
+      clearSlipScanConsent: jest.fn().mockResolvedValue(undefined),
     };
 
     const uc = new RecordSlipConsentUseCase(mockRepo);
@@ -26,6 +30,7 @@ describe('Privacy & Consent — RecordSlipConsentUseCase', () => {
     const mockRepo = {
       get: jest.fn(),
       setSlipScanConsent: jest.fn().mockResolvedValue(undefined),
+      clearSlipScanConsent: jest.fn().mockResolvedValue(undefined),
     };
 
     const uc = new RecordSlipConsentUseCase(mockRepo);
@@ -39,6 +44,7 @@ describe('Privacy & Consent — RecordSlipConsentUseCase', () => {
     const mockRepo = {
       get: jest.fn(),
       setSlipScanConsent: jest.fn().mockRejectedValue(new Error('DB connection lost')),
+      clearSlipScanConsent: jest.fn().mockResolvedValue(undefined),
     };
 
     const uc = new RecordSlipConsentUseCase(mockRepo);

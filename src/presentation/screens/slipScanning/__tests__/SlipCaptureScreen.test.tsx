@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 
@@ -153,5 +153,36 @@ describe('SlipCaptureScreen', () => {
     ]);
     const { getByLabelText } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
     expect(getByLabelText('Open device settings to grant camera permission')).toBeTruthy();
+  });
+
+  it('shows a "Log manually instead" escape hatch when permission is not granted (web has no way to grant camera access)', () => {
+    (useCameraPermissions as jest.Mock).mockReturnValue([
+      { granted: false, canAskAgain: true },
+      jest.fn().mockResolvedValue({ granted: true }),
+    ]);
+    const { getByTestId, getByLabelText } = render(
+      <SlipCaptureScreen householdId="hh-1" createdBy="user-1" />,
+    );
+    expect(getByTestId('log-manually-instead')).toBeTruthy();
+    expect(getByLabelText('Log manually instead')).toBeTruthy();
+  });
+
+  it('"Log manually instead" navigates to AddTransaction with no params, same as the offline banner escape hatch', () => {
+    (useCameraPermissions as jest.Mock).mockReturnValue([
+      { granted: false, canAskAgain: true },
+      jest.fn().mockResolvedValue({ granted: true }),
+    ]);
+    const { getByTestId } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    fireEvent.press(getByTestId('log-manually-instead'));
+    expect(mockNavigate).toHaveBeenCalledWith('AddTransaction');
+  });
+
+  it('also shows "Log manually instead" when canAskAgain is false (web shim reports true forever, but cover both)', () => {
+    (useCameraPermissions as jest.Mock).mockReturnValue([
+      { granted: false, canAskAgain: false },
+      jest.fn(),
+    ]);
+    const { getByTestId } = render(<SlipCaptureScreen householdId="hh-1" createdBy="user-1" />);
+    expect(getByTestId('log-manually-instead')).toBeTruthy();
   });
 });

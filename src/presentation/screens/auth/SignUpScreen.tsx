@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,11 +11,16 @@ import { Text, TextInput, Button, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../../data/remote/supabaseClient';
+import { getFriendlyAuthErrorMessage } from '../../utils/authErrorMessages';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
+
+// Cannot be hammered: re-issuing the confirmation email is throttled
+// client-side on top of whatever Supabase itself enforces server-side.
+const RESEND_COOLDOWN_SECONDS = 30;
 
 export function SignUpScreen(): React.JSX.Element {
   const { colors } = useAppTheme();
@@ -29,6 +34,40 @@ export function SignUpScreen(): React.JSX.Element {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState<'idle' | 'check-email' | 'pending-session'>('idle');
+  // The normalised (trimmed + lowercased) address actually sent to Supabase —
+  // shown in the confirmation copy instead of the raw typed value, and reused
+  // as the target for "Resend email".
+  const [submittedEmail, setSubmittedEmail] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendError, setResendError] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const resendSeqRef = useRef(0);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearCooldownTimer = (): void => {
+    if (cooldownTimerRef.current !== null) {
+      clearInterval(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
+  };
+
+  // Clear the interval on unmount so it never fires (or leaks) after the
+  // screen is gone.
+  useEffect(() => clearCooldownTimer, []);
+
+  const startResendCooldown = (): void => {
+    clearCooldownTimer();
+    setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    cooldownTimerRef.current = setInterval(() => {
+      setResendCooldown((seconds) => {
+        if (seconds <= 1) {
+          clearCooldownTimer();
+          return 0;
+        }
+        return seconds - 1;
+      });
+    }, 1000);
+  };
 
   const onSubmit = async (): Promise<void> => {
     setErr(null);
@@ -45,17 +84,19 @@ export function SignUpScreen(): React.JSX.Element {
       return;
     }
     setLoading(true);
+    const normalisedEmail = email.trim().toLowerCase();
     const { data, error } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
+      email: normalisedEmail,
       password,
     });
     if (error) {
-      setErr(error.message);
+      setErr(getFriendlyAuthErrorMessage(error, 'SignUpScreen.signUp'));
       setLoading(false);
       return;
     }
 
     setLoading(false);
+    setSubmittedEmail(normalisedEmail);
 
     if (data.session) {
       // Immediate session (email confirmation disabled project-side) — auth listener will
@@ -64,7 +105,39 @@ export function SignUpScreen(): React.JSX.Element {
     } else {
       // Email confirmation required — tell the user explicitly.
       setSubmitted('check-email');
+      setResendError(null);
+      startResendCooldown();
     }
+  };
+
+  const handleResend = async (): Promise<void> => {
+    if (resendCooldown > 0 || resending) return;
+    setResendError(null);
+    setResending(true);
+    const seq = ++resendSeqRef.current;
+    const { error } = await supabase.auth.resend({ type: 'signup', email: submittedEmail });
+    // The user went back to edit the address (or left) while this was in
+    // flight: its outcome belongs to the OLD address and must not touch the
+    // next confirmation state.
+    if (seq !== resendSeqRef.current) return;
+    setResending(false);
+    if (error) {
+      setResendError(getFriendlyAuthErrorMessage(error, 'SignUpScreen.resend'));
+      return;
+    }
+    startResendCooldown();
+  };
+
+  // Returns to the form WITHOUT clearing what was typed — email, password
+  // and confirm are still in state — so the user can just fix a typo'd
+  // address rather than re-typing everything.
+  const handleEditEmail = (): void => {
+    resendSeqRef.current += 1;
+    setResending(false);
+    clearCooldownTimer();
+    setResendCooldown(0);
+    setResendError(null);
+    setSubmitted('idle');
   };
 
   if (submitted === 'check-email') {
@@ -77,8 +150,42 @@ export function SignUpScreen(): React.JSX.Element {
           Check your email
         </Text>
         <Text variant="bodyLarge" style={[styles.successText, { color: colors.onSurfaceVariant }]}>
-          We've sent a confirmation link to {email}. Tap it, then sign in.
+          We've sent a confirmation link to {submittedEmail}. Tap it, then sign in.
         </Text>
+
+        {resendError !== null && (
+          <HelperText type="error" visible testID="signup-resend-error">
+            {resendError}
+          </HelperText>
+        )}
+
+        <Button
+          mode="outlined"
+          onPress={handleResend}
+          loading={resending}
+          disabled={resending || resendCooldown > 0}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+          testID="signup-resend"
+          accessibilityLabel={
+            resendCooldown > 0
+              ? `Resend email, available in ${resendCooldown} seconds`
+              : 'Resend email'
+          }
+        >
+          {resendCooldown > 0 ? `Resend email (${resendCooldown}s)` : 'Resend email'}
+        </Button>
+
+        <Button
+          mode="text"
+          onPress={handleEditEmail}
+          style={styles.linkButton}
+          testID="signup-edit-email"
+          accessibilityLabel="Wrong email? Edit"
+        >
+          Wrong email? Edit
+        </Button>
+
         <Button
           mode="contained"
           onPress={() => navigation.navigate('Login')}
