@@ -1,5 +1,12 @@
 import { assertEquals, assert } from 'jsr:@std/assert';
-import { handle, buildV1Message, formatZar, sanitizeFreeText, parseRequest } from '../index.ts';
+import {
+  handle,
+  buildV1Message,
+  formatZar,
+  sanitizeFreeText,
+  parseRequest,
+  pushTargetForKind,
+} from '../index.ts';
 import type { HandleDeps } from '../index.ts';
 
 // Test-only RSA private key (PKCS8 PEM), generated solely to exercise the
@@ -234,6 +241,60 @@ Deno.test('buildV1Message: correct v1 payload shape', () => {
       apns: { headers: { 'apns-priority': '10' } },
     },
   });
+});
+
+Deno.test('buildV1Message: omits `data` entirely when not given (back-compat wire shape)', () => {
+  const msg = buildV1Message('tok-abc', 'Hello', 'World');
+  assertEquals('data' in msg.message, false);
+});
+
+Deno.test('buildV1Message: PUSH-2 — attaches a `data` block when given one', () => {
+  const msg = buildV1Message('tok-abc', 'Hello', 'World', {
+    type: 'household_activity',
+    householdId: 'h1',
+    target: 'Transactions',
+    kind: 'transaction_created',
+  });
+  assertEquals(msg, {
+    message: {
+      token: 'tok-abc',
+      notification: { title: 'Hello', body: 'World' },
+      data: {
+        type: 'household_activity',
+        householdId: 'h1',
+        target: 'Transactions',
+        kind: 'transaction_created',
+      },
+      android: { priority: 'high' },
+      apns: { headers: { 'apns-priority': '10' } },
+    },
+  });
+});
+
+Deno.test(
+  'buildV1Message: PUSH-2 — every `data` value is a string (FCM v1 rejects non-string values)',
+  () => {
+    const msg = buildV1Message('tok-abc', 'Hello', 'World', {
+      type: 'household_activity',
+      householdId: 'h1',
+      target: 'Dashboard',
+    });
+    for (const value of Object.values(msg.message.data ?? {})) {
+      assertEquals(typeof value, 'string');
+    }
+  },
+);
+
+Deno.test(
+  'pushTargetForKind: transaction_created and envelope_over_budget route to Transactions',
+  () => {
+    assertEquals(pushTargetForKind('transaction_created'), 'Transactions');
+    assertEquals(pushTargetForKind('envelope_over_budget'), 'Transactions');
+  },
+);
+
+Deno.test('pushTargetForKind: slip_confirmed (and anything else) falls back to Dashboard', () => {
+  assertEquals(pushTargetForKind('slip_confirmed'), 'Dashboard');
 });
 
 Deno.test('formatZar: ZAR cents rendering matches the client formatCurrency shape', () => {
@@ -590,6 +651,10 @@ Deno.test(
             title: 'Household activity',
             body: 'Household activity — open the app to see what changed',
           },
+          // PUSH-2: legacy shape has no NotifyEventKind, so `data` carries
+          // no `kind` — just enough to route an older-build-ignorant tap to
+          // the Dashboard.
+          data: { type: 'household_activity', householdId: 'h1', target: 'Dashboard' },
           android: { priority: 'high' },
           apns: { headers: { 'apns-priority': '10' } },
         },
@@ -707,6 +772,14 @@ Deno.test(
             message: {
               token: 'tok-1',
               notification: { title: 'New spending logged', body: 'R123,45 from Groceries' },
+              // PUSH-2: routing-only data for the client tap handler — a
+              // transaction_created event routes to the Transactions tab.
+              data: {
+                type: 'household_activity',
+                householdId: 'h1',
+                target: 'Transactions',
+                kind: 'transaction_created',
+              },
               android: { priority: 'high' },
               apns: { headers: { 'apns-priority': '10' } },
             },
@@ -723,6 +796,76 @@ Deno.test(
     assertEquals(sendCalls, 1);
   },
 );
+
+Deno.test(
+  'PUSH-2: envelope_over_budget event data routes to Transactions and carries no free text',
+  async () => {
+    const record = { sends: 0, bodies: [] as unknown[], tokenFetches: 0 };
+    const deps = makeBaseDeps({ fetchImpl: recordingFetch(record) });
+    await handle(
+      makeRequest(
+        {
+          householdId: 'h1',
+          event: { kind: 'envelope_over_budget', envelopeName: 'Rent', overByCents: 5000 },
+        },
+        'Bearer tok',
+      ),
+      deps,
+    );
+    const [sentBody] = record.bodies as Array<{ message: { data?: Record<string, string> } }>;
+    assertEquals(sentBody.message.data, {
+      type: 'household_activity',
+      householdId: 'h1',
+      target: 'Transactions',
+      kind: 'envelope_over_budget',
+    });
+    // The envelope name and amount must never leak into `data` — only the
+    // already-server-rendered notification text carries them.
+    const dataValues = Object.values(sentBody.message.data ?? {});
+    assert(!dataValues.some((v) => v.includes('Rent')));
+  },
+);
+
+Deno.test(
+  'PUSH-2: slip_confirmed event (no dedicated route) falls back to Dashboard in data.target',
+  async () => {
+    const record = { sends: 0, bodies: [] as unknown[], tokenFetches: 0 };
+    const deps = makeBaseDeps({ fetchImpl: recordingFetch(record) });
+    await handle(
+      makeRequest(
+        {
+          householdId: 'h1',
+          event: { kind: 'slip_confirmed', itemCount: 3, merchant: 'Checkers' },
+        },
+        'Bearer tok',
+      ),
+      deps,
+    );
+    const [sentBody] = record.bodies as Array<{ message: { data?: Record<string, string> } }>;
+    assertEquals(sentBody.message.data, {
+      type: 'household_activity',
+      householdId: 'h1',
+      target: 'Dashboard',
+      kind: 'slip_confirmed',
+    });
+  },
+);
+
+Deno.test('PUSH-2: the legacy request shape still builds a valid FCM message', async () => {
+  const record = { sends: 0, bodies: [] as unknown[], tokenFetches: 0 };
+  const deps = makeBaseDeps({ fetchImpl: recordingFetch(record) });
+  const resp = await handle(makeRequest(legacyRequest, 'Bearer tok'), deps);
+  assertEquals(resp.status, 200);
+  assertEquals((await resp.json()).sent, 1);
+  const [sentBody] = record.bodies as Array<{
+    message: { notification: { title: string; body: string }; data?: Record<string, string> };
+  }>;
+  assertEquals(sentBody.message.notification.title, 'Household activity');
+  assertEquals(sentBody.message.data?.type, 'household_activity');
+  assertEquals(sentBody.message.data?.target, 'Dashboard');
+  // No `kind` for the legacy shape — it carries no NotifyEventKind at all.
+  assertEquals('kind' in (sentBody.message.data ?? {}), false);
+});
 
 /** Builds a fetch that always answers /messages:send with one FCM error body. */
 function failingFetch(status: number, errorBody: unknown) {

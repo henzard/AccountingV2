@@ -345,7 +345,11 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
             <TouchableOpacity
               onPress={() => navigation.navigate('AddTransaction', { transactionId: item.id })}
               accessibilityRole="button"
-              accessibilityLabel={`Edit transaction ${item.payee ?? 'Unknown'}`}
+              accessibilityLabel={
+                item.amountCents < 0
+                  ? `Edit refund ${item.payee ?? 'Unknown'}, ${formatCurrency(Math.abs(item.amountCents))} back`
+                  : `Edit transaction ${item.payee ?? 'Unknown'}`
+              }
               testID={`tx-row-${item.id}`}
             >
               <ListRow
@@ -353,9 +357,30 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
                 subtitle={envelopeNames.get(item.envelopeId) ?? '—'}
                 trailing={
                   <View style={styles.rowTrailing}>
+                    {/* REFUNDS: a negative row reads "+R 25,00" in the success
+                        colour with an explicit "Refund" label beside it —
+                        never colour alone, which a colour-blind user or a
+                        greyscale screenshot would lose. `Math.abs` + showSign
+                        is what turns CurrencyText's default "-R 25,00" into
+                        the "+" reading of money coming back. */}
+                    {item.amountCents < 0 && (
+                      <Text
+                        variant="labelSmall"
+                        style={[styles.refundLabel, { color: colors.success }]}
+                        testID={`tx-refund-label-${item.id}`}
+                      >
+                        Refund
+                      </Text>
+                    )}
                     <CurrencyText
-                      amountCents={item.amountCents}
-                      style={{ ...styles.amount, color: colors.error }}
+                      amountCents={
+                        item.amountCents < 0 ? Math.abs(item.amountCents) : item.amountCents
+                      }
+                      showSign={item.amountCents < 0}
+                      style={{
+                        ...styles.amount,
+                        color: item.amountCents < 0 ? colors.success : colors.error,
+                      }}
                     />
                     <IconButton
                       icon="delete-outline"
@@ -425,6 +450,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   amount: { fontSize: fontSize.md, fontFamily: 'PlusJakartaSans_700Bold' },
+  refundLabel: { marginRight: spacing.xs },
   list: { paddingBottom: 100 },
   fab: {
     position: 'absolute',

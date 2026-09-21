@@ -113,6 +113,12 @@ function ForecastRow({ item }: { item: EnvelopeForecast }): React.JSX.Element {
   }[item.status];
 
   const barPct = Math.max(0, Math.min(100, item.projectedRemainingPct));
+  // REFUNDS: an envelope cannot have more than all of its budget left, so the
+  // printed figure is capped the same way the bar above is — otherwise a
+  // net-refunded envelope read "180% projected left" beside a full bar. Only
+  // the TOP is capped: a heavy overspend still prints its true negative
+  // percentage (the bar floors at 0, the number stays honest).
+  const labelPct = Math.min(100, item.projectedRemainingPct);
 
   return (
     <Surface style={[styles.row, { backgroundColor: colors.surface }]} elevation={0}>
@@ -142,7 +148,7 @@ function ForecastRow({ item }: { item: EnvelopeForecast }): React.JSX.Element {
             : `${formatCurrency(item.dailySpendCents)}/day`}
         </Text>
         <Text style={[styles.meta, { color: colors.onSurfaceVariant }]}>
-          {item.projectedRemainingPct}% projected left
+          {labelPct}% projected left
         </Text>
       </View>
     </Surface>

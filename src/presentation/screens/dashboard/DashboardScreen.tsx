@@ -782,6 +782,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     const remaining = item.allocatedCents - item.spentCents;
     const pct =
       item.allocatedCents > 0 ? Math.round((item.spentCents / item.allocatedCents) * 100) : 0;
+    // REFUNDS: `spentCents` is a derived signed SUM, so a net-refunded
+    // envelope (refunds exceeding purchases) makes `pct` NEGATIVE. The bar
+    // below interpolates this straight into a `width: '<n>%'` style, and a
+    // negative width percentage is an invalid RN style — so the BAR gets a
+    // [0, 100] clamp while the text/accessibility figure stays the true one.
+    const barPct = Math.min(100, Math.max(0, pct));
     const isOver = item.spentCents > item.allocatedCents;
 
     return (
@@ -804,10 +810,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
         <View style={styles.progressRow}>
           <View style={[styles.progressTrack, { backgroundColor: cardBorder }]}>
             <View
+              testID={`envelope-progress-fill-${item.id}`}
               style={[
                 styles.progressFill,
                 {
-                  width: `${Math.min(100, pct)}%` as `${number}%`,
+                  width: `${barPct}%` as `${number}%`,
                   backgroundColor: isOver ? colors.error : accentColor,
                 },
               ]}

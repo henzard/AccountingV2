@@ -40,6 +40,7 @@ import {
   syncStoreStatusSink,
 } from './src/presentation/stores/syncStore';
 import { useSyncEngineStore } from './src/presentation/stores/syncEngineStore';
+import { withSyncHealthReporting } from './src/infrastructure/monitoring/syncHealthReporter';
 import { networkObserver } from './src/infrastructure/network/NetworkObserver';
 import { createSyncEngine, type SyncEngine } from './src/data/sync/SyncEngine';
 import { SyncScheduler } from './src/data/sync/SyncScheduler';
@@ -179,7 +180,16 @@ function ensureSyncRuntime(): Promise<{ engine: SyncEngine; scheduler: SyncSched
         engine,
         supabase,
         networkObserver,
-        statusSink: syncStoreStatusSink,
+        // Round 8 P5: background sync-health reporting to Crashlytics — see
+        // syncHealthReporter.ts. Wraps `setPullBlocked`, which fires after
+        // EVERY completed round (success, transport failure, or a blocked
+        // pull — see that module's doc comment for why this hook, not
+        // `onSyncSuccess`, is required to see the blocked case).
+        statusSink: withSyncHealthReporting(syncStoreStatusSink, {
+          engine,
+          getHouseholdId: () => useAppStore.getState().householdId,
+          isOnline: () => useSyncStore.getState().isOnline,
+        }),
         // Duplicate-EMF reconcile backstop (Task 6) — see the module-doc note
         // above. Best-effort: runs after every sync round that didn't throw,
         // not gated on a perfectly clean {failed: 0} batch like the old
@@ -702,6 +712,11 @@ export default function App(): React.JSX.Element | null {
       const { scheduler } = await ensureSyncRuntime();
       if (cancelled) return;
       if (scheduler.isStarted) scheduler.stop();
+      // `scheduler.start()` calls `refreshDiagnostics` synchronously before
+      // any trigger fires (see SyncScheduler.start's own comment), which
+      // drives the wrapped `statusSink.setPullBlocked` set up in
+      // `ensureSyncRuntime` above — so this ALSO satisfies "one sync-health
+      // evaluation shortly after app start" with no extra timer needed here.
       scheduler.start(householdId);
       // REG-3: publish the await-able sync trigger HERE, with the scheduler
       // lifecycle, not inside `ensureSyncRuntime`. That promise is a one-time

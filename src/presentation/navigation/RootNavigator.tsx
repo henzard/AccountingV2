@@ -42,34 +42,89 @@ const prefsRepo = new NotificationPreferencesRepository();
  * listener (VAL-12), which fires outside any screen's render tree. */
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
+/** What `resolveNotificationTarget` hands back to the notification-response
+ * handler. `screen`/`params` are always enough to call `navigationRef`'s
+ * `.navigate` directly; `householdId` is present only for a PUSH-2 server
+ * push, and lets the caller switch the active household first when the push
+ * is about one other than the one currently active. */
+export interface ResolvedNotificationTarget {
+  screen: string;
+  params: object;
+  householdId?: string;
+}
+
+/** Local-notification `data.target` values (`LocalNotificationScheduler`) and
+ * the route each maps to. Unrecognised values resolve to `null` — no-op,
+ * exactly as before PUSH-2. */
+const LOCAL_NOTIFICATION_TARGETS: Record<string, ResolvedNotificationTarget> = {
+  add_transaction: {
+    screen: 'Main',
+    // REG-10: without `initial: false`, navigating into the Transactions
+    // tab's stack navigator for the FIRST time (it was never visited this
+    // session) makes AddTransaction its only route — there is no
+    // TransactionList underneath to land on after Save, so the tab is stuck
+    // on a blank Add form. `initial: false` tells react-navigation to still
+    // mount the stack's normal initial route first and push AddTransaction
+    // on top of it.
+    params: { screen: 'Transactions', params: { screen: 'AddTransaction' }, initial: false },
+  },
+  meters: { screen: 'Main', params: { screen: 'Meters' } },
+  dashboard: { screen: 'Main', params: { screen: 'DashboardTab' } },
+};
+
+/** PUSH-2: server push `data.target` values (see notify-event's
+ * `pushTargetForKind`), each already mapped by the server to a route that
+ * really exists (types.ts). An unrecognised value falls back to Dashboard —
+ * a push always describes something that happened, so it should land
+ * SOMEWHERE rather than being silently dropped. `HouseholdMembers`'s
+ * `householdId`/`householdName` params are filled in by the caller, which
+ * has access to `appStore` (this stays a pure function). */
+const PUSH_TARGETS: Record<string, ResolvedNotificationTarget> = {
+  Transactions: { screen: 'Main', params: { screen: 'Transactions' } },
+  HouseholdMembers: { screen: 'HouseholdMembers', params: {} },
+  Dashboard: { screen: 'Main', params: { screen: 'DashboardTab' } },
+};
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 /**
- * VAL-12: maps a scheduled notification's `data.target` (set by
- * `LocalNotificationScheduler`) to where a tap on it should navigate. A pure
- * function so the mapping is testable without rendering/mocking navigation.
+ * VAL-12/PUSH-2: maps a notification's `data` to where a tap on it should
+ * navigate. Accepts either shape ever seen on `content.data`:
+ *  - a local notification's `{ target: string }` (or the bare string
+ *    itself, which is what the existing local-notification tests below pass
+ *    directly) — `LocalNotificationScheduler`'s evening prompt, nudges,
+ *    meter reminders, etc.
+ *  - a server push's `{ type: 'household_activity', kind, householdId,
+ *    target }` (notify-event's `buildV1Message` data block). `data` here is
+ *    routing-only — never trusted for anything beyond picking one of a
+ *    small fixed set of screens; the notification text is already
+ *    server-rendered.
+ * Every field is validated; an unknown/malformed value never throws and
+ * always has a safe fallback (Dashboard for a push, no-op for a local
+ * notification, exactly as before). Pure so the mapping is testable without
+ * rendering/mocking navigation.
  */
-export function resolveNotificationTarget(
-  target: unknown,
-): { screen: 'Main'; params: object } | null {
-  switch (target) {
-    case 'add_transaction':
-      return {
-        screen: 'Main',
-        // REG-10: without `initial: false`, navigating into the Transactions
-        // tab's stack navigator for the FIRST time (it was never visited
-        // this session) makes AddTransaction its only route — there is no
-        // TransactionList underneath to land on after Save, so the tab is
-        // stuck on a blank Add form. `initial: false` tells react-navigation
-        // to still mount the stack's normal initial route first and push
-        // AddTransaction on top of it.
-        params: { screen: 'Transactions', params: { screen: 'AddTransaction' }, initial: false },
-      };
-    case 'meters':
-      return { screen: 'Main', params: { screen: 'Meters' } };
-    case 'dashboard':
-      return { screen: 'Main', params: { screen: 'DashboardTab' } };
-    default:
-      return null;
+export function resolveNotificationTarget(data: unknown): ResolvedNotificationTarget | null {
+  if (isPlainObject(data) && data.type === 'household_activity') {
+    const targetKey = typeof data.target === 'string' ? data.target : undefined;
+    const resolved = (targetKey && PUSH_TARGETS[targetKey]) || PUSH_TARGETS.Dashboard;
+    const householdId =
+      typeof data.householdId === 'string' && data.householdId.trim()
+        ? data.householdId
+        : undefined;
+    return householdId ? { ...resolved, householdId } : resolved;
   }
+
+  const target = isPlainObject(data) ? data.target : data;
+  if (
+    typeof target === 'string' &&
+    Object.prototype.hasOwnProperty.call(LOCAL_NOTIFICATION_TARGETS, target)
+  ) {
+    return LOCAL_NOTIFICATION_TARGETS[target];
+  }
+  return null;
 }
 
 Notifications.setNotificationHandler({
@@ -198,9 +253,17 @@ export function RootNavigator(): React.JSX.Element {
   // tap silently. A pending target is queued here and flushed either
   // immediately (if the container is already ready) or from
   // `NavigationContainer`'s `onReady` below.
-  const pendingNotificationTargetRef = useRef<{ screen: 'Main'; params: object } | null>(null);
+  const pendingNotificationTargetRef = useRef<ResolvedNotificationTarget | null>(null);
 
-  const navigateToTarget = useCallback((route: { screen: 'Main'; params: object }): void => {
+  // PUSH-3's counterpart for navigation (VAL-12/PUSH-2): a household-scoped
+  // push may name a household other than the one currently active. `appStore`
+  // access for the household-switch decision below — kept to just the
+  // pieces `HouseholdPickerScreen.handleSelect` also uses when switching.
+  const availableHouseholds = useAppStore((s) => s.availableHouseholds);
+  const setHouseholdId = useAppStore((s) => s.setHouseholdId);
+  const setPaydayDay = useAppStore((s) => s.setPaydayDay);
+
+  const navigateToTarget = useCallback((route: ResolvedNotificationTarget): void => {
     // `RootStackParamList.Main` is declared as `undefined` (types.ts, not
     // owned here) — it doesn't carry the `NavigatorScreenParams<...>` shape
     // react-navigation needs to type-check navigating into a NESTED screen
@@ -214,17 +277,55 @@ export function RootNavigator(): React.JSX.Element {
   }, []);
 
   const handleNotificationTarget = useCallback(
-    (target: unknown): void => {
-      const route = resolveNotificationTarget(target);
+    (data: unknown): void => {
+      const route = resolveNotificationTarget(data);
       if (!route) return;
+
+      let finalRoute: ResolvedNotificationTarget = route;
+
+      // PUSH-2: never silently show a push's screen against the WRONG
+      // household's data. When the push names a household other than the
+      // active one, switch to it first — the same two steps
+      // `HouseholdPickerScreen.handleSelect` takes — but only when the
+      // signed-in user still belongs to it; a push for a household the user
+      // has since left/been removed from just opens the current Dashboard.
+      if (route.householdId && route.householdId !== householdId) {
+        const target = availableHouseholds.find((h) => h.id === route.householdId);
+        if (!target) {
+          finalRoute = PUSH_TARGETS.Dashboard;
+        } else {
+          setHouseholdId(target.id);
+          setPaydayDay(target.paydayDay);
+          finalRoute =
+            route.screen === 'HouseholdMembers'
+              ? {
+                  screen: 'HouseholdMembers',
+                  params: { householdId: target.id, householdName: target.name },
+                }
+              : route;
+        }
+      } else if (route.screen === 'HouseholdMembers') {
+        // Already on the right household — HouseholdMembers still needs
+        // householdName, which resolveNotificationTarget (a pure function)
+        // has no access to.
+        const current = availableHouseholds.find((h) => h.id === householdId);
+        finalRoute = {
+          screen: 'HouseholdMembers',
+          params: {
+            householdId: householdId ?? route.householdId ?? '',
+            householdName: current?.name ?? 'My Household',
+          },
+        };
+      }
+
       if (navigationRef.isReady()) {
-        navigateToTarget(route);
+        navigateToTarget(finalRoute);
       } else {
         // Container isn't mounted/ready yet — flushed from `onReady` below.
-        pendingNotificationTargetRef.current = route;
+        pendingNotificationTargetRef.current = finalRoute;
       }
     },
-    [navigateToTarget],
+    [navigateToTarget, householdId, availableHouseholds, setHouseholdId, setPaydayDay],
   );
 
   // VAL-12/REG-10: route a tap on a delivered notification to the relevant
@@ -232,7 +333,7 @@ export function RootNavigator(): React.JSX.Element {
   // tree. Covers a WARM-start tap (app already running/backgrounded).
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      handleNotificationTarget(response.notification.request.content.data?.target);
+      handleNotificationTarget(response.notification.request.content.data);
     });
     return () => sub.remove();
   }, [handleNotificationTarget]);
@@ -244,7 +345,7 @@ export function RootNavigator(): React.JSX.Element {
   useEffect(() => {
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
-        if (response) handleNotificationTarget(response.notification.request.content.data?.target);
+        if (response) handleNotificationTarget(response.notification.request.content.data);
       })
       .catch(() => {});
   }, [handleNotificationTarget]);

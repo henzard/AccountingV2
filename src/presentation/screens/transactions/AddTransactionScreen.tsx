@@ -125,6 +125,13 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   const [isBusinessExpense, setIsBusinessExpense] = useState(false);
   const [spendingTriggerNote, setSpendingTriggerNote] = useState('');
 
+  // REFUNDS: the Amount field always holds a POSITIVE number; this toggle is
+  // what decides the sign written to the ledger. A refund / reversal / store
+  // credit is stored as a negative `amount_cents` row, which every derived
+  // SUM nets out — so a household can record it without falsifying history
+  // by editing or deleting the original purchase.
+  const [isRefund, setIsRefund] = useState(false);
+
   // Date picker — held as a 'yyyy-MM-dd' local-date string (DateField's
   // value/onChange contract), not a Date object, so no timezone conversion
   // happens between what's shown, stored, and saved.
@@ -194,8 +201,10 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   }, [selectedEnvelope, existingTransaction, savedCentsByEnvelopeId]);
 
   useEffect(() => {
-    navigation.setOptions({ title: transactionId ? 'Edit transaction' : 'Add Transaction' });
-  }, [transactionId, navigation]);
+    navigation.setOptions({
+      title: transactionId ? 'Edit transaction' : isRefund ? 'Record Refund' : 'Add Transaction',
+    });
+  }, [transactionId, isRefund, navigation]);
 
   // Fetches one envelope by id (regardless of the picker list's current-period
   // filter) for prefill purposes — the edited transaction's envelope, or a
@@ -298,7 +307,11 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         }
         const tx = row as TransactionEntity;
         setExistingTransaction(tx);
-        setAmountStr(centsToInputString(tx.amountCents));
+        // REFUNDS: a negative row loads as "Refund ON" with its ABSOLUTE
+        // amount in the (always-positive) Amount field — the sign lives in
+        // the toggle, never in the text input.
+        setIsRefund(tx.amountCents < 0);
+        setAmountStr(centsToInputString(Math.abs(tx.amountCents)));
         setPayee(tx.payee ?? '');
         setDescription(tx.description ?? '');
         setTransactionDate(tx.transactionDate);
@@ -444,16 +457,29 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           // an edit is not a new spend and must not re-notify.
           if (!existingTransaction) {
             // Logged today, so tonight's "log your spending" reminder is moot.
+            // (Amount-blind existence check — a refund counts as having
+            // logged, which is right.)
             void rearmEveningLogPrompt().catch(() => undefined);
             // SEC2-12: typed fields only — notify-event writes the words.
-            householdNotifier.notifyHousehold({
-              kind: 'transaction_created',
-              householdId,
-              senderId,
-              amountCents,
-              envelopeName: envelope.name,
-              payee: payee.trim() || undefined,
-            });
+            //
+            // REFUNDS: `IHouseholdNotifier`'s contract for this event is
+            // "integer cents, GREATER THAN ZERO", and notify-event validates
+            // it that way, so posting a negative amount here would just be
+            // rejected server-side — a guaranteed-dropped event, not a
+            // notification. A refund therefore does not wake the household
+            // at all. Telling the partner about money coming back would need
+            // its own event kind (and its own server-side copy), which is
+            // out of scope here.
+            if (amountCents > 0) {
+              householdNotifier.notifyHousehold({
+                kind: 'transaction_created',
+                householdId,
+                senderId,
+                amountCents,
+                envelopeName: envelope.name,
+                payee: payee.trim() || undefined,
+              });
+            }
           }
 
           // Round-3 review item 4: unlike the evening-log rearm and the
@@ -466,7 +492,18 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
 
           // VAL-13: only for period-scoped envelopes, and only when THIS
           // save is the one that crosses 80%/100% (not every save above it).
-          if (getEnvelopeScope({ envelopeType: envelope.envelopeType }) === 'period') {
+          //
+          // REFUNDS: a negative amount can only ever LOWER usage, so it can
+          // never cross a threshold upwards — but `detectThresholdCrossing`
+          // is a pure before/after comparison that knows nothing about
+          // refunds, and an edit that flips a purchase into a refund moves
+          // `previousSpentCents` too. Gating on the sign here is the single
+          // place that keeps a refund out of the threshold toast AND out of
+          // the `envelope_over_budget` household push below.
+          if (
+            amountCents > 0 &&
+            getEnvelopeScope({ envelopeType: envelope.envelopeType }) === 'period'
+          ) {
             const newSpentCents = previousSpentCents + amountCents;
             const crossing = detectThresholdCrossing(
               previousSpentCents,
@@ -561,6 +598,17 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
       return;
     }
 
+    // REFUNDS: money coming BACK cannot overspend anything, so a refund
+    // never runs the coach — which also means it can never reach the
+    // "cover it from another envelope" flow or the `envelopeOverride` /
+    // `suppressExactCapOverBudget` options, both of which are only ever set
+    // from `handleCoverEnvelopeSelected` (reachable only via a
+    // `coachingResult`). It saves straight through with a negative amount.
+    if (isRefund) {
+      void doSave(-amountCents);
+      return;
+    }
+
     // REG-8/VAL2-2: a persistent envelope's coaching check compares against
     // its SAVED balance, never allocatedCents (the monthly contribution) —
     // otherwise the coach blocks a legitimate withdrawal from a fully-funded
@@ -583,6 +631,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   }, [
     selectedEnvelope,
     amountStr,
+    isRefund,
     previousSpentCentsForSelectedEnvelope,
     previousSavedCentsForSelectedEnvelope,
     doSave,
@@ -708,10 +757,14 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   // New live line under the Amount field: what this envelope/fund will look
   // like immediately after the amount currently being typed, computed
   // before Save is even pressed.
+  // REFUNDS: signed exactly like the amount that will be saved, so the
+  // preview line goes UP (more left / more saved) for a refund instead of
+  // down — `computeAfterThisPreview` subtracts this from the before-balance.
   const previewAmountCents = useMemo(() => {
     const parsed = parseMoneyInput(amountStr);
-    return parsed.ok ? parsed.cents : 0;
-  }, [amountStr]);
+    if (!parsed.ok) return 0;
+    return isRefund ? -parsed.cents : parsed.cents;
+  }, [amountStr, isRefund]);
 
   const afterThisPreview = useMemo(() => {
     if (!selectedEnvelope) return null;
@@ -773,6 +826,24 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           returnKeyType="next"
           onSubmitEditing={() => payeeInputRef.current?.focus()}
         />
+
+        {/* REFUNDS: the sign lives here, not in the Amount field — the field
+            stays a plain positive number in every mode. Sits directly under
+            Amount so the live preview below it already reflects the toggle. */}
+        <View style={styles.toggleRow}>
+          <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
+            Refund (money back)
+          </Text>
+          <Switch
+            value={isRefund}
+            onValueChange={setIsRefund}
+            disabled={loading}
+            testID="refund-toggle"
+            accessibilityLabel="Refund — record this as money coming back, not money spent"
+            trackColor={{ true: colors.success, false: colors.surfaceVariant }}
+            thumbColor={colors.onPrimary}
+          />
+        </View>
 
         {afterThisPreview && (
           <Text
@@ -901,7 +972,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           contentStyle={styles.buttonContent}
           testID="record-transaction-submit"
         >
-          {existingTransaction ? 'Save Changes' : 'Record Transaction'}
+          {existingTransaction ? 'Save Changes' : isRefund ? 'Record Refund' : 'Record Transaction'}
         </Button>
       </View>
 

@@ -20,7 +20,12 @@ import {
   type HouseholdMember,
 } from '../../../domain/households/ListHouseholdMembersUseCase';
 import { RemoveHouseholdMemberUseCase } from '../../../domain/households/RemoveHouseholdMemberUseCase';
-import { LeaveHouseholdUseCase } from '../../../domain/households/LeaveHouseholdUseCase';
+import {
+  LeaveHouseholdUseCase,
+  inspectLeaveHouseholdPreflight,
+  type LeaveHouseholdPreflight,
+} from '../../../domain/households/LeaveHouseholdUseCase';
+import { SlipImageLocalStore } from '../../../infrastructure/slipScanning/SlipImageLocalStore';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
@@ -49,6 +54,43 @@ function sortMembers(members: HouseholdMember[]): HouseholdMember[] {
     if (a.role !== b.role) return a.role === 'owner' ? -1 : 1;
     return a.joinedAt.localeCompare(b.joinedAt);
   });
+}
+
+/**
+ * The leave confirmation's body text.
+ *
+ * The product instruction was "make sure to let the user know and make sure
+ * it's synced", so all three facts are stated plainly BEFORE the user agrees:
+ * the data leaves THIS phone, the remaining members keep it, and — when there
+ * is anything outstanding — what happens to it. Unsynced work is SYNCED
+ * first (and the leave is refused outright if it cannot be); dead-lettered
+ * work was permanently rejected by the server and is DISCARDED, which is why
+ * it is spelled out here with a count instead of silently dropped.
+ */
+export function buildLeaveConfirmationMessage(
+  householdName: string,
+  preflight: LeaveHouseholdPreflight,
+): string {
+  const parts = [
+    `You will lose access to ${householdName} on this device and every other one.`,
+    `Everything from ${householdName} — transactions, envelopes, debts, meter readings and slips — will be removed from this phone. The remaining members keep it all.`,
+  ];
+  if (preflight.unsyncedCount > 0) {
+    parts.push(
+      preflight.unsyncedCount === 1
+        ? 'Your 1 unsynced change will be synced first.'
+        : `Your ${preflight.unsyncedCount} unsynced changes will be synced first.`,
+    );
+  }
+  if (preflight.deadLetteredCount > 0) {
+    parts.push(
+      preflight.deadLetteredCount === 1
+        ? '1 change the server rejected can never be sent and will be discarded.'
+        : `${preflight.deadLetteredCount} changes the server rejected can never be sent and will be discarded.`,
+    );
+  }
+  parts.push('You can rejoin later with a new invite code.');
+  return parts.join(' ');
 }
 
 function formatJoined(joinedAt: string): string {
@@ -171,9 +213,21 @@ export const HouseholdMembersScreen: React.FC<HouseholdMembersScreenProps> = ({
 
   const handleLeave = useCallback(async (): Promise<void> => {
     if (!userId) return;
+
+    // Counting the outstanding local ops is a read of the phone's own
+    // database, but it happens before the user has agreed to anything — a
+    // failure here must not block leaving, so it degrades to "nothing
+    // outstanding" and the sequence's own oplog checks remain the guarantee.
+    let preflight: LeaveHouseholdPreflight = { unsyncedCount: 0, deadLetteredCount: 0 };
+    try {
+      preflight = inspectLeaveHouseholdPreflight(db, householdId);
+    } catch {
+      // keep the zeroed default
+    }
+
     const confirmed = await confirm({
       title: 'Leave household?',
-      message: `You will lose access to ${householdName} on this device and every other one. You can rejoin later with a new invite code.`,
+      message: buildLeaveConfirmationMessage(householdName, preflight),
       confirmLabel: 'Leave',
       destructive: true,
     });
@@ -181,8 +235,15 @@ export const HouseholdMembersScreen: React.FC<HouseholdMembersScreenProps> = ({
 
     setBusy(true);
     try {
-      const result = await new LeaveHouseholdUseCase(db, { householdId, userId }).execute();
+      const result = await new LeaveHouseholdUseCase(
+        db,
+        { householdId, userId },
+        { slipImages: new SlipImageLocalStore() },
+      ).execute();
       if (!result.success) {
+        // Every failure shape here is NON-destructive: nothing was purged,
+        // and UNSYNCED_CHANGES / LEAVE_NOT_SYNCED are both retryable by
+        // pressing Leave again once there is a connection.
         enqueueToast(result.error.message, 'error');
         return;
       }
@@ -196,6 +257,15 @@ export const HouseholdMembersScreen: React.FC<HouseholdMembersScreenProps> = ({
       useCelebrationStore.getState().clear();
       useSyncStore.getState().reset();
       useSlipScannerStore.getState().setInFlight(null);
+
+      // Scheduled local notifications are NOT household-scoped (the evening
+      // log prompt, meter reminder, month-start preflight and budget nudges
+      // all use fixed identifiers). RootNavigator's notification effect is
+      // keyed on `householdId`, so the store writes below are what cancels
+      // and re-arms them: against the next household if there is one, and
+      // `cancelAll()` when `hasHousehold` goes false. Cancelling them here
+      // too would only race that effect.
+      enqueueToast(`You left ${householdName}. Its data is off this phone.`, 'success');
 
       const next = remaining[0];
       if (next) {

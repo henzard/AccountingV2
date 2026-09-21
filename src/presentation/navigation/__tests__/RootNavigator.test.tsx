@@ -79,11 +79,18 @@ jest.mock('../../screens/household/CreateHouseholdScreen', () => {
     CreateHouseholdScreen: () => React.createElement(View, { testID: 'create-household-screen' }),
   };
 });
+// PUSH-2: captures the route params the last render of HouseholdMembersScreen
+// received, so tests can assert the household-switch flow filled them in
+// correctly (see the "household mismatch" describe block below).
+const mockHouseholdMembersRouteParams: { current: unknown } = { current: null };
 jest.mock('../../screens/household/HouseholdMembersScreen', () => {
   const React = jest.requireActual('react');
   const { View } = jest.requireActual('react-native');
   return {
-    HouseholdMembersScreen: () => React.createElement(View, { testID: 'household-members-screen' }),
+    HouseholdMembersScreen: (props: { route?: { params?: unknown } }) => {
+      mockHouseholdMembersRouteParams.current = props?.route?.params ?? null;
+      return React.createElement(View, { testID: 'household-members-screen' });
+    },
   };
 });
 
@@ -515,6 +522,111 @@ describe('resolveNotificationTarget (VAL-12)', () => {
       expect(resolveNotificationTarget(target)).toBeNull();
     },
   );
+
+  it("also accepts the {target: string} data object directly (matches content.data's real shape)", () => {
+    expect(resolveNotificationTarget({ target: 'meters' })).toEqual({
+      screen: 'Main',
+      params: { screen: 'Meters' },
+    });
+  });
+
+  // ─── PUSH-2: server push data ({type: 'household_activity', kind,
+  // householdId, target}) — notify-event's buildV1Message data block. ───────
+  it('PUSH-2: maps a household_activity push with target "Transactions" to the Transactions tab', () => {
+    expect(
+      resolveNotificationTarget({
+        type: 'household_activity',
+        kind: 'transaction_created',
+        householdId: 'h1',
+        target: 'Transactions',
+      }),
+    ).toEqual({
+      screen: 'Main',
+      params: { screen: 'Transactions' },
+      householdId: 'h1',
+    });
+  });
+
+  it('PUSH-2: maps a household_activity push with target "Dashboard" to the DashboardTab', () => {
+    expect(
+      resolveNotificationTarget({
+        type: 'household_activity',
+        kind: 'slip_confirmed',
+        householdId: 'h1',
+        target: 'Dashboard',
+      }),
+    ).toEqual({
+      screen: 'Main',
+      params: { screen: 'DashboardTab' },
+      householdId: 'h1',
+    });
+  });
+
+  it('PUSH-2: maps a household_activity push with target "HouseholdMembers" to the HouseholdMembers screen', () => {
+    expect(
+      resolveNotificationTarget({
+        type: 'household_activity',
+        householdId: 'h1',
+        target: 'HouseholdMembers',
+      }),
+    ).toEqual({
+      screen: 'HouseholdMembers',
+      params: {},
+      householdId: 'h1',
+    });
+  });
+
+  it('PUSH-2: an unrecognised target falls back to Dashboard rather than being dropped', () => {
+    expect(
+      resolveNotificationTarget({
+        type: 'household_activity',
+        householdId: 'h1',
+        target: 'not-a-real-target',
+      }),
+    ).toEqual({
+      screen: 'Main',
+      params: { screen: 'DashboardTab' },
+      householdId: 'h1',
+    });
+  });
+
+  it('PUSH-2: a missing target falls back to Dashboard, never throws', () => {
+    expect(() =>
+      resolveNotificationTarget({ type: 'household_activity', householdId: 'h1' }),
+    ).not.toThrow();
+    expect(resolveNotificationTarget({ type: 'household_activity', householdId: 'h1' })).toEqual({
+      screen: 'Main',
+      params: { screen: 'DashboardTab' },
+      householdId: 'h1',
+    });
+  });
+
+  it('PUSH-2: an unknown/malformed kind never throws and still resolves the target', () => {
+    expect(() =>
+      resolveNotificationTarget({
+        type: 'household_activity',
+        kind: 12345,
+        householdId: 'h1',
+        target: 'Transactions',
+      }),
+    ).not.toThrow();
+  });
+
+  it('PUSH-2: omits householdId from the result when the payload has none', () => {
+    const result = resolveNotificationTarget({
+      type: 'household_activity',
+      target: 'Transactions',
+    });
+    expect(result).not.toBeNull();
+    expect(result?.householdId).toBeUndefined();
+  });
+
+  it.each([null, 42, 'household_activity', {}])(
+    'PUSH-2: never throws for a malformed data payload %p',
+    (data) => {
+      expect(() => resolveNotificationTarget(data)).not.toThrow();
+    },
+  );
 });
 
 describe('RootNavigator — notification-tap listener wiring (VAL-12)', () => {
@@ -577,6 +689,130 @@ describe('RootNavigator — cold-start notification tap (REG-10)', () => {
 
     expect(() => render(<RootNavigator />)).not.toThrow();
     await Promise.resolve();
+  });
+});
+
+// ─── PUSH-2: a household-scoped server push may name a household other than
+// the one currently active. Never show that screen against the wrong
+// household's data. ────────────────────────────────────────────────────────
+describe('RootNavigator — PUSH-2 household mismatch on a server push tap', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useAppStore.getState().reset();
+    mockRequestPermissionsAsync.mockResolvedValue({ status: 'granted' });
+    mockHouseholdMembersRouteParams.current = null;
+  });
+
+  it('switches the active household and navigates when the user belongs to the pushed household', async () => {
+    setStore({ user: { id: 'user-1' } }, 'h1');
+    mockIsOnboardingComplete.mockResolvedValue(true);
+    useAppStore.setState({
+      availableHouseholds: [
+        { id: 'h1', name: 'Household One', paydayDay: 1, userLevel: 1 },
+        { id: 'h2', name: 'Household Two', paydayDay: 15, userLevel: 1 },
+      ],
+    });
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: {
+        request: {
+          content: {
+            data: {
+              type: 'household_activity',
+              kind: 'transaction_created',
+              householdId: 'h2',
+              target: 'Transactions',
+            },
+          },
+        },
+      },
+    });
+
+    render(<RootNavigator />);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useAppStore.getState().householdId).toBe('h2');
+    expect(useAppStore.getState().paydayDay).toBe(15);
+  });
+
+  it('fills in HouseholdMembers params from the switched-to household', async () => {
+    setStore({ user: { id: 'user-1' } }, 'h1');
+    mockIsOnboardingComplete.mockResolvedValue(true);
+    useAppStore.setState({
+      availableHouseholds: [
+        { id: 'h1', name: 'Household One', paydayDay: 1, userLevel: 1 },
+        { id: 'h2', name: 'Household Two', paydayDay: 15, userLevel: 1 },
+      ],
+    });
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: {
+        request: {
+          content: {
+            data: { type: 'household_activity', householdId: 'h2', target: 'HouseholdMembers' },
+          },
+        },
+      },
+    });
+
+    const { findByTestId } = render(<RootNavigator />);
+    await findByTestId('household-members-screen');
+
+    expect(mockHouseholdMembersRouteParams.current).toEqual({
+      householdId: 'h2',
+      householdName: 'Household Two',
+    });
+  });
+
+  it('does NOT switch households and falls back to Dashboard when the user is not a member of the pushed household', async () => {
+    setStore({ user: { id: 'user-1' } }, 'h1');
+    mockIsOnboardingComplete.mockResolvedValue(true);
+    useAppStore.setState({
+      availableHouseholds: [{ id: 'h1', name: 'Household One', paydayDay: 1, userLevel: 1 }],
+    });
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: {
+        request: {
+          content: {
+            data: {
+              type: 'household_activity',
+              householdId: 'h-not-a-member',
+              target: 'Transactions',
+            },
+          },
+        },
+      },
+    });
+
+    const { findByTestId } = render(<RootNavigator />);
+    await findByTestId('main-tab-nav');
+    await Promise.resolve();
+
+    expect(useAppStore.getState().householdId).toBe('h1');
+  });
+
+  it('does not switch households when the push is about the already-active household', async () => {
+    setStore({ user: { id: 'user-1' } }, 'h1');
+    mockIsOnboardingComplete.mockResolvedValue(true);
+    useAppStore.setState({
+      availableHouseholds: [{ id: 'h1', name: 'Household One', paydayDay: 1, userLevel: 1 }],
+      paydayDay: 1,
+    });
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: {
+        request: {
+          content: {
+            data: { type: 'household_activity', householdId: 'h1', target: 'Transactions' },
+          },
+        },
+      },
+    });
+
+    const { findByTestId } = render(<RootNavigator />);
+    await findByTestId('main-tab-nav');
+    await Promise.resolve();
+
+    expect(useAppStore.getState().householdId).toBe('h1');
   });
 });
 

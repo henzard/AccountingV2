@@ -69,7 +69,7 @@ describe('UpdateTransactionUseCase', () => {
     mockAudit.log.mockClear();
   });
 
-  it('rejects amountCents <= 0 before touching the db', async () => {
+  it('rejects a zero amountCents before touching the db', async () => {
     const db = makeDb();
     const repo = makeFakeRepo();
     const uc = new UpdateTransactionUseCase(
@@ -77,6 +77,43 @@ describe('UpdateTransactionUseCase', () => {
       mockAudit as any,
       current,
       { ...validInput, amountCents: 0 },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVALID_AMOUNT');
+    expect(db.select).not.toHaveBeenCalled();
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  // REFUNDS: an edit may turn a purchase into a refund (and back) — the
+  // negative amount is written to the synced column verbatim.
+  it('writes a NEGATIVE amountCents verbatim when a purchase is edited into a refund', async () => {
+    const db = makeDb();
+    const repo = makeFakeRepo();
+    queueHappyPath(db);
+    const uc = new UpdateTransactionUseCase(
+      db as any,
+      mockAudit as any,
+      current,
+      { ...validInput, amountCents: -2500 },
+      { repo },
+    );
+    const result = await uc.execute();
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.amountCents).toBe(-2500);
+    expect(repo.update).toHaveBeenCalledTimes(1);
+    expect(repo.update.mock.calls[0][2]).toMatchObject({ amount_cents: -2500 });
+  });
+
+  it('rejects an absurdly large negative amount just like an absurdly large positive one', async () => {
+    const db = makeDb();
+    const repo = makeFakeRepo();
+    const uc = new UpdateTransactionUseCase(
+      db as any,
+      mockAudit as any,
+      current,
+      { ...validInput, amountCents: -(Number.MAX_SAFE_INTEGER + 10) },
       { repo },
     );
     const result = await uc.execute();

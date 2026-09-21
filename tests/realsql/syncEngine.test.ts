@@ -469,6 +469,33 @@ describe('SyncEngine puller reconciles incremented rows to server truth', () => 
   });
 });
 
+describe('SyncEngine.getOldestPendingCreatedAt', () => {
+  function addOp(raw: Database.Database, opId: string, at: string, extra = ''): void {
+    raw
+      .prepare(
+        `INSERT INTO oplog (op_id, household_id, table_name, row_id, op_type, payload,
+           device_id, client_created_at ${extra ? ', ' + extra.split('=')[0] : ''})
+         VALUES (?, ?, 'debts', 'd1', 'update', '{}', 'devA', ? ${extra ? ', ?' : ''})`,
+      )
+      .run(...(extra ? [opId, HH, at, extra.split('=')[1]] : [opId, HH, at]));
+  }
+
+  it('is null when nothing is pending, else the oldest unpushed, non-dead-lettered op', () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const engine = engineFor(raw, new FakeTransport());
+    expect(engine.getOldestPendingCreatedAt()).toBeNull();
+
+    addOp(raw, 'pushed-older', '2025-12-01T00:00:00.000Z', `pushed_at=${NOW}`);
+    addOp(raw, 'dead-older', '2025-12-02T00:00:00.000Z', `dead_lettered_at=${NOW}`);
+    addOp(raw, 'pending-new', '2025-12-20T00:00:00.000Z');
+    addOp(raw, 'pending-old', '2025-12-10T00:00:00.000Z');
+
+    expect(engine.getOldestPendingCreatedAt()).toBe('2025-12-10T00:00:00.000Z');
+    raw.close();
+  });
+});
+
 describe('SyncEngine DLQ inbox (Task 5)', () => {
   it('listDeadLettered: returns dead-lettered ops for the household, newest first, never the payload', async () => {
     const raw = openMigratedDb();

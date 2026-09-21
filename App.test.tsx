@@ -239,6 +239,16 @@ jest.mock('./src/data/sync/SyncScheduler', () => {
   };
 });
 
+// Round 8 P5: `ensureSyncRuntime` wraps `syncStoreStatusSink` with this
+// before passing it to `new SyncScheduler(...)` (mocked above, so the wrapped
+// sink is never actually invoked in this file's tests either way). Stubbed
+// as a passthrough so this composition-root test never has to load the real
+// module's AsyncStorage/Crashlytics dependencies — those are covered by
+// syncHealthReporter.test.ts.
+jest.mock('./src/infrastructure/monitoring/syncHealthReporter', () => ({
+  withSyncHealthReporting: jest.fn((base: unknown) => base),
+}));
+
 jest.mock('./src/data/repositories/DrizzleSlipQueueRepository', () => ({
   DrizzleSlipQueueRepository: jest.fn().mockImplementation(() => ({
     listProcessingOlderThan: jest.fn().mockResolvedValue([]),

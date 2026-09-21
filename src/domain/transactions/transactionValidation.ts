@@ -5,17 +5,32 @@ import { createSuccess, createFailure } from '../shared/types';
 const DATE_FORMAT_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Shared transaction validation, extracted so `CreateTransactionUseCase` and
- * `UpdateTransactionUseCase` enforce the exact same rules instead of two
- * copies drifting apart. `CreateTransactionUseCase` still inlines its own
- * copy of these checks (it is not owned by this change) — folding it onto
- * this module is a follow-up left to whoever owns that file.
+ * Shared transaction validation — the SINGLE source of truth for these rules.
+ * `CreateTransactionUseCase` and `UpdateTransactionUseCase` both call into
+ * this module (neither inlines its own copy any more), so the two can never
+ * drift apart.
  */
 
-/** Amount must be a safe integer strictly greater than zero (money is integer cents). */
+/**
+ * Amount must be a NON-ZERO safe integer (money is integer cents).
+ *
+ * REFUNDS: a negative amount is a refund / reversal / store credit, and is
+ * as valid as a purchase. Every balance in the app is a derived
+ * `SUM(amount_cents)` (see `EnvelopeBalanceQuery`), so a negative row simply
+ * nets out — no schema change, and an older build that pulls one via sync
+ * stores and sums it correctly even though it cannot create one.
+ *
+ * Zero is still rejected: a R0 row moves nothing and is never what the user
+ * meant. The magnitude guard is `Number.isSafeInteger`, which is inherently
+ * SYMMETRIC — an absurd -1e18 refund is rejected on exactly the same footing
+ * as an absurd +1e18 purchase.
+ */
 export function validateTransactionAmountCents(amountCents: number): Result<void> {
-  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
-    return createFailure({ code: 'INVALID_AMOUNT', message: 'Amount must be greater than zero' });
+  if (!Number.isSafeInteger(amountCents) || amountCents === 0) {
+    return createFailure({
+      code: 'INVALID_AMOUNT',
+      message: 'Amount must be a non-zero whole number of cents',
+    });
   }
   return createSuccess(undefined);
 }

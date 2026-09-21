@@ -10,6 +10,11 @@ export interface EnvelopeForecast {
   envelopeName: string;
   allocatedCents: number;
   spentCents: number;
+  /**
+   * Observed average spend per elapsed day, FLOORED AT ZERO — a net-refunded
+   * envelope has a negative `spentCents` and refunds are not a spending rate
+   * to extrapolate. Never negative.
+   */
   dailySpendCents: number;
   daysElapsed: number;
   daysRemaining: number;
@@ -121,7 +126,13 @@ export class CashFlowForecaster {
       )
       .map((e): EnvelopeForecast => {
         const spentCents = e.spentCents;
-        const dailySpendCents = Math.round(spentCents / daysElapsed);
+        // REFUNDS: `spentCents` is a derived signed SUM, so a net-refunded
+        // envelope makes this negative — and a negative rate multiplied by
+        // `daysRemaining` below would forecast FUTURE REFUNDS, inventing
+        // money the household has no reason to expect. A refund is a one-off
+        // credit, not a spending rate, so the observed rate floors at zero:
+        // the honest projection for such an envelope is "no further spend".
+        const dailySpendCents = Math.max(0, Math.round(spentCents / daysElapsed));
         const isFixed = canClassify && isFixedCommitment(e, transactionsByEnvelope.get(e.id) ?? []);
         const projectedSpendRemainingCents = isFixed ? 0 : dailySpendCents * daysRemaining;
         const projectedRemainingCents =
@@ -129,12 +140,18 @@ export class CashFlowForecaster {
         // No allocation means no denominator. Untouched stays 100% / on_track;
         // any real or projected spend against a zero budget is unbudgeted
         // overspend, so report 0% and let the `< 10` threshold mark it over_budget.
+        // REFUNDS: a net-refunded envelope projects MORE money left than it
+        // was allocated, which printed as "180% projected left". An envelope
+        // cannot have more than all of its budget remaining, so the top is
+        // capped at 100. The bottom is deliberately NOT clamped: a heavy
+        // overspend legitimately reports a negative percentage, and the
+        // `< 10` / `< 20` status thresholds below read it.
         const projectedRemainingPct =
           e.allocatedCents === 0
             ? spentCents > 0 || projectedSpendRemainingCents > 0
               ? 0
               : 100
-            : Math.round((projectedRemainingCents / e.allocatedCents) * 100);
+            : Math.min(100, Math.round((projectedRemainingCents / e.allocatedCents) * 100));
 
         let status: ForecastStatus;
         if (projectedRemainingPct < 10) {

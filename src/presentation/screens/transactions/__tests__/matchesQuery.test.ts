@@ -166,3 +166,30 @@ describe('matchesQuery — the amount as the row displays it', () => {
     expect(matchesQuery(tx, 'r 9 999', names)).toBe(false);
   });
 });
+
+describe('matchesQuery — refunds (negative amountCents)', () => {
+  const names = new Map<string, string>();
+  // A R25,00 refund. The user searching for it types the amount they see on
+  // the slip — "25" — not "-25", so the filter matches on the ABSOLUTE value.
+  const refund = {
+    payee: 'Checkers refund',
+    description: null,
+    envelopeId: 'e1',
+    amountCents: -2500,
+  } as never;
+
+  it.each(['25', '25.00', '25,00', 'r25,00', 'r 25,00'])(
+    'finds a refund by its absolute value, searching "%s"',
+    (q) => {
+      expect(matchesQuery(refund, q, names)).toBe(true);
+    },
+  );
+
+  it('still does not match an unrelated amount', () => {
+    expect(matchesQuery(refund, '9 999', names)).toBe(false);
+  });
+
+  it('finds a refund by payee as usual', () => {
+    expect(matchesQuery(refund, 'refund', names)).toBe(true);
+  });
+});

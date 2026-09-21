@@ -96,13 +96,23 @@ function toAuthErrorLike(error: unknown): AuthErrorLike {
  * (or any other raw field) to the UI directly — always go through this.
  */
 export function getFriendlyAuthErrorMessage(error: unknown, logContext?: string): string {
-  const err = toAuthErrorLike(error);
+  const friendly = classifyAuthError(error);
+  const label = logContext ? `Auth error: ${logContext}` : 'Auth error';
+  if (friendly === FRIENDLY_AUTH_MESSAGES.fallback) {
+    // Unrecognised: this one is worth a Crashlytics non-fatal (logger.error
+    // forwards there) — it is either a bug or a provider error we should map.
+    logger.error(label, error, logContext ? { context: logContext } : undefined);
+  } else {
+    // A mistyped password, an unconfirmed address, no signal, a rate limit:
+    // expected, user-facing outcomes. Logging them as errors would bury real
+    // problems under one non-fatal per typo.
+    logger.warn(label, { context: logContext, outcome: friendly });
+  }
+  return friendly;
+}
 
-  logger.error(
-    logContext ? `Auth error: ${logContext}` : 'Auth error',
-    error,
-    logContext ? { context: logContext } : undefined,
-  );
+function classifyAuthError(error: unknown): string {
+  const err = toAuthErrorLike(error);
 
   const message = typeof err.message === 'string' ? err.message : undefined;
   // A wrapped failure carries the DOMAIN code at the top level (e.g.

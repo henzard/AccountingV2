@@ -159,6 +159,18 @@ describe('getPercentRemaining', () => {
   it('returns 0 (clamped) when overspent', () => {
     expect(getPercentRemaining({ ...baseEnvelope, spentCents: 150000 })).toBe(0);
   });
+
+  // REFUNDS: `spentCents` is a derived signed SUM, so an envelope whose
+  // refunds exceed its purchases has a NEGATIVE spend. Unclamped that reads
+  // "130% remaining" on the card — an envelope cannot have more budget left
+  // than it was allocated.
+  it('returns 100 (clamped) when the envelope is net-refunded', () => {
+    expect(getPercentRemaining({ ...baseEnvelope, spentCents: -30000 })).toBe(100);
+  });
+
+  it('still returns 100 for a heavily net-refunded envelope', () => {
+    expect(getPercentRemaining({ ...baseEnvelope, spentCents: -500000 })).toBe(100);
+  });
 });
 
 // ---------------------------------------------------------------------------
