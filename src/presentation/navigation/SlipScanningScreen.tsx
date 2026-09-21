@@ -109,6 +109,7 @@ export function SlipScanningScreen(): React.JSX.Element {
       name: envelopesTable.name,
       allocatedCents: envelopesTable.allocatedCents,
       envelopeType: envelopesTable.envelopeType,
+      createdAt: envelopesTable.createdAt,
     })
       .from(envelopesTable)
       .where(

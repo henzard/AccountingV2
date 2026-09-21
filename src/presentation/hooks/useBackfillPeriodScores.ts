@@ -49,7 +49,9 @@ export async function runPeriodScoreBackfill(
       return;
     }
 
-    if (result.data.recorded > 0) {
+    // A rewritten old-formula row changes the scores just as a new row does,
+    // so both must re-derive the level and refresh any mounted progress card.
+    if (result.data.recorded > 0 || result.data.recomputed > 0) {
       const history = await getPeriodScoresAscending(db, householdId);
       const level = deriveLevelFromScores(history.map((row) => row.score));
       const persisted = await new PersistUserLevelUseCase(db).execute({ householdId, level });

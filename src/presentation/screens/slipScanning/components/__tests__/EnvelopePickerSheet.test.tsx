@@ -217,6 +217,36 @@ describe('EnvelopePickerSheet', () => {
     expect(getAllByText('Saving')).toHaveLength(1);
   });
 
+  it('keeps the fund CARRIER (earliest createdAt, then id) whatever order the rows arrive in', () => {
+    // The monthly contribution lands on the carrier at rollover, so a spend
+    // must be pointed at that same row — not at whichever duplicate the
+    // query happened to return first.
+    const rows: EnvelopeOption[] = [
+      { id: 'saving-c', createdAt: '2026-03-25T00:00:00.000Z' },
+      { id: 'saving-b', createdAt: '2025-04-25T00:00:00.000Z' },
+      { id: 'saving-a', createdAt: '2025-04-25T00:00:00.000Z' },
+    ].map((row) => ({
+      ...row,
+      name: 'Saving',
+      allocatedCents: 50000,
+      spentCents: 0,
+      envelopeType: 'savings' as const,
+    }));
+    const onSelect = jest.fn();
+    const { getByTestId, queryByTestId } = render(
+      <EnvelopePickerSheet
+        visible
+        envelopes={rows}
+        selectedId={null}
+        onSelect={onSelect}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(queryByTestId('envelope-option-saving-c')).toBeNull();
+    fireEvent.press(getByTestId('envelope-option-saving-a'));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'saving-a' }));
+  });
+
   it('keeps distinct names and treats matching names of different types as distinct', () => {
     const options: EnvelopeOption[] = [
       { id: 'food', name: 'Food', allocatedCents: 100000, spentCents: 0, envelopeType: 'spending' },

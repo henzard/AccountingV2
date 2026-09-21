@@ -308,7 +308,7 @@ describe('ForecastScreen fed by history', () => {
       // 8333/day x 20 remaining = 166660 → 241660) = 177498, i.e. R274.98
       // over the R1500.00 allocation.
       expect(getByTestId('forecast-insight-env-food').props.children).toBe(
-        'Likely over by R274.98 — you usually spend about R1500.00 on Food',
+        'Likely over by R274.98 — projected to reach R1774.98; you usually spend about R1500.00 on Food',
       );
     });
 

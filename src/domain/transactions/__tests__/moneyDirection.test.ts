@@ -79,12 +79,12 @@ describe('summariseMoney', () => {
     expect(summary).toEqual({ spentCents: 100, receivedCents: 0, incomeCount: 0 });
   });
 
-  it('sums several income rows by absolute value', () => {
+  it('nets a reversed income row against the deposits, then reports it positive', () => {
     const summary = summariseMoney([
       { amountCents: 3_500_00, envelopeType: 'income' },
       { amountCents: -1_000_00, envelopeType: 'income' },
     ]);
-    expect(summary.receivedCents).toBe(4_500_00);
+    expect(summary.receivedCents).toBe(2_500_00);
     expect(summary.spentCents).toBe(0);
   });
 });

@@ -15,6 +15,8 @@ export interface EnvelopeOption {
   allocatedCents: number;
   spentCents: number;
   envelopeType: EnvelopeType;
+  /** Lets the picker choose a duplicated persistent fund's canonical row. */
+  createdAt?: string;
 }
 
 /**
@@ -48,6 +50,13 @@ function balanceCents(
     : env.allocatedCents - env.spentCents;
 }
 
+/** Carrier order: earliest `createdAt`, then lowest id. */
+function isEarlierCarrier(a: EnvelopeOption, b: EnvelopeOption): boolean {
+  const aCreated = a.createdAt ?? '';
+  const bCreated = b.createdAt ?? '';
+  return aCreated === bCreated ? a.id < b.id : aCreated < bCreated;
+}
+
 /**
  * A real household's envelope history repeats the same (type, name) pair
  * once per budget period — 216 live envelopes on 18 periods here means up to
@@ -57,12 +66,15 @@ function balanceCents(
  * fixed separately). Whatever list a caller hands this sheet, a picker must
  * never present two rows a person cannot tell apart — so collapse to one
  * row per (envelope_type, name), case-insensitively and trimmed, matching
- * the same identity rule history-based features use elsewhere. The FIRST
- * occurrence wins, keeping this a stable, deterministic display filter
- * rather than a data merge.
+ * the same identity rule history-based features use elsewhere.
+ *
+ * The row kept is the fund's CARRIER — earliest `createdAt`, then lowest
+ * id — the same rule `groupPersistentFunds` uses at rollover. That is the
+ * row the monthly contribution lands on, so a spend picked here comes off
+ * the balance that is actually growing instead of a sibling row's.
  */
 function dedupeByTypeAndName(options: EnvelopeOption[]): EnvelopeOption[] {
-  const seen = new Set<string>();
+  const carrierIndexByKey = new Map<string, number>();
   const result: EnvelopeOption[] = [];
   for (const option of options) {
     // PERSISTENT funds only. Callers already scope period envelopes to one
@@ -73,9 +85,13 @@ function dedupeByTypeAndName(options: EnvelopeOption[]): EnvelopeOption[] {
       continue;
     }
     const key = `${option.envelopeType}:${option.name.trim().toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(option);
+    const index = carrierIndexByKey.get(key);
+    if (index === undefined) {
+      carrierIndexByKey.set(key, result.length);
+      result.push(option);
+    } else if (isEarlierCarrier(option, result[index])) {
+      result[index] = option;
+    }
   }
   return result;
 }

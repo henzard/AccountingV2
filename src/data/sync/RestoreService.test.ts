@@ -239,8 +239,9 @@ describe('RestoreService.restoreHousehold — paging + error propagation (SYNC-9
 
     expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toEqual([
       { table: 'transactions', from: 0, to: 999 },
-      { table: 'transactions', from: 1000, to: 1999 },
+      { table: 'transactions', from: 0, to: 999 },
     ]);
+    expect(remote.recorder.keysetAfter.filter((k) => k.table === 'transactions')).toHaveLength(1);
     expect(local.written.filter((w) => w.table === 'transactions')).toHaveLength(1001);
   });
 
@@ -361,9 +362,13 @@ describe('RestoreService.restoreHousehold — stable paging order (SYNC-9 residu
 
     expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toEqual([
       { table: 'transactions', from: 0, to: 999 },
-      { table: 'transactions', from: 1000, to: 1999 },
-      { table: 'transactions', from: 2000, to: 2999 },
+      { table: 'transactions', from: 0, to: 999 },
+      { table: 'transactions', from: 0, to: 999 },
     ]);
+    // Keyset paging: pages 2 and 3 each continue AFTER the last id held.
+    expect(
+      remote.recorder.keysetAfter.filter((k) => k.table === 'transactions').map((k) => k.column),
+    ).toEqual(['id', 'id']);
     const restoredIds = local.written
       .filter((w) => w.table === 'transactions')
       .map((w) => w.row.id as string);
@@ -372,6 +377,41 @@ describe('RestoreService.restoreHousehold — stable paging order (SYNC-9 residu
     for (const row of rows) {
       expect(restoredIds).toContain(row.id); // no row went missing
     }
+  });
+
+  it('a row that leaves the result set between pages does not make an untouched row go missing', async () => {
+    // Offset paging counts rows from the start: remove one row of page 1
+    // after it was fetched and every later row shifts down by one, so the
+    // row that WAS at offset 1000 is now at 999 — behind the next window —
+    // and is never fetched. No oplog replay restores it, because it never
+    // changed. Keyset paging continues after the last id held instead.
+    const tables = {
+      transactions: Array.from({ length: 1500 }, (_, i) => ({
+        id: `tx-${String(i).padStart(4, '0')}`,
+        household_id: HH,
+        created_at: '2026-01-01T00:00:00Z',
+      })),
+    };
+    let removed = false;
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables,
+      maxSeq: 0,
+      onTableFetch: (table) => {
+        if (table !== 'transactions' || removed) return;
+        removed = true;
+        tables.transactions = tables.transactions.filter((row) => row.id !== 'tx-0005');
+      },
+    });
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const restoredIds = local.written
+      .filter((w) => w.table === 'transactions')
+      .map((w) => w.row.id as string);
+    expect(restoredIds).toContain('tx-1000'); // the row an offset window skips
+    expect(new Set(restoredIds).size).toBe(restoredIds.length);
+    expect(restoredIds).toHaveLength(1500);
   });
 
   it('a failure on page 2 of a large table leaves NO household marked complete — no cursor, no partial rows', async () => {

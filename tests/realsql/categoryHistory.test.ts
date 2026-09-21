@@ -100,7 +100,16 @@ function seedTransaction(db: Database.Database, t: TransactionSeed): void {
        (id, household_id, envelope_id, amount_cents, transaction_date,
         is_business_expense, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-  ).run(t.id, HOUSEHOLD_ID, t.envelopeId, t.amountCents, t.transactionDate, NOW, NOW, t.deletedAt);
+  ).run(
+    t.id,
+    HOUSEHOLD_ID,
+    t.envelopeId,
+    t.amountCents,
+    t.transactionDate,
+    NOW,
+    NOW,
+    t.deletedAt ?? null,
+  );
 }
 
 /**

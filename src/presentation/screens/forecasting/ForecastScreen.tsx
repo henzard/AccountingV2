@@ -202,7 +202,10 @@ export function ForecastScreen(): React.JSX.Element {
             showTypicalPeriod ? (
               <TypicalPeriodHeader
                 categoryCount={typicalCategories.length}
-                periodsObserved={typicalCategories[0]?.periodsObserved ?? 0}
+                periodsObserved={typicalCategories.reduce(
+                  (max, b) => Math.max(max, b.periodsObserved),
+                  0,
+                )}
                 typicalTotalCents={typicalTotalCents}
                 canRollover={rolloverFromPeriodStart !== null}
                 onStartPeriod={handleStartPeriod}
@@ -312,7 +315,7 @@ function TypicalPeriodHeader({
   onStartPeriod: () => void;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
-  const headline = `No budget for this period yet. Across your last ${periodsObserved} periods you typically spend ${formatCurrency(typicalTotalCents)} across ${categoryCount} categories.`;
+  const headline = `No budget for this period yet. Across up to your last ${periodsObserved} periods you typically spend ${formatCurrency(typicalTotalCents)} across ${categoryCount} categories.`;
 
   return (
     <Surface

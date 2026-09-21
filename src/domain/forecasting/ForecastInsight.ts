@@ -31,7 +31,7 @@ function projectedText(
   format: CurrencyFormatter,
 ): string {
   if (baseline === null) return `projected to reach ${format(forecast.projectedTotalSpendCents)}`;
-  return `you usually spend about ${format(baseline.typicalPeriodSpendCents)} on ${forecast.envelopeName}`;
+  return `projected to reach ${format(forecast.projectedTotalSpendCents)}; you usually spend about ${format(baseline.typicalPeriodSpendCents)} on ${forecast.envelopeName}`;
 }
 
 /**

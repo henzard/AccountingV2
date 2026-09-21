@@ -358,6 +358,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
       name: envelopesTable.name,
       allocatedCents: envelopesTable.allocatedCents,
       envelopeType: envelopesTable.envelopeType,
+      createdAt: envelopesTable.createdAt,
     })
       .from(envelopesTable)
       .where(

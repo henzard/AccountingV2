@@ -51,7 +51,9 @@ function forecast(overrides: Partial<EnvelopeForecast> = {}): EnvelopeForecast {
 describe('buildEnvelopeInsight', () => {
   it('says what the household usually spends and what is left when on track', () => {
     const copy = buildEnvelopeInsight(forecast(), format);
-    expect(copy.headline).toBe('On track — you usually spend about R1500.00 on Food; R200.00 left');
+    expect(copy.headline).toBe(
+      'On track — projected to reach R1300.00; you usually spend about R1500.00 on Food; R200.00 left',
+    );
   });
 
   it('names the overshoot in cash, not in colour, when heading over', () => {

@@ -53,7 +53,11 @@ export interface MoneySummary {
    * deposit is not a refund of the grocery budget.
    */
   spentCents: number;
-  /** Total money IN: the absolute value of every income-envelope row. */
+  /**
+   * Total money IN: income-envelope rows summed SIGNED, then made positive
+   * once — the same net-then-absolute rule as `summariseEnvelopePeriodMoney`,
+   * so a reversed deposit lowers the total here exactly as it does there.
+   */
   receivedCents: number;
   /** How many income rows were seen — lets a caller hide a "Received" line. */
   incomeCount: number;
@@ -61,17 +65,17 @@ export interface MoneySummary {
 
 export function summariseMoney(rows: readonly MoneyRow[]): MoneySummary {
   let spentCents = 0;
-  let receivedCents = 0;
+  let signedIncomeCents = 0;
   let incomeCount = 0;
   for (const row of rows) {
     if (classifyMoney(row) === 'income') {
-      receivedCents += Math.abs(row.amountCents);
+      signedIncomeCents += row.amountCents;
       incomeCount += 1;
     } else {
       spentCents += row.amountCents;
     }
   }
-  return { spentCents, receivedCents, incomeCount };
+  return { spentCents, receivedCents: Math.abs(signedIncomeCents), incomeCount };
 }
 
 /** The envelope fields the period summary below reads. */

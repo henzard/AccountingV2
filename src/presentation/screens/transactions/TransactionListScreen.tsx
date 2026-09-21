@@ -280,13 +280,13 @@ export const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ na
   // UX2-12: while searching, the total needs to say what it's a total OF
   // (the visible matches), not just repeat the unlabelled period figure.
   const totalLabel = trimmedQuery
-    ? `${filteredTransactions.length} ${filteredTransactions.length === 1 ? 'match' : 'matches'} · ${formatCurrency(periodTotalCents)}`
+    ? `${filteredTransactions.length} ${filteredTransactions.length === 1 ? 'match' : 'matches'} · ${formatCurrency(periodTotalCents)} spent`
     : `Spent this period: ${formatCurrency(periodTotalCents)}`;
   // Shown only when this period actually has money IN, so an ordinary
   // spending-only period keeps its single, unchanged line.
   const receivedLabel =
     periodMoney.incomeCount > 0
-      ? `Received this period: ${formatCurrency(periodMoney.receivedCents)}`
+      ? `${trimmedQuery ? 'Received in matches' : 'Received this period'}: ${formatCurrency(periodMoney.receivedCents)}`
       : null;
 
   return (

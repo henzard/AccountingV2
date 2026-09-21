@@ -58,6 +58,8 @@ export interface FakeSupabaseRecorder {
   ranges: { table: string; from: number; to: number }[];
   /** Every `.order(column, { ascending })` a table fetch applied, in order. */
   orders: { table: string; column: string; ascending: boolean }[];
+  /** Every keyset continuation `.gt(column, value)` a paged fetch applied. */
+  keysetAfter: { table: string; column: string; value: string | number }[];
   /** How many times the household's max oplog seq was read. */
   maxSeqReads: number;
 }
@@ -78,6 +80,7 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
     isFilters: [],
     ranges: [],
     orders: [],
+    keysetAfter: [],
     maxSeqReads: 0,
   };
   /** How many `.range()` calls each table has taken so far — 1-based when
@@ -112,6 +115,7 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
     maybeSingle(): QueryResult;
     range(from: number, to: number): QueryResult;
     order(col: string, opts?: { ascending?: boolean }): FakeQueryBuilder;
+    gt(column: string, value: string | number): FakeQueryBuilder;
     limit(n: number): QueryResult;
     then(resolve: (r: { data: unknown; error: { message: string } | null }) => unknown): unknown;
   }
@@ -160,6 +164,16 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
         return ascending ? cmp : -cmp;
       });
       return makeBuilder(table, sorted, error);
+    },
+    // Keyset continuation: "rows after this key". Applied for real, so a
+    // test sees exactly the rows a PostgREST `gt` filter would return.
+    gt: (column: string, value: string | number): FakeQueryBuilder => {
+      recorder.keysetAfter.push({ table, column, value });
+      return makeBuilder(
+        table,
+        rows.filter((row) => (row[column] as string | number) > value),
+        error,
+      );
     },
     limit: (n: number): QueryResult => {
       recorder.maxSeqReads += 1;

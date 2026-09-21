@@ -73,6 +73,7 @@ export const LogPaymentScreen: React.FC<LogPaymentScreenProps> = ({ navigation, 
       name: envelopesTable.name,
       allocatedCents: envelopesTable.allocatedCents,
       envelopeType: envelopesTable.envelopeType,
+      createdAt: envelopesTable.createdAt,
     })
       .from(envelopesTable)
       .where(
