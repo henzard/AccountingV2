@@ -189,13 +189,18 @@ jest.mock('expo-notifications', () => ({
 // `rearmBudgetNudges`'s helpers query with) AND exposes `.limit()` (the shape
 // `hasLoggedTransactionToday` queries with) — a Promise is a plain object, so
 // attaching `.limit` to one satisfies both call shapes off the same mock.
+// `leftJoin(...)` returns the same `{ where }` shape: the weekly-spend lookup
+// joins each transaction to its envelope so income rows are not counted as
+// spending.
+const mockDbWhere = jest.fn(() => {
+  const result = Promise.resolve([]) as Promise<never[]> & { limit: jest.Mock };
+  result.limit = jest.fn().mockResolvedValue([]);
+  return result;
+});
 const mockDbSelect = jest.fn(() => ({
   from: jest.fn(() => ({
-    where: jest.fn(() => {
-      const result = Promise.resolve([]) as Promise<never[]> & { limit: jest.Mock };
-      result.limit = jest.fn().mockResolvedValue([]);
-      return result;
-    }),
+    where: mockDbWhere,
+    leftJoin: jest.fn(() => ({ where: mockDbWhere })),
   })),
 }));
 jest.mock('../../../data/local/db', () => ({

@@ -361,6 +361,121 @@ describe('legacy persistent envelopes (REG-4)', () => {
 
     raw.close();
   });
+
+  /**
+   * An envelope gets AT MOST ONE `opening_balance` row, ever — whoever wrote
+   * it. The backfill used to decide "already done?" from the id it was about
+   * to write, so an opening row that reached the device any other way (this
+   * household's import wrote 18 of them, under its own ids) was invisible: it
+   * wrote a SECOND row for the same money and zeroed the column, doubling the
+   * fund's saved balance and leaving it with no monthly contribution.
+   */
+  it('writes no second opening balance beside one it did not key, and keeps the monthly amount', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedEnvelope(raw, {
+      id: 'env-emf',
+      name: 'Emergency Fund',
+      envelopeType: 'emergency_fund',
+      periodStart: P1,
+      allocatedCents: R500,
+      createdAt: LEGACY_CREATED_AT,
+    });
+    // The importer's own opening row: same envelope, an id this app would
+    // never choose.
+    raw
+      .prepare(
+        `INSERT INTO envelope_contributions
+           (id, household_id, envelope_id, amount_cents, period_start, source, created_at, updated_at)
+         VALUES ('imported-opening-row', ?, 'env-emf', ?, ?, 'opening_balance', ?, ?)`,
+      )
+      .run(HOUSEHOLD_ID, R10K, P1, NOW, NOW);
+    const db = makeDb(raw);
+
+    const backfill = await ensureOpeningBalances(db, HOUSEHOLD_ID, DEPS);
+    expect(backfill.success).toBe(true);
+    if (!backfill.success) throw new Error('unreachable');
+    expect(backfill.data).toEqual({ count: 0, zeroedCount: 0 });
+    expect(countRows(raw, "source = 'opening_balance'")).toBe(1);
+    // Not doubled to R20 000, and the column still means "R500 per month".
+    expect(await savedCents(db, 'env-emf')).toBe(R10K);
+    expect(allocatedCents(raw, 'env-emf')).toBe(R500);
+
+    // So the fund still gets its month when the period rolls over.
+    const rolled = await rollover(db, P1, P2);
+    expect(rolled.success).toBe(true);
+    if (!rolled.success) throw new Error('unreachable');
+    expect(rolled.data.contributionCount).toBe(1);
+    expect(await savedCents(db, 'env-emf')).toBe(R10K + R500);
+
+    raw.close();
+  });
+
+  it('does not resurrect a DELETED opening balance under a second id', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedEnvelope(raw, {
+      id: 'env-emf',
+      name: 'Emergency Fund',
+      envelopeType: 'emergency_fund',
+      periodStart: P1,
+      allocatedCents: R500,
+      createdAt: LEGACY_CREATED_AT,
+    });
+    seedLegacyBackfillWithoutZeroing(raw, 'env-emf');
+    // Deleted on purpose by the user, or tombstoned by sync. The row is
+    // append-only with a deterministic id, so re-inserting could only ever
+    // add a differently-keyed duplicate — never bring this one back.
+    raw
+      .prepare('UPDATE envelope_contributions SET deleted_at = ? WHERE source = ?')
+      .run(NOW, 'opening_balance');
+    const db = makeDb(raw);
+
+    const backfill = await ensureOpeningBalances(db, HOUSEHOLD_ID, DEPS);
+    expect(backfill.success).toBe(true);
+    if (!backfill.success) throw new Error('unreachable');
+    expect(backfill.data).toEqual({ count: 0, zeroedCount: 0 });
+    expect(countRows(raw, "source = 'opening_balance'")).toBe(1);
+    expect(countRows(raw, "source = 'opening_balance' AND deleted_at IS NULL")).toBe(0);
+    expect(allocatedCents(raw, 'env-emf')).toBe(R500);
+
+    raw.close();
+  });
+
+  it('gives the same envelope the same opening-balance id on two devices that never met', async () => {
+    // Both phones run the pass offline, each against its own sqlite file. The
+    // id is a pure function of household + envelope, so the two inserts are
+    // the SAME row: `apply_one_op` (ON CONFLICT DO NOTHING) and the puller
+    // (INSERT OR IGNORE) collapse them into one, and neither device can
+    // produce a second, differently-keyed opening balance.
+    const devices = [openMigratedDb(), openMigratedDb()];
+    const ids: string[] = [];
+    for (const raw of devices) {
+      seedHousehold(raw);
+      seedEnvelope(raw, {
+        id: 'env-emf',
+        name: 'Emergency Fund',
+        envelopeType: 'emergency_fund',
+        periodStart: P1,
+        allocatedCents: R10K,
+        createdAt: LEGACY_CREATED_AT,
+      });
+      const result = await ensureOpeningBalances(makeDb(raw), HOUSEHOLD_ID, DEPS);
+      expect(result.success).toBe(true);
+      ids.push(
+        (
+          raw
+            .prepare("SELECT id FROM envelope_contributions WHERE source = 'opening_balance'")
+            .get() as { id: string }
+        ).id,
+      );
+    }
+
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[0]).toBe(openingContributionId(HOUSEHOLD_ID, 'env-emf'));
+
+    devices.forEach((raw) => raw.close());
+  });
 });
 
 describe('funds created mid-period (REG-7)', () => {

@@ -4,6 +4,7 @@ import type * as schema from '../../data/local/schema';
 import { resolveLoggingDays } from './resolveLoggingDays';
 import { resolveBabyStepIsActive } from '../shared/resolveBabyStepIsActive';
 import { resolveMeterReadingsLogged } from '../../presentation/screens/dashboard/resolveMeterReadingsLogged';
+import { resolveMetersApplicable } from './resolveMetersApplicable';
 import { buildHabitScoreInput } from './buildHabitScoreInput';
 import type { HabitScoreEnvelopeInput } from './buildHabitScoreInput';
 import type { HabitScoreInput } from './RamseyScoreCalculator';
@@ -27,11 +28,13 @@ export async function resolvePeriodHabitScoreInput(
   periodEnd: string,
   envelopes: HabitScoreEnvelopeInput[],
 ): Promise<HabitScoreInput> {
-  const [loggingDaysCount, meterReadingsLoggedThisPeriod, babyStepIsActive] = await Promise.all([
-    resolveLoggingDays(db, householdId, periodStart, periodEnd),
-    resolveMeterReadingsLogged(db, householdId, periodStart, periodEnd),
-    resolveBabyStepIsActive(db, householdId),
-  ]);
+  const [loggingDaysCount, meterReadingsLoggedThisPeriod, babyStepIsActive, metersApplicable] =
+    await Promise.all([
+      resolveLoggingDays(db, householdId, periodStart, periodEnd),
+      resolveMeterReadingsLogged(db, householdId, periodStart, periodEnd),
+      resolveBabyStepIsActive(db, householdId),
+      resolveMetersApplicable(db, householdId, periodEnd),
+    ]);
 
   const totalDaysInPeriod = differenceInDays(parseISO(periodEnd), parseISO(periodStart)) + 1;
 
@@ -41,5 +44,6 @@ export async function resolvePeriodHabitScoreInput(
     envelopes,
     meterReadingsLoggedThisPeriod,
     babyStepIsActive,
+    metersApplicable,
   });
 }

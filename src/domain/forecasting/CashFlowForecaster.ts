@@ -1,7 +1,13 @@
-import { differenceInDays, parseISO } from 'date-fns';
 import type { EnvelopeEntity } from '../envelopes/EnvelopeEntity';
 import { getEnvelopeScope } from '../envelopes/EnvelopeEntity';
 import type { TransactionEntity } from '../transactions/TransactionEntity';
+import type { CategoryBaseline, CategoryBaselines } from './CategoryBaseline';
+import { baselineKey } from './CategoryBaseline';
+import {
+  baselineWeightFor,
+  blendProjectedTotalSpendCents,
+  getPeriodDayCounts,
+} from './ForecastBlend';
 
 export type ForecastStatus = 'on_track' | 'warning' | 'over_budget';
 
@@ -29,6 +35,34 @@ export interface EnvelopeForecast {
    * still the observed average and is meaningless for these.
    */
   isFixed: boolean;
+  /**
+   * The history baseline this category was matched to by
+   * (envelope_type, lower(trim(name))), or null when there is no usable
+   * history — in which case every figure below is the pure run-rate
+   * behaviour this screen has always had.
+   */
+  baseline: CategoryBaseline | null;
+  /**
+   * Projected TOTAL spend for the whole period: `spentCents +
+   * projectedSpendRemainingCents`, carried explicitly because it is what the
+   * period summary adds up and what "likely to overshoot" compares against
+   * the allocation.
+   */
+  projectedTotalSpendCents: number;
+  /** Weight the history baseline carried in that projection — see `ForecastBlend`. */
+  baselineWeight: number;
+  /**
+   * What this household has USUALLY spent on this category by this same
+   * day-of-period (median over the baseline's periods), or null without a
+   * baseline.
+   */
+  typicalSpendByTodayCents: number | null;
+  /**
+   * `spentCents - typicalSpendByTodayCents`: positive means spending FASTER
+   * than usual by this day of the period, negative slower. Null without a
+   * baseline.
+   */
+  paceVsTypicalCents: number | null;
 }
 
 export interface ForecastInput {
@@ -41,6 +75,14 @@ export interface ForecastInput {
    * fixed-bill detection, leaving every envelope extrapolated as before.
    */
   transactions?: TransactionEntity[];
+  /**
+   * History baselines keyed by `baselineKey(envelopeType, name)` — see
+   * `buildCategoryBaselines`. OPTIONAL on purpose: omitted (or with no entry
+   * matching a given envelope) the forecast is exactly the current-period
+   * run-rate extrapolation it has always been, which is the right answer for
+   * a household with no closed periods to learn from.
+   */
+  baselines?: CategoryBaselines;
   periodStart: string; // YYYY-MM-DD
   periodEnd: string; // YYYY-MM-DD
   today?: Date;
@@ -101,13 +143,11 @@ function groupByEnvelope(transactions: TransactionEntity[]): Map<string, Transac
 export class CashFlowForecaster {
   project(input: ForecastInput): EnvelopeForecast[] {
     const today = input.today ?? new Date();
-    const start = parseISO(input.periodStart);
-    const end = parseISO(input.periodEnd);
-
-    // +1 so today counts as an elapsed day (Apr 1 → Apr 10 = 10 days, not 9).
-    // daysRemaining is exclusive of today (already in elapsed): Apr 10 → Apr 30 = 20 days.
-    const daysElapsed = Math.max(1, differenceInDays(today, start) + 1);
-    const daysRemaining = Math.max(0, differenceInDays(end, today));
+    const { daysElapsed, daysRemaining, daysInPeriod } = getPeriodDayCounts(
+      input.periodStart,
+      input.periodEnd,
+      today,
+    );
 
     const transactionsByEnvelope = groupByEnvelope(input.transactions ?? []);
     const canClassify = input.transactions !== undefined;
@@ -134,9 +174,29 @@ export class CashFlowForecaster {
         // the honest projection for such an envelope is "no further spend".
         const dailySpendCents = Math.max(0, Math.round(spentCents / daysElapsed));
         const isFixed = canClassify && isFixedCommitment(e, transactionsByEnvelope.get(e.id) ?? []);
-        const projectedSpendRemainingCents = isFixed ? 0 : dailySpendCents * daysRemaining;
-        const projectedRemainingCents =
-          e.allocatedCents - spentCents - projectedSpendRemainingCents;
+        const runRateSpendRemainingCents = isFixed ? 0 : dailySpendCents * daysRemaining;
+
+        // HISTORY. With a baseline, the run-rate extrapolation stops being
+        // the whole answer and becomes one of two, weighted by how much of
+        // the period has actually been observed (see `ForecastBlend` for the
+        // rule). Without one, `projectedSpendRemainingCents` is byte-for-byte
+        // the run-rate figure this screen has always produced.
+        const baseline = input.baselines?.get(baselineKey(e.envelopeType, e.name)) ?? null;
+        const weight = baseline === null ? 0 : baselineWeightFor(daysElapsed, daysInPeriod);
+        const projectedTotalSpendCents =
+          baseline === null
+            ? spentCents + runRateSpendRemainingCents
+            : blendProjectedTotalSpendCents(
+                spentCents,
+                spentCents + runRateSpendRemainingCents,
+                baseline.typicalPeriodSpendCents,
+                weight,
+              );
+        // Never negative: a projection below what is already spent would be a
+        // forecast of future REFUNDS, which no history entitles anyone to
+        // expect (the same rule the floored daily rate enforces above).
+        const projectedSpendRemainingCents = Math.max(0, projectedTotalSpendCents - spentCents);
+        const projectedRemainingCents = e.allocatedCents - projectedTotalSpendCents;
         // No allocation means no denominator. Untouched stays 100% / on_track;
         // any real or projected spend against a zero budget is unbudgeted
         // overspend, so report 0% and let the `< 10` threshold mark it over_budget.
@@ -175,6 +235,15 @@ export class CashFlowForecaster {
           projectedRemainingPct,
           status,
           isFixed,
+          baseline,
+          projectedTotalSpendCents,
+          baselineWeight: weight,
+          typicalSpendByTodayCents: baseline?.typicalSpendByDayCents ?? null,
+          paceVsTypicalCents:
+            baseline?.typicalSpendByDayCents === undefined ||
+            baseline?.typicalSpendByDayCents === null
+              ? null
+              : spentCents - baseline.typicalSpendByDayCents,
         };
       });
   }

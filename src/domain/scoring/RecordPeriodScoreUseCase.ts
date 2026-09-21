@@ -37,12 +37,29 @@ export interface RecordPeriodScoreInput {
    * for readers to find.
    */
   debtSnapshot?: DebtSnapshot;
+  /**
+   * When true, an EXISTING row for this `(household, periodStart)` has its
+   * `score` and `components` replaced instead of being left alone.
+   *
+   * Default false — the rollover's behaviour is unchanged and still a safe
+   * replayed no-op. The only caller that passes true is
+   * `BackfillPeriodScoresUseCase`, repairing a row written by an older
+   * formula (recognised by its `components` having no `metersApplicable`
+   * key), so a household is never left with old-formula scores sitting next
+   * to new ones in the same trend.
+   *
+   * `created_at` is deliberately NOT touched: the row still records when
+   * that period was first scored.
+   */
+  overwriteExisting?: boolean;
 }
 
 export interface RecordPeriodScoreOutput {
   id: string;
   /** false when a row for this (household, periodStart) already existed — a safe replayed no-op, not an error. */
   created: boolean;
+  /** true only when `overwriteExisting` actually replaced an existing row's score. */
+  updated?: boolean;
 }
 
 /**
@@ -104,13 +121,20 @@ export class RecordPeriodScoreUseCase {
         .where(eq(scoreHistory.id, id))
         .limit(1);
 
-      if (existing.length > 0) {
-        return createSuccess({ id, created: false });
-      }
-
       const components = input.debtSnapshot
         ? { ...input.score, debtSnapshot: input.debtSnapshot }
         : input.score;
+
+      if (existing.length > 0) {
+        if (!input.overwriteExisting) {
+          return createSuccess({ id, created: false });
+        }
+        await this.db
+          .update(scoreHistory)
+          .set({ score: input.score.score, components: JSON.stringify(components) })
+          .where(eq(scoreHistory.id, id));
+        return createSuccess({ id, created: false, updated: true });
+      }
 
       await this.db
         .insert(scoreHistory)

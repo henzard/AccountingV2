@@ -26,6 +26,7 @@ import { UpdateHouseholdPaydayDayUseCase } from '../../../domain/households/Upda
 import { DrizzleUserConsentRepository } from '../../../data/repositories/DrizzleUserConsentRepository';
 import { RevokeSlipConsentUseCase } from '../../../domain/slipScanning/RevokeSlipConsentUseCase';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
+import { ScoreProgressCard } from '../../components/scoreProgress/ScoreProgressCard';
 import { unregisterFcmToken } from '../../../infrastructure/notifications/FcmTokenRegistrar';
 import { resetWifiOnlyCache } from '../../../infrastructure/slipScanning/SupabaseSlipImageUploader';
 import { radius, spacing, fontSize } from '../../theme/tokens';
@@ -223,6 +224,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
       style={[styles.flex, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.content}
     >
+      <List.Section>
+        <List.Subheader style={styles.subheader}>Progress</List.Subheader>
+        {/* The real score/level surface (P1): the last CLOSED period's score
+            with its breakdown, the trend behind it, and what the next level
+            takes. The `Lv…` badge in the Household row below is the same
+            level, kept where people already look for it. */}
+        <View style={styles.section}>
+          <ScoreProgressCard />
+        </View>
+      </List.Section>
+
       <List.Section>
         <List.Subheader style={styles.subheader}>Household</List.Subheader>
         <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>

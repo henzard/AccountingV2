@@ -18,6 +18,7 @@ import {
   ensureOpeningBalances,
   findExistingContributionIds,
   findFundedEnvelopeIdsForPeriod,
+  groupPersistentFunds,
   isContributingEnvelope,
   periodContributionId,
 } from './PersistentContributions';
@@ -34,9 +35,10 @@ export interface StartNewPeriodOutput {
   /** Number of envelopes newly copied forward into `toPeriodStart`. */
   count: number;
   /**
-   * Number of PERSISTENT envelopes newly funded for `toPeriodStart` — one
-   * `envelope_contributions` row each. 0 on a replayed rollover, since the
-   * deterministic contribution ids already exist.
+   * Number of PERSISTENT FUNDS newly funded for `toPeriodStart` — one
+   * `envelope_contributions` row each, counting duplicate rows of the same
+   * fund once (see `groupPersistentFunds`). 0 on a replayed rollover, since
+   * the deterministic contribution ids already exist.
    */
   contributionCount: number;
   /** Total cents moved into persistent envelopes by this rollover. */
@@ -87,8 +89,10 @@ export function rolloverEnvelopeId(
  * balance), so "copying" them forward would create a duplicate row. Instead
  * each one is FUNDED: starting the new period is the moment its monthly
  * `allocatedCents` actually becomes money in the fund, so this use case
- * appends one `envelope_contributions` row per persistent envelope per
- * period (see `PersistentContributions`). That is what makes a R500/month
+ * appends one `envelope_contributions` row per persistent FUND per period —
+ * per fund, not per row, because a household whose import created the same
+ * fund once per period would otherwise have one month's saving credited once
+ * per duplicate (see `groupPersistentFunds`). That is what makes a R500/month
  * fund read R1,500 after three periods instead of R500 forever, and what
  * stops Baby Step 1 from completing the instant someone types R1,000 into an
  * allocation field — a typed allocation is a pledge for the current period,
@@ -164,15 +168,32 @@ export class StartNewPeriodUseCase {
     // scope condition matches those unconditionally), so the funds this
     // rollover must contribute to are read from it directly rather than by a
     // second query.
-    const fundedEnvelopes = candidates.filter((row) =>
+    //
+    // Grouped into FUNDS rather than taken row by row: a persistent envelope
+    // is supposed to be one row for ever, but this household's import created
+    // the fund "Saving" once per budget period, leaving 18 live `savings`
+    // rows for ONE fund. Funding each row would credit one month's saving 18
+    // times on the very first press of "Start this period from last period's
+    // budget". One contribution per fund per period, carried by the group's
+    // deterministically chosen row (see `groupPersistentFunds`).
+    const fundGroups = groupPersistentFunds(candidates);
+    // The MONTHLY AMOUNT is the carrier row's own `allocatedCents`, not a sum
+    // (that is the 18x bug itself) and not a max (which would let a stale
+    // duplicate outrank the row the fund actually lives on). One row, one
+    // meaning: the amount is exactly what a single, already-merged fund would
+    // contribute, so behaviour does not change when the duplicates are
+    // normalised away. A carrier holding 0 therefore contributes nothing —
+    // "monthly amount not known yet" — which under-funds rather than invents
+    // money, and the user can correct it in the wizard's savings section.
+    const fundedGroups = fundGroups.filter((group) =>
       isContributingEnvelope({
-        envelopeType: row.envelopeType,
-        isArchived: row.isArchived,
-        allocatedCents: row.allocatedCents,
+        envelopeType: group.representative.envelopeType,
+        isArchived: group.representative.isArchived,
+        allocatedCents: group.representative.allocatedCents,
       }),
     );
 
-    if (sourceEnvelopes.length === 0 && fundedEnvelopes.length === 0) {
+    if (sourceEnvelopes.length === 0 && fundedGroups.length === 0) {
       return createSuccess({ count: 0, contributionCount: 0, contributedCents: 0 });
     }
 
@@ -194,12 +215,18 @@ export class StartNewPeriodUseCase {
     const existingIds = new Set(existingRows.map((row) => row.id));
 
     // Same idempotency rule for the funding side: a contribution id that
-    // already exists means this envelope was already funded for
-    // `toPeriodStart`, so re-running the rollover must not fund it twice.
-    const contributionIds = fundedEnvelopes.map((envelope) =>
-      periodContributionId(householdId, envelope.id, toPeriodStart),
+    // already exists means this fund was already funded for `toPeriodStart`,
+    // so re-running the rollover must not fund it twice. Checked for EVERY
+    // member of the group, not just the carrier: an older build (or a device
+    // whose duplicate set differs) may have funded a different row of the
+    // same fund, and that still means the fund has had its month.
+    const groupContributionIds = fundedGroups.map((group) =>
+      group.members.map((member) => periodContributionId(householdId, member.id, toPeriodStart)),
     );
-    const existingContributionIds = await findExistingContributionIds(this.db, contributionIds);
+    const existingContributionIds = await findExistingContributionIds(
+      this.db,
+      groupContributionIds.flat(),
+    );
     // Second, VALUE-based guard: a contribution re-keyed onto `toPeriodStart`
     // by a payday change keeps its original id, so the id check above cannot
     // see it — see `findFundedEnvelopeIdsForPeriod`.
@@ -251,14 +278,17 @@ export class StartNewPeriodUseCase {
     // half-rolled-over state the one-transaction rule exists to prevent.
     const contributionsToInsert: Record<string, unknown>[] = [];
     let contributedCents = 0;
-    fundedEnvelopes.forEach((envelope, index) => {
-      const contributionId = contributionIds[index];
-      if (existingContributionIds.has(contributionId)) return;
-      if (alreadyFundedEnvelopeIds.has(envelope.id)) return;
+    fundedGroups.forEach((group, index) => {
+      const memberContributionIds = groupContributionIds[index];
+      // Either guard hitting ANY member means the FUND has already had this
+      // period's contribution — skip the whole group, not just that row.
+      if (memberContributionIds.some((id) => existingContributionIds.has(id))) return;
+      if (group.members.some((member) => alreadyFundedEnvelopeIds.has(member.id))) return;
 
+      const envelope = group.representative;
       contributionsToInsert.push(
         buildContributionRow({
-          id: contributionId,
+          id: periodContributionId(householdId, envelope.id, toPeriodStart),
           householdId,
           envelopeId: envelope.id,
           amountCents: envelope.allocatedCents,

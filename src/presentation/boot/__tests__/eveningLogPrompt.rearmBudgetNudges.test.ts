@@ -80,6 +80,21 @@ function seedEnvelope(
     .run(args.id, HOUSEHOLD, args.id, args.allocatedCents, args.periodStart);
 }
 
+/** An INCOME envelope — the shape imported salary deposits are booked against. */
+function seedIncomeEnvelope(
+  raw: Database.Database,
+  args: { id: string; allocatedCents: number; periodStart: string },
+): void {
+  raw
+    .prepare(
+      `INSERT INTO envelopes
+         (id, household_id, name, allocated_cents, envelope_type,
+          is_savings_locked, is_archived, period_start, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'income', 0, 0, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+    )
+    .run(args.id, HOUSEHOLD, args.id, args.allocatedCents, args.periodStart);
+}
+
 function seedTransaction(
   raw: Database.Database,
   args: { id: string; envelopeId: string; amountCents: number; transactionDate: string },
@@ -295,5 +310,69 @@ describe('rearmBudgetNudges (VAL2-11)', () => {
     mockNotificationState.preferences.weeklyCheckInNudgeEnabled = false;
     await rearmBudgetNudges(() => NOW);
     expect(mockSchedule).not.toHaveBeenCalled();
+  });
+
+  // MONEY IN vs MONEY OUT: imported history books salary deposits as
+  // transactions against an `income` envelope. Without the envelope-type
+  // filter in `computeWeekSpentCents`, payday week reported an entire
+  // month's income as "spent" in a push notification.
+  it('never counts a salary deposit on an income envelope as this week’s spend', async () => {
+    seedEnvelope(mockRawDb, {
+      id: 'env-groceries',
+      allocatedCents: 50000,
+      periodStart: '2026-03-25',
+    });
+    seedIncomeEnvelope(mockRawDb, {
+      id: 'env-nedbank',
+      allocatedCents: 3500000,
+      periodStart: '2026-03-25',
+    });
+    seedTransaction(mockRawDb, {
+      id: 'txn-food',
+      envelopeId: 'env-groceries',
+      amountCents: 20000,
+      transactionDate: '2026-04-12',
+    });
+    seedTransaction(mockRawDb, {
+      id: 'txn-salary',
+      envelopeId: 'env-nedbank',
+      amountCents: 3500000,
+      transactionDate: '2026-04-12',
+    });
+
+    await rearmBudgetNudges(() => NOW);
+
+    const weeklyCall = mockSchedule.mock.calls.find((c) =>
+      (c[0] as { identifier: string }).identifier.startsWith('weekly-checkin-'),
+    )?.[0] as { content: { body: string } };
+    // R200,00 of groceries — NOT R35 200,00.
+    expect(weeklyCall.content.body).toBe('This week: R200,00 spent, 1 envelope on track');
+  });
+
+  it('still nets a refund out of this week’s spend', async () => {
+    seedEnvelope(mockRawDb, {
+      id: 'env-groceries',
+      allocatedCents: 50000,
+      periodStart: '2026-03-25',
+    });
+    seedTransaction(mockRawDb, {
+      id: 'txn-food',
+      envelopeId: 'env-groceries',
+      amountCents: 20000,
+      transactionDate: '2026-04-12',
+    });
+    seedTransaction(mockRawDb, {
+      id: 'txn-back',
+      envelopeId: 'env-groceries',
+      amountCents: -5000,
+      transactionDate: '2026-04-13',
+    });
+
+    await rearmBudgetNudges(() => NOW);
+
+    const weeklyCall = mockSchedule.mock.calls.find((c) =>
+      (c[0] as { identifier: string }).identifier.startsWith('weekly-checkin-'),
+    )?.[0] as { content: { body: string } };
+    expect(weeklyCall.content.body).toBe('This week: R150,00 spent, 1 envelope on track');
   });
 });

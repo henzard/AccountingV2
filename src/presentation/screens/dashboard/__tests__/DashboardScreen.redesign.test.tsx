@@ -5,6 +5,12 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
+// The score/level card has its own suite; here it only needs to not reach the
+// database or this file's narrow react-native-paper mock.
+jest.mock('../../../components/scoreProgress/ScoreProgressCard', () => ({
+  ScoreProgressCard: () => null,
+}));
+
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 jest.mock('react-native-safe-area-context', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

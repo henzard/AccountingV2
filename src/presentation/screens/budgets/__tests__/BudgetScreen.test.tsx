@@ -424,4 +424,88 @@ describe('BudgetScreen', () => {
       expect(getByTestId('add-envelope-fab')).toBeTruthy();
     });
   });
+
+  // MONEY IN: an income envelope's derived `spentCents` is the salary that
+  // LANDED. Rendered by the generic EnvelopeCard it read as "R300,00
+  // remaining · 60% remaining" — a budget being used up, for money arriving.
+  describe('income rows are money IN, never a spend budget', () => {
+    it('reads "received of expected", not "remaining"', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [makeEnvelope('e1', 'Nedbank', 'income')],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId } = render(<BudgetScreen />);
+      const detail = getByTestId('envelope-card-Nedbank-detail');
+      expect(String(detail.props.children)).toContain('received');
+      expect(String(detail.props.children)).toContain('expected');
+      expect(String(detail.props.children)).not.toContain('remaining');
+    });
+
+    it('shows the received amount with a "+", as money coming in', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [makeEnvelope('e1', 'Nedbank', 'income')],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId } = render(<BudgetScreen />);
+      expect(String(getByTestId('envelope-card-Nedbank-received').props.children)).toMatch(/^\+/);
+    });
+
+    it('never calls short income "over budget"', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [makeEnvelope('e1', 'Nedbank', 'income')],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { queryByText } = render(<BudgetScreen />);
+      expect(queryByText(/over budget/i)).toBeNull();
+    });
+  });
+
+  // THE REAL SHAPE: persistent funds carry over into every period, so a
+  // household between periods still has a non-empty section list and never
+  // saw the empty state's rollover CTA.
+  describe('a current period with only carried-over funds', () => {
+    beforeEach(() => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [makeEnvelope('s1', 'Saving', 'savings')],
+        loading: false,
+        reload: jest.fn(),
+      });
+      mockFindLatestPeriodWithEnvelopes.mockResolvedValue('2026-08-20');
+    });
+
+    it('offers starting this period from the last one', async () => {
+      const { findByTestId } = render(<BudgetScreen />);
+      expect(await findByTestId('budget-start-new-period-button')).toBeTruthy();
+    });
+
+    it('opens the rollover wizard from that action', async () => {
+      const { findByTestId, getByTestId } = render(<BudgetScreen />);
+      fireEvent.press(await findByTestId('budget-start-new-period-button'));
+      await waitFor(() => expect(getByTestId('rollover-wizard-stub')).toBeTruthy());
+    });
+
+    it('hides the banner again once this period has envelopes of its own', async () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [
+          makeEnvelope('s1', 'Saving', 'savings'),
+          makeEnvelope('e1', 'Food', 'spending'),
+        ],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { queryByTestId } = render(<BudgetScreen />);
+      await waitFor(() => expect(mockUseEnvelopes).toHaveBeenCalled());
+      expect(queryByTestId('budget-start-period-banner')).toBeNull();
+    });
+
+    it('does not offer it while browsing a PAST period', async () => {
+      const { getByTestId, queryByTestId } = render(<BudgetScreen />);
+      fireEvent.press(getByTestId('budget-period-prev'));
+      await waitFor(() => expect(getByTestId('budget-past-period-banner')).toBeTruthy());
+      expect(queryByTestId('budget-start-new-period-button')).toBeNull();
+    });
+  });
 });

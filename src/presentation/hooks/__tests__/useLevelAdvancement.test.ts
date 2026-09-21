@@ -100,8 +100,24 @@ describe('useLevelAdvancement', () => {
       expect(mockSetUserLevel).toHaveBeenCalledWith(2);
     });
 
-    it('does not advance past Lv2 even for a long, uniformly high-scoring history (no Lv2->3 rule exists yet)', async () => {
+    // A Lv2 -> Lv3 rule NOW EXISTS (LEVEL_RULES.level3: six consecutive
+    // periods at 85+ — a product default, see that constant's comment), so
+    // this case, which used to assert Lv3 was unreachable, asserts the rule.
+    // The "does not jump a level for free" half of its intent is kept by the
+    // case below it: a long history that only clears the Lv2 bar stays Lv2.
+    it('hydrates to Lv3 for a long, uniformly high-scoring history', async () => {
       mockGetPeriodScoresAscending.mockResolvedValue(scoreRows(Array(12).fill(95)));
+      const { result } = renderHook(() => useLevelAdvancement());
+
+      await act(async () => {
+        await result.current.hydrate('hh-1');
+      });
+
+      expect(mockSetUserLevel).toHaveBeenCalledWith(3);
+    });
+
+    it('stays at Lv2 for a long history that clears the Lv2 bar but not the Lv3 one', async () => {
+      mockGetPeriodScoresAscending.mockResolvedValue(scoreRows(Array(12).fill(75)));
       const { result } = renderHook(() => useLevelAdvancement());
 
       await act(async () => {

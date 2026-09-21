@@ -38,14 +38,21 @@ export function ScoreBreakdownDialog({ visible, onDismiss, result }: Props): Rea
       <Dialog visible={visible} onDismiss={onDismiss} testID="score-breakdown-dialog">
         <Dialog.Title>Score breakdown</Dialog.Title>
         <Dialog.Content>
-          {ROWS.map((row) => (
-            <View key={row.key} style={styles.row} testID={`score-breakdown-row-${row.key}`}>
-              <Text style={{ color: colors.onSurface }}>{row.label}</Text>
-              <Text style={{ color: colors.onSurfaceVariant }}>
-                {`${result[row.key]} / ${row.max}`}
-              </Text>
-            </View>
-          ))}
+          {ROWS.map((row) => {
+            // `null` means the component did not apply to this household at
+            // all (they have never used it), so it was excluded and the rest
+            // re-normalised to 100 — see `HabitScoreCalculator`. Printing
+            // "0 / 20" would misreport a number that never counted.
+            const value = result[row.key];
+            return (
+              <View key={row.key} style={styles.row} testID={`score-breakdown-row-${row.key}`}>
+                <Text style={{ color: colors.onSurface }}>{row.label}</Text>
+                <Text style={{ color: colors.onSurfaceVariant }}>
+                  {value === null ? 'not used, not counted' : `${value} / ${row.max}`}
+                </Text>
+              </View>
+            );
+          })}
           <View style={[styles.row, styles.totalRow, { borderTopColor: colors.outlineVariant }]}>
             <Text style={[styles.totalLabel, { color: colors.onSurface }]}>Total</Text>
             <Text style={[styles.totalLabel, { color: colors.onSurface }]}>

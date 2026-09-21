@@ -68,6 +68,7 @@ import {
 import { parseRecoveryDeepLink } from './src/infrastructure/auth/parseRecoveryDeepLink';
 import { addUrlListener, getInitialURL } from './src/infrastructure/device/appLinking';
 import { useHouseholdSettingsSync } from './src/presentation/hooks/useHouseholdSettingsSync';
+import { useBackfillPeriodScores } from './src/presentation/hooks/useBackfillPeriodScores';
 
 // Install global crash handler as early as possible (after imports — module
 // evaluation order still puts this before any App code runs).
@@ -414,6 +415,13 @@ export default function App(): React.JSX.Element | null {
   // household switch — a partner changing the payday used to leave this
   // device querying a period key nothing is stored under.
   useHouseholdSettingsSync(localBootReady ? householdId : null);
+
+  // P1: score history only ever gets written by the in-app rollover, so a
+  // household whose periods arrived by sync or restore has none. This fills
+  // them in at app start and after every landed sync round. It is a plain
+  // effect (never awaited, never gates `bootDecided`), so it cannot delay
+  // first paint, and it swallows its own failures.
+  useBackfillPeriodScores();
 
   // Init celebrationStore checker — reads celebrated_at from local DB.
   // Re-bound after every auth/household change so the checker always uses the

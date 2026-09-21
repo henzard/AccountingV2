@@ -41,6 +41,12 @@ export interface FakeSupabaseConfig {
    * next fetch of that table sees the new row.
    */
   onTableFetch?: (table: string) => void;
+  /**
+   * Makes the Nth `.range()` call (1-based) for `table` fail with `message`
+   * instead of returning a page — models a network error on, say, page 2 of
+   * a large table so a test can assert nothing partial was written locally.
+   */
+  failOnPage?: Record<string, { page: number; message: string }>;
 }
 
 export interface FakeSupabaseRecorder {
@@ -50,6 +56,8 @@ export interface FakeSupabaseRecorder {
   isFilters: { table: string; column: string; value: unknown }[];
   /** Every `.range(from, to)` a table fetch asked for. */
   ranges: { table: string; from: number; to: number }[];
+  /** Every `.order(column, { ascending })` a table fetch applied, in order. */
+  orders: { table: string; column: string; ascending: boolean }[];
   /** How many times the household's max oplog seq was read. */
   maxSeqReads: number;
 }
@@ -69,8 +77,12 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
     queries: [],
     isFilters: [],
     ranges: [],
+    orders: [],
     maxSeqReads: 0,
   };
+  /** How many `.range()` calls each table has taken so far — 1-based when
+   * read, for `failOnPage`. */
+  const rangeCallCounts = new Map<string, number>();
 
   const nextMaxSeq = (): number | null => {
     const sequence = config.maxSeqSequence;
@@ -99,7 +111,8 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
     is(column: string, value: unknown): FakeQueryBuilder;
     maybeSingle(): QueryResult;
     range(from: number, to: number): QueryResult;
-    order(col: string, opts?: unknown): { limit(n: number): QueryResult };
+    order(col: string, opts?: { ascending?: boolean }): FakeQueryBuilder;
+    limit(n: number): QueryResult;
     then(resolve: (r: { data: unknown; error: { message: string } | null }) => unknown): unknown;
   }
 
@@ -120,20 +133,42 @@ export function makeFakeSupabase(config: FakeSupabaseConfig = {}): {
       Promise.resolve({ data: error ? null : (rows[0] ?? null), error }),
     range: (from: number, to: number): QueryResult => {
       recorder.ranges.push({ table, from, to });
+      const pageNumber = (rangeCallCounts.get(table) ?? 0) + 1;
+      rangeCallCounts.set(table, pageNumber);
+      const failure = config.failOnPage?.[table];
+      if (failure && failure.page === pageNumber) {
+        return Promise.resolve({ data: null, error: { message: failure.message } });
+      }
       const page = error ? null : rows.slice(from, to + 1);
       config.onTableFetch?.(table);
       return Promise.resolve({ data: page, error });
     },
-    order: (_col: string, _opts?: unknown) => ({
-      limit: (n: number): QueryResult => {
-        recorder.maxSeqReads += 1;
-        const seq = nextMaxSeq();
-        return Promise.resolve({
-          data: error ? null : seq == null ? [] : [{ seq }].slice(0, n),
-          error,
-        });
-      },
-    }),
+    // Used both for the oplog max-seq read (`.order().limit()`) and for
+    // paged entity fetches (`.order().range()`) — a real Supabase/PostgREST
+    // builder supports both continuations off `.order()`, so this fake
+    // returns a full builder rather than the `.limit()`-only shape it used
+    // to, and actually sorts by the given column so a test can hand rows in
+    // an arbitrary order and still see deterministic paging.
+    order: (col: string, opts?: { ascending?: boolean }): FakeQueryBuilder => {
+      const ascending = opts?.ascending ?? true;
+      recorder.orders.push({ table, column: col, ascending });
+      const sorted = [...rows].sort((a, b) => {
+        const av = a[col];
+        const bv = b[col];
+        if (av === bv) return 0;
+        const cmp = av == null ? -1 : bv == null ? 1 : av < bv ? -1 : 1;
+        return ascending ? cmp : -cmp;
+      });
+      return makeBuilder(table, sorted, error);
+    },
+    limit: (n: number): QueryResult => {
+      recorder.maxSeqReads += 1;
+      const seq = nextMaxSeq();
+      return Promise.resolve({
+        data: error ? null : seq == null ? [] : [{ seq }].slice(0, n),
+        error,
+      });
+    },
     then: (
       resolve: (r: { data: unknown; error: { message: string } | null }) => unknown,
     ): unknown => resolve({ data: error ? null : rows, error }),
