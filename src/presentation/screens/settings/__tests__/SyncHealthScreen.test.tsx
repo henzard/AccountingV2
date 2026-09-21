@@ -286,13 +286,18 @@ describe('SyncHealthScreen', () => {
     expect(getByTestId('dlq-retry-op-1')).toBeTruthy();
   });
 
-  it('D-4: the pull-blocked banner is marked `accessible` so assistive tech announces it as one unit', () => {
+  it('D-4: the pull-blocked alert is one accessible unit, and Retry stays separately reachable', () => {
     mockEngine.getPullHealth.mockReturnValue({
       blocked: true,
       opIds: ['p1'],
       blockedAt: NOW,
     });
     const { getByTestId } = render(<SyncHealthScreen />);
-    expect(getByTestId('pull-blocked-banner').props.accessible).toBe(true);
+    expect(getByTestId('pull-blocked-alert').props.accessible).toBe(true);
+    expect(getByTestId('pull-blocked-alert').props.accessibilityRole).toBe('alert');
+    // The container must NOT be a single accessibility element — that would
+    // hide the Retry button inside it from screen readers.
+    expect(getByTestId('pull-blocked-banner').props.accessible).not.toBe(true);
+    expect(getByTestId('clear-pull-block-button')).toBeTruthy();
   });
 });

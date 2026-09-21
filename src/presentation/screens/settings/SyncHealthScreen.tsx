@@ -256,13 +256,19 @@ export const SyncHealthScreen: React.FC = () => {
           style={[styles.section, { backgroundColor: colors.warningContainer }]}
           elevation={0}
           testID="pull-blocked-banner"
-          accessible
-          accessibilityRole="alert"
-          accessibilityLabel={`Sync is paused for this household. ${
-            pullHealth.opIds?.length ?? 0
-          } operations could not be applied.`}
         >
-          <View style={styles.statusRow}>
+          {/* The alert lives on this non-interactive row, not on the Surface:
+              making the Surface one accessibility element would swallow the
+              Retry button below it for screen-reader users. */}
+          <View
+            style={styles.statusRow}
+            accessible
+            accessibilityRole="alert"
+            accessibilityLabel={`Sync is paused for this household. ${
+              pullHealth.opIds?.length ?? 0
+            } operations could not be applied.`}
+            testID="pull-blocked-alert"
+          >
             <MaterialCommunityIcons name="pause-circle-outline" size={22} color={colors.warning} />
             <Text variant="titleSmall" style={[styles.statusLabel, { color: colors.warning }]}>
               Sync paused for this household

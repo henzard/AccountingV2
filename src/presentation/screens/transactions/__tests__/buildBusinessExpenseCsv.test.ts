@@ -352,3 +352,9 @@ describe('buildBusinessExpenseCsv', () => {
     });
   });
 });
+
+describe('applyFormulaInjectionGuard — leading line feed', () => {
+  it('guards a value that starts with LF, like CR and tab', () => {
+    expect(applyFormulaInjectionGuard('\n=HYPERLINK("x")')).toBe('\'\n=HYPERLINK("x")');
+  });
+});

@@ -100,13 +100,16 @@ describe('SlipConsentScreen', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('shows the error message when recordConsent throws', async () => {
+  it('shows a fixed message, never the raw exception, when recordConsent throws', async () => {
     const recordConsent = jest.fn().mockRejectedValue(new Error('Network down'));
-    const { getByTestId, findByText } = render(<SlipConsentScreen recordConsent={recordConsent} />);
+    const { getByTestId, findByText, queryByText } = render(
+      <SlipConsentScreen recordConsent={recordConsent} />,
+    );
 
     fireEvent.press(getByTestId('consent-accept'));
 
-    expect(await findByText('Network down')).toBeTruthy();
+    expect(await findByText(/couldn’t save your consent/)).toBeTruthy();
+    expect(queryByText(/Network down/)).toBeNull();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 

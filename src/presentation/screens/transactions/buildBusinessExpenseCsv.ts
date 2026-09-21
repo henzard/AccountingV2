@@ -17,7 +17,7 @@ export interface BusinessExpenseRow {
 
 /**
  * Prefix formula-like and control characters (=, +, -, @, tab, carriage
- * return) with a single quote so spreadsheet apps treat the value as literal
+ * return, line feed) with a single quote so spreadsheet apps treat the value as literal
  * text rather than executing it as a formula (OWASP CSV injection guidance).
  */
 export function applyFormulaInjectionGuard(str: string): string {
@@ -27,7 +27,8 @@ export function applyFormulaInjectionGuard(str: string): string {
     str[0] === '-' ||
     str[0] === '@' ||
     str[0] === '\t' ||
-    str[0] === '\r'
+    str[0] === '\r' ||
+    str[0] === '\n'
   ) {
     return `'${str}`;
   }

@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAppStore } from '../../stores/appStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { logger } from '../../../infrastructure/logging/Logger';
 
 export type SlipConsentScreenProps = {
   recordConsent: (userId: string) => Promise<{ success: boolean }>;
@@ -39,7 +40,10 @@ export function SlipConsentScreen({ recordConsent }: SlipConsentScreenProps): Re
       }
       setError('We couldn’t save your consent. Please try again.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'We couldn’t save your consent.');
+      logger.warn('SlipConsentScreen: recordConsent threw', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      setError('We couldn’t save your consent. Please try again.');
     } finally {
       setSaving(false);
     }

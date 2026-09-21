@@ -352,7 +352,11 @@ export function SlipQueueScreen({
       // one was in flight — drop it rather than resurrecting older rows.
       if (seq !== refreshSeqRef.current) return;
 
-      if (rowsKey(rows) !== rowsKey(slipsRef.current)) {
+      // Compare against the first page only: `slipsRef` also holds any later
+      // pages the user scrolled in, and comparing the whole list would make
+      // every refocus look "changed" and throw those pages away.
+      const visible = slipsRef.current;
+      if (rowsKey(rows) !== rowsKey(visible.slice(0, PAGE_SIZE))) {
         // Rows actually changed: reset to a single fresh page and let the
         // `[slips]` effect below do the confirmed-slip lookup.
         mergedPagesRef.current.clear();
@@ -366,7 +370,7 @@ export function SlipQueueScreen({
       // writes transactions and never touches its slip_queue row. The
       // confirmed-slip lookup still has to re-run, or nothing would ever
       // notice the new transaction.
-      const completedIds = rows
+      const completedIds = visible
         .filter((s) => (s.status as SlipStatus) === 'completed')
         .map((s) => s.id);
       const ids =

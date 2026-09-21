@@ -237,10 +237,33 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
           ? envelopePeriodStart
           : periodStart;
       const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, balancePeriodStart);
+      let spentCents = spentByEnvelope.get(envelopeRow.id);
+      if (spentCents === undefined) {
+        // The ledger query only covers live envelopes. An edit can still load
+        // a SOFT-DELETED one (UpdateTransactionUseCase allows it while the
+        // envelope is unchanged); reading its spend as 0 would give the save
+        // path a false baseline and a bogus threshold toast / over-budget
+        // push. Sum its live transactions directly instead.
+        try {
+          const rows = await db
+            .select({ amountCents: transactionsTable.amountCents })
+            .from(transactionsTable)
+            .where(
+              and(
+                eq(transactionsTable.householdId, householdId),
+                eq(transactionsTable.envelopeId, envelopeRow.id),
+                isNull(transactionsTable.deletedAt),
+              ),
+            );
+          spentCents = rows.reduce((sum, r) => sum + r.amountCents, 0);
+        } catch {
+          spentCents = 0;
+        }
+      }
       return {
         option: {
           ...envelopeRow,
-          spentCents: spentByEnvelope.get(envelopeRow.id) ?? 0,
+          spentCents,
         } as EnvelopeOption,
         balancePeriodStart,
       };

@@ -13,8 +13,16 @@
  *      only the three durable states above do).
  */
 
-import React, { useCallback, useContext, useEffect, useState } from 'react';
-import { LayoutAnimation, Platform, UIManager, Pressable, View, StyleSheet } from 'react-native';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+  Pressable,
+  View,
+  StyleSheet,
+} from 'react-native';
 import { Text } from 'react-native-paper';
 import { NavigationContext } from '@react-navigation/native';
 import { useSyncStore } from '../../stores/syncStore';
@@ -79,7 +87,23 @@ export function OfflineBanner(): React.JSX.Element | null {
         ? { kind: 'dead-lettered' }
         : null;
 
+  // Reduce-motion: read once, then follow changes. Unknown counts as "on",
+  // so the banner never animates before the setting is known.
+  const reduceMotionRef = useRef(true);
   useEffect(() => {
+    let eventSeen = false;
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled) => {
+      eventSeen = true;
+      reduceMotionRef.current = enabled;
+    });
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (!eventSeen) reduceMotionRef.current = enabled;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (reduceMotionRef.current) return;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, [state?.kind]);
 

@@ -519,6 +519,13 @@ describe('BusinessExpenseReportScreen', () => {
       });
 
       const { gte, lte } = require('drizzle-orm');
+
+      const { db } = require('../../../../data/local/db');
+      // Let the initial load settle first, so the counts below are stable.
+      await waitFor(() => {
+        expect(db.select.mock.calls.length).toBeGreaterThanOrEqual(2);
+      });
+      const selectCallsBefore = db.select.mock.calls.length;
       const gteCallsBefore = gte.mock.calls.length;
       const lteCallsBefore = lte.mock.calls.length;
 
@@ -528,8 +535,10 @@ describe('BusinessExpenseReportScreen', () => {
       });
       fireEvent.press(getByTestId('tax-year-option-all-time'));
 
+      // The empty state is on screen before AND after, so it proves nothing:
+      // wait for the reload's two selects (dates + rows) to have actually run.
       await waitFor(() => {
-        expect(getByTestId('biz-expense-empty')).toBeTruthy();
+        expect(db.select.mock.calls.length).toBeGreaterThanOrEqual(selectCallsBefore + 2);
       });
       // No new gte/lte calls were made for the "All time" reload.
       expect(gte.mock.calls.length).toBe(gteCallsBefore);

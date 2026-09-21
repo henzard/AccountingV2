@@ -15,10 +15,17 @@ export function LoadingSkeletonCard(): React.JSX.Element {
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
   useEffect((): (() => void) => {
     let mounted = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
-      if (mounted) setReduceMotion(enabled);
+    // Subscribe first, and let an event win over the initial read: a stale
+    // `false` resolving after `reduceMotionChanged(true)` would restart the
+    // shimmer the user just turned off.
+    let eventSeen = false;
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled) => {
+      eventSeen = true;
+      setReduceMotion(enabled);
     });
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted && !eventSeen) setReduceMotion(enabled);
+    });
     return (): void => {
       mounted = false;
       sub.remove();

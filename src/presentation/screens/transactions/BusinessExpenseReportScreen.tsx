@@ -60,8 +60,14 @@ export function BusinessExpenseReportScreen(): React.JSX.Element {
       const options = getTaxYearOptions(allDates, format(new Date(), 'yyyy-MM-dd'));
       setTaxYearOptions(options);
 
-      const selected =
-        options.find((o) => o.key === selectedTaxYearKey) ?? options[options.length - 1];
+      let selected = options.find((o) => o.key === selectedTaxYearKey);
+      if (!selected) {
+        // The chosen tax year no longer has data (its last expense was deleted
+        // or un-flagged): fall back to "All time" AND move the selector with
+        // it, so the label never disagrees with the rows on screen.
+        selected = options[options.length - 1];
+        setSelectedTaxYearKey(selected.key);
+      }
 
       const conditions =
         selected.startDate && selected.endDate
