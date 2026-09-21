@@ -25,6 +25,14 @@ import { openMigratedDb } from './harness/openMigratedDb';
 import { ConfirmSlipUseCase } from '../../src/domain/slipScanning/ConfirmSlipUseCase';
 import { DrizzleSlipQueueRepository } from '../../src/data/repositories/DrizzleSlipQueueRepository';
 import type { ISlipQueueRepository } from '../../src/domain/ports/ISlipQueueRepository';
+import type { PortableDb } from '../../src/data/uow/UnitOfWork';
+import {
+  SyncEngine,
+  type PushResult,
+  type ServerOplogRow,
+  type SyncTransport,
+  type WireOp,
+} from '../../src/data/sync/SyncEngine';
 import type * as schema from '../../src/data/local/schema';
 
 const NOW = '2026-01-01T00:00:00.000Z';
@@ -67,6 +75,47 @@ function seedSlipQueue(
 
 function count(raw: Database.Database, sql: string, ...params: unknown[]): number {
   return (raw.prepare(sql).get(...params) as { n: number }).n;
+}
+
+/**
+ * SYNC-SLIP case (c). A transport modelling the SERVER side of
+ * `private.apply_one_op` (migration 0016) for insert ops: an id the server
+ * already holds under DIFFERENT values is rejected `row_exists`, and
+ * `rowState` then serves the server's authoritative row. Mirrors the
+ * `LoopbackTransport` in `syncCorrectness.test.ts` (this suite cannot import
+ * it — it is local to that test file), trimmed to the two calls this test
+ * drives. `rowState` is an arrow PROPERTY because `SyncEngine` pulls it off
+ * the transport and calls it unbound.
+ */
+class RowExistsTransport implements SyncTransport {
+  readonly pushed: WireOp[] = [];
+  /** row_id -> the server's existing row. Present => that insert is rejected. */
+  readonly serverRows = new Map<string, Record<string, unknown>>();
+  private lastRowStateFor: string | null = null;
+
+  push = async (ops: WireOp[]): Promise<PushResult[]> => {
+    this.pushed.push(...ops);
+    return ops.map((op) =>
+      this.serverRows.has(op.row_id)
+        ? { op_id: op.op_id, status: 'rejected' as const, code: 'row_exists' }
+        : { op_id: op.op_id, status: 'applied' as const, code: null },
+    );
+  };
+
+  pull = async (): Promise<ServerOplogRow[]> => [];
+
+  rowState = async (
+    _householdId: string,
+    _table: string,
+    rowId: string,
+  ): Promise<Record<string, unknown> | null> => {
+    this.lastRowStateFor = rowId;
+    return this.serverRows.get(rowId) ?? null;
+  };
+
+  get lastRefreshedRowId(): string | null {
+    return this.lastRowStateFor;
+  }
 }
 
 describe('ConfirmSlipUseCase atomicity (real SQLite, spec §4.5 fix)', () => {
@@ -439,6 +488,303 @@ describe('ConfirmSlipUseCase atomicity (real SQLite, spec §4.5 fix)', () => {
       status: string;
     };
     expect(slip.status).toBe('completed');
+
+    raw.close();
+  });
+
+  /**
+   * SYNC-SLIP: the cross-device duplicate-confirmation hole.
+   *
+   * `slip_queue` is household-wide, so two phones can both confirm the same
+   * extracted slip before either has synced. The idempotency guard is a
+   * LOCAL check and cannot see the other device's rows, and while each line
+   * got a `randomUUID()` the two devices produced two disjoint id sets —
+   * both of which then synced, permanently double-counting the spend
+   * (`transactions` is unique on `id` only; `slip_id` is merely indexed, so
+   * nothing server-side caught it). Deterministic ids are what let the
+   * existing `row_exists` convergence do its job; these tests use two
+   * INDEPENDENT migrated databases as the two phones.
+   */
+  it('SYNC-SLIP: two independent devices confirming the same slip derive IDENTICAL transaction ids', async () => {
+    const householdId = 'hh-two-phones';
+    const input = {
+      slipId: 'slip-shared',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [
+        { description: 'Groceries', amountCents: 10000, envelopeId: 'env-1' },
+        { description: 'DISCOUNT', amountCents: -1500, envelopeId: 'env-1' },
+      ],
+    };
+
+    async function confirmOnFreshDevice(deviceId: string): Promise<string[]> {
+      const { raw, db } = openDb();
+      seedHousehold(raw, householdId);
+      seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+      seedSlipQueue(raw, { id: 'slip-shared', householdId, status: 'processing' });
+      const result = await new ConfirmSlipUseCase(db, new DrizzleSlipQueueRepository(db), {
+        deviceId,
+        actorUserId: `user-${deviceId}`,
+        clock: () => NOW,
+      }).execute(input);
+      expect(result.success).toBe(true);
+      const ids = result.success ? result.data.transactionIds : [];
+      // The ids really are what landed in the row, not just what was returned.
+      const rowIds = (
+        raw
+          .prepare('SELECT id FROM transactions WHERE slip_id = ? ORDER BY rowid')
+          .all('slip-shared') as { id: string }[]
+      ).map((r) => r.id);
+      expect(rowIds).toEqual(ids);
+      raw.close();
+      return ids;
+    }
+
+    // Two phones, two separate databases, neither having seen the other.
+    const phoneA = await confirmOnFreshDevice('device-A');
+    const phoneB = await confirmOnFreshDevice('device-B');
+
+    expect(phoneA).toHaveLength(2);
+    // The whole point: same ids, so `apply_one_op` converges them into ONE
+    // set of rows instead of storing both and double-counting the spend.
+    expect(phoneB).toEqual(phoneA);
+    // Real v5 UUIDs, and distinct per line (no id collision within the slip).
+    for (const id of phoneA) {
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    }
+    expect(new Set(phoneA).size).toBe(2);
+  });
+
+  it('SYNC-SLIP: ids are scoped to the slip — a DIFFERENT slip in the same household never reuses them', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-scope';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-a', householdId, status: 'processing' });
+    seedSlipQueue(raw, { id: 'slip-b', householdId, status: 'processing' });
+
+    const useCase = new ConfirmSlipUseCase(db, new DrizzleSlipQueueRepository(db), {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      clock: () => NOW,
+    });
+    const items = [{ description: 'Milk', amountCents: 3500, envelopeId: 'env-1' }];
+
+    const a = await useCase.execute({
+      slipId: 'slip-a',
+      householdId,
+      transactionDate: '2026-01-15',
+      items,
+    });
+    const b = await useCase.execute({
+      slipId: 'slip-b',
+      householdId,
+      transactionDate: '2026-01-15',
+      items,
+    });
+
+    expect(a.success && b.success).toBe(true);
+    if (a.success && b.success) {
+      expect(a.data.transactionIds[0]).not.toBe(b.data.transactionIds[0]);
+    }
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE household_id = ?', householdId),
+    ).toBe(2);
+
+    raw.close();
+  });
+
+  it('SYNC-SLIP: re-confirming after the rows were SOFT-DELETED uses a fresh generation — new ids, no primary-key collision', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-regen';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-regen', householdId, status: 'processing' });
+
+    const useCase = new ConfirmSlipUseCase(db, new DrizzleSlipQueueRepository(db), {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      clock: () => NOW,
+    });
+    const input = {
+      slipId: 'slip-regen',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [
+        { description: 'Groceries', amountCents: 10000, envelopeId: 'env-1' },
+        { description: 'DISCOUNT', amountCents: -1500, envelopeId: 'env-1' },
+      ],
+    };
+
+    const first = await useCase.execute(input);
+    expect(first.success).toBe(true);
+    const firstIds = first.success ? first.data.transactionIds : [];
+
+    // The user deletes the slip's transactions. A SOFT delete: the rows —
+    // and their primary keys — stay. Reusing the same ids would now make the
+    // second confirm's INSERT throw on the primary key.
+    raw
+      .prepare("UPDATE transactions SET deleted_at = ? WHERE slip_id = 'slip-regen'")
+      .run('2026-01-16T00:00:00.000Z');
+
+    const second = await useCase.execute(input);
+    expect(second.success).toBe(true);
+    const secondIds = second.success ? second.data.transactionIds : [];
+
+    expect(secondIds).toHaveLength(2);
+    // Fresh generation => ids that cannot collide with the tombstones.
+    expect(secondIds).not.toEqual(firstIds);
+    for (const id of secondIds) expect(firstIds).not.toContain(id);
+
+    // 2 tombstones + 2 live rows, and the live pair is the new one.
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE slip_id = ?', 'slip-regen'),
+    ).toBe(4);
+    const live = (
+      raw
+        .prepare(
+          "SELECT id FROM transactions WHERE slip_id = 'slip-regen' AND deleted_at IS NULL ORDER BY rowid",
+        )
+        .all() as { id: string }[]
+    ).map((r) => r.id);
+    expect(live).toEqual(secondIds);
+
+    raw.close();
+  });
+
+  it('SYNC-SLIP: a slip confirmed by an OLDER build (random-id rows) is still treated as already confirmed', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-legacy';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-legacy', householdId, status: 'completed' });
+
+    // Exactly what a build that predates deterministic ids left behind: a
+    // live transaction carrying this slip_id under a RANDOM id. The guard
+    // must key on the slip_id's existence, never on the shape of the id.
+    raw
+      .prepare(
+        `INSERT INTO transactions
+           (id, household_id, envelope_id, amount_cents, payee, description,
+            transaction_date, is_business_expense, slip_id, created_at, updated_at)
+         VALUES ('b3c1f0aa-9f51-4a2e-8d77-0c19a4e2f5b1', ?, 'env-1', 10000, 'Checkers',
+                 'Groceries', '2026-01-15', 0, 'slip-legacy', ?, ?)`,
+      )
+      .run(householdId, NOW, NOW);
+
+    const result = await new ConfirmSlipUseCase(db, new DrizzleSlipQueueRepository(db), {
+      deviceId: 'device-1',
+      actorUserId: 'user-1',
+      clock: () => NOW,
+    }).execute({
+      slipId: 'slip-legacy',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [{ description: 'Groceries', amountCents: 10000, envelopeId: 'env-1' }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.transactionIds).toEqual([]);
+    // Still exactly the older build's ONE row — nothing was re-written.
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE slip_id = ?', 'slip-legacy'),
+    ).toBe(1);
+
+    raw.close();
+  });
+
+  /**
+   * SYNC-SLIP case (c), end to end on the engine's REAL `row_exists` path.
+   *
+   * Two devices confirm the same slip but DIFFERENT line content at the same
+   * index (one user edited a line first). Because the ids now agree, the
+   * second device's insert is answered `row_exists` instead of being stored
+   * as a second row. The non-negotiables asserted here: the op is marked
+   * PUSHED and is NOT dead-lettered, is not retried, and the local row is
+   * overwritten with the SERVER's — so no row is left existing on one phone
+   * but not the server, and nothing is stranded in the DLQ.
+   */
+  it('SYNC-SLIP (c): a divergent second confirm is SUPERSEDED — op pushed, not dead-lettered, local row replaced by the server row', async () => {
+    const { raw, db } = openDb();
+    const householdId = 'hh-diverge';
+    seedHousehold(raw, householdId);
+    seedEnvelope(raw, { id: 'env-1', householdId, envelopeType: 'spending' });
+    seedSlipQueue(raw, { id: 'slip-diverge', householdId, status: 'processing' });
+
+    // This device (phone B) confirms the slip with its OWN edit of line 0.
+    const result = await new ConfirmSlipUseCase(db, new DrizzleSlipQueueRepository(db), {
+      deviceId: 'device-B',
+      actorUserId: 'user-B',
+      clock: () => NOW,
+    }).execute({
+      slipId: 'slip-diverge',
+      householdId,
+      transactionDate: '2026-01-15',
+      items: [{ description: 'Groceries (B edit)', amountCents: 9000, envelopeId: 'env-1' }],
+    });
+    expect(result.success).toBe(true);
+    const lineId = result.success ? result.data.transactionIds[0] : '';
+
+    // Phone A got there first with the SAME id (deterministic) but its own
+    // values — this is the server's authoritative row.
+    const serverRow = {
+      id: lineId,
+      household_id: householdId,
+      envelope_id: 'env-1',
+      amount_cents: 10000,
+      payee: null,
+      description: 'Groceries (A original)',
+      transaction_date: '2026-01-15',
+      is_business_expense: 0,
+      spending_trigger_note: null,
+      slip_id: 'slip-diverge',
+      created_at: NOW,
+      updated_at: NOW,
+      deleted_at: null,
+    };
+    const transport = new RowExistsTransport();
+    transport.serverRows.set(lineId, serverRow);
+
+    const engine = new SyncEngine({
+      db: drizzle(raw) as unknown as PortableDb,
+      transport,
+      deviceId: 'device-B',
+      clock: () => NOW,
+      options: { batchSize: 50, backoffBaseMs: 1000, backoffMaxMs: 60000, maxRejectRetries: 5 },
+    });
+    // `push()` returns undefined when a drain is already in flight; this is
+    // the only caller, so a summary is always produced here.
+    const summary = await engine.push();
+    expect(summary).toBeDefined();
+
+    // Superseded, not failed and not applied.
+    expect(summary?.superseded).toBeGreaterThanOrEqual(1);
+    expect(summary?.deadLettered).toBe(0);
+    expect(engine.listDeadLettered(householdId)).toEqual([]);
+
+    const op = raw
+      .prepare(
+        "SELECT pushed_at, dead_lettered_at, retry_count FROM oplog WHERE row_id = ? AND table_name = 'transactions'",
+      )
+      .get(lineId) as { pushed_at: string | null; dead_lettered_at: string | null };
+    expect(op.pushed_at).toBe(NOW);
+    expect(op.dead_lettered_at).toBeNull();
+
+    // The divergence is gone: this phone now shows the SERVER's line, and
+    // there is still exactly ONE row for the slip — not two.
+    expect(transport.lastRefreshedRowId).toBe(lineId);
+    const local = raw
+      .prepare('SELECT amount_cents AS a, description AS d FROM transactions WHERE id = ?')
+      .get(lineId) as { a: number; d: string };
+    expect(local).toEqual({ a: 10000, d: 'Groceries (A original)' });
+    expect(
+      count(raw, 'SELECT COUNT(*) AS n FROM transactions WHERE slip_id = ?', 'slip-diverge'),
+    ).toBe(1);
+
+    // A second push round sends nothing for it — no retry loop.
+    const pushedCount = transport.pushed.length;
+    await engine.push();
+    expect(transport.pushed).toHaveLength(pushedCount);
 
     raw.close();
   });

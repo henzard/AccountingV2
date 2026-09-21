@@ -38,7 +38,7 @@ jest.mock('../../../data/uow/createSyncedRepo', () => ({
   updateRowWithinUow: (...args: unknown[]) => mockUpdateRowWithinUow(...args),
 }));
 
-import { ConfirmSlipUseCase } from '../ConfirmSlipUseCase';
+import { ConfirmSlipUseCase, slipLineTransactionId } from '../ConfirmSlipUseCase';
 import type { ISlipQueueRepository, SlipQueueRow } from '../../ports/ISlipQueueRepository';
 import { transactions } from '../../../data/local/schema';
 
@@ -367,6 +367,92 @@ describe('ConfirmSlipUseCase', () => {
     });
     expect(mismatched.success).toBe(true);
     if (mismatched.success) expect(mismatched.data.totalMismatch).toBe(true);
+  });
+
+  /**
+   * SLIP-ROUND: South African cash totals are rounded to the nearest 10c, and
+   * the `extract-slip` prompt deliberately tells the model NOT to invent a
+   * cash-rounding line and NOT to fudge item amounts to make them add up — so
+   * an HONEST extraction of a cash slip is a few cents out by construction.
+   * The old exact `!==` comparison warned on every one of those, training the
+   * user to ignore the warning. Less than 10c either way is now tolerated;
+   * 10c or more still warns.
+   */
+  describe('SLIP-ROUND: cash-rounding tolerance on totalMismatch', () => {
+    async function confirmWithSlipTotal(
+      slipTotalCents: number | null,
+      itemAmountCents: number,
+    ): Promise<boolean> {
+      const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+      const repo = makeRepo(makeSlip({ totalCents: slipTotalCents }));
+      const result = await new ConfirmSlipUseCase(db as any, repo).execute({
+        slipId: 's1',
+        householdId: HOUSEHOLD_ID,
+        transactionDate: '2026-04-13',
+        items: [{ description: 'eggs', amountCents: itemAmountCents, envelopeId: 'env1' }],
+      });
+      expect(result.success).toBe(true);
+      return result.success ? result.data.totalMismatch : false;
+    }
+
+    it('does not warn when the items are exactly the slip total', async () => {
+      expect(await confirmWithSlipTotal(5000, 5000)).toBe(false);
+    });
+
+    it('does not warn at 9c over or 9c under — the cash-rounding band', async () => {
+      expect(await confirmWithSlipTotal(5000, 5009)).toBe(false);
+      expect(await confirmWithSlipTotal(5000, 4991)).toBe(false);
+    });
+
+    it('still warns at 10c over or 10c under — a real discrepancy', async () => {
+      expect(await confirmWithSlipTotal(5000, 5010)).toBe(true);
+      expect(await confirmWithSlipTotal(5000, 4990)).toBe(true);
+    });
+
+    it('never warns when the slip has no extracted total (unchanged)', async () => {
+      expect(await confirmWithSlipTotal(null, 5000)).toBe(false);
+    });
+  });
+
+  /**
+   * SYNC-SLIP: the unit tier can only prove the id is DERIVED (deterministic
+   * and slip/line-scoped), not that two devices converge — that needs two
+   * real migrated databases and lives in
+   * `tests/realsql/confirmSlipAtomicity.test.ts`.
+   */
+  describe('SYNC-SLIP: deterministic line-transaction ids', () => {
+    it('derives the same id for the same (household, slip, generation, line) and different ids otherwise', () => {
+      const base = slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 0);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 0)).toBe(base);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 1)).not.toBe(base);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's1', 1, 0)).not.toBe(base);
+      expect(slipLineTransactionId(HOUSEHOLD_ID, 's2', 0, 0)).not.toBe(base);
+      expect(slipLineTransactionId('hh-2', 's1', 0, 0)).not.toBe(base);
+      expect(base).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    });
+
+    it('writes the DERIVED id, not a random one — the row id matches the returned id', async () => {
+      const { db } = makeDb({ existingTxns: [], envelopeResults: [SPENDING_ENVELOPE] });
+      const repo = makeRepo(makeSlip());
+      const result = await new ConfirmSlipUseCase(db as any, repo).execute({
+        slipId: 's1',
+        householdId: HOUSEHOLD_ID,
+        transactionDate: '2026-04-13',
+        items: [{ description: 'eggs', amountCents: 5000, envelopeId: 'env1' }],
+      });
+
+      // `uow.db.get` is mocked to return undefined, so the generation count
+      // reads as 0 — the first-confirmation case.
+      const expectedId = slipLineTransactionId(HOUSEHOLD_ID, 's1', 0, 0);
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.transactionIds).toEqual([expectedId]);
+      expect(mockInsertRowWithinUow).toHaveBeenCalledWith(
+        expect.anything(),
+        'transactions',
+        expect.objectContaining({ id: expectedId }),
+        expect.anything(),
+      );
+    });
   });
 
   it('validates the SECOND item too, before writing anything for the first (envelope not found)', async () => {

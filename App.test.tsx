@@ -378,6 +378,30 @@ describe('App boot (Task 5)', () => {
     expect(SplashScreen.preventAutoHideAsync).toHaveBeenCalled();
   });
 
+  it('resumes an interrupted household leave BEFORE deciding which household the user lands in', async () => {
+    // Order matters: a leave whose purge was cut short must be finished before
+    // EnsureHouseholdUseCase reads the local tables, or boot could resolve the
+    // user into (or around) a household that is about to be wiped.
+    const { resumePendingHouseholdPurge: mockResume } = jest.requireMock(
+      './src/domain/households/pendingHouseholdPurge',
+    ) as { resumePendingHouseholdPurge: jest.Mock };
+    // A user id no other test uses: session init runs once per user id for the
+    // lifetime of the App module (initSessionOnce).
+    setSession({ user: { id: 'user-resume-order' } });
+    mockEnsureExecute.mockResolvedValue(successResult('hh-1'));
+
+    const { findByTestId } = render(<App />);
+    await findByTestId('root-navigator');
+
+    expect(mockResume).toHaveBeenCalledTimes(1);
+    expect(mockResume).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-resume-order' }),
+    );
+    expect(mockResume.mock.invocationCallOrder[0]).toBeLessThan(
+      mockEnsureExecute.mock.invocationCallOrder[0],
+    );
+  });
+
   it('hides the native splash screen once local boot is ready, not before', async () => {
     setSession(null);
 
