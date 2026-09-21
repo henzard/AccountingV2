@@ -65,8 +65,12 @@ If an import recorded deposits as transactions, fix it through `apply_server_op`
 
 If an import created the same fund once per period (many envelopes with the same type and name), the app treats them as one fund at rollover and in pickers, and the row that receives the monthly contribution is the **carrier**: earliest `created_at`, then lowest `id`. To merge for real, keep the carrier and, for every other duplicate, through `apply_server_op`:
 
-1. `update` each of its transactions and contributions to the carrier's `envelope_id` (keep only one `opening_balance` contribution in total — soft-delete the rest or fold them into one).
+1. `update` each of its transactions and contributions to the carrier's `envelope_id`.
 2. `update` the duplicate envelope with `is_archived: true` (archive, don't delete — old builds and history still reference it).
+
+**Run the whole merge in ONE SQL transaction** (`begin; … commit;`). `apply_server_op` takes the household lock with `pg_advisory_xact_lock`, which is held until the transaction ends — so inside one transaction the lock is taken once and kept for every call, no phone can push in between, and any failure (or a `rejected` status you `raise exception` on) rolls back the entire merge instead of leaving it half done.
+
+**Opening balances.** A fund may have at most one `opening_balance` contribution. Before merging, write down the fund's total saved balance across all duplicates (the formula above, summed over every duplicate's `envelope_id`). Then decide per row: if several `opening_balance` rows restate the _same_ legacy balance, keep one and soft-delete the rest; if they are _distinct_ money, keep one on the carrier with `amount_cents` set to their sum and soft-delete the rest. After the merge, the carrier's saved balance must equal the figure you wrote down — or the figure you deliberately corrected it to. Check it before `commit`.
 
 Do this before starting a new budget period, so the rollover sees one fund.
 
