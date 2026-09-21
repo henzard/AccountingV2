@@ -28,15 +28,13 @@ export class DrizzleTransactionRepository implements ITransactionRepository {
     return rows.map((r) => this.rowToEntity(r));
   }
 
-  async insert(t: TransactionEntity): Promise<void> {
-    await this.db.insert(transactions).values(t);
-  }
-
-  async delete(id: string, householdId: string): Promise<void> {
-    await this.db
-      .delete(transactions)
-      .where(and(eq(transactions.id, id), eq(transactions.householdId, householdId)));
-  }
+  // READ-ONLY on purpose. This repository used to expose `insert` and a
+  // physical `delete`, neither with a caller and both bypassing the oplog: a
+  // row written here would never sync, and a row physically deleted here
+  // leaves no tombstone — which slip confirmation relies on (its id generation
+  // counts every row that ever carried a slip_id) and which the server would
+  // never hear about. Every transaction write goes through the synced-write
+  // use cases (Create/Update/DeleteTransactionUseCase, ConfirmSlipUseCase).
 
   private rowToEntity(row: typeof transactions.$inferSelect): TransactionEntity {
     return {

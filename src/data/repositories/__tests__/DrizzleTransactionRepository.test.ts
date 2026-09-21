@@ -113,52 +113,11 @@ describe('DrizzleTransactionRepository', () => {
     });
   });
 
-  describe('insert', () => {
-    it('inserts entity unchanged', async () => {
-      const valuesFn = jest.fn().mockResolvedValue(undefined);
-      const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
-      const db = { insert: insertFn } as any;
-      const repo = new DrizzleTransactionRepository(db);
-      const entity = makeEntity();
-
-      await repo.insert(entity);
-
-      expect(insertFn).toHaveBeenCalled();
-      expect(valuesFn).toHaveBeenCalledWith(entity);
-    });
-
-    it('propagates database errors on insert', async () => {
-      const valuesFn = jest.fn().mockRejectedValue(new Error('Insert failed'));
-      const insertFn = jest.fn().mockReturnValue({ values: valuesFn });
-      const db = { insert: insertFn } as any;
-      const repo = new DrizzleTransactionRepository(db);
-
-      await expect(repo.insert(makeEntity())).rejects.toThrow('Insert failed');
-    });
-  });
-
-  describe('delete', () => {
-    it('deletes by id and householdId', async () => {
-      const whereFn = jest.fn().mockResolvedValue(undefined);
-      const deleteFn = jest.fn().mockReturnValue({ where: whereFn });
-      const db = { delete: deleteFn } as any;
-      const repo = new DrizzleTransactionRepository(db);
-
-      await repo.delete('tx-1', 'hh-1');
-
-      expect(deleteFn).toHaveBeenCalled();
-      expect(whereFn).toHaveBeenCalledTimes(1);
-      const filterPredicate = whereFn.mock.calls[0][0];
-      expect(filterPredicate).toBeDefined();
-    });
-
-    it('propagates database errors on delete', async () => {
-      const whereFn = jest.fn().mockRejectedValue(new Error('Delete failed'));
-      const deleteFn = jest.fn().mockReturnValue({ where: whereFn });
-      const db = { delete: deleteFn } as any;
-      const repo = new DrizzleTransactionRepository(db);
-
-      await expect(repo.delete('tx-1', 'hh-1')).rejects.toThrow('Delete failed');
-    });
+  it('exposes no write methods — transaction writes must go through the oplog', () => {
+    // A physical delete leaves no tombstone and an unsynced insert never
+    // reaches the server; both used to live here with no caller.
+    const repo = new DrizzleTransactionRepository({} as any) as unknown as Record<string, unknown>;
+    expect(repo.insert).toBeUndefined();
+    expect(repo.delete).toBeUndefined();
   });
 });
