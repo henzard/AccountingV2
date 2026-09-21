@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { and, eq, desc } from 'drizzle-orm';
+import { and, eq, desc, isNull } from 'drizzle-orm';
 import { db } from '../../data/local/db';
 import { meterReadings as meterReadingsTable } from '../../data/local/schema';
 import type { MeterReadingEntity, MeterType } from '../../domain/meterReadings/MeterReadingEntity';
@@ -31,6 +31,7 @@ export function useMeterReadings(
           and(
             eq(meterReadingsTable.householdId, householdId),
             eq(meterReadingsTable.meterType, meterType),
+            isNull(meterReadingsTable.deletedAt),
           ),
         )
         .orderBy(desc(meterReadingsTable.readingDate))

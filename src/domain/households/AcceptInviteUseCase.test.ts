@@ -1,5 +1,5 @@
 import { AcceptInviteUseCase } from './AcceptInviteUseCase';
-import { households } from '../../data/local/schema';
+import { households, householdMembers } from '../../data/local/schema';
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 
@@ -272,5 +272,194 @@ describe('AcceptInviteUseCase — uses join_household_via_invite RPC only', () =
     const result = await useCase.execute();
     expect(result.success).toBe(true);
     expect(supabase.from).not.toHaveBeenCalled();
+  });
+});
+
+describe('AcceptInviteUseCase — F1: resuming a half-completed join', () => {
+  // F1 (round 6): the RPC creates the SERVER membership before this device
+  // has a local `households` row. If connectivity drops in that window the
+  // join is done server-side but invisible locally, and re-entering the
+  // same code hits the server's "this invite is spent" branch — a permanent
+  // dead end on the create/join gate. The local fingerprint of that state
+  // (an active household_members row whose household has no local
+  // `households` row) must be treated as RESUME, not as a bad code.
+
+  function makeLocalDb({
+    memberHouseholdIds = [] as string[],
+    localHouseholdIds = [] as string[],
+  }) {
+    const insert = jest.fn().mockReturnValue({
+      values: jest.fn().mockReturnValue({
+        onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
+      }),
+    });
+    const select = jest.fn().mockImplementation(() => ({
+      from: jest.fn().mockImplementation((table: unknown) => {
+        if (table === householdMembers) {
+          return {
+            where: jest
+              .fn()
+              .mockResolvedValue(memberHouseholdIds.map((id) => ({ householdId: id }))),
+          };
+        }
+        return {
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue(localHouseholdIds.map((id) => ({ id }))),
+          }),
+        };
+      }),
+    }));
+    return { insert, select };
+  }
+
+  function makeSupabaseForResume({
+    joinData = null as unknown,
+    joinError = null as { message: string } | null,
+    householdFetch = {
+      data: null,
+      error: { message: 'network error' },
+    } as { data: unknown; error: { message: string } | null },
+  }) {
+    return {
+      rpc: jest.fn().mockResolvedValue({ data: joinData, error: joinError }),
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'households') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue(householdFetch),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    };
+  }
+
+  const resumedHousehold = { id: 'hh-orphan', name: 'Resumed Household', paydayDay: 7 };
+
+  it('resumes (and succeeds) when the server says the caller is ALREADY A MEMBER and a local membership has no local household row', async () => {
+    const supabase = makeSupabaseForResume({
+      joinError: { message: 'already a member of this household' },
+    });
+    const db = makeLocalDb({ memberHouseholdIds: ['hh-orphan'], localHouseholdIds: [] });
+    const restoreService = { restoreHousehold: jest.fn().mockResolvedValue(resumedHousehold) };
+
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      code: 'ABC123',
+      userId: 'user-r',
+    });
+    const result = await uc.execute();
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.id).toBe('hh-orphan');
+      expect(result.data.paydayDay).toBe(7);
+    }
+    expect(restoreService.restoreHousehold).toHaveBeenCalledWith('hh-orphan', 'member', 'user-r');
+    // The membership row already exists locally — resuming must NOT write a
+    // second household_members row.
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('resumes when the CURRENT server reports the re-entered code as the generic invite_invalid RESULT', async () => {
+    // 0015_security_followups.sql: re-entering the code WE consumed hits the
+    // `used_by IS NOT NULL` branch first, whose response is byte-identical
+    // to a code someone else used — only the local evidence separates them.
+    const supabase = makeSupabaseForResume({
+      joinData: { error: 'invite_invalid', message: 'invite code is invalid' },
+    });
+    const db = makeLocalDb({ memberHouseholdIds: ['hh-orphan'], localHouseholdIds: [] });
+    const restoreService = { restoreHousehold: jest.fn().mockResolvedValue(resumedHousehold) };
+
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      code: 'ABC123',
+      userId: 'user-r',
+    });
+    const result = await uc.execute();
+
+    expect(result.success).toBe(true);
+  });
+
+  it('still reports INVITE_ALREADY_USED for a genuinely spent code when there is no half-completed join', async () => {
+    const supabase = makeSupabaseForResume({ joinError: { message: 'invite already used' } });
+    const db = makeLocalDb({ memberHouseholdIds: [], localHouseholdIds: [] });
+    const restoreService = { restoreHousehold: jest.fn() };
+
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      code: 'ABC123',
+      userId: 'user-r',
+    });
+    const result = await uc.execute();
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVITE_ALREADY_USED');
+    expect(restoreService.restoreHousehold).not.toHaveBeenCalled();
+  });
+
+  it('does not resume into a household that already has a local households row (a real "already a member")', async () => {
+    const supabase = makeSupabaseForResume({
+      joinError: { message: 'already a member of this household' },
+    });
+    const db = makeLocalDb({ memberHouseholdIds: ['hh-known'], localHouseholdIds: ['hh-known'] });
+    const restoreService = { restoreHousehold: jest.fn() };
+
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      code: 'ABC123',
+      userId: 'user-r',
+    });
+    const result = await uc.execute();
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INVITE_ALREADY_USED');
+    expect(restoreService.restoreHousehold).not.toHaveBeenCalled();
+  });
+
+  it('fails with the SAME recoverable HOUSEHOLD_RESTORE_FAILED when the resume cannot reach the server either', async () => {
+    jest.useFakeTimers();
+    const supabase = makeSupabaseForResume({
+      joinData: { error: 'invite_invalid', message: 'invite code is invalid' },
+      householdFetch: { data: null, error: { message: 'network error' } },
+    });
+    const db = makeLocalDb({ memberHouseholdIds: ['hh-orphan'], localHouseholdIds: [] });
+    const restoreService = { restoreHousehold: jest.fn().mockResolvedValue(null) };
+
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      code: 'ABC123',
+      userId: 'user-r',
+    });
+    const resultPromise = uc.execute();
+    await jest.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('HOUSEHOLD_RESTORE_FAILED');
+      // Honest copy: the join DID work, only the download did not.
+      expect(result.error.message).toMatch(/you've joined/i);
+      expect(result.error.message).toMatch(/try again/i);
+    }
+    expect(db.insert).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('resumes past the per-caller throttle rather than locking an already-joined user out for an hour', async () => {
+    // The throttle is checked BEFORE the code is looked up, so a user who
+    // taps Try again a few times would otherwise be stuck for an hour with
+    // the join already committed server-side.
+    const supabase = makeSupabaseForResume({
+      joinError: { message: 'too many attempts, try again later' },
+    });
+    const db = makeLocalDb({ memberHouseholdIds: ['hh-orphan'], localHouseholdIds: [] });
+    const restoreService = { restoreHousehold: jest.fn().mockResolvedValue(resumedHousehold) };
+
+    const uc = new AcceptInviteUseCase(supabase as any, db as any, restoreService as any, {
+      code: 'ABC123',
+      userId: 'user-r',
+    });
+    const result = await uc.execute();
+
+    expect(result.success).toBe(true);
   });
 });

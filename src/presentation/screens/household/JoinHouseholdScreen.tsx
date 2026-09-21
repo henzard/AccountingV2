@@ -40,6 +40,11 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
 
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
+  // F1 (round 6): HOUSEHOLD_RESTORE_FAILED means the join DID succeed
+  // server-side and only the download of the household is missing. A toast
+  // that disappears leaves the user staring at the join form with a code
+  // that now reads as "already used" — so the retry lives on the screen.
+  const [restoreFailed, setRestoreFailed] = useState<string | null>(null);
 
   const handleJoin = async (): Promise<void> => {
     if (!session) return;
@@ -60,6 +65,7 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
     }
 
     setLoading(true);
+    setRestoreFailed(null);
 
     let result;
     try {
@@ -76,9 +82,18 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
     }
 
     if (!result.success) {
+      if (result.error.code === 'HOUSEHOLD_RESTORE_FAILED') {
+        // Keep the code in the input: re-running execute() with it is
+        // exactly what finishes the join (AcceptInviteUseCase resumes from
+        // the membership row it already wrote).
+        setRestoreFailed(result.error.message);
+        return;
+      }
       enqueue(result.error.message, 'error');
       return;
     }
+
+    setRestoreFailed(null);
 
     setHouseholdId(result.data.id);
     setPaydayDay(result.data.paydayDay);
@@ -137,6 +152,29 @@ export const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({ naviga
         >
           Join Household
         </Button>
+
+        {restoreFailed !== null && (
+          <>
+            <Text
+              variant="bodyMedium"
+              style={[styles.restoreError, { color: colors.error }]}
+              testID="join-restore-failed-message"
+            >
+              {restoreFailed}
+            </Text>
+            <Button
+              mode="outlined"
+              onPress={handleJoin}
+              loading={loading}
+              disabled={loading}
+              style={styles.button}
+              contentStyle={styles.buttonContent}
+              testID="join-retry-btn"
+            >
+              Try again
+            </Button>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -147,6 +185,7 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, padding: spacing.xl, gap: spacing.base },
   description: { marginBottom: spacing.base },
   input: {},
+  restoreError: { marginTop: spacing.base },
   button: { marginTop: spacing.sm },
   buttonContent: { paddingVertical: spacing.xs },
 });

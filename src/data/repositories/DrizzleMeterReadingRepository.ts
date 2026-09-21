@@ -1,4 +1,4 @@
-import { and, eq, desc } from 'drizzle-orm';
+import { and, eq, desc, isNull } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../local/schema';
 import { meterReadings } from '../local/schema';
@@ -12,7 +12,13 @@ export class DrizzleMeterReadingRepository implements IMeterReadingRepository {
     const [row] = await this.db
       .select()
       .from(meterReadings)
-      .where(and(eq(meterReadings.id, id), eq(meterReadings.householdId, householdId)))
+      .where(
+        and(
+          eq(meterReadings.id, id),
+          eq(meterReadings.householdId, householdId),
+          isNull(meterReadings.deletedAt),
+        ),
+      )
       .limit(1);
     if (!row) return null;
     return this.rowToEntity(row);
@@ -20,8 +26,12 @@ export class DrizzleMeterReadingRepository implements IMeterReadingRepository {
 
   async findByHousehold(householdId: string, meterType?: MeterType): Promise<MeterReadingEntity[]> {
     const conditions = meterType
-      ? and(eq(meterReadings.householdId, householdId), eq(meterReadings.meterType, meterType))
-      : eq(meterReadings.householdId, householdId);
+      ? and(
+          eq(meterReadings.householdId, householdId),
+          eq(meterReadings.meterType, meterType),
+          isNull(meterReadings.deletedAt),
+        )
+      : and(eq(meterReadings.householdId, householdId), isNull(meterReadings.deletedAt));
 
     const rows = await this.db
       .select()
@@ -44,6 +54,7 @@ export class DrizzleMeterReadingRepository implements IMeterReadingRepository {
           eq(meterReadings.householdId, householdId),
           eq(meterReadings.meterType, meterType),
           eq(meterReadings.readingDate, readingDate),
+          isNull(meterReadings.deletedAt),
         ),
       )
       .orderBy(desc(meterReadings.updatedAt))

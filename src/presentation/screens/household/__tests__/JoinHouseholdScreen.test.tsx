@@ -68,8 +68,10 @@ jest.mock('react-native-paper', () => {
   TextInput.Affix = () => null;
   TextInput.Icon = () => null;
   return {
-    Text: ({ children }: { children?: React.ReactNode }) =>
-      React.createElement('Text', null, children),
+    // testID is forwarded so a screen can be asserted on by id (F1's
+    // inline restore-failed message).
+    Text: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
+      React.createElement('Text', { testID }, children),
     TextInput,
     Button: ({
       children,
@@ -89,6 +91,7 @@ const mockNavigate = jest.fn();
 const mockCanGoBack = jest.fn().mockReturnValue(true);
 const mockReset = jest.fn();
 import { JoinHouseholdScreen } from '../JoinHouseholdScreen';
+import { AcceptInviteUseCase } from '../../../../domain/households/AcceptInviteUseCase';
 
 describe('JoinHouseholdScreen', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -221,6 +224,75 @@ describe('JoinHouseholdScreen', () => {
         index: 0,
         routes: [{ name: 'Main' }],
       });
+    });
+  });
+
+  // F1 (round 6): HOUSEHOLD_RESTORE_FAILED means the join already succeeded
+  // server-side and only the household download is missing. A toast that
+  // vanishes strands the user on the join form with a code the server now
+  // treats as spent — the retry has to stay on screen.
+  describe('F1: HOUSEHOLD_RESTORE_FAILED offers Try again in place', () => {
+    const restoreFailure = {
+      success: false,
+      error: {
+        code: 'HOUSEHOLD_RESTORE_FAILED',
+        message:
+          "You've joined — we couldn't download the household yet. Check your connection and tap Try again.",
+      },
+    };
+
+    it('shows the message and a Try again button instead of navigating away', async () => {
+      mockAcceptInviteExecute.mockResolvedValueOnce(restoreFailure);
+      const { getByTestId } = render(
+        <JoinHouseholdScreen
+          route={{} as never}
+          navigation={
+            {
+              navigate: mockNavigate,
+              canGoBack: mockCanGoBack,
+              reset: mockReset,
+            } as never
+          }
+        />,
+      );
+      fireEvent.changeText(getByTestId('Invite code'), 'ABC123');
+      fireEvent.press(getByTestId('join-household-btn'));
+
+      await waitFor(() => {
+        expect(getByTestId('join-retry-btn')).toBeTruthy();
+      });
+      expect(getByTestId('join-restore-failed-message')).toBeTruthy();
+      expect(mockReset).not.toHaveBeenCalled();
+    });
+
+    it('re-runs the join with the same code when Try again is pressed, and completes on success', async () => {
+      mockAcceptInviteExecute.mockResolvedValueOnce(restoreFailure);
+      const { getByTestId } = render(
+        <JoinHouseholdScreen
+          route={{} as never}
+          navigation={
+            {
+              navigate: mockNavigate,
+              canGoBack: mockCanGoBack,
+              reset: mockReset,
+            } as never
+          }
+        />,
+      );
+      fireEvent.changeText(getByTestId('Invite code'), 'ABC123');
+      fireEvent.press(getByTestId('join-household-btn'));
+
+      await waitFor(() => expect(getByTestId('join-retry-btn')).toBeTruthy());
+
+      fireEvent.press(getByTestId('join-retry-btn'));
+
+      await waitFor(() => {
+        expect(mockAcceptInviteExecute).toHaveBeenCalledTimes(2);
+        expect(mockReset).toHaveBeenCalledWith({ index: 0, routes: [{ name: 'Main' }] });
+      });
+      // The retry must reuse the code the user already typed.
+      const lastCall = (AcceptInviteUseCase as unknown as jest.Mock).mock.calls.at(-1);
+      expect(lastCall?.[3]).toEqual(expect.objectContaining({ code: 'ABC123' }));
     });
   });
 });

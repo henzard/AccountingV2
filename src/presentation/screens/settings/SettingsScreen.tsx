@@ -18,11 +18,13 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
+import { useSyncStore } from '../../stores/syncStore';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { db } from '../../../data/local/db';
 import { UpdateHouseholdPaydayDayUseCase } from '../../../domain/households/UpdateHouseholdPaydayDayUseCase';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { unregisterFcmToken } from '../../../infrastructure/notifications/FcmTokenRegistrar';
+import { resetWifiOnlyCache } from '../../../infrastructure/slipScanning/SupabaseSlipImageUploader';
 import { radius, spacing, fontSize } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
@@ -47,6 +49,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const paydayDay = useAppStore((s) => s.paydayDay);
   const setPaydayDay = useAppStore((s) => s.setPaydayDay);
   const enqueue = useToastStore((s) => s.enqueue);
+  const pendingSyncCount = useSyncStore((s) => s.pendingSyncCount);
 
   const [wifiOnly, setWifiOnly] = useState(false);
 
@@ -62,6 +65,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const handleWifiOnlyToggle = async (value: boolean): Promise<void> => {
     setWifiOnly(value);
     await AsyncStorage.setItem(WIFI_ONLY_KEY, String(value));
+    resetWifiOnlyCache();
   };
 
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -82,9 +86,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   };
 
   const confirmSignOut = async (): Promise<void> => {
+    const message =
+      pendingSyncCount > 0
+        ? `${pendingSyncCount} change${pendingSyncCount === 1 ? '' : 's'} ${pendingSyncCount === 1 ? "hasn't" : "haven't"} synced yet. They stay on this phone and will sync when you sign back in on it — but they will be lost if you uninstall the app or switch phones. Sign out anyway?`
+        : 'You will need to sign in again to access your data.';
     const confirmed = await confirm({
       title: 'Sign out?',
-      message: 'You will need to sign in again to access your data.',
+      message,
       confirmLabel: 'Sign out',
       destructive: true,
     });

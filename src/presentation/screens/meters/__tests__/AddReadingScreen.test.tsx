@@ -51,7 +51,17 @@ jest.mock('../../../stores/toastStore', () => ({
     sel({ enqueue: mockEnqueue }),
   ),
 }));
-jest.mock('drizzle-orm', () => ({ and: jest.fn(), eq: jest.fn(), desc: jest.fn() }));
+// Tags eq/and/isNull/desc so a test can inspect the SHAPE of the predicate
+// the screen actually builds (see the isNull assertion below), rather than
+// re-implementing the deleted_at filter in the mock — the `where` mocks set
+// up per-test above/below still ignore their argument, so this is additive
+// only.
+jest.mock('drizzle-orm', () => ({
+  and: jest.fn((...conditions: unknown[]) => ({ type: 'and', conditions })),
+  eq: jest.fn((col: unknown, val: unknown) => ({ type: 'eq', col, val })),
+  isNull: jest.fn((col: unknown) => ({ type: 'isNull', col })),
+  desc: jest.fn((col: unknown) => ({ type: 'desc', col })),
+}));
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
@@ -549,5 +559,41 @@ describe('AddReadingScreen', () => {
       // Should not trigger error
       expect(getByTestId('Current reading (kWh)')).toBeTruthy();
     });
+  });
+
+  // Round-6 follow-up: once a reading can be soft-deleted, the priorReadings
+  // query feeding anomaly detection must exclude deleted_at rows or a
+  // deleted reading can still trigger (or suppress) an anomaly warning.
+  // Fails without the `isNull(meterReadingsTable.deletedAt)` condition in
+  // this screen's query.
+  it('scopes the priorReadings query to non-deleted rows (deleted_at IS NULL)', async () => {
+    const { db } = jest.requireMock('../../../../data/local/db');
+    const wherePredicates: { type: string; conditions?: { type: string }[] }[] = [];
+    db.select.mockReturnValue({
+      from: jest.fn(() => ({
+        where: jest.fn((predicate: { type: string; conditions?: { type: string }[] }) => {
+          wherePredicates.push(predicate);
+          return {
+            orderBy: jest.fn(() => ({
+              limit: jest.fn(() => Promise.resolve([])),
+            })),
+          };
+        }),
+      })),
+    });
+
+    render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    await waitFor(() => expect(wherePredicates).toHaveLength(1));
+    expect(wherePredicates[0].type).toBe('and');
+    const hasDeletedAtFilter = (wherePredicates[0].conditions ?? []).some(
+      (c) => c.type === 'isNull',
+    );
+    expect(hasDeletedAtFilter).toBe(true);
   });
 });

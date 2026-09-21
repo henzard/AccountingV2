@@ -235,4 +235,132 @@ describe('LogDebtPaymentUseCase (real SQLite)', () => {
 
     raw.close();
   });
+
+  // -------------------------------------------------------------------------
+  // Stale-snapshot over-credit of total_paid_cents.
+  //
+  // Both pushed deltas used to be sized from `input.currentDebt`, the snapshot
+  // the screen was holding. The balance survived that (`MAX(0, ...)` locally,
+  // `greatest(0, ...)` on the server) but `total_paid_cents` is pushed with
+  // `clamp: 'none'` and has no floor — so a stale snapshot credited money that
+  // was never owed. The use case now re-reads the live money columns INSIDE
+  // the unit of work and sizes both deltas from those.
+  // -------------------------------------------------------------------------
+
+  it('sizes both deltas from the LIVE balance when currentDebt is a stale snapshot', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const staleSnapshot = seedDebt(raw);
+
+    // A first payment lands (a slow submit that did go through, or a pulled
+    // payment from the other phone), leaving only 20000 outstanding — while
+    // the screen still holds the original 100000 snapshot.
+    raw
+      .prepare(
+        `UPDATE debts SET outstanding_balance_cents = 20000, total_paid_cents = 80000
+         WHERE id = 'debt-1'`,
+      )
+      .run();
+    raw.prepare('DELETE FROM oplog').run();
+
+    const db = drizzle(raw);
+    const result = await new LogDebtPaymentUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      debtId: 'debt-1',
+      paymentAmountCents: 100000, // sized off the stale 100000 balance
+      currentDebt: staleSnapshot,
+    }).execute();
+    expect(result.success).toBe(true);
+
+    const row = raw.prepare('SELECT * FROM debts WHERE id = ?').get('debt-1') as DebtRow;
+    expect(row.outstanding_balance_cents).toBe(0);
+    // 80000 already paid + the 20000 that was really owed. Before the fix the
+    // local row read 180000 here (and the server would have written the same
+    // from the pushed op), crediting 80000 that was never paid.
+    expect(row.total_paid_cents).toBe(100000);
+    expect(row.is_paid_off).toBe(1);
+
+    const ops = raw
+      .prepare('SELECT * FROM oplog WHERE row_id = ? ORDER BY rowid')
+      .all('debt-1') as OplogRow[];
+    expect(ops).toHaveLength(2);
+    expect(ops.map((o) => o.payload)).toEqual([
+      '{"field":"outstanding_balance_cents","delta":-20000,"clamp":"floor_zero"}',
+      '{"field":"total_paid_cents","delta":20000,"clamp":"none"}',
+    ]);
+
+    // The returned entity reports the live figures too, so the screen's
+    // "paid off!" toast and the row it hands back agree with the database.
+    if (result.success) {
+      expect(result.data.outstandingBalanceCents).toBe(0);
+      expect(result.data.totalPaidCents).toBe(100000);
+      expect(result.data.isPaidOff).toBe(true);
+    }
+
+    raw.close();
+  });
+
+  it('fails cleanly and writes NO oplog rows when the debt is already at zero', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const staleSnapshot = seedDebt(raw);
+
+    raw
+      .prepare(
+        `UPDATE debts SET outstanding_balance_cents = 0, total_paid_cents = 100000, is_paid_off = 1
+         WHERE id = 'debt-1'`,
+      )
+      .run();
+    raw.prepare('DELETE FROM oplog').run();
+
+    const db = drizzle(raw);
+    const result = await new LogDebtPaymentUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      debtId: 'debt-1',
+      paymentAmountCents: 5000,
+      currentDebt: staleSnapshot,
+    }).execute();
+
+    // Result<T> contract: a clean failure, not a throw and not a silent
+    // success. `LogPaymentScreen` surfaces `error.message` and undoes the
+    // envelope transaction it may have created first.
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DEBT_ALREADY_PAID_OFF');
+
+    const row = raw.prepare('SELECT * FROM debts WHERE id = ?').get('debt-1') as DebtRow;
+    expect(row.outstanding_balance_cents).toBe(0);
+    expect(row.total_paid_cents).toBe(100000); // NOT 105000
+
+    const opCount = (raw.prepare('SELECT COUNT(*) AS n FROM oplog').get() as { n: number }).n;
+    expect(opCount).toBe(0);
+
+    raw.close();
+  });
+
+  it('a normal payment pushes byte-identical op payloads to before the live re-read', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw, 'hh-1');
+    const debt = seedDebt(raw);
+    const db = drizzle(raw);
+
+    const result = await new LogDebtPaymentUseCase(db as any, noopAudit, {
+      householdId: 'hh-1',
+      debtId: 'debt-1',
+      paymentAmountCents: 30000,
+      currentDebt: debt, // fresh snapshot — live row agrees with it
+    }).execute();
+    expect(result.success).toBe(true);
+
+    const ops = raw
+      .prepare('SELECT * FROM oplog WHERE row_id = ? ORDER BY rowid')
+      .all('debt-1') as OplogRow[];
+    // Exact wire bytes, in order: the re-read must not have changed what a
+    // normal payment sends to the server (shipped clients parse these).
+    expect(ops.map((o) => [o.op_type, o.payload])).toEqual([
+      ['increment', '{"field":"outstanding_balance_cents","delta":-30000,"clamp":"floor_zero"}'],
+      ['increment', '{"field":"total_paid_cents","delta":30000,"clamp":"none"}'],
+    ]);
+
+    raw.close();
+  });
 });

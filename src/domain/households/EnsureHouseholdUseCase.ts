@@ -41,6 +41,16 @@ export class EnsureHouseholdUseCase {
       .where(and(eq(householdMembers.userId, this.userId), isNull(householdMembers.deletedAt)))
       .limit(1);
 
+    // F1 (round 6): set when there IS an active membership but its local
+    // `households` row is missing — the fingerprint of a join that completed
+    // SERVER-side and then lost connectivity before RestoreService could
+    // download the household (AcceptInviteUseCase's HOUSEHOLD_RESTORE_FAILED
+    // path). Reported at the end as a DISTINCT failure so the boot gate can
+    // finish the download instead of showing the create/join choice screen,
+    // where "Create Household" would mint a second household for someone who
+    // is already a member.
+    let pendingHouseholdId: string | null = null;
+
     if (membership) {
       const [hh] = await this.db
         .select()
@@ -58,6 +68,7 @@ export class EnsureHouseholdUseCase {
           userLevel: hh.userLevel as 1 | 2 | 3,
         });
       }
+      pendingHouseholdId = membership.householdId;
     }
 
     // 2. Check for legacy household where id = userId
@@ -140,7 +151,21 @@ export class EnsureHouseholdUseCase {
       });
     }
 
-    // 3. No existing membership and no legacy household.
+    // 3a. F1 (round 6): an active membership whose household was never
+    // downloaded. Checked AFTER the legacy branch above so that path keeps
+    // its exact previous behaviour. This is NOT `no_household` — the user
+    // already belongs to a household and only the local copy is missing, so
+    // the boot gate must finish the download (and offer Try again / Sign
+    // out), never the create/join choice screen.
+    if (pendingHouseholdId) {
+      return createFailure({
+        code: 'household_not_downloaded',
+        message: 'household_not_downloaded',
+        context: { householdId: pendingHouseholdId },
+      });
+    }
+
+    // 3b. No existing membership and no legacy household.
     // Return failure so the navigator shows the create/join choice screen.
     // Household creation is now explicit — triggered by CreateHouseholdUseCase
     // when the user taps "Create Household", or by AcceptInviteUseCase when

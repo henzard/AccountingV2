@@ -44,6 +44,47 @@ function toRandString(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
+/**
+ * F2: the confirm dialog used to always say "Historical transactions will
+ * keep their envelope name. You cannot undo this." — true, but silent about
+ * the bigger effect: `calculateBudgetBalance` (BudgetBalanceCalculator.ts)
+ * skips archived envelopes entirely, so an envelope's WHOLE `allocatedCents`
+ * — its allocation for this period, or a persistent envelope's monthly
+ * contribution, both counted identically toward `totalAllocated` — stops
+ * being counted the moment it archives. For every type except 'income' that
+ * makes `toAssign` (= incomeTotal - expenseAllocationTotal) go UP by exactly
+ * that amount; for 'income' it makes `toAssign` go DOWN by that amount
+ * instead, since removing an income row lowers `incomeTotal` too. This
+ * builds copy that actually says which of those happens, so a household
+ * archiving "Car Repairs" is told its R2,000 is about to land back in "To
+ * assign" instead of finding out from a number changing with no
+ * explanation.
+ */
+function buildArchiveConfirmMessage(envelope: EnvelopeEntity): string {
+  const { name, allocatedCents, spentCents, envelopeType } = envelope;
+
+  if (allocatedCents === 0) {
+    return 'Historical transactions will keep their envelope name. You can not undo this.';
+  }
+
+  if (envelopeType === 'income') {
+    return (
+      `Archiving "${name}" removes ${formatCurrency(allocatedCents)} of income from this ` +
+      `period, so your To assign total goes down by that amount. You can not undo this.`
+    );
+  }
+
+  const spentNote =
+    spentCents > 0
+      ? ` The ${formatCurrency(spentCents)} already spent from it stays in your transaction history.`
+      : '';
+
+  return (
+    `Archiving "${name}" returns its ${formatCurrency(allocatedCents)} allocation to your ` +
+    `To assign total.${spentNote} You can not undo this.`
+  );
+}
+
 export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
   route,
   navigation,
@@ -200,9 +241,35 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
 
   const handleArchive = useCallback(async (): Promise<void> => {
     if (!existing) return;
+
+    const scope = getEnvelopeScope({ envelopeType: existing.envelopeType });
+
+    // A persistent envelope's SAVED balance
+    // (`getPersistentEnvelopeSavedCents`) is untouched by archiving — it is
+    // still sitting in the contribution ledger — but every screen that
+    // shows it (BudgetScreen, SinkingFundsScreen, DashboardScreen) reads it
+    // through `useEnvelopes`, which filters `is_archived = 0`. So an
+    // archived fund's saved money silently stops appearing ANYWHERE in the
+    // household's picture, even though it is not gone. That is worse than a
+    // copy problem, so block instead of just warning: send the household to
+    // the existing "Adjust saved amount" flow to move/withdraw it first.
+    if (scope === 'persistent' && savedCents !== 0) {
+      await confirm({
+        title: 'Move the saved balance first',
+        message:
+          `"${existing.name}" still has ${formatCurrency(savedCents)} saved. ` +
+          `That money stays in the ledger, but archiving would stop every screen from showing ` +
+          `it — nowhere in the app would account for it anymore. Use "Adjust saved amount" to ` +
+          `move or withdraw the balance before archiving.`,
+        confirmLabel: 'Got it',
+        destructive: false,
+      });
+      return;
+    }
+
     const confirmed = await confirm({
       title: 'Archive envelope?',
-      message: 'Historical transactions will keep their envelope name. You can not undo this.',
+      message: buildArchiveConfirmMessage(existing),
       confirmLabel: 'Archive',
       destructive: true,
     });
@@ -216,7 +283,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     } else {
       setError('Failed to archive envelope');
     }
-  }, [existing, navigation, enqueue]);
+  }, [existing, savedCents, navigation, enqueue]);
 
   const reloadSavedCents = useCallback(async (): Promise<void> => {
     if (!existing) return;

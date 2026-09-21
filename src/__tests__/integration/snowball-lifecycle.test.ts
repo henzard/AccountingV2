@@ -40,6 +40,31 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => `uuid-${Date.now()}-${Math.r
 
 beforeEach(() => resetFactoryCounter());
 
+/**
+ * The debt row `LogDebtPaymentUseCase`'s in-transaction re-read finds. The use
+ * case sizes BOTH of its `increment` deltas from the LIVE row rather than from
+ * the caller's `currentDebt` snapshot (`total_paid_cents` is pushed with
+ * `clamp: 'none'`, so a stale snapshot over-credits it) — so this fake db has
+ * to hold a real row, not just answer `.run()`. Each payment test sets it to
+ * the figures its own `currentDebt` carries; `beforeEach` resets it so a test
+ * can never inherit the previous one's balance.
+ */
+const DEFAULT_LIVE_DEBT_ROW = { outstanding_balance_cents: 0, total_paid_cents: 0 };
+let liveDebtRow: { outstanding_balance_cents: number; total_paid_cents: number } = {
+  ...DEFAULT_LIVE_DEBT_ROW,
+};
+beforeEach(() => {
+  liveDebtRow = { ...DEFAULT_LIVE_DEBT_ROW };
+});
+
+/** Points the fake's re-read at the row `debt` describes. */
+function setLiveDebtRow(debt: DebtEntity): void {
+  liveDebtRow = {
+    outstanding_balance_cents: debt.outstandingBalanceCents,
+    total_paid_cents: debt.totalPaidCents,
+  };
+}
+
 const mockDb = {
   select: jest.fn().mockReturnValue({
     from: jest.fn().mockReturnValue({
@@ -53,9 +78,10 @@ const mockDb = {
   // LogDebtPaymentUseCase now drives runInUnitOfWork directly (oplog, not
   // pending_sync) — this fakes just enough of PortableDb's `.transaction`
   // API for that: call the callback synchronously with a `tx` exposing
-  // `.run()` for the raw-SQL entity write + oplog appends.
+  // `.get()` for the in-transaction re-read of the debt's live money columns
+  // and `.run()` for the raw-SQL entity write + oplog appends.
   transaction: jest.fn((fn: (tx: unknown) => unknown) =>
-    fn({ run: jest.fn(() => ({ changes: 1 })) }),
+    fn({ get: jest.fn(() => liveDebtRow), run: jest.fn(() => ({ changes: 1 })) }),
   ),
 } as any;
 
@@ -114,6 +140,7 @@ describe('Payment logging and balance tracking', () => {
 
   it('LogDebtPaymentUseCase returns updated debt with correct balances', async () => {
     const woolworths = debts[0]!;
+    setLiveDebtRow(woolworths); // the db row agrees with the snapshot here
 
     const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
       householdId: woolworths.householdId,
@@ -200,6 +227,7 @@ describe('Full payoff — Woolworths and snowball rollover', () => {
   it('overpayment is capped at outstanding balance', async () => {
     const woolworths = { ...KRUGER_DEBTS[0]! };
     woolworths.outstandingBalanceCents = 5_000; // only R50 left
+    setLiveDebtRow(woolworths);
 
     const uc = new LogDebtPaymentUseCase(mockDb, mockAudit, {
       householdId: woolworths.householdId,

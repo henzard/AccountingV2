@@ -1,15 +1,20 @@
 import React, { useCallback } from 'react';
 import { View, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
-import { Text, Surface, ActivityIndicator } from 'react-native-paper';
+import { Text, Surface, ActivityIndicator, IconButton } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { format, parseISO } from 'date-fns';
+import { db } from '../../../data/local/db';
+import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { UnitRateCalculator } from '../../../domain/meterReadings/UnitRateCalculator';
+import { DeleteMeterReadingUseCase } from '../../../domain/meterReadings/DeleteMeterReadingUseCase';
 import {
   getMeterTypeLabel,
   getMeterUnitLabel,
 } from '../../../domain/meterReadings/MeterReadingEntity';
 import { useMeterReadings } from '../../hooks/useMeterReadings';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
+import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { formatCurrency } from '../../utils/currency';
@@ -18,12 +23,14 @@ import type { MeterReadingEntity } from '../../../domain/meterReadings/MeterRead
 import type { RateHistoryScreenProps } from '../../navigation/types';
 
 const calculator = new UnitRateCalculator();
+const audit = new AuditLogger(db);
 
 export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) => {
   const { colors } = useAppTheme();
   const { meterType } = route.params;
   const householdId = useAppStore((s) => s.householdId)!;
   const { readings, loading, error, reload } = useMeterReadings(householdId, meterType, 24);
+  const enqueue = useToastStore((s) => s.enqueue);
 
   useFocusEffect(
     useCallback(() => {
@@ -32,6 +39,32 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
   );
 
   const unit = getMeterUnitLabel(meterType);
+
+  const handleDelete = useCallback(
+    async (reading: MeterReadingEntity): Promise<void> => {
+      const confirmed = await confirm({
+        title: 'Delete reading?',
+        message: `${format(parseISO(reading.readingDate), 'd MMM yyyy')} — ${reading.readingValue.toLocaleString('en-ZA')} ${unit}`,
+        confirmLabel: 'Delete',
+        destructive: true,
+      });
+      if (!confirmed) return;
+
+      try {
+        const uc = new DeleteMeterReadingUseCase(db, audit, reading);
+        const result = await uc.execute();
+        if (!result.success) {
+          enqueue('Failed to delete reading', 'error');
+          return;
+        }
+        enqueue('Reading deleted', 'success');
+        void reload();
+      } catch {
+        enqueue('Failed to delete reading', 'error');
+      }
+    },
+    [unit, enqueue, reload],
+  );
 
   const renderItem = useCallback(
     ({ item, index }: { item: MeterReadingEntity; index: number }) => {
@@ -72,10 +105,18 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
               </Text>
             )}
           </View>
+          <IconButton
+            icon="delete-outline"
+            iconColor={colors.error}
+            size={20}
+            onPress={() => void handleDelete(item)}
+            testID={`delete-reading-${item.id}`}
+            accessibilityLabel={`Delete ${format(parseISO(item.readingDate), 'd MMM yyyy')} reading of ${item.readingValue.toLocaleString('en-ZA')} ${unit}`}
+          />
         </Surface>
       );
     },
-    [readings, unit, colors],
+    [readings, unit, colors, handleDelete],
   );
 
   if (loading) {
