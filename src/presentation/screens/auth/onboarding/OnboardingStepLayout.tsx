@@ -49,6 +49,9 @@ export function OnboardingStepLayout({
 }: OnboardingStepLayoutProps): React.JSX.Element {
   const { colors } = useAppTheme();
 
+  // The CTA is a sticky footer, not the last child of the ScrollView: on
+  // steps taller than the screen (AllocateEnvelopes with several rows) a
+  // trailing button sat below the fold, so "Next" had to be scrolled for.
   const scrollContent = (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       {step !== undefined && totalSteps !== undefined && (
@@ -74,12 +77,16 @@ export function OnboardingStepLayout({
         {subtitle}
       </Text>
       {children}
+    </ScrollView>
+  );
+
+  const footer = (
+    <View style={[styles.footer, { backgroundColor: colors.background }]}>
       <Button
         mode="contained"
         onPress={onCta}
         loading={ctaLoading}
         disabled={Boolean(ctaDisabled || ctaLoading)}
-        style={styles.button}
         contentStyle={styles.buttonContent}
         testID="onboarding-cta"
       >
@@ -96,12 +103,15 @@ export function OnboardingStepLayout({
           {backLabel}
         </Button>
       )}
-    </ScrollView>
+    </View>
   );
 
   if (!avoidKeyboard) {
     return (
-      <View style={[styles.flex, { backgroundColor: colors.background }]}>{scrollContent}</View>
+      <View style={[styles.flex, { backgroundColor: colors.background }]}>
+        {scrollContent}
+        {footer}
+      </View>
     );
   }
 
@@ -111,6 +121,7 @@ export function OnboardingStepLayout({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       {scrollContent}
+      {footer}
     </KeyboardAvoidingView>
   );
 }
@@ -127,7 +138,7 @@ const styles = StyleSheet.create({
   progressDot: { height: 8, borderRadius: 4 },
   title: { fontFamily: 'PlusJakartaSans_700Bold' },
   subtitle: { marginBottom: spacing.base },
-  button: { marginTop: spacing.lg },
+  footer: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.base },
   buttonContent: { paddingVertical: spacing.xs },
   backButton: { marginTop: spacing.xs },
 });
