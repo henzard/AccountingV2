@@ -59,6 +59,7 @@ class FakeTransport implements SyncTransport {
     limit: number,
     signal: AbortSignal,
   ) => Promise<ServerOplogRow[]> = async () => [];
+  rowState?: SyncTransport['rowState'];
 }
 
 function engineFor(raw: Database.Database, transport: SyncTransport): SyncEngine {
@@ -270,6 +271,203 @@ class RejectingTransport implements SyncTransport {
     [string, string, string, AbortSignal]
   >(async () => null);
 }
+
+// Every household's oplog BEGINS with a `households` insert (bootstrap), and a
+// payday change is a `households` update. The local `households` table is the
+// one synced table with NO household_id column — its id IS the household id.
+// applyOne used to name household_id unconditionally, so that first op threw,
+// the batch poisoned, and the device that created the household never pulled
+// anything again (found by Detox in CD run #138's logcat).
+describe('SyncEngine puller applies ops on the households row itself', () => {
+  function hhRow(seq: number, opId: string, extra: Partial<ServerOplogRow>): ServerOplogRow {
+    return {
+      seq,
+      op_id: opId,
+      household_id: HH,
+      table_name: 'households',
+      row_id: HH,
+      op_type: 'insert',
+      payload: {},
+      device_id: 'peer',
+      ...extra,
+    };
+  }
+
+  it('applies the bootstrap households insert without blocking the pull', async () => {
+    const raw = openMigratedDb();
+    const t = new FakeTransport();
+    const batches: ServerOplogRow[][] = [
+      [
+        hhRow(1, 'h1', {
+          payload: {
+            name: 'Pulled HH',
+            created_at: NOW,
+            payday_day: 25,
+            updated_at: NOW,
+            user_level: 1,
+          },
+        }),
+      ],
+      [],
+    ];
+    t.pull = async () => batches.shift() ?? [];
+    const engine = engineFor(raw, t);
+    await engine.pull(HH);
+
+    expect(raw.prepare('SELECT name FROM households WHERE id = ?').get(HH)).toEqual({
+      name: 'Pulled HH',
+    });
+    const cur = raw
+      .prepare('SELECT last_pulled_seq AS s FROM sync_cursor WHERE household_id = ?')
+      .get(HH) as { s: number };
+    expect(cur.s).toBe(1);
+    expect(engine.getPullHealth(HH).blocked).toBe(false);
+    raw.close();
+  });
+
+  it("applies a partner's payday update to the households row", async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    const t = new FakeTransport();
+    const batches: ServerOplogRow[][] = [
+      [hhRow(2, 'h2', { op_type: 'update', payload: { payday_day: 15, updated_at: NOW } })],
+      [],
+    ];
+    t.pull = async () => batches.shift() ?? [];
+    await engineFor(raw, t).pull(HH);
+
+    expect(raw.prepare('SELECT payday_day AS d FROM households WHERE id = ?').get(HH)).toEqual({
+      d: 15,
+    });
+    raw.close();
+  });
+
+  it('never touches a households row other than the one the op belongs to', async () => {
+    const raw = openMigratedDb();
+    seedHousehold(raw);
+    seedHousehold(raw, 'hh-other');
+    const t = new FakeTransport();
+    const batches: ServerOplogRow[][] = [
+      [
+        hhRow(3, 'h3', {
+          row_id: 'hh-other',
+          op_type: 'update',
+          payload: { payday_day: 3, updated_at: NOW },
+        }),
+      ],
+      [],
+    ];
+    t.pull = async () => batches.shift() ?? [];
+    await engineFor(raw, t).pull(HH);
+
+    expect(
+      raw.prepare('SELECT payday_day AS d FROM households WHERE id = ?').get('hh-other'),
+    ).toEqual({ d: 25 });
+    raw.close();
+  });
+});
+
+// An increment is not idempotent, and the two local "already folded in?"
+// ledgers do not cover own increments written before the write-time ledger
+// existed once prunePushedOps has dropped them. A device replaying old
+// history (cursor still 0 after a blocked pull) would double-count them, so
+// every incremented row is converged onto the server's row after the drain.
+describe('SyncEngine puller reconciles incremented rows to server truth', () => {
+  function seedDebt(raw: Database.Database, balance: number): void {
+    seedHousehold(raw);
+    raw
+      .prepare(
+        `INSERT INTO debts (id, household_id, creditor_name, debt_type,
+           outstanding_balance_cents, interest_rate_percent, minimum_payment_cents,
+           total_paid_cents, created_at, updated_at)
+         VALUES ('d1', ?, 'Visa', 'credit_card', ?, 19.9, 5000, 0, ?, ?)`,
+      )
+      .run(HH, balance, NOW, NOW);
+  }
+
+  function paymentOp(seq: number, opId: string): ServerOplogRow {
+    return {
+      seq,
+      op_id: opId,
+      household_id: HH,
+      table_name: 'debts',
+      row_id: 'd1',
+      op_type: 'increment',
+      payload: { field: 'outstanding_balance_cents', delta: -20000, clamp: 'floor_zero' },
+      device_id: 'devA',
+    };
+  }
+
+  function balance(raw: Database.Database): number {
+    return (
+      raw.prepare('SELECT outstanding_balance_cents AS b FROM debts WHERE id = ?').get('d1') as {
+        b: number;
+      }
+    ).b;
+  }
+
+  const serverDebt = { ...debtRow('d1'), outstanding_balance_cents: 80000, is_paid_off: false };
+
+  it('heals a replayed own increment that neither local ledger remembers', async () => {
+    const raw = openMigratedDb();
+    // The payment was already folded in locally (100000 -> 80000), but its
+    // oplog row was pruned and it predates the write-time oplog_applied entry.
+    seedDebt(raw, 80000);
+    const t = new FakeTransport();
+    const batches: ServerOplogRow[][] = [[paymentOp(9, 'old-own-payment')], []];
+    t.pull = async () => batches.shift() ?? [];
+    t.rowState = async () => serverDebt;
+    await engineFor(raw, t).pull(HH);
+
+    expect(balance(raw)).toBe(80000); // not 60000
+    raw.close();
+  });
+
+  it('leaves a row with unpushed local ops alone, then reconciles it once they are pushed', async () => {
+    const raw = openMigratedDb();
+    seedDebt(raw, 80000);
+    raw
+      .prepare(
+        `INSERT INTO oplog (op_id, household_id, table_name, row_id, op_type, payload,
+           device_id, client_created_at)
+         VALUES ('local-pending', ?, 'debts', 'd1', 'update', '{}', 'devA', ?)`,
+      )
+      .run(HH, NOW);
+    const t = new FakeTransport();
+    const batches: ServerOplogRow[][] = [[paymentOp(9, 'old-own-payment')], []];
+    t.pull = async () => batches.shift() ?? [];
+    let rowStateCalls = 0;
+    t.rowState = async () => {
+      rowStateCalls += 1;
+      return serverDebt;
+    };
+    const engine = engineFor(raw, t);
+    await engine.pull(HH);
+    expect(rowStateCalls).toBe(0);
+    expect(balance(raw)).toBe(60000);
+
+    raw.prepare(`UPDATE oplog SET pushed_at = ? WHERE op_id = 'local-pending'`).run(NOW);
+    await engine.pull(HH);
+    expect(balance(raw)).toBe(80000);
+    raw.close();
+  });
+
+  it('keeps the pulled value and never fails the pull when the row-state fetch fails', async () => {
+    const raw = openMigratedDb();
+    seedDebt(raw, 100000);
+    const t = new FakeTransport();
+    const batches: ServerOplogRow[][] = [[paymentOp(9, 'peer-payment')], []];
+    t.pull = async () => batches.shift() ?? [];
+    t.rowState = async () => {
+      throw new Error('offline');
+    };
+    const summary = await engineFor(raw, t).pull(HH);
+
+    expect(summary?.applied).toBe(1);
+    expect(balance(raw)).toBe(80000);
+    raw.close();
+  });
+});
 
 describe('SyncEngine DLQ inbox (Task 5)', () => {
   it('listDeadLettered: returns dead-lettered ops for the household, newest first, never the payload', async () => {
