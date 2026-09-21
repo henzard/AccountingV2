@@ -16,19 +16,11 @@ export interface BusinessExpenseRow {
 }
 
 /**
- * Escape a CSV field: quote with double quotes and double any inner quotes.
- * Prefix formula-like and control characters (=, +, -, @, tab, carriage return) with
- * a single quote inside the quotes to guard against CSV injection (OWASP guidance).
+ * Prefix formula-like and control characters (=, +, -, @, tab, carriage
+ * return) with a single quote so spreadsheet apps treat the value as literal
+ * text rather than executing it as a formula (OWASP CSV injection guidance).
  */
-function escapeCSVField(value: string | null | undefined): string {
-  if (value === null || value === undefined || value === '') {
-    return '""';
-  }
-
-  let str = String(value);
-
-  // Check if string starts with formula-like characters or control chars
-  // OWASP CSV injection guidance: =, +, -, @, tab, carriage return
+export function applyFormulaInjectionGuard(str: string): string {
   if (
     str[0] === '=' ||
     str[0] === '+' ||
@@ -37,8 +29,22 @@ function escapeCSVField(value: string | null | undefined): string {
     str[0] === '\t' ||
     str[0] === '\r'
   ) {
-    str = `'${str}`;
+    return `'${str}`;
   }
+  return str;
+}
+
+/**
+ * Escape a CSV field: quote with double quotes and double any inner quotes.
+ * Runs every value through the formula-injection guard first.
+ */
+function escapeCSVField(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return '""';
+  }
+
+  let str = String(value);
+  str = applyFormulaInjectionGuard(str);
 
   // Double any inner quotes
   str = str.replace(/"/g, '""');
@@ -53,6 +59,32 @@ function escapeCSVField(value: string | null | undefined): string {
 function formatAmount(amountCents: number): string {
   const amount = amountCents / 100;
   return amount.toFixed(2);
+}
+
+/**
+ * Guards the Amount column against formula injection the same way text
+ * fields are guarded, while keeping a legitimate negative amount a plain,
+ * spreadsheet-parseable number.
+ *
+ * `amountStr` is always produced internally by `formatAmount` from a
+ * `number` (`amountCents`), so it can only ever be `-?\d+\.\d\d` — there is
+ * no path for attacker-controlled text to reach this field the way there is
+ * for payee/description. OWASP's guidance to guard a leading '-' targets
+ * free-text fields where a string like "-2+3+cmd|' /C calc'!A0" can smuggle
+ * in a formula; a clean signed decimal like "-50.00" cannot. Running it
+ * through the general text guard would prefix it with an apostrophe,
+ * turning it into a text string in the spreadsheet and breaking totals/sums
+ * for a household with a genuine negative (refunded) business expense — so
+ * that one case is deliberately exempted here. Any other leading
+ * formula-trigger character (=, +, @, tab, CR) — which should never occur
+ * for a value formatted from a number, but would indicate something went
+ * wrong upstream — is still guarded exactly like a text field, as defense
+ * in depth.
+ */
+export function escapeAmountField(amountStr: string): string {
+  const isPlainSignedNumber = /^-\d+\.\d{2}$/.test(amountStr);
+  const guarded = isPlainSignedNumber ? amountStr : applyFormulaInjectionGuard(amountStr);
+  return `"${guarded}"`;
 }
 
 /**
@@ -78,15 +110,15 @@ export function buildBusinessExpenseCsv(rows: BusinessExpenseRow[]): string {
     const date = escapeCSVField(row.date);
     const payee = escapeCSVField(row.payee);
     const description = escapeCSVField(row.description);
-    const amount = formatAmount(row.amountCents);
+    const amount = escapeAmountField(formatAmount(row.amountCents));
 
-    lines.push(`${date},${payee},${description},"${amount}"`);
+    lines.push(`${date},${payee},${description},${amount}`);
     totalCents += row.amountCents;
   }
 
   // Total row
-  const totalAmount = formatAmount(totalCents);
-  lines.push(`"","","Total","${totalAmount}"`);
+  const totalAmount = escapeAmountField(formatAmount(totalCents));
+  lines.push(`"","","Total",${totalAmount}`);
 
   // Join with \r\n line endings
   return lines.join('\r\n');

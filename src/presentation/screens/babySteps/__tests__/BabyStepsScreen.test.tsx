@@ -12,7 +12,7 @@
  */
 
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, within } from '@testing-library/react-native';
 import type { BabyStepStatus } from '../../../../domain/babySteps/types';
 
 // ─── Navigation mock ──────────────────────────────────────────────────────────
@@ -220,7 +220,16 @@ describe('BabyStepsScreen', () => {
     expect(getByTestId('cta-no-income')).toBeTruthy();
   });
 
-  it('shows CTA for Step 2 no-debts when Step 2 is current with null progress', () => {
+  // NOTE (C-1 rework): this used to assert that Step 2 stayed the CURRENT
+  // step — showing the blocking "Add debt account" CTA — forever, for any
+  // household with zero non-bond debts. That was exactly the bug C-1 fixes:
+  // once Step 1 is done, zero applicable debts means Step 2 is SKIPPED (see
+  // BabyStepEvaluator's "Steps 2 and 6" note and `inferBabyStepSkips`), so it
+  // can no longer be the blocking current step — the household advances to
+  // Step 3 and sees a "No debts recorded — skipped" notice instead. This
+  // exact scenario is covered by the C-1 tests below; kept here (renamed) as
+  // an explicit regression guard against the CTA reappearing as a blocker.
+  it('does NOT show the Step 2 no-debts CTA as a blocker once Step 1 is done (C-1 — it is skipped instead)', () => {
     mockStatuses = [
       makeStatus(1, { isCompleted: true, completedAt: '2026-04-10T10:00:00.000Z' }),
       makeStatus(2, { progress: null }), // no debts
@@ -230,8 +239,94 @@ describe('BabyStepsScreen', () => {
       makeStatus(6),
       makeStatus(7),
     ];
-    const { getByTestId } = render(<BabyStepsScreen {...makeNavProps()} />);
-    expect(getByTestId('cta-no-debts')).toBeTruthy();
+    const { queryByTestId, getByText } = render(<BabyStepsScreen {...makeNavProps()} />);
+    expect(queryByTestId('cta-no-debts')).toBeNull();
+    expect(getByText('No debts recorded — skipped')).toBeTruthy();
+  });
+
+  // ─── C-2: futureSteps must exclude effectively-done (completed OR skipped) steps ──
+
+  it('C-2: a vacuously-skipped step past currentIdx does NOT also render as a dimmed future card', () => {
+    // Step 1 is complete. Step 2 has zero non-bond debts (progress: null,
+    // isCompleted: false — the SYNCED-safe skip shape, never `isCompleted: true`)
+    // — it must be inferred as skipped, advancing currentStep to Step 3, and
+    // must never ALSO appear as a dimmed "Coming Up" future card.
+    mockStatuses = [
+      makeStatus(1, { isCompleted: true, completedAt: '2026-04-10T10:00:00.000Z' }),
+      makeStatus(2, { isCompleted: false, progress: null }), // skip-eligible
+      makeStatus(3),
+      makeStatus(4),
+      makeStatus(5),
+      makeStatus(6),
+      makeStatus(7),
+    ];
+    const { getByText, queryByText, getByTestId } = render(<BabyStepsScreen {...makeNavProps()} />);
+
+    // Shows up in its own "skipped" notice...
+    expect(getByText('No debts recorded — skipped')).toBeTruthy();
+    // ...NOT as a "2. Debt Free" completed chip inside the COMPLETED tier
+    // (it was never `isCompleted`; Step 1's own genuine completion
+    // legitimately still shows a chip there for Step 1)...
+    const completedSection = getByTestId('completed-steps-section');
+    expect(within(completedSection).queryByText('2. Debt Free')).toBeNull();
+    // ...and NOT as a future card under "Coming Up".
+    const futureSection = getByTestId('future-steps-section', { hidden: true });
+    expect(within(futureSection).queryByText('Debt Free')).toBeNull();
+    expect(queryByText('STEP 2')).toBeNull();
+  });
+
+  // ─── C-1 (reworked): vacuous Step 2/6 skip is inferred from statuses, ──────
+  // never persisted as `isCompleted: true` (SYNCED-table safety) ─────────────
+
+  it('C-1: a vacuously-skipped Step 2 (no debts, isCompleted stays false) shows "No debts recorded — skipped" and advances currentStep to Step 3', () => {
+    mockStatuses = [
+      makeStatus(1, { isCompleted: true, completedAt: '2026-04-10T10:00:00.000Z' }),
+      makeStatus(2, { isCompleted: false, progress: null }),
+      makeStatus(3),
+      makeStatus(4),
+      makeStatus(5),
+      makeStatus(6),
+      makeStatus(7),
+    ];
+    const { getByText, getByTestId } = render(<BabyStepsScreen {...makeNavProps()} />);
+    expect(getByText('No debts recorded — skipped')).toBeTruthy();
+    // Step 3 (not Step 2) is now the active hero card.
+    expect(getByTestId('cta-no-income')).toBeTruthy();
+  });
+
+  it('a brand-new household with zero debts and Step 1 NOT complete keeps Step 2 as the (blocked, non-skipped) current step', () => {
+    mockStatuses = [
+      makeStatus(1), // Step 1 not complete yet
+      makeStatus(2, { isCompleted: false, progress: null }),
+      makeStatus(3),
+      makeStatus(4),
+      makeStatus(5),
+      makeStatus(6),
+      makeStatus(7),
+    ];
+    const { getByTestId, queryByText } = render(<BabyStepsScreen {...makeNavProps()} />);
+    // Still blocked on Step 1 — never told "debt free" ahead of it.
+    expect(getByTestId('cta-no-emf')).toBeTruthy();
+    expect(queryByText('No debts recorded — skipped')).toBeNull();
+  });
+
+  it('a GENUINELY completed Step 2 (non-null progress, real isCompleted=true) shows the completion date as a normal chip, not "skipped"', () => {
+    mockStatuses = [
+      makeStatus(1, { isCompleted: true, completedAt: '2026-04-10T10:00:00.000Z' }),
+      makeStatus(2, {
+        isCompleted: true,
+        progress: { current: 1, target: 1, unit: 'count' },
+        completedAt: '2026-04-12T00:00:00.000Z',
+      }),
+      makeStatus(3),
+      makeStatus(4),
+      makeStatus(5),
+      makeStatus(6),
+      makeStatus(7),
+    ];
+    const { getByText, queryByText } = render(<BabyStepsScreen {...makeNavProps()} />);
+    expect(getByText('12 Apr 2026')).toBeTruthy();
+    expect(queryByText('No debts recorded — skipped')).toBeNull();
   });
 
   // ─── Manual steps ─────────────────────────────────────────────────────────

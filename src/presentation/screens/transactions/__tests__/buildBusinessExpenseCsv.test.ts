@@ -5,6 +5,8 @@
 import {
   buildBusinessExpenseCsv,
   transactionsToCsvRows,
+  applyFormulaInjectionGuard,
+  escapeAmountField,
   type BusinessExpenseRow,
 } from '../buildBusinessExpenseCsv';
 import type { TransactionEntity } from '../../../../domain/transactions/TransactionEntity';
@@ -295,6 +297,58 @@ describe('buildBusinessExpenseCsv', () => {
       const rows = transactionsToCsvRows(transactions);
 
       expect(rows[0].description).toBeNull();
+    });
+  });
+
+  describe('Amount column formula-injection guard (B-04)', () => {
+    // A positive amount produces the same CSV bytes whether or not the
+    // Amount column is routed through the guard (no realistic amount string
+    // ever starts with a formula-trigger character), so these two
+    // higher-level tests alone can't prove the guard is actually wired in —
+    // they just pin the existing visible output.
+    it('formats a positive amount as a plain, unprefixed, quoted number', () => {
+      const rows: BusinessExpenseRow[] = [
+        { date: '2026-01-01', payee: 'A', description: 'Test', amountCents: 12345 },
+      ];
+      const csv = buildBusinessExpenseCsv(rows);
+      const lines = csv.split('\r\n');
+      expect(lines[1]).toBe(`"2026-01-01","A","Test","123.45"`);
+    });
+
+    it('keeps a negative total row a plain parseable number', () => {
+      const rows: BusinessExpenseRow[] = [
+        { date: '2026-01-01', payee: 'Refund', description: 'Credit note', amountCents: -5000 },
+        { date: '2026-01-02', payee: 'Refund 2', description: 'Credit note 2', amountCents: -1000 },
+      ];
+      const csv = buildBusinessExpenseCsv(rows);
+      const lines = csv.split('\r\n');
+      const lastLine = lines[lines.length - 1];
+      expect(lastLine).toBe(`"","","Total","-60.00"`);
+    });
+
+    // The following exercise the exported guard helpers directly — this is
+    // the part that actually fails without the fix (the old module exports
+    // neither `applyFormulaInjectionGuard` nor `escapeAmountField` at all,
+    // so importing them is a compile/runtime error before the fix).
+    it('exposes the module-wide formula-injection guard, and it DOES prefix a bare leading "-" (OWASP guidance for free text)', () => {
+      expect(applyFormulaInjectionGuard('-50.00')).toBe("'-50.00");
+      expect(applyFormulaInjectionGuard('=SUM(A1:A10)')).toBe("'=SUM(A1:A10)");
+      expect(applyFormulaInjectionGuard('123.45')).toBe('123.45');
+    });
+
+    it('escapeAmountField routes through the SAME guard, but exempts a clean negative decimal so it stays numeric', () => {
+      // Legitimate negative amount: NOT apostrophe-guarded, unlike the
+      // general text guard above — this is the deliberate exemption
+      // documented on escapeAmountField (a formatted amount can only ever
+      // be `-?\d+\.\d\d`, so a leading '-' here is always a real amount,
+      // never the start of an injected formula).
+      expect(escapeAmountField('-50.00')).toBe('"-50.00"');
+      // Positive amount: unaffected, as before.
+      expect(escapeAmountField('123.45')).toBe('"123.45"');
+      // Defense in depth: any other formula-trigger character reaching this
+      // helper (should never happen for a value produced by formatAmount)
+      // is still guarded exactly like a text field.
+      expect(escapeAmountField('=SUM(A1)')).toBe(`"'=SUM(A1)"`);
     });
   });
 });

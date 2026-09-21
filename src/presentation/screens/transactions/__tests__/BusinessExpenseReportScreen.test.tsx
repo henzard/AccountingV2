@@ -29,6 +29,8 @@ jest.mock('drizzle-orm', () => ({
   and: jest.fn((...a: unknown[]) => a),
   eq: jest.fn((c: unknown, v: unknown) => ({ c, v })),
   isNull: jest.fn((col: unknown) => ({ isNull: col })),
+  gte: jest.fn((c: unknown, v: unknown) => ({ gte: [c, v] })),
+  lte: jest.fn((c: unknown, v: unknown) => ({ lte: [c, v] })),
 }));
 
 // ─── Schema mock ──────────────────────────────────────────────────────────────
@@ -36,6 +38,8 @@ jest.mock('../../../../data/local/schema', () => ({
   transactions: {
     householdId: 'householdId',
     isBusinessExpense: 'isBusinessExpense',
+    transactionDate: 'transactionDate',
+    deletedAt: 'deletedAt',
   },
 }));
 
@@ -104,6 +108,28 @@ jest.mock('react-native-paper', () => {
       });
       return el;
     },
+    Menu: Object.assign(
+      ({
+        anchor,
+        visible,
+        children,
+      }: {
+        anchor?: React.ReactNode;
+        visible?: boolean;
+        children?: React.ReactNode;
+      }) => React.createElement(React.Fragment, null, anchor, visible ? children : null),
+      {
+        Item: ({
+          title,
+          onPress,
+          testID,
+        }: {
+          title?: string;
+          onPress?: () => void;
+          testID?: string;
+        }) => React.createElement('button', { testID, onPress }, title),
+      },
+    ),
   };
 });
 
@@ -319,7 +345,13 @@ describe('BusinessExpenseReportScreen', () => {
     await waitFor(() => {
       expect(mockShare).toHaveBeenCalled();
       const call = mockShare.mock.calls[0][0];
-      expect(call.title).toBe('Business expenses');
+      // B-01: the file name now carries the selected tax-year range (or
+      // "all-time") instead of a fixed 'Business expenses' string — checked
+      // by shape rather than an exact value since it's derived from the
+      // real current date.
+      expect(call.title).toMatch(
+        /^business-expenses-(all-time|\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2})\.csv$/,
+      );
       expect(call.message).toContain('Date,Payee,Description,Amount (ZAR)');
     });
   });
@@ -414,11 +446,192 @@ describe('BusinessExpenseReportScreen', () => {
     setupDbChain([]);
     mockGroupBusinessExpenses.mockReturnValue([]);
 
-    const { queryByTestId } = render(<BusinessExpenseReportScreen />);
+    const { queryByTestId, getByTestId } = render(<BusinessExpenseReportScreen />);
 
-    // When empty, EmptyState is shown instead of the list+header, so button isn't rendered
+    // When empty, EmptyState is shown alongside the header; the share
+    // button stays mounted (so the tax-year selector remains usable) but is
+    // disabled.
     await waitFor(() => {
       expect(queryByTestId('biz-expense-empty')).toBeTruthy();
     });
+    expect(getByTestId('share-csv-button').props.disabled).toBe(true);
+  });
+
+  // ─── B-01: tax-year selector ──────────────────────────────────────────────
+  describe('Tax-year selector (B-01)', () => {
+    it('defaults to the current SARS tax year computed from local "today"', async () => {
+      setupDbChain([]);
+      mockGroupBusinessExpenses.mockReturnValue([]);
+
+      const { getByTestId } = render(<BusinessExpenseReportScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('tax-year-selector-button')).toBeTruthy();
+      });
+
+      const { currentTaxYearKey } = require('../../../../domain/transactions/southAfricanTaxYear');
+      const { format } = require('date-fns');
+      const expectedKey = currentTaxYearKey(format(new Date(), 'yyyy-MM-dd'));
+
+      fireEvent.press(getByTestId('tax-year-selector-button'));
+      await waitFor(() => {
+        expect(getByTestId(`tax-year-option-${expectedKey}`)).toBeTruthy();
+      });
+    });
+
+    it('offers an "All time" option in the tax-year menu', async () => {
+      setupDbChain([]);
+      mockGroupBusinessExpenses.mockReturnValue([]);
+
+      const { getByTestId } = render(<BusinessExpenseReportScreen />);
+      await waitFor(() => {
+        expect(getByTestId('tax-year-selector-button')).toBeTruthy();
+      });
+
+      fireEvent.press(getByTestId('tax-year-selector-button'));
+      await waitFor(() => {
+        expect(getByTestId('tax-year-option-all-time')).toBeTruthy();
+      });
+    });
+
+    it('filters the query using gte/lte on transactionDate for the selected tax year', async () => {
+      setupDbChain([]);
+      mockGroupBusinessExpenses.mockReturnValue([]);
+      render(<BusinessExpenseReportScreen />);
+
+      await waitFor(() => {
+        const { gte, lte } = require('drizzle-orm');
+        expect(gte).toHaveBeenCalledWith('transactionDate', expect.stringMatching(/^\d{4}-03-01$/));
+        expect(lte).toHaveBeenCalledWith(
+          'transactionDate',
+          expect.stringMatching(/^\d{4}-02-(28|29)$/),
+        );
+      });
+    });
+
+    it('switching to "All time" reloads without a date-range filter', async () => {
+      setupDbChain([]);
+      mockGroupBusinessExpenses.mockReturnValue([]);
+      const { getByTestId } = render(<BusinessExpenseReportScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('tax-year-selector-button')).toBeTruthy();
+      });
+
+      const { gte, lte } = require('drizzle-orm');
+      const gteCallsBefore = gte.mock.calls.length;
+      const lteCallsBefore = lte.mock.calls.length;
+
+      fireEvent.press(getByTestId('tax-year-selector-button'));
+      await waitFor(() => {
+        expect(getByTestId('tax-year-option-all-time')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('tax-year-option-all-time'));
+
+      await waitFor(() => {
+        expect(getByTestId('biz-expense-empty')).toBeTruthy();
+      });
+      // No new gte/lte calls were made for the "All time" reload.
+      expect(gte.mock.calls.length).toBe(gteCallsBefore);
+      expect(lte.mock.calls.length).toBe(lteCallsBefore);
+    });
+
+    it('includes the selected tax-year range in the shared CSV file name', async () => {
+      const txRows = [
+        {
+          id: 'tx-1',
+          householdId: 'hh-1',
+          envelopeId: 'e1',
+          amountCents: 10000,
+          payee: 'Store A',
+          description: 'Office supplies',
+          transactionDate: '2026-06-15',
+          isBusinessExpense: true,
+          spendingTriggerNote: null,
+          slipId: null,
+          createdAt: '2026-06-15',
+          updatedAt: '2026-06-15',
+        },
+      ];
+      setupDbChain(txRows);
+      mockGroupBusinessExpenses.mockReturnValue([
+        {
+          monthKey: '2026-06',
+          monthLabel: 'June 2026',
+          totalCents: 10000,
+          transactions: txRows,
+        },
+      ]);
+
+      const { getByTestId } = render(<BusinessExpenseReportScreen />);
+      await waitFor(() => {
+        expect(getByTestId('share-csv-button')).toBeTruthy();
+      });
+
+      fireEvent.press(getByTestId('share-csv-button'));
+
+      await waitFor(() => {
+        expect(mockShare).toHaveBeenCalled();
+        const call = mockShare.mock.calls[0][0];
+        expect(call.title).toMatch(
+          /^business-expenses-\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}\.csv$/,
+        );
+      });
+    });
+  });
+
+  // ─── B-02: share button hit target ────────────────────────────────────────
+  it('renders the share-CSV button with a touch target of at least 44dp (size >= 28)', async () => {
+    setupDbChain([]);
+    mockGroupBusinessExpenses.mockReturnValue([]);
+    const { getByTestId } = render(<BusinessExpenseReportScreen />);
+
+    await waitFor(() => {
+      expect(getByTestId('share-csv-button')).toBeTruthy();
+    });
+
+    // react-native-paper's IconButton (v3) renders a touch target of
+    // `size + 2 * 8` — size must be >= 28 to reach the 44dp minimum.
+    const button = getByTestId('share-csv-button');
+    expect(button.props.size).toBeGreaterThanOrEqual(28);
+  });
+
+  // ─── B-03: payee/note allow 2 lines ────────────────────────────────────────
+  it('allows the payee text to wrap onto 2 lines instead of truncating to 1', async () => {
+    const txRows = [
+      {
+        id: 'tx-1',
+        householdId: 'hh-1',
+        envelopeId: 'e1',
+        amountCents: 15000,
+        payee: 'A Very Long Payee Name That Should Wrap',
+        description: null,
+        transactionDate: '2026-06-15',
+        isBusinessExpense: true,
+        spendingTriggerNote: 'A very long spending trigger note that should also wrap',
+        slipId: null,
+        createdAt: '2026-06-15',
+        updatedAt: '2026-06-15',
+      },
+    ];
+    setupDbChain(txRows);
+    mockGroupBusinessExpenses.mockReturnValue([
+      {
+        monthKey: '2026-06',
+        monthLabel: 'June 2026',
+        totalCents: 15000,
+        transactions: txRows,
+      },
+    ]);
+
+    const { getByText } = render(<BusinessExpenseReportScreen />);
+
+    await waitFor(() => {
+      expect(getByText('A Very Long Payee Name That Should Wrap')).toBeTruthy();
+    });
+    expect(getByText('A Very Long Payee Name That Should Wrap').props.numberOfLines).toBe(2);
+    expect(
+      getByText('A very long spending trigger note that should also wrap').props.numberOfLines,
+    ).toBe(2);
   });
 });

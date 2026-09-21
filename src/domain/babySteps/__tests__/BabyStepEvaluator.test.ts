@@ -7,10 +7,11 @@
  * Fixed date: 2026-04-12.
  */
 
-import { evaluate } from '../BabyStepEvaluator';
+import { evaluate, inferBabyStepSkips } from '../BabyStepEvaluator';
 import type { EvaluatorInput } from '../BabyStepEvaluator';
 import type { EnvelopeEntity } from '../../envelopes/EnvelopeEntity';
 import type { DebtEntity } from '../../debtSnowball/DebtEntity';
+import type { BabyStepStatus } from '../types';
 
 beforeAll(() => {
   jest.useFakeTimers();
@@ -275,6 +276,73 @@ describe('Step 2 — Debt Free', () => {
     const result = evaluate(makeInput(debts));
     expect(result[1].isCompleted).toBe(false);
     expect(result[1].progress).toBeNull();
+  });
+
+  // ── C-1: skip-in-order rule for the "no applicable debts" case ────────────
+  describe('no non-bond debts — skip-in-order rule (C-1)', () => {
+    function makeInputWithEmf(debts: DebtEntity[], emfBalance: number | null): EvaluatorInput {
+      if (emfBalance === null) {
+        return {
+          envelopes: [],
+          debts,
+          monthlyExpenseBaseline: 0,
+          savedCentsByEnvelopeId: NO_SAVINGS,
+          manualFlags: DEFAULT_MANUAL_FLAGS,
+        };
+      }
+      const emf = makeEnvelope({ envelopeType: 'emergency_fund' });
+      return {
+        envelopes: [emf],
+        debts,
+        monthlyExpenseBaseline: 0,
+        savedCentsByEnvelopeId: savedMap([emf, emfBalance]),
+        manualFlags: DEFAULT_MANUAL_FLAGS,
+      };
+    }
+
+    it('brand-new household, no debts entered yet, Step 1 NOT complete → Step 2 stays incomplete (never told "debt free" ahead of Step 1)', () => {
+      const result = evaluate(makeInputWithEmf(NO_DEBTS, null));
+      expect(result[0].isCompleted).toBe(false); // Step 1 not done
+      expect(result[1].isCompleted).toBe(false); // Step 2 must NOT skip ahead
+      expect(result[1].progress).toBeNull();
+    });
+
+    it('no non-bond debts, Step 1 already complete → Step 2 is `isSkipped: true`, but `isCompleted` STAYS false (SYNCED-table rule)', () => {
+      const result = evaluate(makeInputWithEmf(NO_DEBTS, STEP1_TARGET));
+      expect(result[0].isCompleted).toBe(true);
+      // `isCompleted` must never flip true for a vacuous skip — baby_steps is
+      // SYNCED and an older build in the field would read this row, evaluate
+      // Step 2 as incomplete under the OLD (pre-skip) rules, and write a
+      // regression back — an endless ping-pong between app versions.
+      expect(result[1].isCompleted).toBe(false);
+      expect(result[1].isSkipped).toBe(true);
+      expect(result[1].progress).toBeNull();
+    });
+
+    it('no non-bond debts, Step 1 NOT complete → `isSkipped` is false too (not eligible to skip ahead of Step 1)', () => {
+      const result = evaluate(makeInputWithEmf(NO_DEBTS, null));
+      expect(result[0].isCompleted).toBe(false);
+      expect(result[1].isCompleted).toBe(false);
+      expect(result[1].isSkipped).toBe(false);
+    });
+
+    it('symmetric regression: first non-bond debt added later clears `isSkipped` and Step 2 becomes a normal incomplete step', () => {
+      // Household previously had zero debts and Step 1 done → Step 2 skip-eligible.
+      const skipped = evaluate(makeInputWithEmf(NO_DEBTS, STEP1_TARGET));
+      expect(skipped[1].isCompleted).toBe(false);
+      expect(skipped[1].isSkipped).toBe(true);
+
+      // A first (unpaid) non-bond debt is entered.
+      const withDebt = evaluate(
+        makeInputWithEmf(
+          [makeDebt({ debtType: 'credit_card', isPaidOff: false, outstandingBalanceCents: 5000 })],
+          STEP1_TARGET,
+        ),
+      );
+      expect(withDebt[1].isCompleted).toBe(false);
+      expect(withDebt[1].isSkipped).toBe(false);
+      expect(withDebt[1].progress).toEqual({ current: 0, target: 1, unit: 'count' });
+    });
   });
 });
 
@@ -571,6 +639,67 @@ describe('Step 6 — House Free', () => {
     expect(result[5].isCompleted).toBe(false);
     expect(result[5].progress).toBeNull();
   });
+
+  // ── C-1: skip-in-order rule for the "no bond debts" case ──────────────────
+  describe('no bond debts — skip-in-order rule (C-1)', () => {
+    /** Builds an input where steps 1-5 are all complete (or not), with no debts. */
+    function makeInputAllEarlierDone(earlierDone: boolean): EvaluatorInput {
+      const emf = makeEnvelope({ envelopeType: 'emergency_fund' });
+      const income = makeEnvelope({ envelopeType: 'income', allocatedCents: INCOME_CENTS });
+      return {
+        envelopes: [emf, income],
+        debts: NO_DEBTS,
+        monthlyExpenseBaseline: MONTHLY_BASELINE,
+        // Step 3 needs 3x monthly baseline too, so fund the EMF enough for
+        // both Step 1 and Step 3 when `earlierDone` is true.
+        savedCentsByEnvelopeId: savedMap([emf, earlierDone ? STEP3_TARGET : 0]),
+        manualFlags: { 4: earlierDone, 5: earlierDone, 7: false },
+      };
+    }
+
+    it('no debts at all, steps 1-5 NOT all complete → Step 6 stays incomplete and not skipped', () => {
+      const result = evaluate(makeInputAllEarlierDone(false));
+      expect(result[5].isCompleted).toBe(false);
+      expect(result[5].isSkipped).toBe(false);
+      expect(result[5].progress).toBeNull();
+    });
+
+    it('no bond debts, steps 1-5 all effectively done (Step 2 itself SKIPPED, not completed) → Step 6 is `isSkipped: true`, `isCompleted` stays false', () => {
+      const result = evaluate(makeInputAllEarlierDone(true));
+      expect(result[0].isCompleted).toBe(true);
+      // Step 2 is a vacuous skip too (no debts at all in this fixture) — it
+      // must NOT be genuinely `isCompleted`, only `isSkipped`.
+      expect(result[1].isCompleted).toBe(false);
+      expect(result[1].isSkipped).toBe(true);
+      expect(result[2].isCompleted).toBe(true);
+      expect(result[3].isCompleted).toBe(true);
+      expect(result[4].isCompleted).toBe(true);
+      // Step 6 gates on Step 2 being EFFECTIVELY done (completed OR skipped),
+      // so a skipped (not completed) Step 2 must still let Step 6 skip.
+      expect(result[5].isCompleted).toBe(false);
+      expect(result[5].isSkipped).toBe(true);
+      expect(result[5].progress).toBeNull();
+    });
+
+    it('no bond debts, Step 2 is a NORMAL incomplete step (has debts, unpaid) → Step 6 is NOT skip-eligible', () => {
+      const emf = makeEnvelope({ envelopeType: 'emergency_fund' });
+      const income = makeEnvelope({ envelopeType: 'income', allocatedCents: INCOME_CENTS });
+      const input: EvaluatorInput = {
+        envelopes: [emf, income],
+        debts: [
+          makeDebt({ debtType: 'credit_card', isPaidOff: false, outstandingBalanceCents: 5000 }),
+        ],
+        monthlyExpenseBaseline: MONTHLY_BASELINE,
+        savedCentsByEnvelopeId: savedMap([emf, STEP3_TARGET]),
+        manualFlags: { 4: true, 5: true, 7: false },
+      };
+      const result = evaluate(input);
+      expect(result[1].isCompleted).toBe(false); // unpaid debt — genuinely incomplete
+      expect(result[1].isSkipped).toBe(false);
+      expect(result[5].isCompleted).toBe(false);
+      expect(result[5].isSkipped).toBe(false); // gated shut — Step 2 isn't done or skipped
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -622,5 +751,127 @@ describe('output structure', () => {
     const result = evaluate(input);
     expect(result).toHaveLength(7);
     expect(result.map((s) => s.stepNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inferBabyStepSkips — presentation-layer re-derivation from BabyStepStatus[]
+// (never from evaluate()'s own isSkipped, which never leaves this module's
+// caller — this operates on exactly what ReconcileBabyStepsUseCase returns)
+// ---------------------------------------------------------------------------
+
+describe('inferBabyStepSkips', () => {
+  function status(
+    stepNumber: 1 | 2 | 3 | 4 | 5 | 6 | 7,
+    overrides: Partial<BabyStepStatus> = {},
+  ): BabyStepStatus {
+    return {
+      stepNumber,
+      isCompleted: false,
+      isManual: [4, 5, 7].includes(stepNumber),
+      progress: null,
+      completedAt: null,
+      celebratedAt: null,
+      ...overrides,
+    };
+  }
+
+  it('infers Step 2 as skipped when Step 1 is complete and Step 2 has null progress + isCompleted=false', () => {
+    const statuses: BabyStepStatus[] = [
+      status(1, {
+        isCompleted: true,
+        progress: { current: 100_000, target: 100_000, unit: 'cents' },
+      }),
+      status(2), // progress: null, isCompleted: false — the vacuous-skip shape
+      status(3),
+      status(4),
+      status(5),
+      status(6),
+      status(7),
+    ];
+    const { skippedStepNumbers, isEffectivelyDone } = inferBabyStepSkips(statuses);
+    expect(skippedStepNumbers.has(2)).toBe(true);
+    expect(isEffectivelyDone(2)).toBe(true);
+    expect(isEffectivelyDone(1)).toBe(true);
+    expect(isEffectivelyDone(3)).toBe(false);
+  });
+
+  it('does NOT infer a skip when Step 1 is not complete (brand-new household, no debts entered)', () => {
+    const statuses: BabyStepStatus[] = [
+      status(1), // not complete
+      status(2), // null progress but Step 1 isn't done — not skip-eligible
+      status(3),
+      status(4),
+      status(5),
+      status(6),
+      status(7),
+    ];
+    const { skippedStepNumbers, isEffectivelyDone } = inferBabyStepSkips(statuses);
+    expect(skippedStepNumbers.has(2)).toBe(false);
+    expect(isEffectivelyDone(2)).toBe(false);
+  });
+
+  it('does NOT infer a skip for a step with non-null progress (a genuine incomplete/complete step)', () => {
+    const statuses: BabyStepStatus[] = [
+      status(1, { isCompleted: true }),
+      status(2, { progress: { current: 0, target: 1, unit: 'count' } }), // has a debt, unpaid
+      status(3),
+      status(4),
+      status(5),
+      status(6),
+      status(7),
+    ];
+    const { skippedStepNumbers, isEffectivelyDone } = inferBabyStepSkips(statuses);
+    expect(skippedStepNumbers.has(2)).toBe(false);
+    expect(isEffectivelyDone(2)).toBe(false);
+  });
+
+  it('lets Step 6 skip after a SKIPPED (not completed) Step 2, when Steps 1,3,4,5 are all complete', () => {
+    const statuses: BabyStepStatus[] = [
+      status(1, { isCompleted: true }),
+      status(2), // skipped — isCompleted false, progress null
+      status(3, { isCompleted: true }),
+      status(4, { isCompleted: true }),
+      status(5, { isCompleted: true }),
+      status(6), // no bond debts — same vacuous shape
+      status(7),
+    ];
+    const { skippedStepNumbers, isEffectivelyDone } = inferBabyStepSkips(statuses);
+    expect(skippedStepNumbers.has(2)).toBe(true);
+    expect(skippedStepNumbers.has(6)).toBe(true);
+    expect(isEffectivelyDone(6)).toBe(true);
+  });
+
+  it('does NOT let Step 6 skip when an earlier step is genuinely incomplete', () => {
+    const statuses: BabyStepStatus[] = [
+      status(1, { isCompleted: true }),
+      status(2), // skipped
+      status(3), // NOT complete, NOT indeterminate-skippable — genuinely blocking
+      status(4, { isCompleted: true }),
+      status(5, { isCompleted: true }),
+      status(6),
+      status(7),
+    ];
+    const { skippedStepNumbers, isEffectivelyDone } = inferBabyStepSkips(statuses);
+    expect(skippedStepNumbers.has(6)).toBe(false);
+    expect(isEffectivelyDone(6)).toBe(false);
+  });
+
+  it('genuine full completion (real debts, all paid) is reported via isCompleted, never as a skip', () => {
+    const statuses: BabyStepStatus[] = [
+      status(1, { isCompleted: true }),
+      status(2, {
+        isCompleted: true,
+        progress: { current: 1, target: 1, unit: 'count' },
+      }),
+      status(3),
+      status(4),
+      status(5),
+      status(6),
+      status(7),
+    ];
+    const { skippedStepNumbers, isEffectivelyDone } = inferBabyStepSkips(statuses);
+    expect(skippedStepNumbers.has(2)).toBe(false);
+    expect(isEffectivelyDone(2)).toBe(true); // done via genuine isCompleted, not a skip
   });
 });

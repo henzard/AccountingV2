@@ -135,6 +135,21 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   // usage BEFORE this save (VAL-13) net of this transaction's own old amount.
   const [existingTransaction, setExistingTransaction] = useState<TransactionEntity | null>(null);
 
+  // E-1: in EDIT mode the row being edited can belong to a PAST period's
+  // envelope, whose balances do NOT live in the current period. This holds
+  // the period every balance/preview/threshold on this screen must be read
+  // against for the currently selected envelope. Null means "the current
+  // period", which is always right in create mode, for a persistent-type
+  // envelope (it has no period), and after the user re-picks an envelope
+  // from the current period's picker list.
+  const [editedEnvelopePeriodStart, setEditedEnvelopePeriodStart] = useState<string | null>(null);
+
+  // A household "over budget" push about a period that has already closed is
+  // noise, so it is suppressed for a past-period edit; current-period edits
+  // keep it.
+  const isEditingPastPeriodEnvelope =
+    editedEnvelopePeriodStart !== null && editedEnvelopePeriodStart !== periodStart;
+
   const [coachingResult, setCoachingResult] = useState<CoachingResult | null>(null);
   // VAL2-9: "cover it from another envelope" — the sheet listing PERIOD
   // envelopes with enough unspent money to cover the current shortfall.
@@ -185,21 +200,50 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   // Fetches one envelope by id (regardless of the picker list's current-period
   // filter) for prefill purposes — the edited transaction's envelope, or a
   // create-mode preselected one, may not be in that filtered list.
+  //
+  // E-1: `getEnvelopeSpentCents` only returns envelopes that are in scope for
+  // the period it is asked about, so a PAST period's spending envelope looked
+  // up under the CURRENT period came back absent and its spend read as 0 —
+  // a wrong "left after this" preview and a bogus over-budget threshold on
+  // every edit of an older transaction. `useEnvelopeOwnPeriod` (edit mode
+  // only) reads it under the period its own `period_start` names instead.
+  // Persistent types have no period, so the current one stays correct for
+  // them, and create mode is unchanged.
   const loadEnvelopeOption = useCallback(
-    async (envelopeId: string): Promise<EnvelopeOption | null> => {
+    async (
+      envelopeId: string,
+      options?: { useEnvelopeOwnPeriod?: boolean },
+    ): Promise<{ option: EnvelopeOption; balancePeriodStart: string } | null> => {
       const [row] = await db
         .select({
           id: envelopesTable.id,
           name: envelopesTable.name,
           allocatedCents: envelopesTable.allocatedCents,
           envelopeType: envelopesTable.envelopeType,
+          periodStart: envelopesTable.periodStart,
         })
         .from(envelopesTable)
         .where(and(eq(envelopesTable.id, envelopeId), eq(envelopesTable.householdId, householdId)))
         .limit(1);
       if (!row) return null;
-      const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, periodStart);
-      return { ...row, spentCents: spentByEnvelope.get(row.id) ?? 0 } as EnvelopeOption;
+      const { periodStart: envelopePeriodStart, ...envelopeRow } = row;
+      // The schema column is plain `text`; every other read of it on this
+      // screen goes through EnvelopeOption's narrowed union.
+      const envelopeType = envelopeRow.envelopeType as EnvelopeOption['envelopeType'];
+      const balancePeriodStart =
+        options?.useEnvelopeOwnPeriod &&
+        envelopePeriodStart &&
+        getEnvelopeScope({ envelopeType }) === 'period'
+          ? envelopePeriodStart
+          : periodStart;
+      const spentByEnvelope = await getEnvelopeSpentCents(db, householdId, balancePeriodStart);
+      return {
+        option: {
+          ...envelopeRow,
+          spentCents: spentByEnvelope.get(envelopeRow.id) ?? 0,
+        } as EnvelopeOption,
+        balancePeriodStart,
+      };
     },
     [householdId, periodStart],
   );
@@ -236,9 +280,12 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         setDescription(tx.description ?? '');
         setTransactionDate(tx.transactionDate);
         setIsBusinessExpense(tx.isBusinessExpense);
-        const envOption = await loadEnvelopeOption(tx.envelopeId);
+        const loaded = await loadEnvelopeOption(tx.envelopeId, { useEnvelopeOwnPeriod: true });
         if (cancelled) return;
-        if (envOption) setSelectedEnvelope(envOption);
+        if (loaded) {
+          setSelectedEnvelope(loaded.option);
+          setEditedEnvelopePeriodStart(loaded.balancePeriodStart);
+        }
         setLoadingExisting(false);
       })
       .catch(() => {
@@ -258,9 +305,9 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
   useEffect(() => {
     if (transactionId || !presetEnvelopeId || !householdId) return;
     let cancelled = false;
-    loadEnvelopeOption(presetEnvelopeId).then((envOption) => {
-      if (!cancelled && envOption) {
-        setSelectedEnvelope(envOption);
+    loadEnvelopeOption(presetEnvelopeId).then((loaded) => {
+      if (!cancelled && loaded) {
+        setSelectedEnvelope(loaded.option);
         focusAmount();
       }
     });
@@ -426,7 +473,10 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
                   ),
                   crossing === 100 ? 'error' : 'regression',
                 );
-                if (crossing === 100 && overByCents > 0) {
+                // E-1: ...but never for an edit of a PAST period's envelope —
+                // waking the household about a period that has already
+                // closed is noise, not news.
+                if (crossing === 100 && overByCents > 0 && !isEditingPastPeriodEnvelope) {
                   householdNotifier.notifyHousehold({
                     kind: 'envelope_over_budget',
                     householdId,
@@ -459,6 +509,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
       selectedEnvelope,
       existingTransaction,
       previousSpentCentsForSelectedEnvelope,
+      isEditingPastPeriodEnvelope,
       payee,
       description,
       householdId,
@@ -537,6 +588,14 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
       return unspentCents >= coachingResult.overspendCents;
     });
   }, [coachingResult, selectedEnvelope, envelopes]);
+
+  // E-1: picking from the picker replaces the edited row's envelope with one
+  // from the CURRENT period's list, so the past-period balance scope derived
+  // when the row loaded no longer applies.
+  const handleEnvelopeSelected = useCallback((env: EnvelopeOption): void => {
+    setSelectedEnvelope(env);
+    setEditedEnvelopePeriodStart(null);
+  }, []);
 
   const handleCoverFromAnotherEnvelope = useCallback((): void => {
     setShowCoverPicker(true);
@@ -828,7 +887,7 @@ export const AddTransactionScreen: React.FC<AddTransactionScreenProps> = ({
         visible={showPicker}
         envelopes={envelopes}
         selectedId={selectedEnvelope?.id}
-        onSelect={(env) => setSelectedEnvelope(env)}
+        onSelect={handleEnvelopeSelected}
         onClose={() => {
           setShowPicker(false);
           // UX2-5: land back in the amount field once an envelope has been

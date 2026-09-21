@@ -9,13 +9,26 @@
  * - Runs reconcile() on mount and when triggered externally, but ONLY when
  *   AppState.currentState === 'active'.
  * - Subscribes to AppState 'change' events; on 'active' transition, re-reconciles.
- * - On newlyCompleted: enqueues to celebrationStore (store handles dedup).
+ * - On newlyCompleted: enqueues to celebrationStore (store handles dedup). A
+ *   vacuous Step 2/6 "no applicable debts" skip (C-1) is never celebrated —
+ *   but not because anything here suppresses it: `ReconcileBabyStepsUseCase`
+ *   deliberately keeps `isCompleted: false` for that case (baby_steps is a
+ *   SYNCED table — see BabyStepEvaluator's "Steps 2 and 6" note), so it can
+ *   never appear in `newlyCompleted` in the first place. The "this step is
+ *   skipped, not blocking progress" fact is re-derived purely for DISPLAY by
+ *   `inferBabyStepSkips` in BabyStepsScreen.tsx / SevenDotPath.tsx, never here.
  * - On newlyRegressed: enqueues regression toast to toastStore with canonical copy
  *   from BabyStepRules.
  * - Background path (task 3.7): if reconcile runs while backgrounded and finds newly
  *   completed steps, calls LocalNotificationScheduler.fireBabyStepCelebration(n) as
  *   a preview signal. On next foreground, re-reconcile picks up celebrated_at=null and
  *   enqueues the modal.
+ * - Also re-reconciles whenever a sync round lands while the screen is mounted
+ *   (C-3), via `useReloadOnSync` — a sync pulling in a partner's debt payoff, or a
+ *   debt being added on another device, must refresh the bar without waiting for a
+ *   background→foreground transition or a screen re-focus. `reconcile` itself
+ *   already coalesces concurrent invocations (see `inFlightRef`), so this can never
+ *   race the mount/AppState/manual-toggle call sites.
  *
  * Spec §Presentation layer — useBabySteps, §Concurrency guards, §Data flow.
  */
@@ -30,6 +43,7 @@ import { BABY_STEP_RULES } from '../../domain/babySteps/BabyStepRules';
 import type { BabyStepStatus, ReconcileResult } from '../../domain/babySteps/types';
 import { useCelebrationStore } from '../stores/celebrationStore';
 import { useToastStore } from '../stores/toastStore';
+import { useReloadOnSync } from './useReloadOnSync';
 import { LocalNotificationScheduler } from '../../infrastructure/notifications/LocalNotificationScheduler';
 
 export interface UseBabyStepsDeps {
@@ -171,6 +185,17 @@ export function useBabySteps(
       subscription.remove();
     };
   }, [reconcile]);
+
+  // C-3: re-reconcile whenever a sync round lands while this screen is
+  // mounted (foregrounded), not just on mount / background→active. `reconcile`
+  // is a no-op re-entrancy-wise: its own `inFlightRef` coalesces this call
+  // with any concurrent one from the mount effect, the AppState listener, or
+  // toggleManualStep, so this can never run reconcile concurrently with itself.
+  useReloadOnSync(
+    useCallback(async () => {
+      await reconcile();
+    }, [reconcile]),
+  );
 
   const toggleManualStep = useCallback(
     async (stepNumber: number, completed: boolean): Promise<void> => {

@@ -97,19 +97,38 @@ export function SlipCaptureScreen({
     }
   }, [cameraRef, frames, isOnline, dailyCount, showCoachmark, dismissCoachmark, enqueue]);
 
-  const removeFrame = useCallback((idx: number): void => {
-    setPendingDelete(idx);
-    const handle = setTimeout(() => {
-      timeoutsRef.current.delete(handle);
-      setPendingDelete(null);
-      setFrames((prev) => prev.filter((_, i) => i !== idx));
-    }, 3000);
-    timeoutsRef.current.add(handle);
+  const pendingDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelPendingDelete = useCallback((): void => {
+    const handle = pendingDeleteTimerRef.current;
+    if (handle === null) return;
+    clearTimeout(handle);
+    timeoutsRef.current.delete(handle);
+    pendingDeleteTimerRef.current = null;
   }, []);
 
+  const removeFrame = useCallback(
+    (idx: number): void => {
+      cancelPendingDelete();
+      setPendingDelete(idx);
+      const handle = setTimeout(() => {
+        timeoutsRef.current.delete(handle);
+        pendingDeleteTimerRef.current = null;
+        setPendingDelete(null);
+        setFrames((prev) => prev.filter((_, i) => i !== idx));
+      }, 3000);
+      pendingDeleteTimerRef.current = handle;
+      timeoutsRef.current.add(handle);
+    },
+    [cancelPendingDelete],
+  );
+
+  // Undo must cancel the timer, not just hide the Undo button: it used to
+  // leave the timer running, so the photo was removed 3s later anyway.
   const undoDelete = useCallback((): void => {
+    cancelPendingDelete();
     setPendingDelete(null);
-  }, []);
+  }, [cancelPendingDelete]);
 
   const handleDone = useCallback((): void => {
     if (frames.length === 0) return;
@@ -136,6 +155,8 @@ export function SlipCaptureScreen({
             style={[styles.permissionButton, { backgroundColor: colors.primary }]}
             onPress={requestPermission}
             testID="request-permission"
+            accessibilityRole="button"
+            accessibilityLabel="Grant camera permission"
           >
             <Text style={{ color: colors.onPrimary }}>Grant Permission</Text>
           </TouchableOpacity>
@@ -144,6 +165,8 @@ export function SlipCaptureScreen({
             style={[styles.permissionButton, { backgroundColor: colors.primary }]}
             onPress={() => Linking.openSettings()}
             testID="open-settings"
+            accessibilityRole="button"
+            accessibilityLabel="Open device settings to grant camera permission"
           >
             <Text style={{ color: colors.onPrimary }}>Open Settings</Text>
           </TouchableOpacity>
@@ -185,6 +208,9 @@ export function SlipCaptureScreen({
                   onPress={undoDelete}
                   style={[styles.undoButton, { backgroundColor: colors.warning }]}
                   testID={`undo-delete-${idx}`}
+                  accessibilityRole="button"
+                  accessibilityLabel="Undo delete"
+                  hitSlop={OVERLAY_HIT_SLOP}
                 >
                   <Text style={styles.overlayButtonText}>Undo</Text>
                 </TouchableOpacity>
@@ -193,6 +219,9 @@ export function SlipCaptureScreen({
                   onPress={() => removeFrame(idx)}
                   style={styles.deleteButton}
                   testID={`delete-frame-${idx}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove photo ${idx + 1}`}
+                  hitSlop={OVERLAY_HIT_SLOP}
                 >
                   <Text style={styles.overlayButtonText}>✕</Text>
                 </TouchableOpacity>
@@ -212,6 +241,9 @@ export function SlipCaptureScreen({
           onPress={takePicture}
           disabled={shutterDisabled}
           testID="shutter-button"
+          accessibilityRole="button"
+          accessibilityLabel="Take photo"
+          accessibilityState={{ disabled: shutterDisabled }}
         />
         {frames.length > 0 && !shutterDisabled && (
           <TouchableOpacity
@@ -219,6 +251,9 @@ export function SlipCaptureScreen({
             onPress={takePicture}
             disabled={shutterDisabled}
             testID="add-page-button"
+            accessibilityRole="button"
+            accessibilityLabel="Add another page"
+            accessibilityState={{ disabled: shutterDisabled }}
           >
             <Text style={[styles.controlButtonText, { color: colors.onSecondary }]}>+ Page</Text>
           </TouchableOpacity>
@@ -231,6 +266,9 @@ export function SlipCaptureScreen({
           onPress={handleDone}
           disabled={frames.length === 0}
           testID="done-button"
+          accessibilityRole="button"
+          accessibilityLabel={`Process ${frames.length} photo${frames.length !== 1 ? 's' : ''}`}
+          accessibilityState={{ disabled: frames.length === 0 }}
         >
           <Text
             style={[
@@ -275,6 +313,10 @@ export function SlipCaptureScreen({
     </View>
   );
 }
+
+// The overlay ✕ / Undo stay small so they don't hide the 64×72 thumbnail;
+// hitSlop extends the touch target to ~44dp instead of growing the view.
+const OVERLAY_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 };
 
 const styles = StyleSheet.create({
   // Camera viewport is intentionally black (#000) — do not theme

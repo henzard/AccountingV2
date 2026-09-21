@@ -3,10 +3,21 @@ import { render, fireEvent, act } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 
-jest.mock('@react-navigation/native', () => ({
-  ...jest.requireActual('@react-navigation/native'),
-  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn() }),
-}));
+jest.mock('@react-navigation/native', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const R = require('react');
+  return {
+    ...jest.requireActual('@react-navigation/native'),
+    useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn() }),
+    // A real effect keyed on the callback's identity — "once per focus", not
+    // "every render". The screen skips its first focus (that IS the mount
+    // load), so these existing tests see unchanged behaviour; the re-focus
+    // refresh is covered in SlipQueueScreen.focusRefresh.test.tsx.
+    useFocusEffect: (cb: () => void | (() => void)) => {
+      R.useEffect(() => cb(), [cb]);
+    },
+  };
+});
 
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 

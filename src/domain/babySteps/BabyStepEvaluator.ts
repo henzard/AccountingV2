@@ -15,6 +15,36 @@
  * Step 6: count(bond, !archived debts) > 0 AND all such debts paid off
  * Step 7: manualFlags[7] === true
  *
+ * Steps 2 and 6 — the "N/A" case (zero applicable debts):
+ * Ramsey's rule is that a step which does not apply is SKIPPED, not that a
+ * household with no debts on file is automatically "debt free". A brand-new
+ * household that simply has not entered its debts yet must not be told it
+ * has finished Step 2/6.
+ *
+ * IMPORTANT — `isCompleted` for this vacuous case is ALWAYS `false`, exactly
+ * as on master, and MUST STAY that way: `baby_steps` is a SYNCED table with
+ * older app builds in the field. If this evaluator reported `isCompleted:
+ * true` for a skip, `ReconcileBabyStepsUseCase` would persist that to the
+ * synced row — an older build (running the pre-skip evaluator) would then
+ * read the same household, evaluate the same step as `false`, and write a
+ * regression; the newer build would flip it back; repeat forever. So the
+ * "skipped" fact is carried ONLY on `isSkipped` (see `EvaluatedStep`), a
+ * field `ReconcileBabyStepsUseCase` does not read or forward into its
+ * persisted row OR into the `BabyStepStatus[]` it returns — it is consumed
+ * exclusively by `evaluate()`'s own caller-side logic here (to gate Step 6's
+ * skip eligibility) and by this module's `inferBabyStepSkips`, which
+ * re-derives the same fact PURELY from already-returned `BabyStepStatus`
+ * data (never from anything new persisted) for the presentation layer. See
+ * `inferBabyStepSkips` below and its use in BabyStepsScreen.tsx / useBabySteps.ts.
+ *
+ * `progress` stays `null` for this vacuous case (as it already is for the
+ * "no debts at all" case) regardless of skip eligibility — non-null the
+ * instant there is at least one applicable debt (paid or not) — which is
+ * exactly the signal `inferBabyStepSkips` relies on. Adding a first debt
+ * later drops `nonBondDebts.length` back above zero, which falls through to
+ * the normal paid/unpaid check — that un-completes (and un-skips) the step
+ * exactly like any other regression.
+ *
  * "balance_cents" of the EMF is its SAVED balance, supplied by the caller via
  * `savedCentsByEnvelopeId` — NOT `allocatedCents - spentCents`. The EMF is a
  * persistent envelope whose `allocatedCents` is the MONTHLY contribution the
@@ -70,6 +100,15 @@ export interface EvaluatorInput {
  */
 export interface EvaluatedStep extends Omit<BabyStepStatus, 'completedAt' | 'celebratedAt'> {
   isIndeterminate: boolean;
+  /**
+   * IN-MEMORY ONLY — never persisted, never forwarded by
+   * `ReconcileBabyStepsUseCase` into its DB write or into the
+   * `BabyStepStatus[]` it returns. `true` only for Step 2/6 when there are
+   * zero applicable debts AND every step before it is already done (or
+   * itself skipped) — see the "Steps 2 and 6" note above. Absent/`false`
+   * everywhere else.
+   */
+  isSkipped: boolean;
 }
 
 /**
@@ -117,10 +156,18 @@ function evaluateStep1(
   };
 }
 
-function evaluateStep2(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
+function evaluateStep2(
+  debts: DebtEntity[],
+  step1Completed: boolean,
+): Pick<BabyStepStatus, 'isCompleted' | 'progress'> & { isSkipped: boolean } {
   const nonBondDebts = debts.filter((d) => d.debtType !== 'bond');
   if (nonBondDebts.length === 0) {
-    return { isCompleted: false, progress: null };
+    // No non-bond debts to pay off. `isCompleted` STAYS false (matches
+    // master exactly — see the SYNCED-table note at the top of this file);
+    // `isSkipped` carries the "this step doesn't apply" fact, gated on Step 1
+    // already being done so a brand-new household isn't told it skipped
+    // ahead of Step 1 before ever entering a debt.
+    return { isCompleted: false, progress: null, isSkipped: step1Completed };
   }
   const paidCount = nonBondDebts.filter(
     (d) => d.isPaidOff || d.outstandingBalanceCents === 0,
@@ -129,6 +176,7 @@ function evaluateStep2(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' 
   return {
     isCompleted: allPaid,
     progress: { current: paidCount, target: nonBondDebts.length, unit: 'count' },
+    isSkipped: false,
   };
 }
 
@@ -164,10 +212,16 @@ function evaluateStep3(
   };
 }
 
-function evaluateStep6(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' | 'progress'> {
+function evaluateStep6(
+  debts: DebtEntity[],
+  earlierStepsCompleted: boolean,
+): Pick<BabyStepStatus, 'isCompleted' | 'progress'> & { isSkipped: boolean } {
   const bondDebts = debts.filter((d) => d.debtType === 'bond');
   if (bondDebts.length === 0) {
-    return { isCompleted: false, progress: null };
+    // No bond. `isCompleted` STAYS false — see the SYNCED-table note at the
+    // top of this file. `isSkipped` is gated on Steps 1-5 already being done
+    // (a skipped Step 2 counts as "done" for this gate — see `evaluate()`).
+    return { isCompleted: false, progress: null, isSkipped: earlierStepsCompleted };
   }
   const allPaid = bondDebts.every((d) => d.isPaidOff || d.outstandingBalanceCents === 0);
   return {
@@ -184,6 +238,7 @@ function evaluateStep6(debts: DebtEntity[]): Pick<BabyStepStatus, 'isCompleted' 
       target: bondDebts.reduce((s, d) => s + d.initialBalanceCents, 0),
       unit: 'cents',
     },
+    isSkipped: false,
   };
 }
 
@@ -197,20 +252,43 @@ export function evaluate(input: EvaluatorInput): EvaluatedStep[] {
   const { envelopes, debts, monthlyExpenseBaseline, manualFlags, savedCentsByEnvelopeId } = input;
 
   const step1 = evaluateStep1(envelopes, savedCentsByEnvelopeId);
-  const step2 = evaluateStep2(debts);
+  const step2 = evaluateStep2(debts, step1.isCompleted);
   const step3 = evaluateStep3(envelopes, monthlyExpenseBaseline, savedCentsByEnvelopeId);
-  const step6 = evaluateStep6(debts);
+  // Step 6 is only eligible to be skipped once every step before it is
+  // effectively done — a SKIPPED Step 2 counts as done for this gate (a
+  // household with neither non-bond nor bond debts must be able to skip
+  // straight from Step 1 to Step 3, not get stuck because Step 2 is
+  // "incomplete"). Step 3's `isCompleted` is `false` both when it is
+  // genuinely unmet and when it is indeterminate (income not yet entered
+  // this period) — either way "unknown/unmet" is the safe default for
+  // gating a later step's skip, so no separate indeterminate check is
+  // needed here.
+  const step2EffectivelyDone = step2.isCompleted || step2.isSkipped;
+  const earlierStepsCompletedForStep6 =
+    step1.isCompleted &&
+    step2EffectivelyDone &&
+    step3.isCompleted &&
+    manualFlags[4] &&
+    manualFlags[5];
+  const step6 = evaluateStep6(debts, earlierStepsCompletedForStep6);
 
   return [
-    { stepNumber: 1, isManual: BABY_STEP_RULES[1].isManual, isIndeterminate: false, ...step1 },
+    {
+      stepNumber: 1,
+      isManual: BABY_STEP_RULES[1].isManual,
+      isIndeterminate: false,
+      isSkipped: false,
+      ...step1,
+    },
     { stepNumber: 2, isManual: BABY_STEP_RULES[2].isManual, isIndeterminate: false, ...step2 },
-    { stepNumber: 3, isManual: BABY_STEP_RULES[3].isManual, ...step3 },
+    { stepNumber: 3, isManual: BABY_STEP_RULES[3].isManual, isSkipped: false, ...step3 },
     {
       stepNumber: 4,
       isManual: BABY_STEP_RULES[4].isManual,
       isCompleted: manualFlags[4],
       progress: null,
       isIndeterminate: false,
+      isSkipped: false,
     },
     {
       stepNumber: 5,
@@ -218,6 +296,7 @@ export function evaluate(input: EvaluatorInput): EvaluatedStep[] {
       isCompleted: manualFlags[5],
       progress: null,
       isIndeterminate: false,
+      isSkipped: false,
     },
     { stepNumber: 6, isManual: BABY_STEP_RULES[6].isManual, isIndeterminate: false, ...step6 },
     {
@@ -226,6 +305,70 @@ export function evaluate(input: EvaluatorInput): EvaluatedStep[] {
       isCompleted: manualFlags[7],
       progress: null,
       isIndeterminate: false,
+      isSkipped: false,
     },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Presentation-layer helper — re-derives skips from ALREADY-RETURNED statuses
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of re-deriving Step 2/6 "no applicable debts" skips from a
+ * `BabyStepStatus[]` — i.e. from what `ReconcileBabyStepsUseCase` actually
+ * returns to the UI, NOT from `evaluate()`'s own `isSkipped` (which never
+ * leaves this module's caller — see the "Steps 2 and 6" note above).
+ */
+export interface BabyStepSkipInference {
+  /** Step numbers (only ever 2 and/or 6) inferred as a vacuous skip. */
+  skippedStepNumbers: ReadonlySet<number>;
+  /** True once a step is done for PROGRESSION purposes — genuinely completed OR skipped. */
+  isEffectivelyDone: (stepNumber: number) => boolean;
+}
+
+/**
+ * Presentation-layer only. `ReconcileBabyStepsUseCase` persists (and
+ * returns) `isCompleted: false` for a Step 2/6 vacuous skip — deliberately,
+ * so nothing new is ever written to the SYNCED `baby_steps` table (see the
+ * "Steps 2 and 6" note above). That means the UI must re-derive "this step
+ * doesn't apply, don't block progress on it" PURELY from the
+ * already-returned `BabyStepStatus[]`, using exactly the same signal the
+ * evaluator uses internally: `progress` is `null` on Step 2/6 ONLY when
+ * there are zero applicable debts on file (non-null the instant there is at
+ * least one, paid or not), and a step is only skip-eligible once every step
+ * before it is itself done or skipped.
+ *
+ * Used by BabyStepsScreen.tsx (current step / future steps / "skipped"
+ * notice) and SevenDotPath.tsx (dashboard progress bar) — never by anything
+ * that writes to the DB.
+ */
+export function inferBabyStepSkips(statuses: readonly BabyStepStatus[]): BabyStepSkipInference {
+  const byStep = new Map(statuses.map((s) => [s.stepNumber, s]));
+  const skippedStepNumbers = new Set<number>();
+  const doneByStep = new Map<number, boolean>();
+
+  let allEarlierDone = true; // vacuously true "before" Step 1
+  for (let n = 1; n <= 7; n += 1) {
+    const status = byStep.get(n as BabyStepStatus['stepNumber']);
+    if (!status) {
+      // No data for this step — cannot be considered done, and nothing
+      // after it can be considered gated-open either.
+      allEarlierDone = false;
+      continue;
+    }
+
+    const isSkip: boolean =
+      (n === 2 || n === 6) && !status.isCompleted && status.progress === null && allEarlierDone;
+    if (isSkip) skippedStepNumbers.add(n);
+
+    const done: boolean = status.isCompleted || isSkip;
+    doneByStep.set(n, done);
+    allEarlierDone = allEarlierDone && done;
+  }
+
+  return {
+    skippedStepNumbers,
+    isEffectivelyDone: (stepNumber: number): boolean => doneByStep.get(stepNumber) ?? false,
+  };
 }

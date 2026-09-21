@@ -610,4 +610,49 @@ describe('TransactionListScreen', () => {
     );
     expect(queryByTestId('refreshing-bar')).toBeNull();
   });
+
+  it('search filtering by amount works (envelope name matching tested in unit tests)', async () => {
+    jest.useFakeTimers();
+
+    // Create two transactions with different amounts
+    const tx1 = { ...mockTransaction, id: 'tx-1', payee: 'Woolworths', amountCents: 5000 }; // R50.00
+    const tx2 = { ...mockTransaction, id: 'tx-2', payee: 'Uber', amountCents: 2500 }; // R25.00
+
+    mockUseTransactions.mockReturnValue({
+      transactions: [tx1, tx2],
+      loading: false,
+      reload: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = render(
+      <TransactionListScreen
+        route={{} as never}
+        navigation={{ navigate: mockNavigate } as never}
+      />,
+    );
+
+    // Test searching by amount "25" should find tx2 with R25.00
+    fireEvent.changeText(getByTestId('transaction-search'), '25');
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('tx-row-tx-1')).toBeNull();
+      expect(queryByTestId('tx-row-tx-2')).toBeTruthy();
+    });
+
+    // Test clearing search shows both rows
+    fireEvent.changeText(getByTestId('transaction-search'), '');
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId('tx-row-tx-1')).toBeTruthy();
+      expect(queryByTestId('tx-row-tx-2')).toBeTruthy();
+    });
+
+    jest.useRealTimers();
+  });
 });

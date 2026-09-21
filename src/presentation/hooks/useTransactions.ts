@@ -40,20 +40,23 @@ export interface TransactionPeriodRange {
 /**
  * Loads a household's non-deleted transactions for a budget period.
  *
- * A row is included when EITHER:
- *  - its own `transaction_date` falls within `[periodStart, periodEnd]`
- *    (callers still using the legacy `periodStart`-only positional form get
- *    the original lower-bound-only behaviour, with no upper bound), OR
- *  - it is booked against a PERIOD-SCOPED envelope whose `period_start` is
- *    this period (see `PERIOD_SCOPED_ENVELOPE_TYPES`).
+ * Membership mirrors the LEDGER rule (`getEnvelopeSpentCents`), so a row is
+ * listed by exactly one period and the on-screen total agrees with the
+ * envelope balances:
+ *  - a row booked against a PERIOD-SCOPED envelope belongs to that
+ *    envelope's period and ONLY that period, whatever its own
+ *    `transaction_date` says — the ledger counts it toward that envelope
+ *    purely by `envelope_id`, with no date filter of its own;
+ *  - every other row — persistent-type envelope (shared across periods), or
+ *    no / unknown / deleted envelope — belongs to the period its
+ *    `transaction_date` falls in, i.e. `[periodStart, periodEnd]` (callers
+ *    still using the legacy `periodStart`-only positional form get the
+ *    original lower-bound-only behaviour, with no upper bound).
  *
- * The second clause matters because `getEnvelopeSpentCents` counts a
- * transaction toward an envelope's balance purely by `envelope_id`, with no
- * date filter of its own — so a back-dated transaction (dated before
- * `periodStart` but booked against a current-period envelope) was counted
- * in the envelope balance yet invisible in this list. Unioning in the
- * period-scoped envelopes keeps the list and those balances in agreement,
- * without dragging persistent envelopes' whole history into every period.
+ * This used to be a plain OR of the date window and the envelope clause,
+ * which double-counted: a row on period A's envelope but dated inside
+ * period B appeared in — and was summed into — BOTH periods, something the
+ * ledger never does.
  */
 export function useTransactions(householdId: string, periodStart: string): UseTransactionsResult;
 export function useTransactions(
@@ -85,19 +88,34 @@ export function useTransactions(
           )
         : gte(transactionsTable.transactionDate, periodStart);
 
-      // Rows whose PERIOD-SCOPED envelope belongs to THIS period count toward
-      // that envelope's balance regardless of the transaction's own date (see
-      // `getEnvelopeSpentCents`), so they must stay visible here too.
       const periodScopedTypes = sql.join(
         PERIOD_SCOPED_ENVELOPE_TYPES.map((type) => sql`${type}`),
         sql.raw(', '),
       );
-      const envelopeInPeriod = sql`${transactionsTable.envelopeId} IN (
-        SELECT id FROM envelopes
-        WHERE household_id = ${householdId}
-          AND deleted_at IS NULL
-          AND envelope_type IN (${periodScopedTypes})
-          AND period_start = ${periodStart}
+
+      // The row's PERIOD-SCOPED envelope is THIS period's — the ledger
+      // attributes it here regardless of its own `transaction_date`.
+      const envelopeInThisPeriod = sql`EXISTS (
+        SELECT 1 FROM envelopes
+        WHERE envelopes.id = ${transactionsTable.envelopeId}
+          AND envelopes.household_id = ${householdId}
+          AND envelopes.deleted_at IS NULL
+          AND envelopes.envelope_type IN (${periodScopedTypes})
+          AND envelopes.period_start = ${periodStart}
+      )`;
+
+      // ...and the converse: the row is NOT on any (live) period-scoped
+      // envelope, so no envelope claims it and its own date decides.
+      // Deliberately `EXISTS` rather than `envelope_id IN (...)`: on a row
+      // with a NULL `envelope_id`, `NOT (NULL IN (...))` evaluates to NULL
+      // and would drop orphan rows from every period's list, whereas
+      // `NOT EXISTS` is correctly true for them.
+      const onSomePeriodScopedEnvelope = sql`EXISTS (
+        SELECT 1 FROM envelopes
+        WHERE envelopes.id = ${transactionsTable.envelopeId}
+          AND envelopes.household_id = ${householdId}
+          AND envelopes.deleted_at IS NULL
+          AND envelopes.envelope_type IN (${periodScopedTypes})
       )`;
 
       const rows = await db
@@ -107,7 +125,7 @@ export function useTransactions(
           and(
             eq(transactionsTable.householdId, householdId),
             isNull(transactionsTable.deletedAt),
-            or(dateCondition, envelopeInPeriod),
+            or(envelopeInThisPeriod, and(sql`NOT ${onSomePeriodScopedEnvelope}`, dateCondition)),
           ),
         )
         .orderBy(desc(transactionsTable.transactionDate));

@@ -80,7 +80,20 @@ jest.mock('../../../domain/babySteps/ToggleManualStepUseCase', () => ({
 
 jest.mock('../../../data/local/db', () => ({ db: {} }));
 
+// C-3: useBabySteps now wires in `useReloadOnSync`, which pulls in `syncStore`,
+// which imports `@react-native-community/netinfo`. That native module resolves
+// against the REAL 'react-native' module for its TurboModule lookup, but this
+// file's `jest.mock('react-native', ...)` above (spec §AppState mocking)
+// replaces the whole module with only `{ AppState }` — so NetInfo must be
+// mocked directly rather than relying on whatever 'react-native' exports.
+jest.mock('@react-native-community/netinfo', () => ({
+  addEventListener: jest.fn(() => jest.fn()),
+  fetch: jest.fn().mockResolvedValue({ isConnected: true, isInternetReachable: true }),
+}));
+
 import { useBabySteps } from '../useBabySteps';
+import { useSyncStore } from '../../stores/syncStore';
+import type { BabyStepStatus } from '../../../domain/babySteps/types';
 
 const HOUSEHOLD_ID = 'hh-test';
 const PERIOD_START = '2026-04-01';
@@ -123,6 +136,7 @@ describe('useBabySteps', () => {
     mockAppStateStore.listeners = [];
     mockAppStateStore.currentState = 'active';
     mockCelebrationEnqueue.mockResolvedValue(undefined);
+    useSyncStore.getState().reset();
   });
 
   // ─── AppState gating ───────────────────────────────────────────────────────
@@ -500,5 +514,161 @@ describe('useBabySteps', () => {
     expect(mockCelebrationEnqueue).toHaveBeenCalledTimes(2);
     // And the argument is always 2 (not a different step number)
     expect(mockCelebrationEnqueue).toHaveBeenNthCalledWith(2, 2);
+  });
+
+  // ─── C-1 (reworked): a vacuous Step 2/6 skip is NEVER `isCompleted: true`,
+  // NEVER persisted, and therefore never appears in `newlyCompleted` in the
+  // first place — see BabyStepEvaluator's "Steps 2 and 6" note (baby_steps is
+  // a SYNCED table; an older build must never see a regression that a newer
+  // build then flips back). There is no suppression logic left in this hook
+  // to test directly; these tests confirm the natural consequence instead —
+  // a skip-shaped status (isCompleted: false, progress: null) that ISN'T in
+  // newlyCompleted must never fire a celebration.
+
+  function makeSkipShapedStatus(stepNumber: 2 | 6): BabyStepStatus {
+    return {
+      stepNumber,
+      isCompleted: false, // NEVER true for a vacuous skip — see rework note above
+      isManual: false,
+      progress: null,
+      completedAt: null,
+      celebratedAt: null,
+    };
+  }
+
+  it('C-1: a vacuous Step 2 skip (isCompleted=false, progress=null, absent from newlyCompleted) never enqueues the celebration modal', async () => {
+    mockAppStateStore.currentState = 'active';
+    const { deps } = makeDeps();
+    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
+      makeSuccessResult({
+        statuses: [makeSkipShapedStatus(2)],
+        newlyCompleted: [], // ReconcileBabyStepsUseCase never reports a skip here
+      }),
+    );
+
+    renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockCelebrationEnqueue).not.toHaveBeenCalled();
+  });
+
+  it('C-1: a vacuous Step 6 skip never fires the background preview notification either', async () => {
+    mockAppStateStore.currentState = 'background';
+    const { deps, mockFireCelebration } = makeDeps();
+    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
+      makeSuccessResult({
+        statuses: [makeSkipShapedStatus(6)],
+        newlyCompleted: [],
+      }),
+    );
+
+    const { result } = renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
+    await act(async () => {
+      await result.current.reconcile();
+    });
+
+    expect(mockFireCelebration).not.toHaveBeenCalled();
+    expect(mockCelebrationEnqueue).not.toHaveBeenCalled();
+  });
+
+  it('C-1: a GENUINE Step 2 completion (non-null progress, present in newlyCompleted) still enqueues the celebration modal', async () => {
+    mockAppStateStore.currentState = 'active';
+    const { deps } = makeDeps();
+    const genuineStep2: BabyStepStatus = {
+      stepNumber: 2,
+      isCompleted: true,
+      isManual: false,
+      progress: { current: 1, target: 1, unit: 'count' },
+      completedAt: '2026-04-12T00:00:00.000Z',
+      celebratedAt: null,
+    };
+    deps.reconcileUseCase.execute = jest.fn().mockResolvedValue(
+      makeSuccessResult({
+        statuses: [genuineStep2],
+        newlyCompleted: [2],
+      }),
+    );
+
+    renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockCelebrationEnqueue).toHaveBeenCalledWith(2);
+  });
+
+  // ─── C-3: reconcile on sync landing while foregrounded ─────────────────────
+
+  describe('C-3 — reconcile on sync landing (useReloadOnSync)', () => {
+    it('re-reconciles when syncStore.lastSyncAt changes after mount', async () => {
+      mockAppStateStore.currentState = 'active';
+      const { deps, mockReconcileExecute } = makeDeps();
+
+      renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockReconcileExecute).toHaveBeenCalledTimes(1); // mount
+
+      act(() => {
+        useSyncStore.getState().setLastSyncAt('2026-04-12T00:00:00.000Z');
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockReconcileExecute).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT reconcile again on the FIRST render even though lastSyncAt already has a value (no double mount-load)', async () => {
+      useSyncStore.getState().setLastSyncAt('2026-04-11T00:00:00.000Z');
+      mockAppStateStore.currentState = 'active';
+      const { deps, mockReconcileExecute } = makeDeps();
+
+      renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Only the mount-effect's own reconcile() call — useReloadOnSync baselines
+      // silently on first render rather than treating the pre-existing value as a change.
+      expect(mockReconcileExecute).toHaveBeenCalledTimes(1);
+    });
+
+    it('a sync-triggered reconcile cannot run concurrently with an in-flight reconcile (coalesced via inFlightRef)', async () => {
+      mockAppStateStore.currentState = 'active';
+      let resolveReconcile!: () => void;
+      const slowReconcile = jest.fn(
+        () =>
+          new Promise<ReturnType<typeof makeSuccessResult>>((resolve) => {
+            resolveReconcile = () => resolve(makeSuccessResult());
+          }),
+      );
+      const { deps } = makeDeps();
+      deps.reconcileUseCase.execute = slowReconcile;
+
+      renderHook(() => useBabySteps(HOUSEHOLD_ID, PERIOD_START, deps));
+      // Mount's reconcile() is now in flight (slowReconcile has not resolved yet).
+      expect(slowReconcile).toHaveBeenCalledTimes(1);
+
+      // A sync round lands WHILE the mount reconcile is still in flight.
+      act(() => {
+        useSyncStore.getState().setLastSyncAt('2026-04-12T00:00:00.000Z');
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Coalesced: the sync-triggered call returned the mount call's in-flight
+      // promise rather than starting a second DB sequence.
+      expect(slowReconcile).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveReconcile();
+        await Promise.resolve();
+      });
+    });
   });
 });
