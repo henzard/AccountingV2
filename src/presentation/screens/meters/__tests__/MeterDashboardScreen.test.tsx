@@ -2,7 +2,7 @@
  * MeterDashboardScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -66,5 +66,47 @@ describe('MeterDashboardScreen', () => {
     await waitFor(() => {
       expect(getByText('METER READINGS')).toBeTruthy();
     });
+  });
+
+  // A load failure used to be an unhandled rejection with no visible error
+  // state (load() was try/finally only) — this locks in the error view + retry.
+  it('shows an error state with a retry action when loading fails, and retry reloads', async () => {
+    const { db } = jest.requireMock('../../../../data/local/db');
+    let callCount = 0;
+    db.select.mockImplementation(() => ({
+      from: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn(() => {
+              callCount += 1;
+              // Only the very first query (first meter type, first load
+              // attempt) fails — the for-loop in load() aborts on the first
+              // rejection, so subsequent calls only happen on retry.
+              return callCount === 1
+                ? Promise.reject(new Error('DB unavailable'))
+                : Promise.resolve([]);
+            }),
+          })),
+        })),
+      })),
+    }));
+
+    const { getByTestId, getByText, queryByTestId } = render(
+      <MeterDashboardScreen route={{} as never} navigation={{ navigate: mockNavigate } as never} />,
+    );
+
+    await waitFor(() => {
+      expect(getByTestId('meter-dashboard-error-state')).toBeTruthy();
+      expect(getByText('DB unavailable')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('meter-dashboard-retry-button'));
+
+    await waitFor(() => {
+      expect(queryByTestId('meter-dashboard-error-state')).toBeNull();
+      expect(getByText('METER READINGS')).toBeTruthy();
+    });
+    // 1 call aborted the first load; retry ran all 3 meter type queries.
+    expect(callCount).toBe(4);
   });
 });

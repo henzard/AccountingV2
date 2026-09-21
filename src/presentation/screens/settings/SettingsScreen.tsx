@@ -161,12 +161,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             description="See who is in this household, remove members, or leave"
             left={(props) => <List.Icon {...props} icon="account-group-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
-            onPress={() =>
-              rootNavigation.navigate('HouseholdMembers', {
-                householdId: householdId!,
-                householdName: currentHousehold?.name ?? 'My Household',
-              })
-            }
+            onPress={() => {
+              if (householdId) {
+                rootNavigation.navigate('HouseholdMembers', {
+                  householdId,
+                  householdName: currentHousehold?.name ?? 'My Household',
+                });
+              }
+            }}
+            disabled={!householdId}
             testID="household-members-row"
           />
           <Divider />
@@ -175,12 +178,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             description="Share an invite code"
             left={(props) => <List.Icon {...props} icon="account-plus-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
-            onPress={() =>
-              rootNavigation.navigate('ShareInvite', {
-                householdId: householdId!,
-                householdName: currentHousehold?.name ?? 'My Household',
-              })
-            }
+            onPress={() => {
+              if (householdId) {
+                rootNavigation.navigate('ShareInvite', {
+                  householdId,
+                  householdName: currentHousehold?.name ?? 'My Household',
+                });
+              }
+            }}
+            disabled={!householdId}
           />
           <Divider />
           <List.Item

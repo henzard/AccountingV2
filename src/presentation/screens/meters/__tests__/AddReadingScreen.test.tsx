@@ -21,6 +21,15 @@ jest.mock('../../../../data/audit/AuditLogger', () => ({
   AuditLogger: jest.fn().mockImplementation(() => ({ log: jest.fn() })),
 }));
 
+const mockLoggerError = jest.fn();
+jest.mock('../../../../infrastructure/logging/Logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: (...args: unknown[]) => mockLoggerError(...args),
+  },
+}));
+
 const mockExecute = jest.fn();
 jest.mock('../../../../domain/meterReadings/LogMeterReadingUseCase', () => ({
   LogMeterReadingUseCase: jest.fn().mockImplementation(() => ({ execute: mockExecute })),
@@ -456,6 +465,52 @@ describe('AddReadingScreen', () => {
       expect(queryByTestId('helper-error')).toBeTruthy();
     });
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  // The prior-readings load used to have no .catch — a query failure was an
+  // unhandled rejection. Anomaly detection is best-effort, so a failure must
+  // just leave it disabled (priorReadings stays empty) instead of crashing,
+  // and it must be reported through the project's logger, not console.log.
+  it('does not throw when loading prior readings for anomaly detection fails, and logs the error', async () => {
+    const { db } = jest.requireMock('../../../../data/local/db');
+    db.select.mockReturnValue({
+      from: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn(() => Promise.reject(new Error('prior readings query failed'))),
+          })),
+        })),
+      })),
+    });
+
+    const { getByTestId } = render(
+      <AddReadingScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('AddReadingScreen'),
+        expect.any(Error),
+        expect.objectContaining({ householdId: 'hh-1', meterType: 'electricity' }),
+      );
+    });
+
+    // Anomaly detection stays disabled (priorReadings never populated) and
+    // saving still works normally — no unhandled rejection crashed the screen.
+    fireEvent.changeText(getByTestId('Current reading (kWh)'), '1234');
+    expect(mockDetect).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(getByTestId('save-button'));
+    });
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalled();
+      expect(mockGoBack).toHaveBeenCalled();
+    });
   });
 
   // Test that anomaly preview uses the same parser as save

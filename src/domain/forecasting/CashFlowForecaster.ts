@@ -126,9 +126,14 @@ export class CashFlowForecaster {
         const projectedSpendRemainingCents = isFixed ? 0 : dailySpendCents * daysRemaining;
         const projectedRemainingCents =
           e.allocatedCents - spentCents - projectedSpendRemainingCents;
+        // No allocation means no denominator. Untouched stays 100% / on_track;
+        // any real or projected spend against a zero budget is unbudgeted
+        // overspend, so report 0% and let the `< 10` threshold mark it over_budget.
         const projectedRemainingPct =
           e.allocatedCents === 0
-            ? 100
+            ? spentCents > 0 || projectedSpendRemainingCents > 0
+              ? 0
+              : 100
             : Math.round((projectedRemainingCents / e.allocatedCents) * 100);
 
         let status: ForecastStatus;

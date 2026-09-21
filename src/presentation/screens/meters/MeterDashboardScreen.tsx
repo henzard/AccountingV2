@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, ActivityIndicator, Surface } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { and, eq, desc } from 'drizzle-orm';
@@ -9,6 +9,8 @@ import { useAppStore } from '../../stores/appStore';
 import { BudgetPeriodEngine } from '../../../domain/shared/BudgetPeriodEngine';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { EmptyState } from '../../components/shared/EmptyState';
+import { logger } from '../../../infrastructure/logging/Logger';
 import { MeterReadingCard } from './components/MeterReadingCard';
 import type {
   MeterReadingEntity,
@@ -33,9 +35,11 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
     odometer: [null, null],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const result: LatestPairByType = {
         electricity: [null, null],
@@ -60,6 +64,9 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
         ];
       }
       setReadingPairs(result);
+    } catch (err) {
+      logger.error('MeterDashboardScreen: failed to load meter readings', err, { householdId });
+      setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
     }
@@ -75,6 +82,26 @@ export const MeterDashboardScreen: React.FC<MeterDashboardScreenProps> = ({ navi
     return (
       <View style={styles.center}>
         <ActivityIndicator animating color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <EmptyState
+          title="Couldn't load your meter readings"
+          body={error}
+          testID="meter-dashboard-error-state"
+        />
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => void load()}
+          testID="meter-dashboard-retry-button"
+          accessibilityRole="button"
+        >
+          <Text style={{ color: colors.primary }}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -122,4 +149,5 @@ const styles = StyleSheet.create({
   headerLabel: { letterSpacing: 1.5, marginBottom: spacing.xs },
   headerTitle: { fontFamily: 'PlusJakartaSans_700Bold' },
   list: { paddingVertical: spacing.sm, paddingBottom: spacing.xl },
+  retryButton: { padding: spacing.sm },
 });

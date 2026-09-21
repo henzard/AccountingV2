@@ -1,11 +1,13 @@
 import { randomUUID } from 'expo-crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '../../data/local/schema';
 import { envelopes } from '../../data/local/schema';
 import { AuditLogger } from '../../data/audit/AuditLogger';
-import { getPersistentEnvelopeSavedCents } from '../../data/local/balances/EnvelopeBalanceQuery';
-import { resolveSyncedRepo, resolveSyncedRepoCtx } from '../shared/syncWrite';
+import { runInUnitOfWork } from '../../data/uow/UnitOfWork';
+import type { PortableDb } from '../../data/uow/UnitOfWork';
+import { insertRowWithinUow } from '../../data/uow/createSyncedRepo';
+import { resolveSyncedRepoCtx } from '../shared/syncWrite';
 import type { SyncWriteDeps } from '../shared/syncWrite';
 import { bestEffortAudit } from '../shared/bestEffortAudit';
 import type { Result } from '../shared/types';
@@ -35,6 +37,36 @@ export interface AdjustSavedBalanceOutput {
 
 /** Longest reason we will store — long enough for a real sentence, short enough to render. */
 const MAX_NOTE_LENGTH = 200;
+
+/**
+ * The SAME derived saved balance `getPersistentEnvelopeSavedCents` computes
+ * (contributions in, transactions out, tombstones excluded), for ONE envelope
+ * and against an ALREADY-OPEN transaction handle.
+ *
+ * It exists as a second, raw-`sql` spelling for the same reason
+ * `PersistentContributions`' `findExistingContributionIdsWithin` does: the
+ * shared query is `async` over the outer `db`, and a unit-of-work callback is
+ * SYNCHRONOUS — it cannot await, and a value awaited before the transaction
+ * opened is exactly the stale snapshot this use case must not act on.
+ */
+function readSavedCentsWithin(tx: PortableDb, householdId: string, envelopeId: string): number {
+  const row = tx.get(sql`
+    SELECT
+      (SELECT COALESCE(SUM(amount_cents), 0)
+         FROM envelope_contributions
+        WHERE household_id = ${householdId}
+          AND envelope_id = ${envelopeId}
+          AND deleted_at IS NULL)
+      -
+      (SELECT COALESCE(SUM(amount_cents), 0)
+         FROM transactions
+        WHERE household_id = ${householdId}
+          AND envelope_id = ${envelopeId}
+          AND deleted_at IS NULL)
+      AS saved_cents
+  `) as { saved_cents: number } | undefined;
+  return row?.saved_cents ?? 0;
+}
 
 /**
  * Manually corrects a persistent envelope's SAVED balance.
@@ -67,6 +99,15 @@ const MAX_NOTE_LENGTH = 200;
  * `source: 'adjustment'` and the signed amount. Anything that must be shared
  * across devices has to be encoded in `source`, which is unconstrained text
  * on both sides and therefore free to take new values.
+ *
+ * The "a fund cannot go below zero" guard is not a pre-flight check: the
+ * derived balance is re-read and re-tested INSIDE the same
+ * `runInUnitOfWork` transaction that appends the row (the pattern
+ * `MoveAllocationUseCase` and `LogDebtPaymentUseCase` use for their own
+ * stale-snapshot races). Read before the transaction, two quick "take out"
+ * adjustments both measured the same pre-adjustment balance, both passed,
+ * and the fund went negative — SQLite serialises write transactions, so
+ * re-reading here is what makes the second one see the first one's row.
  */
 export class AdjustSavedBalanceUseCase {
   constructor(
@@ -119,37 +160,52 @@ export class AdjustSavedBalanceUseCase {
       });
     }
 
-    // A fund cannot hold less than nothing. Checking the DERIVED balance (not
-    // a stored column) keeps this honest against spend transactions and
-    // earlier adjustments alike.
-    const savedBefore =
-      (await getPersistentEnvelopeSavedCents(this.db, input.householdId)).get(input.envelopeId) ??
-      0;
-    const savedCentsAfter = savedBefore + input.deltaCents;
-    if (savedCentsAfter < 0) {
+    const ctx = resolveSyncedRepoCtx(this.deps);
+    const now = ctx.clock();
+    const contributionId = ctx.genId ? ctx.genId() : randomUUID();
+
+    // A fund cannot hold less than nothing. Both the DERIVED balance read
+    // (not a stored column, so it stays honest against spend transactions and
+    // earlier adjustments alike) and the "would this go negative?" check
+    // happen INSIDE the same unit of work as the ledger insert, the way
+    // `ensureOpeningBalances` re-checks existence inside its transaction.
+    // Read outside, they were a snapshot two quick "take out R500"s could
+    // both pass — each seeing the pre-adjustment balance, both inserting, and
+    // the fund landing below zero with no failure surfaced.
+    const outcome = runInUnitOfWork(this.db, (uow) => {
+      const savedBefore = readSavedCentsWithin(uow.db, input.householdId, input.envelopeId);
+      const savedCentsAfter = savedBefore + input.deltaCents;
+      if (savedCentsAfter < 0) {
+        // Nothing has been written yet, so returning here commits an empty
+        // transaction rather than needing a throw to roll anything back.
+        return { allowed: false as const };
+      }
+
+      insertRowWithinUow(
+        uow,
+        'envelope_contributions',
+        buildContributionRow({
+          id: contributionId,
+          householdId: input.householdId,
+          envelopeId: input.envelopeId,
+          amountCents: input.deltaCents,
+          periodStart: input.periodStart,
+          source: 'adjustment',
+          now,
+        }),
+        ctx,
+      );
+
+      return { allowed: true as const, savedBefore, savedCentsAfter };
+    });
+
+    if (!outcome.allowed) {
       return createFailure({
         code: 'NEGATIVE_BALANCE',
         message: 'That would take the fund below zero',
       });
     }
-
-    const ctx = resolveSyncedRepoCtx(this.deps);
-    const now = ctx.clock();
-    const contributionId = ctx.genId ? ctx.genId() : randomUUID();
-
-    const repo = resolveSyncedRepo(this.db, 'envelope_contributions', this.deps);
-    repo.insert(
-      buildContributionRow({
-        id: contributionId,
-        householdId: input.householdId,
-        envelopeId: input.envelopeId,
-        amountCents: input.deltaCents,
-        periodStart: input.periodStart,
-        source: 'adjustment',
-        now,
-      }),
-      ctx,
-    );
+    const { savedBefore, savedCentsAfter } = outcome;
 
     // The ledger write above has already committed — audit logging is a
     // secondary concern that must not fail an otherwise-successful

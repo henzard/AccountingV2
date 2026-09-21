@@ -154,6 +154,35 @@ describe('CashFlowForecaster', () => {
       expect(result[0].projectedRemainingPct).toBe(100);
       expect(result[0].status).toBe('on_track');
     });
+
+    it('is over_budget with a non-positive pct when there is real spend against a zero allocation', () => {
+      // An envelope with no budget at all but real spend is entirely
+      // unbudgeted overspend, not "100% left" — that hid the spend behind
+      // an on_track status.
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 0, spentCents: 5000 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].projectedRemainingPct).toBeLessThanOrEqual(0);
+      expect(result[0].status).toBe('over_budget');
+    });
+
+    it('uses 0 (not a large negative number) as the display pct, since there is no real denominator', () => {
+      // 0 is chosen deliberately: it is a sensible, non-alarming stand-in
+      // for "no allocation to measure against" that still reads correctly
+      // wherever the pct is rendered (e.g. ForecastScreen's progress bar and
+      // "X% projected left" label), unlike an unbounded negative percentage.
+      const result = forecaster.project({
+        envelopes: [env({ allocatedCents: 0, spentCents: 1 })],
+        periodStart,
+        periodEnd,
+        today,
+      });
+      expect(result[0].projectedRemainingPct).toBe(0);
+      expect(result[0].status).toBe('over_budget');
+    });
   });
 
   describe('daily rate calculation', () => {

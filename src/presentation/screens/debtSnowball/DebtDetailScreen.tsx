@@ -11,7 +11,7 @@ import {
   HelperText,
 } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { format } from 'date-fns';
 import { db } from '../../../data/local/db';
 import { debts as debtsTable } from '../../../data/local/schema';
@@ -55,7 +55,21 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
 
   const load = useCallback(async () => {
     setLoading(true);
-    const rows = await db.select().from(debtsTable).where(eq(debtsTable.id, debtId));
+    if (!householdId) {
+      setDebt(null);
+      setLoading(false);
+      return;
+    }
+    const rows = await db
+      .select()
+      .from(debtsTable)
+      .where(
+        and(
+          eq(debtsTable.id, debtId),
+          eq(debtsTable.householdId, householdId),
+          isNull(debtsTable.deletedAt),
+        ),
+      );
     const loaded = (rows[0] as DebtEntity) ?? null;
     setDebt(loaded);
     if (loaded) {
@@ -65,7 +79,7 @@ export const DebtDetailScreen: React.FC<DebtDetailScreenProps> = ({ navigation, 
       setCreditorNameInput(loaded.creditorName);
     }
     setLoading(false);
-  }, [debtId]);
+  }, [debtId, householdId]);
 
   useFocusEffect(
     useCallback(() => {

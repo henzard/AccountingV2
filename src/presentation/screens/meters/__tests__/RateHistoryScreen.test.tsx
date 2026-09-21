@@ -2,7 +2,7 @@
  * RateHistoryScreen.test.tsx — C8 screen test
  */
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, fireEvent } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
@@ -128,21 +128,43 @@ describe('RateHistoryScreen', () => {
     expect(getAllByText(/1.?000/).length).toBeGreaterThan(0);
   });
 
-  // Hook error is not surfaced — useMeterReadings returns readings: [] on error,
-  // so empty state is shown. No explicit error UI exists.
-  it('shows empty state when hook has error (no explicit error UI)', () => {
+  // A hook error used to be silently swallowed into "No readings yet" — it
+  // must now render a distinct error view instead of the empty state.
+  it('shows a distinct error view (not "No readings yet") when the hook has an error', () => {
     mockUseMeterReadings.mockReturnValue({
       readings: [],
       loading: false,
       reload: jest.fn(),
       error: new Error('DB error'),
     });
-    const { getByText } = render(
+    const { getByText, queryByText, getByTestId } = render(
       <RateHistoryScreen
         route={{ params: { meterType: 'electricity' } } as never}
         navigation={{} as never}
       />,
     );
-    expect(getByText('No readings yet')).toBeTruthy();
+    expect(getByTestId('rate-history-error-state')).toBeTruthy();
+    expect(getByText('DB error')).toBeTruthy();
+    expect(queryByText('No readings yet')).toBeNull();
+  });
+
+  it('retries by calling reload when the retry button is pressed after an error', () => {
+    const mockReload = jest.fn();
+    mockUseMeterReadings.mockReturnValue({
+      readings: [],
+      loading: false,
+      reload: mockReload,
+      error: new Error('DB error'),
+    });
+    const { getByTestId } = render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={{} as never}
+      />,
+    );
+
+    fireEvent.press(getByTestId('rate-history-retry-button'));
+
+    expect(mockReload).toHaveBeenCalled();
   });
 });
