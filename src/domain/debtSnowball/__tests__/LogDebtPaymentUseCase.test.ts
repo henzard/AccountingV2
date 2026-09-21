@@ -207,6 +207,27 @@ describe('LogDebtPaymentUseCase', () => {
     }
   });
 
+  it('audits the amount actually applied, keeping the requested amount alongside', async () => {
+    const { bestEffortAudit: mockBestEffortAudit } = jest.requireMock(
+      '../../shared/bestEffortAudit',
+    ) as { bestEffortAudit: jest.Mock };
+    mockBestEffortAudit.mockClear();
+    const { db } = makeUowDb(1, { balance: 20000, totalPaid: 80000 });
+    await new LogDebtPaymentUseCase(db, mockAudit, {
+      householdId: 'h1',
+      debtId: 'd1',
+      paymentAmountCents: 100000,
+      currentDebt,
+    }).execute();
+
+    const entry = mockBestEffortAudit.mock.calls[0][1];
+    // previous 20000 → new 0 only adds up with an applied amount of 20000.
+    expect(entry.previousValue.outstandingBalanceCents).toBe(20000);
+    expect(entry.newValue.outstandingBalanceCents).toBe(0);
+    expect(entry.newValue.paymentAmountCents).toBe(20000);
+    expect(entry.newValue.requestedPaymentAmountCents).toBe(100000);
+  });
+
   it('fails with DEBT_ALREADY_PAID_OFF and appends no ops when the live balance is 0', async () => {
     const { db, runCalls } = makeUowDb(1, { balance: 0, totalPaid: 100000 });
     const uc = new LogDebtPaymentUseCase(db, mockAudit, {

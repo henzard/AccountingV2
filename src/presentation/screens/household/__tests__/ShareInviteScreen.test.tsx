@@ -268,4 +268,13 @@ describe('ShareInviteScreen', () => {
       expect(retryBtn.props.disabled).toBe(true);
     });
   });
+
+  it('a REJECTED use case (not a failure Result) still ends loading and offers retry', async () => {
+    mockExecute.mockRejectedValueOnce(new Error('Network request failed'));
+    const { findByTestId, queryByText } = render(<ShareInviteScreen {...makeProps()} />);
+
+    const retry = await findByTestId('share-invite-retry');
+    expect(retry.props.accessibilityState?.disabled ?? retry.props.disabled ?? false).toBe(false);
+    expect(queryByText(/Network request failed/)).toBeNull();
+  });
 });

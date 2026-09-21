@@ -179,4 +179,27 @@ describe('AddEditEnvelopeScreen — F2 archive confirm (persistent envelope, non
     expect(mockArchiveExecute).not.toHaveBeenCalled();
     expect(mockGoBack).not.toHaveBeenCalled();
   });
+
+  it('does not archive when the saved balance cannot be read at archive time (unknown is not zero)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const balances = require('../../../../data/local/balances/EnvelopeBalanceQuery');
+    const { findByTestId } = render(
+      <AddEditEnvelopeScreen
+        route={{ params: { envelopeId: 'env-2' } } as never}
+        navigation={
+          { navigate: mockNavigate, goBack: mockGoBack, setOptions: mockSetOptions } as never
+        }
+      />,
+    );
+    const archiveButton = await findByTestId('archive-envelope-button');
+    balances.getPersistentEnvelopeSavedCents.mockRejectedValueOnce(new Error('db locked'));
+
+    fireEvent.press(archiveButton);
+
+    await waitFor(() =>
+      expect(balances.getPersistentEnvelopeSavedCents.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockArchiveExecute).not.toHaveBeenCalled();
+  });
 });

@@ -253,11 +253,26 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     // household's picture, even though it is not gone. That is worse than a
     // copy problem, so block instead of just warning: send the household to
     // the existing "Adjust saved amount" flow to move/withdraw it first.
-    if (scope === 'persistent' && savedCents !== 0) {
+    // Read the balance fresh, here: the `savedCents` state starts at 0 and is
+    // filled by a query that may not have finished (or may have failed), and
+    // "unknown" must never be mistaken for "empty" when the consequence is
+    // money disappearing from view. If it cannot be read, do not archive.
+    let savedNow = 0;
+    if (scope === 'persistent') {
+      try {
+        const saved = await getPersistentEnvelopeSavedCents(db, existing.householdId);
+        savedNow = saved.get(existing.id) ?? 0;
+        setSavedCents(savedNow);
+      } catch {
+        enqueue('Couldn’t check this fund’s saved balance. Try again.', 'error');
+        return;
+      }
+    }
+    if (scope === 'persistent' && savedNow !== 0) {
       await confirm({
         title: 'Move the saved balance first',
         message:
-          `"${existing.name}" still has ${formatCurrency(savedCents)} saved. ` +
+          `"${existing.name}" still has ${formatCurrency(savedNow)} saved. ` +
           `That money stays in the ledger, but archiving would stop every screen from showing ` +
           `it — nowhere in the app would account for it anymore. Use "Adjust saved amount" to ` +
           `move or withdraw the balance before archiving.`,
@@ -283,7 +298,7 @@ export const AddEditEnvelopeScreen: React.FC<AddEditEnvelopeScreenProps> = ({
     } else {
       setError('Failed to archive envelope');
     }
-  }, [existing, savedCents, navigation, enqueue]);
+  }, [existing, navigation, enqueue]);
 
   const reloadSavedCents = useCallback(async (): Promise<void> => {
     if (!existing) return;

@@ -29,20 +29,31 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
         householdId,
         createdByUserId: session.user.id,
       });
-      uc.execute().then((result) => {
-        // Ignore if screen unmounted or a newer request has started
-        if (unmountedRef.current || requestNumber !== requestCounterRef.current) {
-          return;
-        }
-        setLoading(false);
-        if (result.success) {
-          setCode(result.data.code);
-          setExpiresAt(result.data.expiresAt);
-          setError(null);
-        } else {
-          setError(result.error.message);
-        }
-      });
+      uc.execute()
+        .then((result) => {
+          // Ignore if screen unmounted or a newer request has started
+          if (unmountedRef.current || requestNumber !== requestCounterRef.current) {
+            return;
+          }
+          setLoading(false);
+          if (result.success) {
+            setCode(result.data.code);
+            setExpiresAt(result.data.expiresAt);
+            setError(null);
+          } else {
+            setError(result.error.message);
+          }
+        })
+        .catch(() => {
+          // execute() can REJECT (the RPC call itself throwing, e.g. offline)
+          // rather than return a failure Result. Without this the screen
+          // stayed on the spinner — or kept Try again disabled — forever.
+          if (unmountedRef.current || requestNumber !== requestCounterRef.current) {
+            return;
+          }
+          setLoading(false);
+          setError('Couldn’t create an invite. Check your connection and try again.');
+        });
     },
     [householdId, session],
   );

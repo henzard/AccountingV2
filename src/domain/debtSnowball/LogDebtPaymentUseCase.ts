@@ -208,7 +208,10 @@ export class LogDebtPaymentUseCase {
         totalPaidCents: liveTotalPaidBefore,
       },
       newValue: {
-        paymentAmountCents: this.input.paymentAmountCents,
+        // What the write actually applied — it can be less than what was
+        // asked for when the payment exceeded the live balance.
+        paymentAmountCents: actualApplied,
+        requestedPaymentAmountCents: this.input.paymentAmountCents,
         outstandingBalanceCents: newBalance,
         isPaidOff,
       },
