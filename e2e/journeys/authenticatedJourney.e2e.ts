@@ -26,12 +26,13 @@
  * click — the app's SignUpScreen auth listener then navigates straight past
  * the transitional screens into the household-creation gate.
  *
- * KNOWN GAP (documented per task-6 brief): this file has been written to
- * match the real screens' testIDs/selectors and is type/lint-clean, but has
- * NOT been executed end-to-end in this environment — running Detox requires
- * an Android emulator and a built APK, neither of which is available here.
- * The first real CI run of ci.yml's e2e-android job (or a local run with an
- * emulator) is the first actual execution of this journey.
+ * EXECUTION HISTORY: first ran for real in CD run #136 (2026-09-21) — the
+ * `e2e-gate` job had never connected to the app before that. Sign-up and
+ * household creation passed; onboarding onward failed because the UI had been
+ * restructured (MeterSetup removed, Payday moved before allocation, tab
+ * renamed "Transactions"). This revision follows the current screens: every
+ * onboarding step is driven through the layout's stable `onboarding-cta`
+ * testID rather than its per-step label.
  */
 
 import { device, element, by, expect as detoxExpect, waitFor } from 'detox';
@@ -61,6 +62,13 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
   beforeAll(async () => {
     await device.launchApp({
       newInstance: true,
+      // The OS notification-permission prompt is now deferred until
+      // onboarding completes (RootNavigator's `readyForNotifications` gate,
+      // UX-20) and fires as soon as FinishStep flips onboardingCompleted —
+      // i.e. right as the "creates an additional envelope" test's first
+      // dashboard render happens. Pre-granting it here stops a native
+      // Android permission dialog from intercepting the taps that follow.
+      permissions: { notifications: 'YES' },
       launchArgs: {
         // Deliberately does NOT blacklist supabase — this journey needs real
         // auth + data-layer round trips. Firebase/GCM/Crashlytics are still
@@ -100,15 +108,19 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
     await element(by.id('household-create-submit')).tap();
 
     // RootNavigator resolves the onboarding-complete flag asynchronously,
-    // then routes into the onboarding wizard's Welcome step.
-    await waitFor(element(by.text("Let's begin")))
+    // then routes into the onboarding wizard's Welcome step. Every step in
+    // the wizard renders through OnboardingStepLayout, whose primary button
+    // always carries the stable testID `onboarding-cta` regardless of its
+    // label ("Let's begin" / "Next" / "Continue" / "Go to Dashboard") — used
+    // throughout below instead of matching on that label text.
+    await waitFor(element(by.id('onboarding-cta')))
       .toBeVisible()
       .withTimeout(LONG_TIMEOUT);
   });
 
   it('completes the onboarding wizard', async () => {
-    // Welcome
-    await element(by.text("Let's begin")).tap();
+    // Welcome — no back control (it's the first step).
+    await element(by.id('onboarding-cta')).tap();
 
     // Income
     await waitFor(element(by.id('income-amount-input')))
@@ -117,9 +129,18 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
     await element(by.id('income-amount-input')).typeText(MONTHLY_INCOME);
     await element(by.id('onboarding-cta')).tap();
 
+    // Payday — runs BEFORE ExpenseCategories/AllocateEnvelopes so envelopes
+    // are stamped with the right period key (OnboardingNavigator.tsx). It's
+    // a CONFIRMATION step: the day input is pre-filled with the household's
+    // payday, already valid, so pressing Next needs no edit.
+    await waitFor(element(by.id('onboarding-cta')))
+      .toBeVisible()
+      .withTimeout(MEDIUM_TIMEOUT);
+    await element(by.id('onboarding-cta')).tap();
+
     // Expense categories — accept the four preselected defaults (Groceries,
     // Transport, Rent, Utilities); no chip taps needed.
-    await waitFor(element(by.id('onboarding-cta')))
+    await waitFor(element(by.id(`category-${DEFAULT_ENVELOPE_NAME}`)))
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
     await element(by.id('onboarding-cta')).tap();
@@ -127,38 +148,32 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
     // Allocate envelopes — the default equal split of income across the
     // selected categories already sums to the full income (to-assign = R0),
     // so no per-envelope edits are needed. This screen creates the four
-    // envelopes via CreateEnvelopeUseCase.
+    // envelopes via CreateEnvelopeUseCase. `to-assign` sits inside this
+    // step's ScrollView above the CTA button; on some layouts it isn't
+    // ≥75% visible (the matcher `toBeVisible()` requires), so this asserts
+    // presence with `toExist()` rather than visibility.
     await waitFor(element(by.id('to-assign')))
-      .toBeVisible()
+      .toExist()
       .withTimeout(MEDIUM_TIMEOUT);
-    await element(by.text('Next')).tap();
+    await element(by.id('onboarding-cta')).tap();
 
-    // Payday — prefilled with the household's payday day, already valid.
+    // Habit score intro — MeterSetup (formerly here) was deleted (UX-15): it
+    // asked about three switches nothing ever read or persisted.
     await waitFor(element(by.id('onboarding-cta')))
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
     await element(by.id('onboarding-cta')).tap();
 
-    // Meter setup — skip (leave all three switches off).
-    await waitFor(element(by.text('Skip')))
-      .toBeVisible()
-      .withTimeout(MEDIUM_TIMEOUT);
-    await element(by.text('Skip')).tap();
-
-    // Habit score intro
-    await waitFor(element(by.text('Continue')))
-      .toBeVisible()
-      .withTimeout(MEDIUM_TIMEOUT);
-    await element(by.text('Continue')).tap();
-
     // Finish
-    await waitFor(element(by.text('Go to Dashboard')))
+    await waitFor(element(by.id('onboarding-cta')))
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
-    await element(by.text('Go to Dashboard')).tap();
+    await element(by.id('onboarding-cta')).tap();
 
     // Onboarding created 4 envelopes, so the dashboard renders the populated
-    // list state (not dashboard-empty-state).
+    // list state (not dashboard-empty-state), and the rollover wizard does
+    // NOT auto-open: DashboardScreen's effect only shows it when the current
+    // period has zero period-scoped envelopes, which onboarding just gave it.
     await waitFor(element(by.id('dashboard-root')))
       .toBeVisible()
       .withTimeout(LONG_TIMEOUT);
@@ -191,6 +206,8 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
   it('adds a transaction and verifies it appears in the transaction list', async () => {
     await element(by.id('add-transaction-fab')).tap();
 
+    // Amount autofocuses on mount, but the envelope picker trigger remains a
+    // separate touch target above it and is unaffected by the keyboard.
     await waitFor(element(by.id('envelope-picker-trigger')))
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
@@ -199,16 +216,27 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
 
     await element(by.id('amount-input')).typeText(TRANSACTION_AMOUNT);
     await element(by.id('payee-input')).typeText(TRANSACTION_PAYEE);
-    await element(by.id('record-transaction-submit')).tap();
+    // Save is a sticky footer inside the KeyboardAvoidingView, so it should
+    // sit above the keyboard. If the IME still covers it, close the keyboard
+    // and retry — pressBack is only used once we know the keyboard is what's
+    // in the way, because with no IME showing it would pop the screen.
+    try {
+      await element(by.id('record-transaction-submit')).tap();
+    } catch {
+      await device.pressBack();
+      await element(by.id('record-transaction-submit')).tap();
+    }
 
     // Saving navigates back to the dashboard.
     await waitFor(element(by.id('dashboard-root')))
       .toBeVisible()
       .withTimeout(MEDIUM_TIMEOUT);
 
-    // Switch to the Budget tab (route "Transactions"), which lands on
-    // TransactionListScreen — the row's title is the transaction's payee.
-    await element(by.text('Budget')).tap();
+    // Switch to the Transactions tab (MainTabNavigator's tabBarLabel is now
+    // "Transactions", not "Budget"), which lands on TransactionListScreen —
+    // the row's title is the transaction's payee, and the current period is
+    // already selected by default so no period-switcher taps are needed.
+    await element(by.text('Transactions')).tap();
     await waitFor(element(by.text(TRANSACTION_PAYEE)))
       .toBeVisible()
       .withTimeout(LONG_TIMEOUT);
