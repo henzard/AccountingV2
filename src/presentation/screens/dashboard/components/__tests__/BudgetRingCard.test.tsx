@@ -155,8 +155,12 @@ describe('BudgetRingCard', () => {
     expect(getAllByText('remaining').length).toBeGreaterThan(0);
   });
 
-  it('clamps remaining to zero (never negative) when over budget', () => {
-    const { getAllByText } = render(
+  // Previously asserted the headline was clamped to R0,00 when over budget.
+  // That clamp WAS the bug: every overspend, R1 or R5 000, read "R0,00 over
+  // budget". The ring's ARC is still clamped (see the 100% test above); only
+  // the headline figure is now honest.
+  it('shows the real overspend (not a clamped R0,00) when over budget', () => {
+    const { getAllByText, queryAllByText } = render(
       <BudgetRingCard
         totalAllocatedCents={50000}
         totalSpentCents={80000}
@@ -164,8 +168,54 @@ describe('BudgetRingCard', () => {
         score={20}
       />,
     );
-    expect(getAllByText(/R0/i).length).toBeGreaterThan(0);
+    // 80000 - 50000 = 30000c = R300,00
+    expect(getAllByText(/R\s?300/).length).toBeGreaterThan(0);
     expect(getAllByText('over budget').length).toBeGreaterThan(0);
+    expect(queryAllByText(/^R0[,.]00$/).length).toBe(0);
+  });
+
+  it('scales the overspend headline with the size of the overspend', () => {
+    const { getByTestId } = render(
+      <BudgetRingCard
+        totalAllocatedCents={100000}
+        totalSpentCents={150000}
+        daysRemaining={2}
+        score={10}
+        testID="ring"
+      />,
+    );
+    // 150000 - 100000 = 50000c = R500,00
+    expect(getByTestId('ring-amount').props.children).toMatch(/R\s?500/);
+  });
+
+  it('gives the centre label an accessible description of the overspend', () => {
+    const { getByTestId } = render(
+      <BudgetRingCard
+        totalAllocatedCents={50000}
+        totalSpentCents={80000}
+        daysRemaining={3}
+        score={20}
+        testID="ring"
+      />,
+    );
+    expect(getByTestId('ring-center').props.accessibilityLabel).toMatch(
+      /R\s?300,00 over budget, 3 days left/,
+    );
+  });
+
+  it('describes the remaining amount accessibly when under budget', () => {
+    const { getByTestId } = render(
+      <BudgetRingCard
+        totalAllocatedCents={100000}
+        totalSpentCents={40000}
+        daysRemaining={10}
+        score={85}
+        testID="ring"
+      />,
+    );
+    expect(getByTestId('ring-center').props.accessibilityLabel).toMatch(
+      /R\s?600,00 remaining, 10 days left/,
+    );
   });
 
   it('displays days remaining as "0d left"', () => {

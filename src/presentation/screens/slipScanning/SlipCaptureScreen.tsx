@@ -171,6 +171,25 @@ export function SlipCaptureScreen({
             <Text style={{ color: colors.onPrimary }}>Open Settings</Text>
           </TouchableOpacity>
         )}
+        {/* On web, expo-camera's shim reports canAskAgain: true forever, so a
+            desktop user with no webcam (or who denied access) would otherwise
+            be stuck here with no way forward. Mirrors the offline banner's
+            manual-entry escape hatch below: same nav target, no params. */}
+        <TouchableOpacity
+          style={[
+            styles.permissionButton,
+            styles.logManuallyPermissionButton,
+            { backgroundColor: colors.secondary },
+          ]}
+          onPress={() =>
+            (navigation as unknown as { navigate: (s: string) => void }).navigate('AddTransaction')
+          }
+          testID="log-manually-instead"
+          accessibilityRole="button"
+          accessibilityLabel="Log manually instead"
+        >
+          <Text style={{ color: colors.onSecondary }}>Log Manually Instead</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -328,6 +347,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: radius.md,
   },
+  logManuallyPermissionButton: { marginTop: 12 },
   counterRow: { padding: 8, alignItems: 'center' },
   // Counter text on black camera background — white is intentional
   counterText: { color: '#fff', fontSize: 14 },

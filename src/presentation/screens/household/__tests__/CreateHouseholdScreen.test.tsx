@@ -14,6 +14,15 @@ const mockConfirm = jest.fn();
 jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
   confirm: (...args: unknown[]) => mockConfirm(...args),
 }));
+// PUSH-1: CreateHouseholdScreen's sign-out now goes through the shared
+// signOutAndUnregisterFcm helper, which imports FcmTokenRegistrar — which in
+// turn imports the native @react-native-firebase/messaging module,
+// unavailable under Jest (see SettingsScreen's identical mock for the M17
+// fix this mirrors).
+const mockUnregisterFcmToken = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../../infrastructure/notifications/FcmTokenRegistrar', () => ({
+  unregisterFcmToken: (...args: unknown[]) => mockUnregisterFcmToken(...args),
+}));
 jest.mock('@react-navigation/native', () => {
   const mockNavigate = jest.fn();
   const mockGetState = jest.fn(() => ({
@@ -299,6 +308,29 @@ describe('CreateHouseholdScreen', () => {
 
       await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
       expect(mockSignOut).not.toHaveBeenCalled();
+    });
+
+    // PUSH-1: on a shared device, the FCM token identifies the device
+    // install, not the signed-in user — without deregistering it before
+    // sign-out, the next person to sign in on this device would silently
+    // keep receiving the previous user's household pushes.
+    it('clears this device FCM token before calling supabase.auth.signOut', async () => {
+      const callOrder: string[] = [];
+      mockUnregisterFcmToken.mockImplementation(async () => {
+        callOrder.push('unregisterFcmToken');
+      });
+      mockSignOut.mockImplementation(async () => {
+        callOrder.push('signOut');
+        return { error: null };
+      });
+
+      const { getByTestId } = render(<CreateHouseholdScreen />);
+      fireEvent.press(getByTestId('sign-out-button'));
+
+      await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
+
+      expect(mockUnregisterFcmToken).toHaveBeenCalledWith('user-1');
+      expect(callOrder).toEqual(['unregisterFcmToken', 'signOut']);
     });
   });
 

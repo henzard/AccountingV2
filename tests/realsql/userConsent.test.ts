@@ -10,6 +10,8 @@ interface UserConsentRow {
 }
 
 const mockUpsert = jest.fn();
+const mockEq = jest.fn();
+const mockUpdate = jest.fn(() => ({ eq: mockEq }));
 
 // `user_consent` writes go through the module-level `supabase` singleton
 // (same pattern as userPreferences.ts), so it must be mocked here — the
@@ -17,7 +19,7 @@ const mockUpsert = jest.fn();
 // present, which is always true in this node-environment test tier.
 jest.mock('../../src/data/remote/supabaseClient', () => ({
   supabase: {
-    from: () => ({ upsert: mockUpsert }),
+    from: () => ({ upsert: mockUpsert, update: mockUpdate }),
   },
 }));
 
@@ -25,6 +27,7 @@ describe('DrizzleUserConsentRepository (real SQLite)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUpsert.mockResolvedValue({ error: null });
+    mockEq.mockResolvedValue({ error: null });
   });
 
   it('first call: upserts a new local row, appends NO oplog row, and upserts remote with created_at', async () => {
@@ -114,5 +117,66 @@ describe('DrizzleUserConsentRepository (real SQLite)', () => {
     expect(row.slip_scan_consent_at).toBe('2026-04-13T00:00:00.000Z');
 
     raw.close();
+  });
+
+  describe('clearSlipScanConsent (SET-1 revoke)', () => {
+    it('clears an existing consent row back to null locally and remotely, appending no oplog row', async () => {
+      const raw = openMigratedDb();
+      const db = drizzle(raw);
+      const repo = new DrizzleUserConsentRepository(db as any);
+
+      await repo.setSlipScanConsent('user-1', '2026-04-13T00:00:00.000Z');
+      const rowBeforeRevoke = raw
+        .prepare('SELECT * FROM user_consent WHERE user_id = ?')
+        .get('user-1') as UserConsentRow;
+      mockUpsert.mockClear();
+      mockUpdate.mockClear();
+      mockEq.mockClear();
+
+      await repo.clearSlipScanConsent('user-1');
+
+      const row = raw
+        .prepare('SELECT * FROM user_consent WHERE user_id = ?')
+        .get('user-1') as UserConsentRow;
+      // This is the column's pre-existing "not consented" state (see
+      // userConsent.ts: `null = not consented`) — the same state the local
+      // hasConsented check and the extract-slip edge function's consent gate
+      // already treat as no consent. Row is not deleted; created_at/user_id
+      // are untouched.
+      expect(row.slip_scan_consent_at).toBeNull();
+      expect(row.user_id).toBe('user-1');
+      expect(row.created_at).toBe(rowBeforeRevoke.created_at);
+
+      const ops = raw.prepare('SELECT * FROM oplog WHERE row_id = ?').all('user-1');
+      expect(ops).toHaveLength(0);
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        slip_scan_consent_at: null,
+        updated_at: expect.any(String),
+      });
+      expect(mockEq).toHaveBeenCalledWith('user_id', 'user-1');
+
+      raw.close();
+    });
+
+    it('a failed server update fails the revoke and leaves the LOCAL consent untouched', async () => {
+      const raw = openMigratedDb();
+      const db = drizzle(raw);
+      const repo = new DrizzleUserConsentRepository(db as any);
+
+      await repo.setSlipScanConsent('user-1', '2026-04-13T00:00:00.000Z');
+      mockEq.mockResolvedValueOnce({ error: { message: 'offline' } });
+
+      // The server row is what the extract-slip gate and a later restore read:
+      // a withdrawal it never received must not be reported as done.
+      await expect(repo.clearSlipScanConsent('user-1')).rejects.toThrow(/withdraw consent/i);
+
+      const row = raw
+        .prepare('SELECT * FROM user_consent WHERE user_id = ?')
+        .get('user-1') as UserConsentRow;
+      expect(row.slip_scan_consent_at).toBe('2026-04-13T00:00:00.000Z');
+
+      raw.close();
+    });
   });
 });

@@ -8,6 +8,7 @@ import { useThemeStore } from '../stores/themeStore';
 
 interface State {
   error: Error | null;
+  shareFailed: boolean;
 }
 
 interface Props {
@@ -20,10 +21,10 @@ interface Props {
  * captureBoot so they survive across process restarts.
  */
 export class BootErrorBoundary extends React.Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, shareFailed: false };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    return { error, shareFailed: false };
   }
 
   componentDidCatch(error: Error): void {
@@ -33,8 +34,15 @@ export class BootErrorBoundary extends React.Component<Props, State> {
   private handleShare = (): void => {
     const err = this.state.error;
     if (!err) return;
-    void Share.share({
+    this.setState({ shareFailed: false });
+    Share.share({
       message: `${err.message}\n\n${err.stack ?? '(no stack)'}`,
+    }).catch(() => {
+      // This boundary renders when the app crashed, so it must not depend on
+      // any store/provider that may not exist — e.g. react-native-web's
+      // Share.share rejects outright when navigator.share is unavailable
+      // (Firefox, most desktop browsers). Fall back to local component state.
+      this.setState({ shareFailed: true });
     });
   };
 
@@ -75,6 +83,11 @@ export class BootErrorBoundary extends React.Component<Props, State> {
             Share
           </Button>
         </View>
+        {this.state.shareFailed && (
+          <Text style={[styles.shareFallback, { color: colors.error }]}>
+            Couldn&apos;t open sharing — select and copy the text above.
+          </Text>
+        )}
       </View>
     );
   }
@@ -106,5 +119,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     padding: spacing.base,
+  },
+  shareFallback: {
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.base,
   },
 });

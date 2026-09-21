@@ -323,6 +323,61 @@ describe('BudgetScreen', () => {
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('AddEditEnvelope', {}));
   });
 
+  // BUDGET-1: persistent envelopes used to render through the same
+  // allocated/spent/difference row as period spend envelopes, comparing an
+  // ALL-TIME withdrawal total against ONE period's contribution.
+  describe('persistent envelopes', () => {
+    const persistentEnvelopes = [
+      makeEnvelope('e1', 'Groceries', 'spending'),
+      { ...makeEnvelope('bs-1', 'Baby Step 1', 'baby_step'), spentCents: 320000 },
+    ];
+
+    it('puts persistent envelopes in their own "Savings & funds" section, not Expenses', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: persistentEnvelopes,
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId } = render(<BudgetScreen />);
+      expect(getByTestId('section-Expenses')).toBeTruthy();
+      expect(getByTestId('section-Savings & funds')).toBeTruthy();
+    });
+
+    it('shows no Expenses section when every non-income envelope is persistent', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: [{ ...makeEnvelope('bs-1', 'Baby Step 1', 'baby_step'), spentCents: 320000 }],
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId, queryByTestId } = render(<BudgetScreen />);
+      expect(queryByTestId('section-Expenses')).toBeNull();
+      expect(getByTestId('section-Savings & funds')).toBeTruthy();
+    });
+
+    it('does not describe a fund by its all-time spend or as over budget', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: persistentEnvelopes,
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { queryByText } = render(<BudgetScreen />);
+      // R3 200,00 all-time withdrawals against a R500,00 monthly contribution.
+      expect(queryByText(/R3 ?200,00 spent/)).toBeNull();
+      expect(queryByText(/−R2 ?700,00 difference/)).toBeNull();
+    });
+
+    it('still opens the detail sheet when a fund row is tapped', () => {
+      mockUseEnvelopes.mockReturnValue({
+        envelopes: persistentEnvelopes,
+        loading: false,
+        reload: jest.fn(),
+      });
+      const { getByTestId } = render(<BudgetScreen />);
+      fireEvent.press(getByTestId('envelope-card-Baby Step 1'));
+      expect(getByTestId('envelope-detail-sheet-stub')).toBeTruthy();
+    });
+  });
+
   // VAL2-4: the screen used to be pinned to the current period even though
   // `useEnvelopes` already accepts any period.
   describe('period switcher', () => {

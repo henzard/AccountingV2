@@ -48,6 +48,17 @@ describe('EnvelopeEntity pure functions', () => {
     it('returns 100 when allocated is zero', () => {
       expect(getPercentRemaining(makeEnvelope(0, 0))).toBe(100);
     });
+    // Returning 100 here regardless of spend drew a full "all good" fill bar
+    // beside the red negative amount getRemainingCents reports.
+    it('returns 0 when nothing is allocated but money was spent', () => {
+      expect(getPercentRemaining(makeEnvelope(0, 45000))).toBe(0);
+    });
+    it('stays consistent with the other helpers at zero allocation', () => {
+      const overspent = makeEnvelope(0, 45000);
+      expect(isOverBudget(overspent)).toBe(true);
+      expect(getRemainingCents(overspent)).toBe(-45000);
+      expect(getPercentRemaining(overspent)).toBe(0);
+    });
   });
 
   describe('isOverBudget', () => {

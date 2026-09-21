@@ -400,8 +400,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           </TouchableOpacity>
         )}
 
-        {/* Budget ring — only when spend envelopes exist */}
-        {spendEnvelopes.length > 0 && (
+        {/* Budget ring — only when THIS PERIOD's spend envelopes exist.
+            Gating on `spendEnvelopes` (which also counts persistent
+            savings/funds) put a ring, a Spent/Budget stat row and a
+            safe-to-spend card directly above the "you haven't set up this
+            month's spending yet" empty state, for a household whose only
+            envelopes are funds. That empty state is driven by
+            `budgetSpendEnvelopes`, so this gate must be too. The "Savings &
+            funds" section lives in ListFooter and is unaffected. */}
+        {budgetSpendEnvelopes.length > 0 && (
           <View style={styles.ringSection}>
             <BudgetRingCard
               totalAllocatedCents={totalAllocated}
@@ -577,7 +584,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      spendEnvelopes.length,
       budgetSpendEnvelopes.length,
       hasIncome,
       budgetBalance,

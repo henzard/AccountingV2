@@ -8,9 +8,10 @@
  * genuinely different server paths (an owner RPC vs. the ordinary synced
  * delete op), so they are two different use cases here, not one with a flag.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { format } from 'date-fns';
-import { View, FlatList, StyleSheet } from 'react-native';
+import { View, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Text, Surface, Button, ActivityIndicator, IconButton } from 'react-native-paper';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { db } from '../../../data/local/db';
@@ -82,10 +83,20 @@ export const HouseholdMembersScreen: React.FC<HouseholdMembersScreenProps> = ({
   const [members, setMembers] = useState<HouseholdMember[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // HH-2: another owner can add/remove members or change roles while this
+  // screen is mounted, and a slower in-flight load can resolve AFTER a
+  // newer one (e.g. focus refetch racing a pull-to-refresh). This counter
+  // guards state writes so only the most recently started load ever wins —
+  // the same pattern MeterDashboardScreen's `loadSeq` uses.
+  const loadSeq = useRef(0);
 
   const load = useCallback(async (): Promise<void> => {
+    const seq = ++loadSeq.current;
     setError(null);
     const result = await new ListHouseholdMembersUseCase(supabase, { householdId }).execute();
+    if (seq !== loadSeq.current) return;
     if (result.success) {
       setMembers(sortMembers(result.data));
     } else {
@@ -94,8 +105,23 @@ export const HouseholdMembersScreen: React.FC<HouseholdMembersScreenProps> = ({
     }
   }, [householdId]);
 
-  useEffect(() => {
-    void load();
+  // HH-2: refetch every time this screen gains focus (not just on mount) so
+  // a roster change made elsewhere — another owner removing someone, a
+  // member leaving — is never left stale, including the "sole owner"
+  // computation below that gates the Leave button.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   }, [load]);
 
   const activeOwners = (members ?? []).filter((m) => m.role === 'owner');
@@ -268,6 +294,14 @@ export const HouseholdMembersScreen: React.FC<HouseholdMembersScreenProps> = ({
         keyExtractor={(item) => item.userId}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            testID="members-refresh-control"
+            refreshing={refreshing}
+            onRefresh={() => void handleRefresh()}
+            colors={[colors.primary]}
+          />
+        }
         ListEmptyComponent={
           <Text
             variant="bodyMedium"

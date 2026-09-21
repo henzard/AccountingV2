@@ -12,6 +12,10 @@ function makeMockConsentRepo(
   return {
     get: jest.fn().mockResolvedValue(null),
     setSlipScanConsent: jest.fn().mockResolvedValue(undefined),
+    // SET-1: IUserConsentRepository gained a revoke method — not exercised
+    // by these RecordSlipConsentUseCase tests, but required to satisfy the
+    // interface's shape.
+    clearSlipScanConsent: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

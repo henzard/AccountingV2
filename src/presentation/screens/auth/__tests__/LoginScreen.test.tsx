@@ -195,4 +195,54 @@ describe('LoginScreen', () => {
     expect(getAllByText(/AccountingV2/i).length).toBeGreaterThan(0);
     expect(getAllByText(/Sign in/i).length).toBeGreaterThan(0);
   });
+
+  // AUTH-1: raw Supabase error text must never reach the snackbar — a
+  // friendly, mapped message is shown instead, and the raw error is only
+  // logged (verified in authErrorMessages.test.ts). Red without the fix:
+  // LoginScreen used to do `setError(result.error.message)` directly, so
+  // the snackbar showed "Invalid login credentials" verbatim.
+  describe('AUTH-1: friendly error copy (never the raw Supabase message)', () => {
+    it('maps "Invalid login credentials" to friendly copy instead of showing it verbatim', async () => {
+      mockSignIn.mockResolvedValue({
+        success: false,
+        error: { message: 'Invalid login credentials' },
+      });
+      const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
+      fireEvent.changeText(getByTestId('login-email'), 'user@example.com');
+      fireEvent.changeText(getByTestId('login-password'), 'wrongpassword');
+      fireEvent.press(getByTestId('login-submit'));
+      await waitFor(() => {
+        expect(getByTestId('snackbar').props.children).not.toBe('Invalid login credentials');
+        expect(getByTestId('snackbar').props.children).toMatch(/incorrect email or password/i);
+      });
+    });
+
+    it('shows an offline-specific message for a network failure', async () => {
+      mockSignIn.mockResolvedValue({
+        success: false,
+        error: { message: 'Network request failed' },
+      });
+      const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
+      fireEvent.changeText(getByTestId('login-email'), 'user@example.com');
+      fireEvent.changeText(getByTestId('login-password'), 'password123');
+      fireEvent.press(getByTestId('login-submit'));
+      await waitFor(() => {
+        expect(getByTestId('snackbar').props.children).toMatch(/offline|connection/i);
+      });
+    });
+
+    it('propagates the underlying status/code carried in result.error.context (e.g. a rate limit)', async () => {
+      mockSignIn.mockResolvedValue({
+        success: false,
+        error: { message: 'unexpected wording', context: { status: 429 } },
+      });
+      const { getByTestId } = render(<LoginScreen route={{} as never} navigation={{} as never} />);
+      fireEvent.changeText(getByTestId('login-email'), 'user@example.com');
+      fireEvent.changeText(getByTestId('login-password'), 'password123');
+      fireEvent.press(getByTestId('login-submit'));
+      await waitFor(() => {
+        expect(getByTestId('snackbar').props.children).toMatch(/too many attempts/i);
+      });
+    });
+  });
 });

@@ -5,6 +5,7 @@ import { format, parseISO } from 'date-fns';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { CreateInviteUseCase } from '../../../domain/households/CreateInviteUseCase';
 import { useAppStore } from '../../stores/appStore';
+import { useToastStore } from '../../stores/toastStore';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { ShareInviteScreenProps } from '../../navigation/types';
@@ -14,6 +15,7 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
   const { householdName } = route.params;
   const session = useAppStore((s) => s.session);
   const householdId = useAppStore((s) => s.householdId)!;
+  const enqueue = useToastStore((s) => s.enqueue);
 
   const [code, setCode] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
@@ -76,9 +78,21 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
 
   const handleShare = async (): Promise<void> => {
     if (!code) return;
-    await Share.share({
-      message: `Join "${householdName}" on AccountingV2!\n\nUse invite code: ${code}\n\nExpires in 48 hours.`,
-    });
+    try {
+      await Share.share({
+        message: `Join "${householdName}" on AccountingV2!\n\nUse invite code: ${code}\n\nExpires in 48 hours.`,
+      });
+    } catch (err: unknown) {
+      // The user dismissing the native share sheet rejects with an AbortError
+      // (web) — that's not a failure, so stay quiet. Everything else (e.g.
+      // react-native-web's Share.share rejecting outright when
+      // navigator.share doesn't exist, as on Firefox/most desktop browsers)
+      // needs a visible fallback since Share Code is this screen's only CTA.
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+      enqueue("Sharing isn't available here — copy the code above and send it yourself.", 'error');
+    }
   };
 
   if (code) {
@@ -90,7 +104,7 @@ export const ShareInviteScreen: React.FC<ShareInviteScreenProps> = ({ route }) =
           <Text variant="labelMedium" style={[styles.label, { color: colors.onPrimaryContainer }]}>
             INVITE CODE
           </Text>
-          <Text variant="displaySmall" style={[styles.code, { color: colors.primary }]}>
+          <Text variant="displaySmall" selectable style={[styles.code, { color: colors.primary }]}>
             {code}
           </Text>
           <Text variant="bodySmall" style={[styles.expiry, { color: colors.onPrimaryContainer }]}>

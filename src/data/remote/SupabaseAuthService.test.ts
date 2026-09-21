@@ -72,6 +72,45 @@ describe('SupabaseAuthService', () => {
         expect(result.error.message).toBe('Sign in failed');
       }
     });
+
+    // AUTH-1: LoginScreen maps the raw Supabase error to friendly copy via
+    // getFriendlyAuthErrorMessage, which needs the underlying status/code
+    // (not just the domain code 'AUTH_SIGN_IN_FAILED') to tell e.g. a rate
+    // limit apart from invalid credentials. Forward it in `context`.
+    it('forwards the underlying error status/code in error.context', async () => {
+      const mock = makeMockSupabase({
+        signInWithPassword: jest.fn().mockResolvedValue({
+          data: { session: null },
+          error: {
+            message: 'For security purposes...',
+            status: 429,
+            code: 'over_request_rate_limit',
+          },
+        }),
+      });
+      const service = new SupabaseAuthService(mock as any);
+      const result = await service.signIn('henza@example.com', 'password');
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('AUTH_SIGN_IN_FAILED');
+        expect(result.error.context).toEqual({ status: 429, code: 'over_request_rate_limit' });
+      }
+    });
+
+    it('leaves context undefined when there was no underlying error object (empty session)', async () => {
+      const mock = makeMockSupabase({
+        signInWithPassword: jest.fn().mockResolvedValue({
+          data: { session: null },
+          error: null,
+        }),
+      });
+      const service = new SupabaseAuthService(mock as any);
+      const result = await service.signIn('henza@example.com', 'password');
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.context).toBeUndefined();
+      }
+    });
   });
 
   describe('signOut', () => {

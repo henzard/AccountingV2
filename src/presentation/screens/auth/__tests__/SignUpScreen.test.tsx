@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 
 // ─── Navigation mock ──────────────────────────────────────────────────────────
 const mockNavigate = jest.fn();
@@ -65,14 +65,18 @@ jest.mock('react-native-paper', () => {
     children,
     onPress,
     testID,
+    disabled,
+    loading,
   }: {
     children?: React.ReactNode;
     onPress?: () => void;
     testID?: string;
+    disabled?: boolean;
+    loading?: boolean;
   }) =>
     React.createElement(
       'TouchableOpacity',
-      { onPress, testID },
+      { onPress, testID, disabled, loading },
       React.createElement('Text', {}, children),
     );
   const HelperText = ({
@@ -94,6 +98,7 @@ jest.mock('../../../../data/remote/supabaseClient', () => ({
   supabase: {
     auth: {
       signUp: jest.fn(),
+      resend: jest.fn(),
     },
   },
 }));
@@ -102,10 +107,12 @@ import { SignUpScreen } from '../SignUpScreen';
 import { supabase } from '../../../../data/remote/supabaseClient';
 
 const mockSignUp = supabase.auth.signUp as jest.Mock;
+const mockResend = supabase.auth.resend as jest.Mock;
 
 describe('SignUpScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockResend.mockResolvedValue({ error: null });
   });
 
   it('renders title and submit button', () => {
@@ -227,5 +234,161 @@ describe('SignUpScreen', () => {
     // Press again to toggle back
     fireEvent.press(confirmIcon!);
     expect(confirmInput.props.secureTextEntry).toBe(true);
+  });
+
+  // AUTH-1: raw Supabase errors must never reach the screen verbatim.
+  describe('AUTH-1: friendly error copy', () => {
+    it('shows friendly fallback copy for an unrecognised Supabase error, not its raw message', async () => {
+      mockSignUp.mockResolvedValue({
+        error: { message: 'relation "auth.users" does not exist', code: 'unexpected_failure' },
+      });
+      const { getByTestId, getByText } = render(<SignUpScreen />);
+      fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
+      fireEvent.changeText(getByTestId('signup-password'), 'securepass1');
+      fireEvent.changeText(getByTestId('signup-confirm-password'), 'securepass1');
+      fireEvent.press(getByText('Create Account'));
+      await waitFor(() => {
+        const text = getByTestId('signup-error').props.children;
+        expect(text).not.toMatch(/relation "auth.users"/);
+        expect(text).toMatch(/something went wrong/i);
+      });
+    });
+
+    it('keeps a weak-password message as plain wording (not the generic fallback)', async () => {
+      mockSignUp.mockResolvedValue({
+        error: { message: 'Password should be at least 6 characters.', code: 'weak_password' },
+      });
+      const { getByTestId, getByText } = render(<SignUpScreen />);
+      fireEvent.changeText(getByTestId('signup-email'), 'user@example.com');
+      fireEvent.changeText(getByTestId('signup-password'), 'securepass1');
+      fireEvent.changeText(getByTestId('signup-confirm-password'), 'securepass1');
+      fireEvent.press(getByText('Create Account'));
+      await waitFor(() => {
+        expect(getByTestId('signup-error').props.children).toBe(
+          'Password should be at least 6 characters.',
+        );
+      });
+    });
+  });
+
+  // AUTH-3: the confirmation copy must show the normalised (trim+lowercase)
+  // email actually sent, not whatever the user typed.
+  describe('AUTH-3: confirmation shows the normalised email', () => {
+    it('shows the trimmed, lowercased email in the check-your-email copy', async () => {
+      mockSignUp.mockResolvedValue({ data: { user: { id: 'u1' }, session: null }, error: null });
+      const { getByTestId, getByText } = render(<SignUpScreen />);
+      fireEvent.changeText(getByTestId('signup-email'), '  User@Example.COM  ');
+      fireEvent.changeText(getByTestId('signup-password'), 'securepass1');
+      fireEvent.changeText(getByTestId('signup-confirm-password'), 'securepass1');
+      fireEvent.press(getByText('Create Account'));
+      await waitFor(() => {
+        expect(getByText(/We've sent a confirmation link to user@example\.com/)).toBeTruthy();
+      });
+      expect(mockSignUp).toHaveBeenCalledWith({
+        email: 'user@example.com',
+        password: 'securepass1',
+      });
+    });
+  });
+
+  // AUTH-2: resend + edit affordances on the check-your-email state.
+  describe('AUTH-2: resend email + edit email on the check-your-email state', () => {
+    async function getToCheckEmail() {
+      mockSignUp.mockResolvedValue({ data: { user: { id: 'u1' }, session: null }, error: null });
+      const utils = render(<SignUpScreen />);
+      fireEvent.changeText(utils.getByTestId('signup-email'), 'user@example.com');
+      fireEvent.changeText(utils.getByTestId('signup-password'), 'securepass1');
+      fireEvent.changeText(utils.getByTestId('signup-confirm-password'), 'securepass1');
+      fireEvent.press(utils.getByText('Create Account'));
+      await waitFor(() => {
+        expect(utils.queryByTestId('signup-check-email')).toBeTruthy();
+      });
+      return utils;
+    }
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('calls supabase.auth.resend with type "signup" and the normalised email', async () => {
+      jest.useFakeTimers();
+      const { getByTestId } = await getToCheckEmail();
+      // Skip past the initial post-signup cooldown so the button is live.
+      await act(async () => {
+        jest.advanceTimersByTime(30000);
+      });
+      await act(async () => {
+        fireEvent.press(getByTestId('signup-resend'));
+      });
+      expect(mockResend).toHaveBeenCalledWith({ type: 'signup', email: 'user@example.com' });
+    });
+
+    it('disables the resend button for a 30s cooldown after a successful resend, then re-enables it', async () => {
+      jest.useFakeTimers();
+      const { getByTestId } = await getToCheckEmail();
+
+      // The cooldown also starts right after the initial signUp.
+      expect(getByTestId('signup-resend').props.disabled).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(30000);
+      });
+      expect(getByTestId('signup-resend').props.disabled).toBe(false);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('signup-resend'));
+      });
+      expect(getByTestId('signup-resend').props.disabled).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(29000);
+      });
+      expect(getByTestId('signup-resend').props.disabled).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(getByTestId('signup-resend').props.disabled).toBe(false);
+    });
+
+    it('pressing resend while on cooldown does not call supabase.auth.resend', async () => {
+      const { getByTestId } = await getToCheckEmail();
+      fireEvent.press(getByTestId('signup-resend')); // still on the initial cooldown
+      expect(mockResend).not.toHaveBeenCalled();
+    });
+
+    it('shows a friendly error if the resend fails, without leaving cooldown running forever', async () => {
+      jest.useFakeTimers();
+      const { getByTestId } = await getToCheckEmail();
+      await act(async () => {
+        jest.advanceTimersByTime(30000);
+      });
+      mockResend.mockResolvedValue({ error: { message: 'boom', code: 'unexpected_failure' } });
+      await act(async () => {
+        fireEvent.press(getByTestId('signup-resend'));
+      });
+      expect(getByTestId('signup-resend-error').props.children).toMatch(/something went wrong/i);
+      // Cooldown was NOT restarted on failure — resend is available again.
+      expect(getByTestId('signup-resend').props.disabled).toBe(false);
+    });
+
+    it('"Wrong email? Edit" returns to the form with the typed fields still filled', async () => {
+      const { getByTestId } = await getToCheckEmail();
+      fireEvent.press(getByTestId('signup-edit-email'));
+      expect(getByTestId('signup-email').props.value).toBe('user@example.com');
+      expect(getByTestId('signup-password').props.value).toBe('securepass1');
+      expect(getByTestId('signup-confirm-password').props.value).toBe('securepass1');
+    });
+
+    it('clears the cooldown timer on unmount (no leaked timer/state update)', async () => {
+      jest.useFakeTimers();
+      const { unmount } = await getToCheckEmail();
+      unmount();
+      // Advancing timers after unmount must not throw / warn about updating
+      // an unmounted component.
+      await act(async () => {
+        jest.advanceTimersByTime(30000);
+      });
+    });
   });
 });

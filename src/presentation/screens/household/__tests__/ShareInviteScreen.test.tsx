@@ -2,7 +2,7 @@
  * ShareInviteScreen.test.tsx — zero-coverage screen test
  */
 import React from 'react';
-import { render, waitFor, act } from '@testing-library/react-native';
+import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
 import { format, parseISO } from 'date-fns';
 
 // ─── react-native-paper mocks ─────────────────────────────────────────────────
@@ -83,6 +83,15 @@ jest.mock('../../../../domain/households/CreateInviteUseCase', () => ({
   CreateInviteUseCase: jest.fn().mockImplementation(() => ({ execute: mockExecute })),
 }));
 
+// ─── toastStore mock ──────────────────────────────────────────────────────────
+const mockEnqueue = jest.fn();
+jest.mock('../../../stores/toastStore', () => ({
+  useToastStore: jest.fn((sel: (s: { enqueue: typeof mockEnqueue }) => unknown) =>
+    sel({ enqueue: mockEnqueue }),
+  ),
+}));
+
+import { Share } from 'react-native';
 import { ShareInviteScreen } from '../ShareInviteScreen';
 
 const makeProps = () =>
@@ -276,5 +285,75 @@ describe('ShareInviteScreen', () => {
     const retry = await findByTestId('share-invite-retry');
     expect(retry.props.accessibilityState?.disabled ?? retry.props.disabled ?? false).toBe(false);
     expect(queryByText(/Network request failed/)).toBeNull();
+  });
+
+  it('invite code text is selectable so it can be copied', async () => {
+    const { getByText } = render(<ShareInviteScreen {...makeProps()} />);
+    await waitFor(() => {
+      expect(getByText('ABC123')).toBeTruthy();
+    });
+    expect(getByText('ABC123').props.selectable).toBe(true);
+  });
+
+  it('handleShare shows a fallback toast when Share.share rejects (react-native-web with no navigator.share)', async () => {
+    const shareSpy = jest
+      .spyOn(Share, 'share')
+      .mockRejectedValueOnce(new Error('Share is not supported'));
+
+    const { getByText } = render(<ShareInviteScreen {...makeProps()} />);
+    await waitFor(() => {
+      expect(getByText('Share Code')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(getByText('Share Code'));
+      // let the rejected promise's .catch handler run
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      "Sharing isn't available here — copy the code above and send it yourself.",
+      'error',
+    );
+    shareSpy.mockRestore();
+  });
+
+  it('handleShare stays quiet when the user dismisses the native share sheet (AbortError)', async () => {
+    const abortError = new Error('Share canceled');
+    abortError.name = 'AbortError';
+    const shareSpy = jest.spyOn(Share, 'share').mockRejectedValueOnce(abortError);
+
+    const { getByText } = render(<ShareInviteScreen {...makeProps()} />);
+    await waitFor(() => {
+      expect(getByText('Share Code')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(getByText('Share Code'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockEnqueue).not.toHaveBeenCalled();
+    shareSpy.mockRestore();
+  });
+
+  it('handleShare does not toast on a normal successful share', async () => {
+    const shareSpy = jest.spyOn(Share, 'share').mockResolvedValueOnce({ action: 'sharedAction' });
+
+    const { getByText } = render(<ShareInviteScreen {...makeProps()} />);
+    await waitFor(() => {
+      expect(getByText('Share Code')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(getByText('Share Code'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockEnqueue).not.toHaveBeenCalled();
+    shareSpy.mockRestore();
   });
 });

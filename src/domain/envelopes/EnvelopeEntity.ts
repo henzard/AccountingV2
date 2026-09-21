@@ -28,7 +28,11 @@ export function getRemainingCents(envelope: EnvelopeEntity): number {
 }
 
 export function getPercentRemaining(envelope: EnvelopeEntity): number {
-  if (envelope.allocatedCents === 0) return 100;
+  // An envelope with nothing allocated has nothing left to divide by. Spending
+  // against it is still an overspend, so it reads 0% remaining — returning 100
+  // unconditionally drew a full "all good" fill bar beside a red negative
+  // amount. An untouched zero-allocation envelope keeps reading 100.
+  if (envelope.allocatedCents === 0) return envelope.spentCents > 0 ? 0 : 100;
   const pct = ((envelope.allocatedCents - envelope.spentCents) / envelope.allocatedCents) * 100;
   return Math.max(0, Math.round(pct));
 }

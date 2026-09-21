@@ -9,8 +9,8 @@ import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { spacing } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { supabase } from '../../../data/remote/supabaseClient';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
+import { signOutAndUnregisterFcm } from '../../../infrastructure/notifications/signOutAndUnregisterFcm';
 
 const audit = new AuditLogger(db);
 
@@ -171,7 +171,12 @@ export const CreateHouseholdScreen: React.FC = () => {
                   destructive: true,
                 });
                 if (!confirmed) return;
-                await supabase.auth.signOut();
+                // PUSH-1: deregister this device's FCM token before signing
+                // out — otherwise a shared device's next user would silently
+                // keep receiving the previous user's push notifications (see
+                // signOutAndUnregisterFcm for why this mirrors
+                // SettingsScreen's handleSignOut).
+                await signOutAndUnregisterFcm(session?.user?.id);
               }}
               disabled={loading}
               style={styles.signOutLink}

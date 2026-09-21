@@ -55,4 +55,33 @@ export class DrizzleUserConsentRepository implements IUserConsentRepository {
 
     await supabase.from('user_consent').upsert(remotePayload, { onConflict: 'user_id' });
   }
+
+  async clearSlipScanConsent(userId: string): Promise<void> {
+    const now = new Date().toISOString();
+
+    // Revoke = clear the timestamp back to the column's existing "not
+    // consented" state (see userConsent.ts: `null = not consented`).
+    //
+    // Server FIRST, and its failure is fatal. Unlike granting consent, a
+    // withdrawal is only real once the server has it: the extract-slip edge
+    // function enforces consent from the SERVER row, and a restore re-seeds
+    // the local row from it. Clearing only locally would tell the user their
+    // consent is withdrawn while the server kept honouring it (and the next
+    // restore would quietly re-grant it here). supabase-js reports failure
+    // through `error` rather than throwing, and the client itself can throw
+    // when offline — both must fail the revoke.
+    const { error } = await supabase
+      .from('user_consent')
+      .update({ slip_scan_consent_at: null, updated_at: now })
+      .eq('user_id', userId);
+    if (error) {
+      throw new Error(`Could not withdraw consent on the server: ${error.message}`);
+    }
+
+    await this.db.run(sql`
+      UPDATE user_consent
+      SET slip_scan_consent_at = NULL, updated_at = ${now}
+      WHERE user_id = ${userId}
+    `);
+  }
 }

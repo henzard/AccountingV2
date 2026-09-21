@@ -28,10 +28,18 @@ export function BudgetRingCard({
 }: BudgetRingCardProps): React.JSX.Element {
   const { colors } = useAppTheme();
 
+  // The ARC stays clamped at a full circle — it has nowhere further to travel.
   const pct = totalAllocatedCents > 0 ? Math.min(1, totalSpentCents / totalAllocatedCents) : 0;
   const dashOffset = CIRCUMFERENCE * (1 - pct);
-  const remainingCents = Math.max(0, totalAllocatedCents - totalSpentCents);
   const isOver = totalSpentCents > totalAllocatedCents;
+  // The HEADLINE is not clamped: clamping it to 0 made every overspend, from
+  // R1 to R5 000, read "R0,00 over budget" — the one figure the household
+  // needs to see. Under budget it is what is left; over budget it is how far
+  // past the allocation the period has gone.
+  const headlineCents = isOver
+    ? totalSpentCents - totalAllocatedCents
+    : totalAllocatedCents - totalSpentCents;
+  const statusLabel = isOver ? 'over budget' : 'remaining';
   const ringColor = isOver ? colors.error : score >= 70 ? colors.primary : colors.warning;
 
   return (
@@ -63,17 +71,23 @@ export function BudgetRingCard({
       </Svg>
 
       {/* Center label */}
-      <View style={[StyleSheet.absoluteFillObject, styles.center]}>
+      <View
+        style={[StyleSheet.absoluteFillObject, styles.center]}
+        accessible
+        accessibilityLabel={`${formatCurrency(headlineCents)} ${statusLabel}, ${daysRemaining} days left`}
+        testID={`${testID}-center`}
+      >
         <Text
           variant="headlineMedium"
           style={[styles.amount, { color: isOver ? colors.error : colors.onSurface }]}
           numberOfLines={1}
           adjustsFontSizeToFit
+          testID={`${testID}-amount`}
         >
-          {formatCurrency(remainingCents)}
+          {formatCurrency(headlineCents)}
         </Text>
         <Text variant="bodySmall" style={[styles.label, { color: colors.onSurfaceVariant }]}>
-          {isOver ? 'over budget' : 'remaining'}
+          {statusLabel}
         </Text>
         <Text variant="bodySmall" style={[styles.days, { color: colors.onSurfaceVariant }]}>
           {daysRemaining}d left

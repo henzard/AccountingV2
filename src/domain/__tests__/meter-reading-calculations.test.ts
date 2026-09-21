@@ -1,7 +1,22 @@
+import { addDays, format } from 'date-fns';
 import { UnitRateCalculator } from '../meterReadings/UnitRateCalculator';
 import { AnomalyDetector } from '../meterReadings/AnomalyDetector';
 import { buildMeterReading } from '../../__test-utils__/factories';
 import type { MeterReadingEntity } from '../meterReadings/MeterReadingEntity';
+
+// MTR-1: AnomalyDetector now normalises consumption deltas to a units-PER-DAY
+// rate using the real gap between reading dates, instead of averaging raw
+// deltas regardless of how far apart the readings are. Below, every prior
+// reading (and the "current" reading that follows them) is spaced exactly
+// 30 days apart from a fixed base date, so the per-day normalisation divides
+// and re-multiplies by the same day count for every interval — preserving
+// each test's original hand-computed numbers/intent rather than rewriting
+// the scenario. This is not special-cased math, just a day-gap length that
+// keeps the arithmetic exact (or as close to exact as floating point allows).
+const BASE = new Date(2026, 0, 1);
+function dateAt(daysFromBase: number): string {
+  return format(addDays(BASE, daysFromBase), 'yyyy-MM-dd');
+}
 
 describe('Meter Reading Calculations', () => {
   const calculator = new UnitRateCalculator();
@@ -194,7 +209,7 @@ describe('Meter Reading Calculations', () => {
           id: `reading-${i}`,
           meterType,
           readingValue: val,
-          readingDate: `2026-${(i + 1).toString().padStart(2, '0')}-28`,
+          readingDate: dateAt(i * 30),
           costCents: null,
         }),
       );
@@ -210,13 +225,13 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           meterType: 'electricity',
           readingValue: 2950,
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, previousReadings);
         expect(result.isAnomaly).toBe(true);
         expect(result.currentConsumption).toBe(600);
-        expect(result.rollingAverageConsumption).toBe(450);
+        expect(result.rollingAverageConsumption).toBeCloseTo(450);
         expect(result.deviationPercent).toBeCloseTo(0.333, 2);
       });
 
@@ -227,7 +242,7 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           meterType: 'electricity',
           readingValue: 2850,
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, previousReadings);
@@ -243,7 +258,7 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           meterType: 'electricity',
           readingValue: 2650,
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, previousReadings);
@@ -287,7 +302,7 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           readingValue: 3000,
           meterType: 'electricity',
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
         const readings = buildSequentialReadings([500, 1000, 1500, 2000]);
         // Deltas: 500, 500, 500 -> avg = 500
@@ -305,7 +320,7 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           meterType: 'electricity',
           readingValue: 2350, // same as last = 0 consumption
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, previousReadings);
@@ -324,13 +339,13 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           meterType: 'water',
           readingValue: 179,
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, previousReadings);
         expect(result.isAnomaly).toBe(true);
         expect(result.currentConsumption).toBe(25);
-        expect(result.rollingAverageConsumption).toBe(18);
+        expect(result.rollingAverageConsumption).toBeCloseTo(18);
       });
     });
 
@@ -340,32 +355,32 @@ describe('Meter Reading Calculations', () => {
           buildMeterReading({
             id: 'r3',
             readingValue: 1900,
-            readingDate: '2026-03-28',
+            readingDate: dateAt(60),
             meterType: 'electricity',
           }),
           buildMeterReading({
             id: 'r1',
             readingValue: 1000,
-            readingDate: '2026-01-28',
+            readingDate: dateAt(0),
             meterType: 'electricity',
           }),
           buildMeterReading({
             id: 'r4',
             readingValue: 2350,
-            readingDate: '2026-04-28',
+            readingDate: dateAt(90),
             meterType: 'electricity',
           }),
           buildMeterReading({
             id: 'r2',
             readingValue: 1450,
-            readingDate: '2026-02-28',
+            readingDate: dateAt(30),
             meterType: 'electricity',
           }),
         ];
         const current = buildMeterReading({
           meterType: 'electricity',
           readingValue: 2950,
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, readings);
@@ -374,7 +389,7 @@ describe('Meter Reading Calculations', () => {
         // deviation: |600-450|/450 = 0.333
         expect(result.isAnomaly).toBe(true);
         expect(result.currentConsumption).toBe(600);
-        expect(result.rollingAverageConsumption).toBe(450);
+        expect(result.rollingAverageConsumption).toBeCloseTo(450);
       });
     });
 
@@ -388,7 +403,7 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           meterType: 'electricity',
           readingValue: 3100,
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, previousReadings);
@@ -402,7 +417,7 @@ describe('Meter Reading Calculations', () => {
         const current = buildMeterReading({
           meterType: 'electricity',
           readingValue: 3101,
-          readingDate: '2026-05-28',
+          readingDate: dateAt(120),
         });
 
         const result = anomalyDetector.detect(current, previousReadings);

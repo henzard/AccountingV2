@@ -19,9 +19,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useSyncStore } from '../../stores/syncStore';
+import { format } from 'date-fns';
 import { supabase } from '../../../data/remote/supabaseClient';
 import { db } from '../../../data/local/db';
 import { UpdateHouseholdPaydayDayUseCase } from '../../../domain/households/UpdateHouseholdPaydayDayUseCase';
+import { DrizzleUserConsentRepository } from '../../../data/repositories/DrizzleUserConsentRepository';
+import { RevokeSlipConsentUseCase } from '../../../domain/slipScanning/RevokeSlipConsentUseCase';
 import { confirm } from '../../components/shared/ConfirmDialogHost';
 import { unregisterFcmToken } from '../../../infrastructure/notifications/FcmTokenRegistrar';
 import { resetWifiOnlyCache } from '../../../infrastructure/slipScanning/SupabaseSlipImageUploader';
@@ -30,6 +33,11 @@ import { useAppTheme } from '../../theme/useAppTheme';
 import type { SettingsScreenProps, RootStackParamList } from '../../navigation/types';
 
 const WIFI_ONLY_KEY = '@settings:slip_wifi_only';
+
+// Module-level singleton, same pattern as the other screens wiring this
+// repository (SlipScanningScreen.tsx) — cheap to construct, no per-render churn.
+const userConsentRepo = new DrizzleUserConsentRepository(db);
+const revokeSlipConsentUseCase = new RevokeSlipConsentUseCase(userConsentRepo);
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const { colors } = useAppTheme();
@@ -58,9 +66,59 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   const [paydayError, setPaydayError] = useState<string | null>(null);
   const [paydaySaving, setPaydaySaving] = useState(false);
 
+  // SET-1: slip-scan consent state, read fresh whenever the signed-in user
+  // changes (and on every mount of this screen) so a revoke made elsewhere
+  // is reflected here. Defaults to null (not consented / unknown) until
+  // resolved.
+  const [slipConsentAt, setSlipConsentAt] = useState<string | null>(null);
+  const [withdrawingConsent, setWithdrawingConsent] = useState(false);
+
   useEffect(() => {
     AsyncStorage.getItem(WIFI_ONLY_KEY).then((v) => setWifiOnly(v === 'true'));
   }, []);
+
+  useEffect(() => {
+    if (!userId) {
+      setSlipConsentAt(null);
+      return;
+    }
+    let cancelled = false;
+    userConsentRepo
+      .get(userId)
+      .then((row) => {
+        if (!cancelled) setSlipConsentAt(row?.slipScanConsentAt ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setSlipConsentAt(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const handleWithdrawSlipConsent = async (): Promise<void> => {
+    if (!userId || withdrawingConsent) return;
+    const confirmed = await confirm({
+      title: 'Withdraw slip scanning consent?',
+      message:
+        "Slip scanning will stop working until you agree again. Slips and transactions you've already scanned are kept.",
+      confirmLabel: 'Withdraw',
+      destructive: true,
+    });
+    if (!confirmed) return;
+    setWithdrawingConsent(true);
+    try {
+      const result = await revokeSlipConsentUseCase.execute({ userId });
+      if (result.success) {
+        setSlipConsentAt(null);
+        enqueue('Slip scanning consent withdrawn', 'success');
+      } else {
+        enqueue("We couldn't withdraw consent. Please try again.", 'error');
+      }
+    } finally {
+      setWithdrawingConsent(false);
+    }
+  };
 
   const handleWifiOnlyToggle = async (value: boolean): Promise<void> => {
     setWifiOnly(value);
@@ -282,7 +340,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           <Divider />
           <List.Item
             title="Privacy — Slip scanning consent"
-            description="Manage your consent"
+            description={
+              // SET-1: show the recorded state (date) once consent has been
+              // granted, instead of always saying "Manage your consent".
+              slipConsentAt
+                ? `Consented on ${format(new Date(slipConsentAt), 'MMM d, yyyy')}`
+                : 'Manage your consent'
+            }
             left={(props) => <List.Icon {...props} icon="shield-account-outline" />}
             right={(props) => <List.Icon {...props} icon="chevron-right" />}
             onPress={() =>
@@ -301,6 +365,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             }
             testID="slip-consent-item"
           />
+          {slipConsentAt !== null && (
+            <>
+              <Divider />
+              <List.Item
+                title="Withdraw consent"
+                description="Slip scanning stops working until you agree again"
+                left={(props) => <List.Icon {...props} icon="shield-off-outline" />}
+                onPress={handleWithdrawSlipConsent}
+                disabled={withdrawingConsent}
+                testID="withdraw-slip-consent-item"
+              />
+            </>
+          )}
           <Divider />
           <List.Item
             title="Upload on Wi-Fi only"
@@ -356,6 +433,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
           Delete account
         </Button>
       </View>
+
+      {/* SET-2: there was previously no way to see the installed build —
+          CD stamps the real version (1.1.<run>) natively only. This env var
+          is wired by the CD workflow; unset (e.g. a local dev build) falls
+          back to an honest label instead of a stale "1.0.0". */}
+      <List.Section>
+        <List.Subheader style={styles.subheader}>About</List.Subheader>
+        <Surface style={[styles.section, { backgroundColor: colors.surface }]} elevation={0}>
+          <List.Item
+            title="Version"
+            description={process.env.EXPO_PUBLIC_APP_VERSION ?? 'development build'}
+            left={(props) => <List.Icon {...props} icon="information-outline" />}
+            testID="about-version"
+          />
+        </Surface>
+      </List.Section>
 
       <Portal>
         <Dialog

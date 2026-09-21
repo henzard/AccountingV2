@@ -399,4 +399,123 @@ describe('LogMeterReadingUseCase', () => {
     expect(repo.insert).toHaveBeenCalledTimes(1);
     expect(mockBestEffortAudit).toHaveBeenCalled();
   });
+
+  // MTR-2: a replaced/new meter legitimately reads far below the old
+  // meter's last value. Without an explicit opt-in flag, that reading can
+  // never be logged. The flag must be the ONLY thing that changes the
+  // outcome — never inferred, and never persisted onto the row.
+  describe('meterReplaced flag', () => {
+    const previousReading = {
+      id: 'prev-1',
+      householdId: 'h1',
+      meterType: 'electricity' as const,
+      readingValue: 5000,
+      readingDate: '2026-04-01',
+      costCents: 50000,
+      vehicleId: null,
+      notes: null,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+
+    function makeRepoWithPrevious(): IMeterReadingRepository {
+      return {
+        findById: jest.fn().mockResolvedValue(null),
+        findByHousehold: jest.fn().mockResolvedValue([previousReading]),
+        findByDate: jest.fn().mockResolvedValue(null),
+        insert: jest.fn().mockResolvedValue(undefined),
+      } as unknown as IMeterReadingRepository;
+    }
+
+    it('still rejects a normal below-previous reading when the flag is absent', async () => {
+      const meterRepo = makeRepoWithPrevious();
+      const uc = new LogMeterReadingUseCase(
+        mockDb,
+        mockAudit,
+        { ...input, readingValue: 20, readingDate: '2026-04-02' },
+        {},
+        meterRepo,
+      );
+      const result = await uc.execute();
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('READING_BELOW_PREVIOUS');
+    });
+
+    it('still rejects a normal below-previous reading when the flag is explicitly false', async () => {
+      const meterRepo = makeRepoWithPrevious();
+      const uc = new LogMeterReadingUseCase(
+        mockDb,
+        mockAudit,
+        { ...input, readingValue: 20, readingDate: '2026-04-02', meterReplaced: false },
+        {},
+        meterRepo,
+      );
+      const result = await uc.execute();
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('READING_BELOW_PREVIOUS');
+    });
+
+    it('accepts a below-previous reading when meterReplaced is true', async () => {
+      const meterRepo = makeRepoWithPrevious();
+      const repo = makeFakeRepo();
+      const uc = new LogMeterReadingUseCase(
+        mockDb,
+        mockAudit,
+        { ...input, readingValue: 20, readingDate: '2026-04-02', meterReplaced: true },
+        { repo },
+        meterRepo,
+      );
+      const result = await uc.execute();
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.readingValue).toBe(20);
+    });
+
+    it('does not persist the meterReplaced flag onto the inserted row', async () => {
+      const meterRepo = makeRepoWithPrevious();
+      const repo = makeFakeRepo();
+      const uc = new LogMeterReadingUseCase(
+        mockDb,
+        mockAudit,
+        { ...input, readingValue: 20, readingDate: '2026-04-02', meterReplaced: true },
+        { repo },
+        meterRepo,
+      );
+      await uc.execute();
+      const [row] = repo.insert.mock.calls[0];
+      expect(row).not.toHaveProperty('meterReplaced');
+      expect(row).not.toHaveProperty('meter_replaced');
+    });
+
+    it('still enforces the above-next-reading guard even when meterReplaced is true', async () => {
+      const laterReading = {
+        id: 'later-1',
+        householdId: 'h1',
+        meterType: 'electricity' as const,
+        readingValue: 15,
+        readingDate: '2026-04-10',
+        costCents: null,
+        vehicleId: null,
+        notes: null,
+        createdAt: '2026-04-10T00:00:00.000Z',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+      };
+      const meterRepo = {
+        findById: jest.fn().mockResolvedValue(null),
+        findByHousehold: jest.fn().mockResolvedValue([previousReading, laterReading]),
+        findByDate: jest.fn().mockResolvedValue(null),
+        insert: jest.fn().mockResolvedValue(undefined),
+      } as unknown as IMeterReadingRepository;
+
+      const uc = new LogMeterReadingUseCase(
+        mockDb,
+        mockAudit,
+        { ...input, readingValue: 20, readingDate: '2026-04-02', meterReplaced: true },
+        {},
+        meterRepo,
+      );
+      const result = await uc.execute();
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('READING_ABOVE_NEXT');
+    });
+  });
 });

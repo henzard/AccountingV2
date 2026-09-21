@@ -28,6 +28,16 @@ jest.mock('../../../../infrastructure/storage/onboardingFlag', () => ({
   markOnboardingComplete: (...args: unknown[]) => mockMarkOnboarding(...args),
 }));
 
+// PUSH-1: FinishJoinScreen's sign-out now goes through the shared
+// signOutAndUnregisterFcm helper, which imports FcmTokenRegistrar — which in
+// turn imports the native @react-native-firebase/messaging module,
+// unavailable under Jest (see SettingsScreen's identical mock for the M17
+// fix this mirrors).
+const mockUnregisterFcmToken = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../../infrastructure/notifications/FcmTokenRegistrar', () => ({
+  unregisterFcmToken: (...args: unknown[]) => mockUnregisterFcmToken(...args),
+}));
+
 const mockSetHouseholdId = jest.fn();
 const mockSetPaydayDay = jest.fn();
 const mockSetAvailableHouseholds = jest.fn();
@@ -123,7 +133,34 @@ describe('FinishJoinScreen', () => {
 
     fireEvent.press(getByTestId('finish-join-sign-out-btn'));
 
-    expect(mockSignOut).toHaveBeenCalled();
+    // PUSH-1: sign-out now goes through signOutAndUnregisterFcm, which awaits
+    // the FCM unregister before calling supabase.auth.signOut() — no longer
+    // synchronous from the button press.
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
     expect(usePendingJoinStore.getState().pendingJoinHouseholdId).toBeNull();
+  });
+
+  // PUSH-1: on a shared device, the FCM token identifies the device install,
+  // not the signed-in user — without deregistering it before sign-out, the
+  // next person to sign in here would silently keep receiving this
+  // household's pushes.
+  it('clears this device FCM token before calling supabase.auth.signOut', async () => {
+    mockHydrateHousehold.mockResolvedValue(hydrateFailure);
+    const callOrder: string[] = [];
+    mockUnregisterFcmToken.mockImplementation(async () => {
+      callOrder.push('unregisterFcmToken');
+    });
+    mockSignOut.mockImplementation(async () => {
+      callOrder.push('signOut');
+    });
+
+    const { getByTestId } = render(<FinishJoinScreen />);
+    await waitFor(() => expect(getByTestId('finish-join-sign-out-btn')).toBeTruthy());
+
+    fireEvent.press(getByTestId('finish-join-sign-out-btn'));
+
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
+    expect(mockUnregisterFcmToken).toHaveBeenCalledWith('user-1');
+    expect(callOrder).toEqual(['unregisterFcmToken', 'signOut']);
   });
 });

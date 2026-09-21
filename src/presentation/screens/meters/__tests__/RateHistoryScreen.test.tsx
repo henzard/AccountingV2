@@ -354,4 +354,95 @@ describe('RateHistoryScreen', () => {
     // stale 150.0 kWh computed against the now-deleted r3.
     expect(getByText('200.0 kWh')).toBeTruthy();
   });
+
+  // MTR-3: the hook is fetched with the raw array — 24 rows on screen plus
+  // one boundary row that's used to compute the 24th row's consumption but
+  // never rendered.
+  it('requests one extra row beyond the render window from the hook', () => {
+    mockUseMeterReadings.mockReturnValue({ readings: [], loading: false, reload: jest.fn() });
+    render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={{} as never}
+      />,
+    );
+    expect(mockUseMeterReadings).toHaveBeenCalledWith('hh-1', 'electricity', 25);
+  });
+
+  // MTR-3: with a full 25-row fetch, the 24th (last VISIBLE) row must NOT be
+  // mislabelled "First reading" — it has a real previous reading (the 25th,
+  // unrendered, boundary row) to compute consumption against.
+  it('does not mislabel the last visible row "First reading" when a 25th boundary row exists, and does not render the boundary row itself', () => {
+    const readings = Array.from({ length: 25 }, (_, i) =>
+      makeReading(`r${i}`, 1000 + (24 - i) * 10, `2026-01-${String(25 - i).padStart(2, '0')}`, 0),
+    );
+    // readings[0] is newest (2026-01-25, value 1240), readings[24] is oldest
+    // (2026-01-01, value 1000) — desc order, as the real hook returns.
+    mockUseMeterReadings.mockReturnValue({ readings, loading: false, reload: jest.fn() });
+    const { queryAllByText, queryByText } = render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={{} as never}
+      />,
+    );
+
+    // No row is labelled "First reading" — the 24th visible row (readings[23])
+    // has a real previous reading (readings[24], the unrendered boundary row).
+    expect(queryByText('First reading')).toBeNull();
+    // The boundary row's own value must never be rendered.
+    expect(queryAllByText(/1000/).length).toBe(0);
+  });
+
+  // MTR-3: when there truly is no reading older than the fetch window (fewer
+  // than 25 total), the oldest visible row IS genuinely first.
+  it('still labels the oldest row "First reading" when there is genuinely no older reading', () => {
+    mockUseMeterReadings.mockReturnValue({
+      readings: [
+        makeReading('r2', 1200, '2026-06-15', 20000),
+        makeReading('r1', 1000, '2026-05-15', 0),
+      ],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByText } = render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={{} as never}
+      />,
+    );
+    expect(getByText('First reading')).toBeTruthy();
+  });
+
+  // MTR-2: a replaced/new meter's reading legitimately drops below the
+  // previous one, which UnitRateCalculator rejects as non-positive
+  // consumption. That pair must not be mislabelled "First reading" (there
+  // IS a previous reading for it) and must not crash or show a negative
+  // figure — while the row that IS genuinely the first ever reading (r1,
+  // with no previous at all) still correctly says "First reading".
+  it('shows a replaced-meter message (not "First reading" or a negative figure) for the pair straddling a meter replacement', () => {
+    mockUseMeterReadings.mockReturnValue({
+      readings: [
+        makeReading('r3', 45, '2026-03-01', 0), // normal continuation on the new meter
+        makeReading('r2', 20, '2026-02-01', 0), // new meter, dropped below r1
+        makeReading('r1', 5000, '2026-01-01', 30000), // genuinely the first-ever reading
+      ],
+      loading: false,
+      reload: jest.fn(),
+    });
+    const { getByText, queryAllByText, queryByText } = render(
+      <RateHistoryScreen
+        route={{ params: { meterType: 'electricity' } } as never}
+        navigation={{} as never}
+      />,
+    );
+    // r3 vs r2: normal positive consumption on the new meter.
+    expect(getByText('25.0 kWh')).toBeTruthy();
+    // r2 vs r1: non-positive consumption across the replacement — replaced
+    // message, not "First reading", and never a negative figure.
+    expect(getByText(/Meter replaced/)).toBeTruthy();
+    // r1 has no previous at all — it genuinely is the first reading, and
+    // only it gets that label.
+    expect(queryAllByText('First reading')).toHaveLength(1);
+    expect(queryByText(/^-/)).toBeNull();
+  });
 });
