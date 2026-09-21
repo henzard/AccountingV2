@@ -25,7 +25,17 @@ jest.mock('../../../../data/local/db', () => ({
     })),
   },
 }));
-jest.mock('drizzle-orm', () => ({ eq: jest.fn() }));
+interface MockPredicate {
+  type: 'eq' | 'and' | 'isNull';
+  val?: unknown;
+  conditions?: MockPredicate[];
+}
+
+jest.mock('drizzle-orm', () => ({
+  eq: jest.fn((col, val) => ({ type: 'eq', col, val })),
+  and: jest.fn((...conditions) => ({ type: 'and', conditions })),
+  isNull: jest.fn((col) => ({ type: 'isNull', col })),
+}));
 
 jest.mock('../../../../domain/debtSnowball/SnowballPayoffProjector', () => ({
   SnowballPayoffProjector: jest.fn().mockImplementation(() => ({
@@ -209,12 +219,22 @@ const mockDebt = {
   isSynced: true,
   createdAt: '2026-01-01',
   updatedAt: '2026-06-01',
+  deletedAt: null,
 };
 
 function setupDbWithDebt(debt = mockDebt) {
   (db.select as jest.Mock).mockReturnValue({
     from: jest.fn(() => ({
-      where: jest.fn(() => Promise.resolve([debt])),
+      // Applies the predicate the SCREEN built (see the drizzle-orm mock
+      // above), so dropping the household or soft-delete scoping from the
+      // query makes the other-household test fail.
+      where: jest.fn((predicate: MockPredicate) => {
+        const parts = predicate.type === 'and' ? (predicate.conditions ?? []) : [predicate];
+        const scopedToHousehold = parts.some((c) => c.type === 'eq' && c.val === debt.householdId);
+        const excludesDeleted = parts.some((c) => c.type === 'isNull');
+        const visible = scopedToHousehold && (!excludesDeleted || !debt.deletedAt);
+        return Promise.resolve(visible ? [debt] : []);
+      }),
     })),
   });
 }
@@ -426,6 +446,21 @@ describe('DebtDetailScreen', () => {
     const result = render(
       <DebtDetailScreen
         route={{ params: { debtId: 'nonexistent' } } as never}
+        navigation={mockNavigation}
+      />,
+    );
+    await waitFor(() => {
+      expect(result.getByText('Debt not found')).toBeTruthy();
+    });
+    expect(result.queryByTestId('loading')).toBeNull();
+  });
+
+  it('shows not-found message when debt belongs to a different household', async () => {
+    const otherHouseholdDebt = { ...mockDebt, householdId: 'hh-other' };
+    setupDbWithDebt(otherHouseholdDebt);
+    const result = render(
+      <DebtDetailScreen
+        route={{ params: { debtId: 'debt-1' } } as never}
         navigation={mockNavigation}
       />,
     );

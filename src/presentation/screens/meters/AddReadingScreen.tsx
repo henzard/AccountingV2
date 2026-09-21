@@ -8,6 +8,7 @@ import { meterReadings as meterReadingsTable } from '../../../data/local/schema'
 import { AuditLogger } from '../../../data/audit/AuditLogger';
 import { LogMeterReadingUseCase } from '../../../domain/meterReadings/LogMeterReadingUseCase';
 import { AnomalyDetector } from '../../../domain/meterReadings/AnomalyDetector';
+import { logger } from '../../../infrastructure/logging/Logger';
 import { useAppStore } from '../../stores/appStore';
 import { useToastStore } from '../../stores/toastStore';
 import { spacing } from '../../theme/tokens';
@@ -70,6 +71,11 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
   const today = format(new Date(), 'yyyy-MM-dd');
 
   useEffect(() => {
+    // Drop the previous meter's history first, and ignore a query that
+    // resolves after the meter changed — anomaly checks must never compare a
+    // reading against another meter's readings.
+    let cancelled = false;
+    setPriorReadings([]);
     db.select()
       .from(meterReadingsTable)
       .where(
@@ -80,7 +86,21 @@ export const AddReadingScreen: React.FC<AddReadingScreenProps> = ({ navigation, 
       )
       .orderBy(desc(meterReadingsTable.readingDate))
       .limit(10)
-      .then((rows) => setPriorReadings(rows as MeterReadingEntity[]));
+      .then((rows) => {
+        if (!cancelled) setPriorReadings(rows as MeterReadingEntity[]);
+      })
+      .catch((err) => {
+        // Anomaly detection is a nice-to-have — if prior readings fail to
+        // load, priorReadings stays empty, checkAnomaly's `length < 4` guard
+        // keeps anomaly detection silently disabled, and saving still works.
+        logger.error('AddReadingScreen: failed to load prior readings for anomaly detection', err, {
+          householdId,
+          meterType,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [householdId, meterType]);
 
   const checkAnomaly = useCallback(

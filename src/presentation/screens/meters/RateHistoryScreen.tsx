@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { View, FlatList, StyleSheet } from 'react-native';
+import { View, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, Surface, ActivityIndicator } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { format, parseISO } from 'date-fns';
@@ -13,6 +13,7 @@ import { useAppStore } from '../../stores/appStore';
 import { spacing, radius } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { formatCurrency } from '../../utils/currency';
+import { EmptyState } from '../../components/shared/EmptyState';
 import type { MeterReadingEntity } from '../../../domain/meterReadings/MeterReadingEntity';
 import type { RateHistoryScreenProps } from '../../navigation/types';
 
@@ -22,7 +23,7 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
   const { colors } = useAppTheme();
   const { meterType } = route.params;
   const householdId = useAppStore((s) => s.householdId)!;
-  const { readings, loading, reload } = useMeterReadings(householdId, meterType, 24);
+  const { readings, loading, error, reload } = useMeterReadings(householdId, meterType, 24);
 
   useFocusEffect(
     useCallback(() => {
@@ -95,7 +96,23 @@ export const RateHistoryScreen: React.FC<RateHistoryScreenProps> = ({ route }) =
           {getMeterTypeLabel(meterType)} · rate per {unit} over time
         </Text>
       </Surface>
-      {readings.length === 0 ? (
+      {error ? (
+        <View style={styles.center}>
+          <EmptyState
+            title="Couldn't load rate history"
+            body={error.message || 'Something went wrong'}
+            testID="rate-history-error-state"
+          />
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => void reload()}
+            testID="rate-history-retry-button"
+            accessibilityRole="button"
+          >
+            <Text style={{ color: colors.primary }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : readings.length === 0 ? (
         <View style={styles.center}>
           <Text variant="titleMedium" style={[styles.empty, { color: colors.onSurface }]}>
             No readings yet
@@ -141,5 +158,6 @@ const styles = StyleSheet.create({
   firstReading: {},
   empty: {},
   emptySub: { marginTop: spacing.xs },
+  retryButton: { padding: spacing.sm },
   list: { paddingVertical: spacing.sm, paddingBottom: spacing.xl },
 });

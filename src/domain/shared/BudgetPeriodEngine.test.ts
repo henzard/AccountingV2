@@ -37,6 +37,21 @@ describe('BudgetPeriodEngine', () => {
       const period = engine.getCurrentPeriod(20, new Date('2026-04-15'));
       expect(period.label).toBe('20 Mar – 19 Apr');
     });
+
+    it('generates the label from UTC fields, independent of the host TZ (regression)', () => {
+      // Same class of bug as L7 for formatPeriodDateKey: startDate/endDate
+      // are UTC-midnight Dates, so a local-tz format() call would render one
+      // day earlier on any UTC-negative host. Building the boundaries
+      // directly with Date.UTC (as getPeriodForDate itself does) and reading
+      // them back with getUTCDate()/getUTCMonth() below proves the label
+      // matches the UTC calendar day regardless of process.env.TZ.
+      const startDate = new Date(Date.UTC(2026, 2, 20)); // 20 Mar 2026
+      const endDate = new Date(Date.UTC(2026, 3, 19)); // 19 Apr 2026
+      const period = engine.getCurrentPeriod(20, new Date(Date.UTC(2026, 3, 15)));
+      expect(period.startDate.getTime()).toBe(startDate.getTime());
+      expect(period.endDate.getTime()).toBe(endDate.getTime());
+      expect(period.label).toBe('20 Mar – 19 Apr');
+    });
   });
 
   describe('getCurrentPeriod with payday=31 (short-month overflow, M13)', () => {

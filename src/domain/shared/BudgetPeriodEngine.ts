@@ -1,5 +1,34 @@
-import { format } from 'date-fns';
 import type { BudgetPeriod } from './types';
+
+/** Short English month names, indexed the same way as `Date#getUTCMonth()`. */
+const UTC_MONTH_ABBREVIATIONS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+/**
+ * Formats a period boundary Date as `d MMM` (e.g. `20 Mar`) using its UTC
+ * calendar fields, matching `formatPeriodDateKey` below — NOT date-fns
+ * `format(date, 'd MMM')`, which reads the HOST's LOCAL calendar day. Period
+ * boundaries are constructed at UTC midnight (`Date.UTC(...)` in
+ * `getPeriodForDate`), so on any UTC-negative device `format()`'s local read
+ * renders the day before the UTC instant actually stored, showing the
+ * period's label one day early (same class of bug as L7 for
+ * `formatPeriodDateKey`).
+ */
+function formatPeriodBoundaryLabel(date: Date): string {
+  return `${date.getUTCDate()} ${UTC_MONTH_ABBREVIATIONS[date.getUTCMonth()]}`;
+}
 
 /** Number of days in `year`/`month` (`month` is 0-based, matching `Date.UTC`). */
 function daysInUtcMonth(year: number, month: number): number {
@@ -86,7 +115,7 @@ export class BudgetPeriodEngine {
     const endDay = clampPaydayForMonth(endYear, endMonth, paydayDay);
     const endDate = new Date(Date.UTC(endYear, endMonth, endDay - 1));
 
-    const label = `${format(startDate, 'd MMM')} – ${format(endDate, 'd MMM')}`;
+    const label = `${formatPeriodBoundaryLabel(startDate)} – ${formatPeriodBoundaryLabel(endDate)}`;
 
     return { startDate, endDate, label };
   }

@@ -1,5 +1,5 @@
 /**
- * SettingsScreen.test.tsx — B4
+ * SettingsScreen.test.tsx �� B4
  *
  * Tests the sign-out confirmation flow: confirm() is shown (replacing
  * Alert.alert, a no-op on web via react-native-web), destructive action
@@ -9,19 +9,19 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-// ─── confirm() mock (ConfirmDialogHost) ────────────────────────────────────────
+// ������ confirm() mock (ConfirmDialogHost) ��������������������������������������������������������������������������������
 const mockConfirm = jest.fn();
 jest.mock('../../../components/shared/ConfirmDialogHost', () => ({
   confirm: (...args: unknown[]) => mockConfirm(...args),
 }));
 
-// ─── AsyncStorage mock ────────────────────────────────────────────────────────
+// ������ AsyncStorage mock ����������������������������������������������������������������������������������������������������������������
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn().mockResolvedValue(null),
   setItem: jest.fn().mockResolvedValue(undefined),
 }));
 
-// ─── Navigation mocks ──────────────────────────────────────────────────────────
+// ������ Navigation mocks ��������������������������������������������������������������������������������������������������������������������
 const mockNavigate = jest.fn();
 const mockRootNavigate = jest.fn();
 
@@ -30,7 +30,7 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockRootNavigate }),
 }));
 
-// ─── react-native-paper mocks ─────────────────────────────────────────────────
+// ������ react-native-paper mocks ��������������������������������������������������������������������������������������������������
 jest.mock('react-native-paper', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
@@ -154,14 +154,14 @@ jest.mock('react-native-paper', () => {
   };
 });
 
-// ─── themeStore mock ──────────────────────────────────────────────────────────
+// ������ themeStore mock ��������������������������������������������������������������������������������������������������������������������
 jest.mock('../../../stores/themeStore', () => ({
   useThemeStore: jest.fn((selector: (s: object) => unknown) =>
     selector({ preference: 'system', setPreference: jest.fn() }),
   ),
 }));
 
-// ─── supabase mock ────────────────────────────────────────────────────────────
+// ������ supabase mock ������������������������������������������������������������������������������������������������������������������������
 jest.mock('../../../../data/remote/supabaseClient', () => ({
   supabase: {
     auth: {
@@ -170,13 +170,13 @@ jest.mock('../../../../data/remote/supabaseClient', () => ({
   },
 }));
 
-// ─── FcmTokenRegistrar mock (M17) ─────────────────────────────────────────────
+// ������ FcmTokenRegistrar mock (M17) ������������������������������������������������������������������������������������������
 const mockUnregisterFcmToken = jest.fn().mockResolvedValue(undefined);
 jest.mock('../../../../infrastructure/notifications/FcmTokenRegistrar', () => ({
   unregisterFcmToken: (...args: unknown[]) => mockUnregisterFcmToken(...args),
 }));
 
-// ─── appStore mock ────────────────────────────────────────────────────────────
+// ������ appStore mock ������������������������������������������������������������������������������������������������������������������������
 const mockReset = jest.fn();
 const mockSetPaydayDay = jest.fn();
 let mockPaydayDay = 25;
@@ -196,7 +196,7 @@ jest.mock('../../../stores/appStore', () => ({
   // We expose it here by mutating the mock after import
 }));
 
-// ─── toastStore mock ──────────────────────────────────────────────────────────
+// ������ toastStore mock ��������������������������������������������������������������������������������������������������������������������
 const mockEnqueue = jest.fn();
 jest.mock('../../../stores/toastStore', () => ({
   useToastStore: jest.fn((selector: (s: { enqueue: () => void }) => unknown) =>
@@ -204,7 +204,7 @@ jest.mock('../../../stores/toastStore', () => ({
   ),
 }));
 
-// ─── db + UpdateHouseholdPaydayDayUseCase mocks ──────────────────────────────
+// ������ db + UpdateHouseholdPaydayDayUseCase mocks ������������������������������������������������������������
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 const mockPaydayExecute = jest.fn();
 jest.mock('../../../../domain/households/UpdateHouseholdPaydayDayUseCase', () => ({
@@ -304,11 +304,11 @@ describe('SettingsScreen', () => {
     await waitFor(() => {
       expect(mockSignOut).toHaveBeenCalled();
     });
-    // reset() is NOT called from SettingsScreen — the auth listener owns it.
+    // reset() is NOT called from SettingsScreen �� the auth listener owns it.
     expect(mockReset).not.toHaveBeenCalled();
   });
 
-  // M17 — sign-out must clear this device's FCM token BEFORE signing out
+  // M17 �� sign-out must clear this device's FCM token BEFORE signing out
   // (RLS needs the still-authenticated session), so a shared device's next
   // user doesn't keep receiving the previous user's push notifications.
   it('destructive sign-out action clears this device FCM token before calling supabase.auth.signOut', async () => {
@@ -333,7 +333,7 @@ describe('SettingsScreen', () => {
     expect(callOrder).toEqual(['unregisterFcmToken', 'signOut']);
   });
 
-  // M11 — the "Privacy — Slip scanning consent" item must navigate through
+  // M11 �� the "Privacy �� Slip scanning consent" item must navigate through
   // the nested SlipScanning stack (SlipConsent isn't a route on Settings'
   // own stack), mirroring how the "Slip history" row above reaches the root
   // 'SlipScanning' route.
@@ -350,6 +350,29 @@ describe('SettingsScreen', () => {
       'HouseholdMembers',
       expect.objectContaining({ householdId: expect.any(String) }),
     );
+  });
+
+  it('disables the household members row and does not navigate when no active household', () => {
+    // Mock appStore with no active household
+    const originalImplementation = (useAppStore as any).getMockImplementation();
+    (useAppStore as any).mockImplementation((selector: (s: object) => unknown) =>
+      selector({
+        session: { user: { email: 'test@example.com', id: 'user-1' } },
+        householdId: null,
+        availableHouseholds: [],
+        get paydayDay() {
+          return mockPaydayDay;
+        },
+        setPaydayDay: mockSetPaydayDay,
+      }),
+    );
+    mockRootNavigate.mockClear();
+    const { getByTestId } = render(<SettingsScreen {...makeNavProps()} />);
+    fireEvent.press(getByTestId('household-members-row'));
+    // Verify navigation was not called
+    expect(mockRootNavigate).not.toHaveBeenCalled();
+    // Restore original implementation
+    (useAppStore as any).mockImplementation(originalImplementation);
   });
 
   it('opens the delete-account screen from below Sign out', () => {
