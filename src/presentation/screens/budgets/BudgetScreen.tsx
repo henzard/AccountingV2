@@ -12,8 +12,15 @@
  * Duplicate-EMF banner also shown at top when the reconcile flag is set.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
-import { View, StyleSheet, SectionList, RefreshControl, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  SectionList,
+  RefreshControl,
+  ActivityIndicator,
+  TouchableOpacity,
+} from 'react-native';
 import { FAB, IconButton, Surface, Text } from 'react-native-paper';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -22,9 +29,9 @@ import { BudgetBalanceBanner } from './components/BudgetBalanceBanner';
 import { DuplicateEmfBanner } from './components/DuplicateEmfBanner';
 import { MonthlyIncomeCard } from './components/MonthlyIncomeCard';
 import { BudgetEnvelopeRow } from './components/BudgetEnvelopeRow';
+import { IncomeEnvelopeRow } from './components/IncomeEnvelopeRow';
 import { RolloverWizard } from './RolloverWizard';
 import { computeSpentDeltaVsPreviousPeriod } from './computeSpentDeltaVsPreviousPeriod';
-import { EnvelopeCard } from '../../components/envelopes/EnvelopeCard';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { RefreshingBar } from '../../components/shared/RefreshingBar';
 import { SectionHeader } from '../../components/shared/SectionHeader';
@@ -204,6 +211,33 @@ export const BudgetScreen: React.FC = () => {
     () => envelopes.filter((e) => getEnvelopeScope(e) === 'persistent'),
     [envelopes],
   );
+  // Whether the period being viewed has any envelopes OF ITS OWN. Persistent
+  // funds come back for EVERY period (they are never re-created), so a
+  // household between periods still has a non-empty section list — which is
+  // why the empty state's "Start this month's budget" CTA never appeared for
+  // the one shape that needs it most: months of history, funds carried over,
+  // nothing budgeted for this period yet.
+  const hasPeriodScopedEnvelopes = incomeEnvelopes.length > 0 || periodExpenseEnvelopes.length > 0;
+  const [earlierPeriodHasEnvelopes, setEarlierPeriodHasEnvelopes] = useState(false);
+
+  useEffect(() => {
+    if (isPastPeriod || hasPeriodScopedEnvelopes) {
+      setEarlierPeriodHasEnvelopes(false);
+      return;
+    }
+    let cancelled = false;
+    findLatestPeriodWithEnvelopes(db, householdId, currentPeriodStart)
+      .then((fromPeriod) => {
+        if (!cancelled) setEarlierPeriodHasEnvelopes(fromPeriod !== null);
+      })
+      .catch(() => {
+        if (!cancelled) setEarlierPeriodHasEnvelopes(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isPastPeriod, hasPeriodScopedEnvelopes, householdId, currentPeriodStart]);
+
   const sections = useMemo(() => {
     const result = [];
     if (incomeEnvelopes.length > 0) {
@@ -277,6 +311,35 @@ export const BudgetScreen: React.FC = () => {
       {/* Budget balance banner */}
       <BudgetBalanceBanner envelopes={envelopes} />
 
+      {/* Between periods: this period has nothing budgeted yet, but an
+          earlier one does. Offered once, inline, as a plain action — the
+          RolloverWizard's own auto-open (dashboard) stays gated by the
+          period-ack key and the session snooze, so this is the way back in
+          after a dismissal, not a second nag. Hidden once the period has
+          envelopes of its own, and when the empty state below is already
+          carrying the same CTA. */}
+      {earlierPeriodHasEnvelopes && sections.length > 0 && (
+        <View
+          style={[styles.startPeriodBanner, { backgroundColor: colors.primaryContainer }]}
+          testID="budget-start-period-banner"
+        >
+          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            {`Nothing is budgeted for ${viewedPeriodLabel} yet.`}
+          </Text>
+          <TouchableOpacity
+            onPress={handleStartNewPeriod}
+            testID="budget-start-new-period-button"
+            accessibilityRole="button"
+            accessibilityLabel="Start this period from last period's budget"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text variant="titleSmall" style={{ color: colors.primary }}>
+              Start this period from last period&apos;s budget
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {error ? (
         <EmptyState
           title="Couldn't load your budget"
@@ -318,13 +381,20 @@ export const BudgetScreen: React.FC = () => {
                 testID={`envelope-card-${item.name}`}
               />
             ) : (
-              <EnvelopeCard
+              // MONEY IN: an income envelope's `spentCents` is the salary
+              // that LANDED, not money spent — `EnvelopeCard` rendered that
+              // as "R0,00 remaining, 0% remaining" in the error colour for a
+              // household whose pay had simply arrived (see
+              // IncomeEnvelopeRow). Same testID as before so the row is
+              // still addressed the same way.
+              <IncomeEnvelopeRow
                 envelope={item}
                 onPress={
                   isPastPeriod
                     ? undefined
                     : () => navigation.navigate('AddEditEnvelope', { envelopeId: item.id })
                 }
+                testID={`envelope-card-${item.name}`}
               />
             )
           }
@@ -392,6 +462,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.sm,
+  },
+  startPeriodBanner: {
+    marginHorizontal: spacing.base,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: spacing.sm,
+    gap: spacing.xs,
   },
   pastBanner: {
     paddingHorizontal: spacing.base,

@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
+import type { HabitScoreResult } from '../../../../../domain/scoring/RamseyScoreCalculator';
 
 jest.mock('react-native-paper', () => {
   const React = jest.requireActual('react');
@@ -46,6 +47,17 @@ const RESULT = {
   disciplinePoints: 22,
   metersPoints: 0,
   babyStepPoints: 20,
+  metersApplicable: true,
+};
+
+/** The same household, but one that has never used meters at all. */
+const RESULT_METERS_NOT_APPLICABLE: HabitScoreResult = {
+  score: 78,
+  loggingPoints: 20,
+  disciplinePoints: 22,
+  metersPoints: null,
+  babyStepPoints: 20,
+  metersApplicable: false,
 };
 
 describe('ScoreBreakdownDialog', () => {
@@ -65,6 +77,17 @@ describe('ScoreBreakdownDialog', () => {
     expect(getByText('0 / 20')).toBeTruthy(); // metersPoints
     expect(getByText('20 / 20')).toBeTruthy(); // babyStepPoints
     expect(getByText('62 / 100')).toBeTruthy(); // total
+  });
+
+  it('says a never-used component was not counted, instead of reporting it as 0 / 20', () => {
+    const { getByText, queryByText } = render(
+      <ScoreBreakdownDialog visible onDismiss={jest.fn()} result={RESULT_METERS_NOT_APPLICABLE} />,
+    );
+    expect(getByText('not used, not counted')).toBeTruthy();
+    expect(queryByText('0 / 20')).toBeNull();
+    // The other components, and the re-normalised total, still read normally.
+    expect(getByText('20 / 30')).toBeTruthy();
+    expect(getByText('78 / 100')).toBeTruthy();
   });
 
   it('calls onDismiss when Close is pressed', () => {

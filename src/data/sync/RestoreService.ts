@@ -295,7 +295,11 @@ export class RestoreService {
         rows: await this.fetchAll('slip_queue', 'household_id', householdId),
       },
     ];
-    const consentRows = await this.fetchAll('user_consent', 'user_id', userId);
+    // `user_consent`'s primary key is `user_id`, not `id` — it has no `id`
+    // column at all, so the default order column would fail outright.
+    const consentRows = await this.fetchAll('user_consent', 'user_id', userId, {
+      orderColumn: 'user_id',
+    });
     return { memberRows, tables, consentRows };
   }
 
@@ -426,15 +430,37 @@ export class RestoreService {
     table: string,
     column: string,
     value: string,
-    opts: { optional?: boolean } = {},
+    opts: { optional?: boolean; orderColumn?: string } = {},
   ): Promise<Record<string, unknown>[]> {
+    // Paging with `.range()` alone assumes Postgres hands back rows in the
+    // SAME order on every request. It does not promise that without an
+    // ORDER BY — a table scan's order can differ page to page (e.g. an
+    // autovacuum, a concurrent write, or just the planner picking a
+    // different path), which silently SKIPS a row that shifted behind the
+    // page boundary and DUPLICATES one that shifted ahead of it, and this
+    // client would never notice either. `orderColumn` (the table's primary
+    // key by default) is unique per row, so ordering by it makes each
+    // `.range()` window deterministic regardless of how the table changes
+    // between pages.
+    //
+    // KEYSET, not offset: each page asks for "the next PAGE_SIZE rows AFTER
+    // the last key I hold". An offset window counts rows from the start, so
+    // a row that leaves the result set between pages shifts an untouched row
+    // back across the boundary and it is never fetched — and no oplog replay
+    // brings it back, because that row never changed. A keyset window cannot
+    // skip or repeat a row whatever happens to the rows before it.
+    const orderColumn = opts.orderColumn ?? 'id';
     const all: Record<string, unknown>[] = [];
-    for (let from = 0; ; from += PAGE_SIZE) {
-      const { data, error } = await this.supabase
+    let after: string | number | null = null;
+    for (;;) {
+      const ordered = this.supabase
         .from(table)
         .select('*')
         .eq(column, value)
-        .range(from, from + PAGE_SIZE - 1);
+        .order(orderColumn, { ascending: true });
+      const { data, error } = await (
+        after === null ? ordered : ordered.gt(orderColumn, after)
+      ).range(0, PAGE_SIZE - 1);
 
       if (error) {
         if (opts.optional && isMissingRelationError(error)) {
@@ -449,6 +475,11 @@ export class RestoreService {
       const page = (data ?? []) as Record<string, unknown>[];
       all.push(...page);
       if (page.length < PAGE_SIZE) return all;
+      const lastKey = page[page.length - 1][orderColumn];
+      if (typeof lastKey !== 'string' && typeof lastKey !== 'number') {
+        throw new Error(`restore: ${table} page has no ${orderColumn} to continue from`);
+      }
+      after = lastKey;
     }
   }
 

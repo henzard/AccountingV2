@@ -9,6 +9,7 @@ import {
 } from '../../data/local/balances/EnvelopeBalanceQuery';
 import { getEnvelopeScope } from '../../domain/envelopes/EnvelopeEntity';
 import type { EnvelopeType } from '../../domain/envelopes/EnvelopeEntity';
+import { countsAsSpending } from '../../domain/transactions/moneyDirection';
 import { BudgetPeriodEngine, formatPeriodDateKey } from '../../domain/shared/BudgetPeriodEngine';
 import { useAppStore } from '../stores/appStore';
 import { useNotificationStore } from '../stores/notificationStore';
@@ -111,7 +112,19 @@ async function loadPeriodEnvelopeSnapshots(
   }));
 }
 
-/** VAL2-11: sum of `householdId`'s non-deleted transactions from the start of THIS week (Sunday) through `now`, inclusive. */
+/**
+ * VAL2-11: sum of `householdId`'s non-deleted SPENDING transactions from the
+ * start of THIS week (Sunday) through `now`, inclusive.
+ *
+ * MONEY IN is excluded: imported history books salary deposits as
+ * transactions against the household's `income` envelope, and a week
+ * containing payday would otherwise be reported as "R35 000,00 spent" — an
+ * entire month's income counted as spending in a push notification. The
+ * envelope type is joined in so `countsAsSpending` (the one shared rule) can
+ * decide; a row whose envelope is missing is NOT income and still counts, so
+ * a broken lookup can never quietly shrink the figure. Refunds keep netting
+ * the total down as before.
+ */
 async function computeWeekSpentCents(householdId: string, now: Date): Promise<number> {
   const weekStart = format(startOfWeek(now), 'yyyy-MM-dd');
   const today = format(now, 'yyyy-MM-dd');
@@ -119,11 +132,19 @@ async function computeWeekSpentCents(householdId: string, now: Date): Promise<nu
     .select({
       amountCents: transactions.amountCents,
       transactionDate: transactions.transactionDate,
+      envelopeType: envelopes.envelopeType,
     })
     .from(transactions)
+    .leftJoin(envelopes, eq(envelopes.id, transactions.envelopeId))
     .where(and(eq(transactions.householdId, householdId), isNull(transactions.deletedAt)));
   return rows
     .filter((row) => row.transactionDate >= weekStart && row.transactionDate <= today)
+    .filter((row) =>
+      countsAsSpending({
+        amountCents: row.amountCents,
+        envelopeType: (row.envelopeType as EnvelopeType | null) ?? undefined,
+      }),
+    )
     .reduce((sum, row) => sum + row.amountCents, 0);
 }
 

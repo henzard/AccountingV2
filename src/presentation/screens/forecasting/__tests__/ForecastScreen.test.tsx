@@ -13,6 +13,17 @@ jest.mock('@react-navigation/native', () => ({
 // ─── Local DB mock ────────────────────────────────────────────────────────────
 jest.mock('../../../../data/local/db', () => ({ db: {} }));
 
+// ─── AsyncStorage mock ────────────────────────────────────────────────────────
+// The screen now renders the SHARED `RolloverWizard` for the "no budget for
+// this period yet, but history exists" state, and that module imports
+// AsyncStorage at module scope. Added purely so the module graph loads in the
+// test environment (same mock DashboardScreen.test.tsx uses) — no assertion
+// in this file depends on it.
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: jest.fn().mockResolvedValue('true'),
+  setItem: jest.fn().mockResolvedValue(undefined),
+}));
+
 // ─── Store mock ───────────────────────────────────────────────────────────────
 jest.mock('../../../stores/appStore', () => ({
   useAppStore: jest.fn((sel: (s: { householdId: string; paydayDay: number }) => unknown) =>
@@ -83,6 +94,21 @@ const mockUseTransactions = jest.fn().mockReturnValue({
 });
 jest.mock('../../../hooks/useTransactions', () => ({
   useTransactions: (...args: unknown[]) => mockUseTransactions(...args),
+}));
+
+// The history feed is mocked out here the same way the other two hooks are —
+// these cases are about the screen's rendering, not about history. Its own
+// behaviour is covered in ForecastScreen.history.test.tsx.
+const mockReloadHistory = jest.fn();
+const mockUseForecastHistory = jest.fn().mockReturnValue({
+  baselines: new Map(),
+  loading: false,
+  refreshing: false,
+  error: null,
+  reload: mockReloadHistory,
+});
+jest.mock('../useForecastHistory', () => ({
+  useForecastHistory: (...args: unknown[]) => mockUseForecastHistory(...args),
 }));
 
 // ─── BudgetPeriodEngine mock ──────────────────────────────────────────────────
@@ -165,6 +191,13 @@ describe('ForecastScreen', () => {
       loading: false,
       error: null,
       reload: mockReloadTransactions,
+    });
+    mockUseForecastHistory.mockReturnValue({
+      baselines: new Map(),
+      loading: false,
+      refreshing: false,
+      error: null,
+      reload: mockReloadHistory,
     });
     mockProject.mockReturnValue([]);
   });

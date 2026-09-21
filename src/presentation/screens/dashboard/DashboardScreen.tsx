@@ -20,6 +20,8 @@ import { LoadingSplash } from '../../components/shared/LoadingSplash';
 import { BudgetRingCard } from './components/BudgetRingCard';
 import { BabyStepsBar } from './components/BabyStepsBar';
 import { ScoreBreakdownDialog } from './components/ScoreBreakdownDialog';
+import { PreviousPeriodSummaryCard } from './components/PreviousPeriodSummaryCard';
+import { ScoreProgressCard } from '../../components/scoreProgress/ScoreProgressCard';
 import { P } from './palette';
 import { selectSpendEnvelopes } from './selectSpendEnvelopes';
 import {
@@ -27,6 +29,7 @@ import {
   hasPeriodScopedEnvelopeAfter,
 } from './findLatestPeriodWithEnvelopes';
 import { resolveMeterReadingsLogged } from './resolveMeterReadingsLogged';
+import { resolveMetersApplicable } from '../../../domain/scoring/resolveMetersApplicable';
 import { calculateSafeToSpendToday } from './calculateSafeToSpendToday';
 import { sortEnvelopesByUsageDescending } from './sortEnvelopesByUsageDescending';
 import { EnvelopeDetailSheet } from './components/EnvelopeDetailSheet';
@@ -37,13 +40,14 @@ import { buildHabitScoreInput } from '../../../domain/scoring/buildHabitScoreInp
 import { resolveBabyStepIsActive } from '../../../domain/shared/resolveBabyStepIsActive';
 import { resolveLoggingDays } from '../../../domain/scoring/resolveLoggingDays';
 import { calculateBudgetBalance } from '../../../domain/budgets/BudgetBalanceCalculator';
+import { summariseEnvelopePeriodMoney } from '../../../domain/transactions/moneyDirection';
 import { getEnvelopeScope } from '../../../domain/envelopes/EnvelopeEntity';
 import { SnowballPayoffProjector } from '../../../domain/debtSnowball/SnowballPayoffProjector';
 import { formatCurrency } from '../../utils/currency';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spacing, radius, fontSize } from '../../theme/tokens';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, parseISO } from 'date-fns';
 import { db } from '../../../data/local/db';
 import { useLevelAdvancement } from '../../hooks/useLevelAdvancement';
 import { logger } from '../../../infrastructure/logging/Logger';
@@ -129,6 +133,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   const [babyStepIsActive, setBabyStepIsActive] = useState(false);
   const [loggingDaysCount, setLoggingDaysCount] = useState(0);
   const [meterReadingsLoggedThisPeriod, setMeterReadingsLoggedThisPeriod] = useState(false);
+  // Whether the meters part of the score applies at all: a household that has
+  // never logged a reading is scored on the rest, re-normalised — the same rule
+  // every CLOSED period is scored by, so the live number and the trend agree.
+  const [metersApplicable, setMetersApplicable] = useState(true);
   const [showRollover, setShowRollover] = useState(false);
   const [rolloverFromPeriodStart, setRolloverFromPeriodStart] = useState(periodStart);
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
@@ -142,6 +150,31 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   // this session). Recomputed whenever the current period has no spend
   // envelopes of its own.
   const [earlierPeriodHasEnvelopes, setEarlierPeriodHasEnvelopes] = useState(false);
+  // WHICH earlier period that is. A household with 18 months of history whose
+  // current period has no envelopes yet (opened the app after payday, before
+  // rolling over) must not see a blank dashboard: this is what lets the
+  // empty state show LAST period's headline numbers beside the "start this
+  // period" action, instead of nothing at all. Null whenever the current
+  // period has envelopes of its own — the second `useEnvelopes` below is
+  // then a no-op read.
+  const [earlierPeriodStart, setEarlierPeriodStart] = useState<string | null>(null);
+  // Last budgeted period's rows — loaded ONLY once `earlierPeriodStart` is
+  // known, i.e. only in the state this card exists for. Passing an empty
+  // household id otherwise keeps this a no-op rather than a wasted query on
+  // every ordinary dashboard load.
+  const { envelopes: previousPeriodEnvelopes } = useEnvelopes(
+    earlierPeriodStart ? hid : '',
+    earlierPeriodStart ?? '',
+  );
+  const previousPeriodMoney = useMemo(
+    () => summariseEnvelopePeriodMoney(previousPeriodEnvelopes),
+    [previousPeriodEnvelopes],
+  );
+  // A period label is a pure DISPLAY string, so local `format` is right here
+  // (unlike the scope KEYS above, which must read UTC calendar fields).
+  const previousPeriodLabel = earlierPeriodStart
+    ? format(parseISO(earlierPeriodStart), 'MMMM yyyy')
+    : '';
   // Session-level "don't reopen the rollover wizard for this period" snooze
   // (UX2-2). Deliberately a ref, NOT AsyncStorage: it must come back on the
   // next app launch, when a fresh look at an unacknowledged period is right
@@ -168,6 +201,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       resolveMeterReadingsLogged(db, hid, periodStart, periodEnd).then((logged) => {
         if (!cancelled) setMeterReadingsLoggedThisPeriod(logged);
       });
+      resolveMetersApplicable(db, hid, periodEnd)
+        .then((applicable) => {
+          if (!cancelled) setMetersApplicable(applicable);
+        })
+        .catch(() => {
+          // Keep the last known answer; the score still renders.
+        });
       return () => {
         cancelled = true;
       };
@@ -186,6 +226,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     const periodScopedCount = envelopes.filter((e) => getEnvelopeScope(e) === 'period').length;
     if (periodScopedCount > 0) {
       setEarlierPeriodHasEnvelopes(false);
+      setEarlierPeriodStart(null);
       return;
     }
 
@@ -196,7 +237,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     // all, regardless of whether the wizard is ALLOWED to auto-open right
     // now.
     findLatestPeriodWithEnvelopes(db, hid, periodStart).then((fromPeriod) => {
-      if (!cancelled) setEarlierPeriodHasEnvelopes(fromPeriod !== null);
+      if (cancelled) return;
+      setEarlierPeriodHasEnvelopes(fromPeriod !== null);
+      setEarlierPeriodStart(fromPeriod);
     });
 
     if (dismissedRolloverPeriodsRef.current.has(periodStart)) return;
@@ -354,6 +397,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       totalDaysInPeriod,
       envelopes: budgetSpendEnvelopes,
       meterReadingsLoggedThisPeriod,
+      metersApplicable,
       babyStepIsActive,
     }),
   );
@@ -646,6 +690,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           </View>
         )}
 
+        {/* Habit score + level from CLOSED periods. In the footer, outside the
+            ring gate above, on purpose: the ring's live score is hidden when
+            the current period has no budget yet, which is exactly when a
+            household with history most needs to see that it has any. */}
+        <View style={styles.scoreProgress}>
+          <ScoreProgressCard />
+        </View>
+
         <View style={styles.bottomPad} />
       </View>
     ),
@@ -688,10 +740,83 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
       );
     }
 
+    // Last period's headline numbers, so a household with months of history
+    // never sees a screen with no figures on it at all while its new period
+    // is unstarted. `receivedCents` is what the ledger actually recorded
+    // against income envelopes; with no such rows it falls back to the
+    // income the household BUDGETED, which is the only "money in" figure
+    // that period has.
+    const previousPeriodSummary =
+      earlierPeriodStart === null ? null : (
+        <PreviousPeriodSummaryCard
+          periodLabel={previousPeriodLabel}
+          spentCents={previousPeriodMoney.spentCents}
+          allocatedCents={previousPeriodMoney.allocatedCents}
+          receivedCents={
+            previousPeriodMoney.receivedCents || previousPeriodMoney.expectedIncomeCents
+          }
+          backgroundColor={cardBg}
+          borderColor={cardBorder}
+          labelColor={labelColor}
+          valueColor={valueColor}
+          receivedColor={colors.success}
+        />
+      );
+
+    // The rollover CTA, offered wherever an earlier period actually has
+    // envelopes to carry forward. A button, not a nag: the wizard's
+    // auto-open is separately gated by the period-ack key and the
+    // session snooze, and dismissing it must still leave a visible way back
+    // in — which, for a household whose only current-period rows are funds,
+    // there previously was not.
+    const startPeriodCta = (
+      <TouchableOpacity
+        style={[styles.newEnvBtn, { borderColor: cardBorder }]}
+        onPress={handleStartNewPeriod}
+        testID="start-new-period-button"
+        accessibilityRole="button"
+        accessibilityLabel="Start this period from last period's budget"
+      >
+        <Text style={[styles.newEnvBtnText, { color: accentColor }]}>
+          Start this period from last period&apos;s budget
+        </Text>
+      </TouchableOpacity>
+    );
+
+    const addEnvelopeDemoted = (
+      <TouchableOpacity
+        onPress={() => navigation.navigate('AddEditEnvelope', {})}
+        testID="new-envelope-button"
+        accessibilityRole="button"
+      >
+        <Text style={[styles.newEnvBtnTextDemoted, { color: accentColor }]}>+ New envelope</Text>
+      </TouchableOpacity>
+    );
+
     // Savings/income exist this period but no spend envelopes — this is NOT
     // the "brand-new household" empty state, so it must not say "No
     // envelopes yet / Add your first envelope".
     if (envelopes.length > 0) {
+      // …and when an earlier period DOES have envelopes, this household is
+      // not "setting up" anything: it is between periods. Rolling forward is
+      // the primary action, "+ New envelope" the demoted one. Without this
+      // branch the one household shape that most needs the rollover — 18
+      // months of history, funds carried over, no envelopes this period —
+      // was offered only "+ New envelope".
+      if (earlierPeriodHasEnvelopes) {
+        return (
+          <View>
+            <EmptyState
+              title="You haven't set up this month's spending yet"
+              body="Copy last period's envelopes forward to get started."
+              testID="dashboard-empty-state"
+            />
+            {startPeriodCta}
+            {addEnvelopeDemoted}
+            {previousPeriodSummary}
+          </View>
+        );
+      }
       return (
         <View>
           <EmptyState
@@ -711,8 +836,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     }
 
     if (earlierPeriodHasEnvelopes) {
-      // A SINGLE contained CTA ("Start this month's budget"); "+ New
-      // envelope" is demoted to a plain text button underneath it.
+      // A SINGLE contained CTA ("Start this period…"); "+ New envelope" is
+      // demoted to a plain text button underneath it.
       return (
         <View>
           <EmptyState
@@ -720,25 +845,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
             body="Copy last period's envelopes forward to get started."
             testID="dashboard-empty-state"
           />
-          <TouchableOpacity
-            style={[styles.newEnvBtn, { borderColor: cardBorder }]}
-            onPress={handleStartNewPeriod}
-            testID="start-new-period-button"
-            accessibilityRole="button"
-          >
-            <Text style={[styles.newEnvBtnText, { color: accentColor }]}>
-              Start this month&apos;s budget
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('AddEditEnvelope', {})}
-            testID="new-envelope-button"
-            accessibilityRole="button"
-          >
-            <Text style={[styles.newEnvBtnTextDemoted, { color: accentColor }]}>
-              + New envelope
-            </Text>
-          </TouchableOpacity>
+          {startPeriodCta}
+          {addEnvelopeDemoted}
+          {previousPeriodSummary}
         </View>
       );
     }
@@ -768,10 +877,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     reload,
     envelopes.length,
     earlierPeriodHasEnvelopes,
+    earlierPeriodStart,
+    previousPeriodLabel,
+    previousPeriodMoney,
     handleStartNewPeriod,
     navigation,
+    cardBg,
     cardBorder,
     accentColor,
+    labelColor,
+    valueColor,
+    colors.success,
   ]);
 
   // ── Early return: no household ────────────────────────────────────────────
@@ -1090,6 +1206,7 @@ const styles = StyleSheet.create({
   },
   separator: { height: spacing.sm },
   savingsList: { gap: spacing.sm, marginBottom: spacing.sm },
+  scoreProgress: { marginTop: spacing.base },
 
   // Floating "Add transaction" FAB — rendered as a sibling of the FlatList,
   // fixed bottom-right above the tab bar (UX-16), not inside its footer.

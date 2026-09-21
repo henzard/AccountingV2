@@ -239,8 +239,9 @@ describe('RestoreService.restoreHousehold — paging + error propagation (SYNC-9
 
     expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toEqual([
       { table: 'transactions', from: 0, to: 999 },
-      { table: 'transactions', from: 1000, to: 1999 },
+      { table: 'transactions', from: 0, to: 999 },
     ]);
+    expect(remote.recorder.keysetAfter.filter((k) => k.table === 'transactions')).toHaveLength(1);
     expect(local.written.filter((w) => w.table === 'transactions')).toHaveLength(1001);
   });
 
@@ -305,6 +306,174 @@ describe('RestoreService.restoreHousehold — paging + error propagation (SYNC-9
     const tables = remote.recorder.queries.map((q) => q.table);
     expect(tables).toContain('slip_queue');
     expect(remote.recorder.queries.find((q) => q.table === 'user_consent')?.column).toBe('user_id');
+  });
+});
+
+describe('RestoreService.restoreHousehold — stable paging order (SYNC-9 residual)', () => {
+  // Paging with `.range()` alone assumes the server returns rows in the SAME
+  // order on every request. Postgres makes no such promise without an
+  // ORDER BY, so a table that changes shape between two page reads (a
+  // concurrent write, a different query plan) can shift a row across the
+  // page boundary — skipping it forever, or handing it back twice. Ordering
+  // by a unique column (the row's own id) closes that.
+  it('orders every paged entity table fetch by a unique column before ranging over it', async () => {
+    const { service, remote } = build({ households: { [HH]: HH_ROW }, maxSeq: 0 });
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const pagedTables = [
+      'envelopes',
+      'envelope_contributions',
+      'transactions',
+      'debts',
+      'meter_readings',
+      'baby_steps',
+      'slip_queue',
+      'household_members',
+    ];
+    for (const table of pagedTables) {
+      const order = remote.recorder.orders.find((o) => o.table === table);
+      expect(order).toEqual({ table, column: 'id', ascending: true });
+    }
+    // user_consent has no `id` column at all — its primary key is `user_id`.
+    expect(remote.recorder.orders.find((o) => o.table === 'user_consent')).toEqual({
+      table: 'user_consent',
+      column: 'user_id',
+      ascending: true,
+    });
+  });
+
+  it('restores 2,500 transactions across a hard 1000-row-per-page server, each row exactly once, in any input order', async () => {
+    // Deliberately NOT inserted in id order — a fetch that trusted `.range()`
+    // alone (no ORDER BY) would depend on incidental array order lining up
+    // with page boundaries; ordering by id makes the outcome independent of
+    // how the rows are handed to the fake.
+    const rows = Array.from({ length: 2500 }, (_, i) => ({
+      id: `tx-${String(i).padStart(4, '0')}`,
+      household_id: HH,
+      created_at: '2026-01-01T00:00:00Z',
+    })).reverse();
+    const { service, remote, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: { transactions: rows },
+      maxSeq: 0,
+    });
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toEqual([
+      { table: 'transactions', from: 0, to: 999 },
+      { table: 'transactions', from: 0, to: 999 },
+      { table: 'transactions', from: 0, to: 999 },
+    ]);
+    // Keyset paging: pages 2 and 3 each continue AFTER the last id held.
+    expect(
+      remote.recorder.keysetAfter.filter((k) => k.table === 'transactions').map((k) => k.column),
+    ).toEqual(['id', 'id']);
+    const restoredIds = local.written
+      .filter((w) => w.table === 'transactions')
+      .map((w) => w.row.id as string);
+    expect(restoredIds).toHaveLength(2500);
+    expect(new Set(restoredIds).size).toBe(2500); // no row arrived twice
+    for (const row of rows) {
+      expect(restoredIds).toContain(row.id); // no row went missing
+    }
+  });
+
+  it('a row that leaves the result set between pages does not make an untouched row go missing', async () => {
+    // Offset paging counts rows from the start: remove one row of page 1
+    // after it was fetched and every later row shifts down by one, so the
+    // row that WAS at offset 1000 is now at 999 — behind the next window —
+    // and is never fetched. No oplog replay restores it, because it never
+    // changed. Keyset paging continues after the last id held instead.
+    const tables = {
+      transactions: Array.from({ length: 1500 }, (_, i) => ({
+        id: `tx-${String(i).padStart(4, '0')}`,
+        household_id: HH,
+        created_at: '2026-01-01T00:00:00Z',
+      })),
+    };
+    let removed = false;
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables,
+      maxSeq: 0,
+      onTableFetch: (table) => {
+        if (table !== 'transactions' || removed) return;
+        removed = true;
+        tables.transactions = tables.transactions.filter((row) => row.id !== 'tx-0005');
+      },
+    });
+
+    await service.restoreHousehold(HH, 'owner', USER);
+
+    const restoredIds = local.written
+      .filter((w) => w.table === 'transactions')
+      .map((w) => w.row.id as string);
+    expect(restoredIds).toContain('tx-1000'); // the row an offset window skips
+    expect(new Set(restoredIds).size).toBe(restoredIds.length);
+    expect(restoredIds).toHaveLength(1500);
+  });
+
+  it('a failure on page 2 of a large table leaves NO household marked complete — no cursor, no partial rows', async () => {
+    const rows = Array.from({ length: 2500 }, (_, i) => ({
+      id: `tx-${String(i).padStart(4, '0')}`,
+      household_id: HH,
+      created_at: '2026-01-01T00:00:00Z',
+    }));
+    const { service, remote, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: { transactions: rows },
+      maxSeq: 0,
+      failOnPage: { transactions: { page: 2, message: 'connection reset on page 2' } },
+    });
+
+    await expect(service.restoreHousehold(HH, 'owner', USER)).rejects.toThrow(
+      'connection reset on page 2',
+    );
+
+    // Page 1 (1000 rows) WAS fetched from the server before the failure, but
+    // nothing may land locally: the whole snapshot fetch happens before the
+    // local transaction opens, so a mid-fetch failure must leave zero writes
+    // and zero cursor rows — never a household that looks restored.
+    expect(remote.recorder.ranges.filter((r) => r.table === 'transactions')).toHaveLength(2);
+    expect(local.written).toEqual([]);
+    expect(local.cursorWrites).toEqual([]);
+    expect(local.transactions).toBe(0);
+  });
+
+  it('is safe to re-run after a failed restore — the retry starts clean and completes', async () => {
+    const rows = Array.from({ length: 1500 }, (_, i) => ({
+      id: `tx-${String(i).padStart(4, '0')}`,
+      household_id: HH,
+      created_at: '2026-01-01T00:00:00Z',
+    }));
+
+    const failingConfig: FakeSupabaseConfig = {
+      households: { [HH]: HH_ROW },
+      tables: { transactions: rows },
+      maxSeq: 3,
+      failOnPage: { transactions: { page: 2, message: 'timeout' } },
+    };
+    const failingRemote = makeFakeSupabase(failingConfig);
+    const failingLocal = makeFakeLocalDb();
+    const failingService = new RestoreService(
+      failingLocal.db as ExpoSQLiteDatabase<typeof schema>,
+      failingRemote.supabase as SupabaseClient,
+      { repo: fakeSeedRepo() as never },
+    );
+    await expect(failingService.restoreHousehold(HH, 'owner', USER)).rejects.toThrow('timeout');
+    expect(failingLocal.cursorWrites).toEqual([]);
+
+    // Re-run against a healthy server (still no sync_cursor row locally, as
+    // the failed attempt wrote none) must complete normally, from scratch.
+    const { service, local } = build({
+      households: { [HH]: HH_ROW },
+      tables: { transactions: rows },
+      maxSeq: 3,
+    });
+    await service.restoreHousehold(HH, 'owner', USER);
+    expect(local.cursorWrites).toEqual([{ householdId: HH, seq: 3 }]);
+    expect(local.written.filter((w) => w.table === 'transactions')).toHaveLength(1500);
   });
 });
 

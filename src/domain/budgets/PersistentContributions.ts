@@ -143,6 +143,96 @@ export function isPersistentEnvelope(envelope: {
 }
 
 /**
+ * The identity of a persistent FUND, as opposed to the identity of an
+ * envelope ROW: its type plus its trimmed, lower-cased name.
+ *
+ * A persistent envelope is meant to be ONE row for ever, but real households
+ * arrive with more: this app's own imports created the fund "Saving" once per
+ * budget period, so one household carries 18 live `savings` rows for a single
+ * fund. Nothing in the schema forbids it (there is no unique index on
+ * household+type+name, and adding one is a migration this round cannot make),
+ * so the rules that MOVE MONEY have to be written against the fund, not the
+ * row — otherwise one month's contribution is credited once per duplicate.
+ *
+ * Type is part of the key because two different persistent types may legitimately
+ * share a name ("Car" as a sinking fund and "Car" as a baby step are different
+ * funds); name is trimmed and lower-cased because that is the same rule the
+ * rest of the app uses to recognise "the same envelope" across periods, where
+ * ids differ every period.
+ */
+export function persistentFundKey(envelope: { envelopeType: string; name: string }): string {
+  return `${envelope.envelopeType}:${envelope.name.trim().toLowerCase()}`;
+}
+
+/** One persistent fund and every live envelope row that represents it. */
+export interface PersistentFundGroup<T> {
+  key: string;
+  /**
+   * The ONE row of the group that carries the fund's money: the earliest
+   * `createdAt`, ties broken by the lowest `id`.
+   */
+  representative: T;
+  /** Every live, non-archived row of the group — `representative` included. */
+  members: T[];
+}
+
+/**
+ * Groups live persistent envelopes into FUNDS (see `persistentFundKey`) and
+ * picks the one row of each group that carries that fund's period
+ * contribution.
+ *
+ * The choice must be DETERMINISTIC ACROSS DEVICES, because the contribution's
+ * id is derived from the chosen envelope's id (`periodContributionId`): two
+ * phones rolling the same period over offline have to pick the same row, or
+ * they write two differently-keyed rows for one month and the fund is funded
+ * twice as soon as they sync. `createdAt` and `id` are both SYNCED columns
+ * with identical values on every device, and neither changes afterwards, so
+ * "earliest `createdAt`, then lowest `id`" is stable over time as well as
+ * across devices: a duplicate created LATER (the import's next period, say)
+ * never displaces the row already carrying the fund, which keeps replays
+ * idempotent. Ordering by, for instance, the newest `periodStart` would move
+ * the carrier every period and re-key the contribution with it.
+ *
+ * Archived rows are excluded by `isPersistentEnvelope`, so an archived
+ * duplicate can never become the carrier of a live fund.
+ */
+export function groupPersistentFunds<
+  T extends {
+    id: string;
+    name: string;
+    envelopeType: string;
+    isArchived: boolean;
+    createdAt: string;
+  },
+>(rows: T[]): PersistentFundGroup<T>[] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    if (!isPersistentEnvelope(row)) continue;
+    const key = persistentFundKey(row);
+    const members = groups.get(key);
+    if (members) members.push(row);
+    else groups.set(key, [row]);
+  }
+
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, members]) => {
+      const ordered = [...members].sort((a, b) =>
+        a.createdAt === b.createdAt
+          ? a.id < b.id
+            ? -1
+            : a.id > b.id
+              ? 1
+              : 0
+          : a.createdAt < b.createdAt
+            ? -1
+            : 1,
+      );
+      return { key, representative: ordered[0], members: ordered };
+    });
+}
+
+/**
  * Builds the snake_case contribution row the synced-write path expects.
  *
  * The column set here is FROZEN to what migration 0016 / supabase 0008
@@ -213,6 +303,70 @@ function findExistingContributionIdsWithin(tx: PortableDb, ids: string[]): Set<s
     id: string;
   }[];
   return new Set(rows.map((row) => row.id));
+}
+
+/** An `opening_balance` row that already exists for some envelope. */
+interface ExistingOpeningRow {
+  /** The contribution row's own id — compared against `openingContributionId`. */
+  id: string;
+  amountCents: number;
+  isDeleted: boolean;
+}
+
+/**
+ * The `opening_balance` row each of `envelopeIds` already has, read from
+ * inside the unit of work.
+ *
+ * Keyed by ENVELOPE, not by contribution id, and deliberately including
+ * SOFT-DELETED rows — that is the whole point (REG-4 follow-up, bug 2). The
+ * backfill used to ask only "does a row with the id I am about to write
+ * exist?", which is blind to an opening row that reached this device any
+ * other way: an import, a restore, or any writer that did not use
+ * `openingContributionId`. The real household's 18 imported opening rows are
+ * exactly that, so the backfill wrote a SECOND opening row beside each of
+ * them and doubled every fund's saved balance. An envelope may have at most
+ * ONE opening balance, ever, so existence is now decided by the fact that one
+ * EXISTS for that envelope.
+ *
+ * Soft-deleted counts as existing: the row is append-only and its id is
+ * deterministic, so re-inserting could never restore it anyway
+ * (`ON CONFLICT (id) DO NOTHING` / `INSERT OR IGNORE`) — it could only ever
+ * add a SECOND, differently-keyed row. A user who deleted an opening balance
+ * on purpose, and a tombstone that arrived by sync, must both stay deleted
+ * rather than come back under a new id on the next app foreground.
+ *
+ * At most one row per envelope is returned; if a household already carries
+ * several (written before this guard existed), the live one wins, then the
+ * lowest id, so every device resolves the same row.
+ */
+function findOpeningBalanceRowsWithin(
+  tx: PortableDb,
+  householdId: string,
+  envelopeIds: string[],
+): Map<string, ExistingOpeningRow> {
+  const result = new Map<string, ExistingOpeningRow>();
+  if (envelopeIds.length === 0) return result;
+  const idList = sql.join(
+    envelopeIds.map((id) => sql`${id}`),
+    sql.raw(', '),
+  );
+  const rows = tx.all(
+    sql`SELECT id, envelope_id, amount_cents, deleted_at
+        FROM envelope_contributions
+        WHERE household_id = ${householdId}
+          AND source = 'opening_balance'
+          AND envelope_id IN (${idList})
+        ORDER BY (deleted_at IS NULL) DESC, id ASC`,
+  ) as { id: string; envelope_id: string; amount_cents: number; deleted_at: string | null }[];
+  for (const row of rows) {
+    if (result.has(row.envelope_id)) continue;
+    result.set(row.envelope_id, {
+      id: row.id,
+      amountCents: row.amount_cents,
+      isDeleted: row.deleted_at !== null,
+    });
+  }
+  return result;
 }
 
 /**
@@ -478,12 +632,22 @@ const inFlightOpeningBalances = new Map<string, Promise<Result<EnsureOpeningBala
  * `monthly_confirmed` marker is what stops this function re-zeroing it.
  *
  * Devices already on 1.1.130 wrote their opening rows WITHOUT zeroing, so the
- * same pass corrects them: any legacy envelope (recognised by its
- * `opening_balance` row) that is still unconfirmed and still carries a
- * positive allocation is zeroed here. Both devices therefore converge on the
- * same state — and because zeroing is an idempotent "set to 0" rather than an
- * arithmetic delta, a device applying the other's update op lands on exactly
- * the same value.
+ * same pass corrects them: a legacy envelope whose OWN opening row (the one
+ * under `openingContributionId`) is still live and still holds exactly what
+ * the column holds has an unfinished move, and is zeroed here. Both devices
+ * therefore converge on the same state — and because zeroing is an idempotent
+ * "set to 0" rather than an arithmetic delta, a device applying the other's
+ * update op lands on exactly the same value.
+ *
+ * THE INVARIANT (bug 2): an envelope gets AT MOST ONE `opening_balance`
+ * contribution, ever. Once one exists — live or soft-deleted, written by this
+ * app or by an import — that envelope's legacy migration is OVER: no second
+ * opening row is written, and its `allocatedCents` is a MONTHLY contribution
+ * that must never again be reinterpreted as a saved balance. The check that
+ * enforces it is VALUE-based (`findOpeningBalanceRowsWithin`, keyed by
+ * envelope) precisely because the id-based check it replaces could not see an
+ * opening row written by anyone else, which is how the real household's 18
+ * imported opening rows each got a duplicate and doubled their fund.
  *
  * Deliberately a SYNCED write rather than a SQL backfill inside migration
  * 0016: a migration only ever runs on the device that upgraded, so its rows
@@ -540,9 +704,13 @@ async function runEnsureOpeningBalances(
     // client would otherwise be born legacy and count its allocation twice.
     const selfFunded = await findEnvelopeIdsWithSource(db, householdId, 'initial');
 
-    // Legacy = born before the cutoff (needs its opening row written), OR
-    // already carrying an opening row (a 1.1.130 device wrote it, without
-    // zeroing). Both need their column moved into the ledger.
+    // CANDIDATES only: born before the cutoff (may still need its opening row
+    // written), OR already carrying an opening row (a 1.1.130 device wrote it,
+    // without zeroing). Which of them actually gets a row written, and which
+    // gets its column zeroed, is decided inside the transaction below from
+    // the opening rows that really exist — a pre-transaction read cannot be
+    // trusted for either (SEC2-5), and "has an opening row" no longer implies
+    // "this client wrote it".
     const legacy = funded.filter(
       (row) =>
         !selfFunded.has(row.id) &&
@@ -558,12 +726,16 @@ async function runEnsureOpeningBalances(
     let count = 0;
     let zeroedCount = 0;
     runInUnitOfWork(db, (uow: UnitOfWork) => {
-      const openingIds = legacy.map((row) => openingContributionId(householdId, row.id));
-      const present = findExistingContributionIdsWithin(uow.db, openingIds);
+      const existingOpening = findOpeningBalanceRowsWithin(
+        uow.db,
+        householdId,
+        legacy.map((row) => row.id),
+      );
 
-      legacy.forEach((envelope, index) => {
-        const id = openingIds[index];
-        if (!present.has(id)) {
+      legacy.forEach((envelope) => {
+        const id = openingContributionId(householdId, envelope.id);
+        const existing = existingOpening.get(envelope.id);
+        if (!existing) {
           insertRowWithinUow(
             uow,
             'envelope_contributions',
@@ -583,9 +755,28 @@ async function runEnsureOpeningBalances(
           count += 1;
         }
 
-        // The number is now recorded as SAVED money; leaving it in the column
-        // as well would double-count it as this month's contribution.
-        if (!confirmed.has(envelope.id)) {
+        // Zeroing is the second half of MOVING the number (ledger row in,
+        // column out), so it may only happen while that move is demonstrably
+        // still in progress: either this call just wrote the opening row, or
+        // the opening row is the one WE key and still holds exactly what the
+        // column holds — the 1.1.130 state, where the row was written and the
+        // column never cleared.
+        //
+        // Any other shape means the move is FINISHED and the column has since
+        // been given a new meaning, so re-reading it as a legacy balance
+        // would be wrong twice over: it would delete a monthly contribution
+        // the user is entitled to (the fund then receives nothing at
+        // rollover) and, before this guard existed, bank that same number a
+        // second time as savings. That covers an opening row this app did not
+        // write (an import's, a restore's — the real household's 18), a
+        // soft-deleted one, and a column the user has since re-typed.
+        const moveIncomplete =
+          !existing ||
+          (!existing.isDeleted &&
+            existing.id === id &&
+            existing.amountCents === envelope.allocatedCents);
+
+        if (moveIncomplete && !confirmed.has(envelope.id)) {
           updateRowWithinUow(
             uow,
             'envelopes',

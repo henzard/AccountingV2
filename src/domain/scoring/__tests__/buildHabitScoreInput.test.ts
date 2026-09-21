@@ -116,4 +116,43 @@ describe("buildHabitScoreInput — parity with DashboardScreen's old inline asse
     expect(input.envelopesOnBudget).toBe(2);
     expect(input.totalEnvelopes).toBe(3);
   });
+
+  // ── Income envelopes are money IN, never spending ───────────────────────
+  // `RolloverWizard` feeds this every PERIOD-scoped envelope, which includes
+  // the household's 'income' envelope. Its transactions are salary deposits,
+  // so they routinely exceed its allocation — and used to be recorded as one
+  // more "overspent" envelope, dragging the closing period's discipline
+  // points down for money arriving.
+  describe('income envelopes', () => {
+    it('excludes income envelopes from BOTH the on-budget count and the total', () => {
+      const input = buildHabitScoreInput({
+        loggingDaysCount: 10,
+        totalDaysInPeriod: 30,
+        envelopes: [
+          { spentCents: 100, allocatedCents: 1000, envelopeType: 'spending' },
+          { spentCents: 100, allocatedCents: 1000, envelopeType: 'utility' },
+          // A salary far above the "budgeted" income — not an overspend.
+          { spentCents: 900_000, allocatedCents: 100_000, envelopeType: 'income' },
+        ],
+        meterReadingsLoggedThisPeriod: false,
+        babyStepIsActive: false,
+      });
+
+      expect(input.totalEnvelopes).toBe(2);
+      expect(input.envelopesOnBudget).toBe(2);
+    });
+
+    it('treats an envelope with no type given as a normal spend envelope (unchanged behaviour)', () => {
+      const input = buildHabitScoreInput({
+        loggingDaysCount: 10,
+        totalDaysInPeriod: 30,
+        envelopes: [{ spentCents: 2000, allocatedCents: 1000 }],
+        meterReadingsLoggedThisPeriod: false,
+        babyStepIsActive: false,
+      });
+
+      expect(input.totalEnvelopes).toBe(1);
+      expect(input.envelopesOnBudget).toBe(0);
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, StyleSheet, Modal, FlatList, Pressable } from 'react-native';
 import { Text, TouchableRipple, Surface } from 'react-native-paper';
 import { spacing, radius } from '../../../theme/tokens';
@@ -15,6 +15,8 @@ export interface EnvelopeOption {
   allocatedCents: number;
   spentCents: number;
   envelopeType: EnvelopeType;
+  /** Lets the picker choose a duplicated persistent fund's canonical row. */
+  createdAt?: string;
 }
 
 /**
@@ -48,6 +50,52 @@ function balanceCents(
     : env.allocatedCents - env.spentCents;
 }
 
+/** Carrier order: earliest `createdAt`, then lowest id. */
+function isEarlierCarrier(a: EnvelopeOption, b: EnvelopeOption): boolean {
+  const aCreated = a.createdAt ?? '';
+  const bCreated = b.createdAt ?? '';
+  return aCreated === bCreated ? a.id < b.id : aCreated < bCreated;
+}
+
+/**
+ * A real household's envelope history repeats the same (type, name) pair
+ * once per budget period — 216 live envelopes on 18 periods here means up to
+ * 18 rows all named "Food", and the one persistent-type row per name
+ * (e.g. "Saving") that should exist FOREVER instead exists once per period
+ * too, because the import created it that way (the underlying data is being
+ * fixed separately). Whatever list a caller hands this sheet, a picker must
+ * never present two rows a person cannot tell apart — so collapse to one
+ * row per (envelope_type, name), case-insensitively and trimmed, matching
+ * the same identity rule history-based features use elsewhere.
+ *
+ * The row kept is the fund's CARRIER — earliest `createdAt`, then lowest
+ * id — the same rule `groupPersistentFunds` uses at rollover. That is the
+ * row the monthly contribution lands on, so a spend picked here comes off
+ * the balance that is actually growing instead of a sibling row's.
+ */
+function dedupeByTypeAndName(options: EnvelopeOption[]): EnvelopeOption[] {
+  const carrierIndexByKey = new Map<string, number>();
+  const result: EnvelopeOption[] = [];
+  for (const option of options) {
+    // PERSISTENT funds only. Callers already scope period envelopes to one
+    // period, so two same-named spending envelopes there are the user's own,
+    // distinct envelopes — hiding one would make it impossible to pick.
+    if (getEnvelopeScope(option) !== 'persistent') {
+      result.push(option);
+      continue;
+    }
+    const key = `${option.envelopeType}:${option.name.trim().toLowerCase()}`;
+    const index = carrierIndexByKey.get(key);
+    if (index === undefined) {
+      carrierIndexByKey.set(key, result.length);
+      result.push(option);
+    } else if (isEarlierCarrier(option, result[index])) {
+      result[index] = option;
+    }
+  }
+  return result;
+}
+
 export type EnvelopePickerSheetProps = {
   visible: boolean;
   envelopes: EnvelopeOption[];
@@ -70,6 +118,7 @@ export function EnvelopePickerSheet({
   // prop) so every caller of this shared sheet gets the fix regardless of
   // whether it has been updated to pass one.
   const { savedCentsByEnvelopeId } = usePersistentEnvelopeSavings(householdId);
+  const visibleEnvelopes = useMemo(() => dedupeByTypeAndName(envelopes), [envelopes]);
   return (
     <Modal
       visible={visible}
@@ -93,7 +142,7 @@ export function EnvelopePickerSheet({
             Select Envelope
           </Text>
           <FlatList
-            data={envelopes}
+            data={visibleEnvelopes}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => {
               const balance = balanceCents(item, savedCentsByEnvelopeId);

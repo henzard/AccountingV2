@@ -7,6 +7,7 @@ const SCORE: HabitScoreResult = {
   disciplinePoints: 22,
   metersPoints: 20,
   babyStepPoints: 10,
+  metersApplicable: true,
 };
 
 describe('RecordPeriodScoreUseCase', () => {
