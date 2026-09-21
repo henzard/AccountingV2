@@ -35,6 +35,7 @@
  * testID rather than its per-step label.
  */
 
+import { execFileSync } from 'child_process';
 import { device, element, by, expect as detoxExpect, waitFor } from 'detox';
 
 // Unique per process run so repeated executions against the same Supabase
@@ -55,6 +56,8 @@ const TRANSACTION_AMOUNT = '25.00';
 // Transport, Rent, Utilities) — used as the transaction's target envelope.
 const DEFAULT_ENVELOPE_NAME = 'Groceries';
 
+const APP_PACKAGE = 'com.henza.accountingv2';
+
 const LONG_TIMEOUT = 20000;
 const MEDIUM_TIMEOUT = 10000;
 
@@ -62,13 +65,6 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
   beforeAll(async () => {
     await device.launchApp({
       newInstance: true,
-      // The OS notification-permission prompt is now deferred until
-      // onboarding completes (RootNavigator's `readyForNotifications` gate,
-      // UX-20) and fires as soon as FinishStep flips onboardingCompleted —
-      // i.e. right as the "creates an additional envelope" test's first
-      // dashboard render happens. Pre-granting it here stops a native
-      // Android permission dialog from intercepting the taps that follow.
-      permissions: { notifications: 'YES' },
       launchArgs: {
         // Deliberately does NOT blacklist supabase — this journey needs real
         // auth + data-layer round trips. Firebase/GCM/Crashlytics are still
@@ -82,6 +78,24 @@ describe('Authenticated journey: sign up → onboard → envelope → transactio
         ]),
       },
     });
+  });
+
+  // RootNavigator asks for notification permission the moment onboarding
+  // completes. Detox's `permissions` launch option is iOS-only, so on the
+  // API 34 CI emulator the POST_NOTIFICATIONS dialog would intercept the
+  // dashboard taps that follow. Granting it over adb (a runtime grant does
+  // not restart the app) makes the request resolve silently instead.
+  beforeAll(() => {
+    if (device.getPlatform() !== 'android') return;
+    execFileSync('adb', [
+      '-s',
+      device.id,
+      'shell',
+      'pm',
+      'grant',
+      APP_PACKAGE,
+      'android.permission.POST_NOTIFICATIONS',
+    ]);
   });
 
   it('signs up a new account', async () => {
